@@ -1,0 +1,15 @@
+[package]
+name = "escrow"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "22.0"
+
+[dev-dependencies]
+soroban-sdk = { version = "22.0", features = ["testutils"] }
