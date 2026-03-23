@@ -208,7 +208,7 @@ impl Escrow {
     /// - Milestone ID is invalid
     /// - Milestone already released
     /// - Milestone already approved by this caller
-    pub fn approve_milestone_release(env: Env, contract_id: u32, milestone_id: u32) -> bool {
+    pub fn approve_milestone_release(env: Env, _contract_id: u32, milestone_id: u32) -> bool {
         let caller = env.current_contract_address();
         
         // Retrieve contract
@@ -237,17 +237,17 @@ impl Escrow {
         let is_authorized = match contract.release_auth {
             ReleaseAuthorization::ClientOnly => caller == contract.client,
             ReleaseAuthorization::ArbiterOnly => {
-                contract.arbiter.map_or(false, |a| caller == a)
+                contract.arbiter.clone().map_or(false, |a| caller == a)
             },
             ReleaseAuthorization::ClientAndArbiter => {
                 caller == contract.client || 
-                contract.arbiter.map_or(false, |a| caller == a)
+                contract.arbiter.clone().map_or(false, |a| caller == a)
             },
             ReleaseAuthorization::MultiSig => {
                 // For multi-sig, both client and arbiter must approve
                 // This function handles individual approval
                 caller == contract.client || 
-                contract.arbiter.map_or(false, |a| caller == a)
+                contract.arbiter.clone().map_or(false, |a| caller == a)
             },
         };
         
@@ -287,7 +287,7 @@ impl Escrow {
     /// - Milestone ID is invalid
     /// - Milestone already released
     /// - Insufficient approvals based on authorization scheme
-    pub fn release_milestone(env: Env, contract_id: u32, milestone_id: u32) -> bool {
+    pub fn release_milestone(env: Env, _contract_id: u32, milestone_id: u32) -> bool {
         // Retrieve contract
         let mut contract: EscrowContract = env.storage().persistent()
             .get(&symbol_short!("contract"))
@@ -313,23 +313,23 @@ impl Escrow {
         // Check if milestone has sufficient approvals
         let has_sufficient_approval = match contract.release_auth {
             ReleaseAuthorization::ClientOnly => {
-                milestone.approved_by.map_or(false, |addr| addr == contract.client)
+                milestone.approved_by.clone().map_or(false, |addr| addr == contract.client)
             },
             ReleaseAuthorization::ArbiterOnly => {
-                contract.arbiter.map_or(false, |arbiter| {
-                    milestone.approved_by.map_or(false, |addr| addr == arbiter)
+                contract.arbiter.clone().map_or(false, |arbiter| {
+                    milestone.approved_by.clone().map_or(false, |addr| addr == arbiter)
                 })
             },
             ReleaseAuthorization::ClientAndArbiter => {
-                milestone.approved_by.map_or(false, |addr| {
+                milestone.approved_by.clone().map_or(false, |addr| {
                     addr == contract.client || 
-                    contract.arbiter.map_or(false, |arbiter| addr == arbiter)
+                    contract.arbiter.clone().map_or(false, |arbiter| addr == arbiter)
                 })
             },
             ReleaseAuthorization::MultiSig => {
                 // For multi-sig, we'd need to track multiple approvals
                 // Simplified: require client approval for now
-                milestone.approved_by.map_or(false, |addr| addr == contract.client)
+                milestone.approved_by.clone().map_or(false, |addr| addr == contract.client)
             },
         };
         
