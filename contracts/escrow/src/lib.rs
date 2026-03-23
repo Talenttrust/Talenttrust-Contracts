@@ -154,7 +154,7 @@ impl Escrow {
     /// - Caller is not the client
     /// - Contract is not in Created status
     /// - Amount doesn't match total milestone amounts
-    pub fn deposit_funds(env: Env, contract_id: u32, amount: i128) -> bool {
+    pub fn deposit_funds(env: Env, _contract_id: u32, amount: i128) -> bool {
         // Get caller
         let caller = env.current_contract_address();
         
@@ -256,7 +256,7 @@ impl Escrow {
         }
         
         // Check if already approved by this caller
-        if milestone.approved_by.map_or(false, |addr| addr == caller) {
+        if milestone.approved_by.clone().map_or(false, |addr| addr == caller) {
             panic!("Milestone already approved by this address");
         }
         
