@@ -5,6 +5,7 @@ Soroban smart contracts for the TalentTrust decentralized freelancer escrow prot
 ## What's in this repo
 
 - **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments and reputation credential issuance.
+- **Escrow docs** (`docs/escrow`): Contract security assumptions, threat scenarios, and performance/gas baselines.
 
 ## Prerequisites
 
@@ -24,6 +25,9 @@ cargo build
 
 # Run tests
 cargo test
+
+# Run escrow performance/gas baseline tests only
+cargo test test::performance
 
 # Check formatting
 cargo fmt --all -- --check
@@ -50,6 +54,16 @@ On every push and pull request to `main`, GitHub Actions:
 - Runs tests (`cargo test`)
 
 Ensure these pass locally before pushing.
+
+## Escrow Performance and Security
+
+- Performance/gas baseline tests for key flows are in `contracts/escrow/src/test/performance.rs`.
+- Functional and failure-path coverage is split by module:
+  - `contracts/escrow/src/test/flows.rs`
+  - `contracts/escrow/src/test/security.rs`
+- Contract-specific reviewer docs:
+  - `docs/escrow/performance-baselines.md`
+  - `docs/escrow/security.md`
 
 ## License
 
