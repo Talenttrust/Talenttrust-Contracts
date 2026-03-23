@@ -1,0 +1,1237 @@
+cargo :    Compiling 
+serde_core v1.0.228
+At line:1 char:1
++ cargo check 2>&1 | 
+Out-File -FilePath 
+check_output.txt 
+-Encoding asci ...
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (   Comp   
+ iling serde_core    
+ v1.0.228:String    
+) [], RemoteExce    
+ption
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+    Checking cfg-if 
+v1.0.4
+   Compiling zmij 
+v1.0.21
+    Checking typenum 
+v1.19.0
+   Compiling itoa 
+v1.0.17
+   Compiling memchr 
+v2.8.0
+    Checking zeroize 
+v1.8.2
+    Checking subtle 
+v2.6.1
+    Checking 
+const-oid v0.9.6
+    Checking 
+getrandom v0.2.17
+   Compiling semver 
+v1.0.27
+    Checking 
+num-traits v0.2.19
+    Checking 
+zerocopy v0.8.42
+    Checking 
+rand_core v0.6.4
+   Compiling 
+rustc_version v0.4.1
+    Checking 
+generic-array v0.14.9
+   Compiling 
+thiserror v1.0.69
+   Compiling 
+data-encoding v2.10.0
+   Compiling 
+escape-bytes v0.1.1
+    Checking ff 
+v0.13.1
+    Checking der 
+v0.7.10
+    Checking 
+base16ct v0.2.0
+    Checking 
+crypto-common v0.1.6
+    Checking 
+block-buffer v0.10.4
+    Checking 
+num-integer v0.1.46
+    Checking 
+crypto-bigint v0.5.5
+    Checking digest 
+v0.10.7
+    Checking 
+num-bigint v0.4.6
+    Checking 
+signature v2.2.0
+    Checking sec1 
+v0.7.3
+    Checking group 
+v0.13.0
+    Checking 
+cpufeatures v0.2.17
+    Checking either 
+v1.15.0
+    Checking 
+once_cell v1.21.4
+    Checking hmac 
+v0.12.1
+   Compiling serde 
+v1.0.228
+   Compiling 
+serde_json v1.0.149
+   Compiling 
+serde_with v3.18.0
+    Checking 
+itertools v0.10.5
+    Checking 
+elliptic-curve 
+v0.13.8
+   Compiling hex 
+v0.4.3
+    Checking rfc6979 
+v0.4.0
+   Compiling 
+crate-git-revision 
+v0.0.6
+    Checking libm 
+v0.2.16
+    Checking sha2 
+v0.10.9
+   Compiling 
+curve25519-dalek 
+v4.1.3
+   Compiling 
+equivalent v1.0.2
+   Compiling 
+hashbrown v0.16.1
+    Checking 
+indexmap-nostd v0.4.0
+   Compiling 
+stellar-strkey v0.0.9
+   Compiling 
+stellar-xdr v22.1.0
+    Checking 
+downcast-rs v1.2.1
+    Checking 
+indexmap v2.13.0
+    Checking 
+wasmi_core v0.13.0
+    Checking 
+wasmparser-nostd 
+v0.100.2
+   Compiling 
+soroban-env-common 
+v22.1.3
+    Checking 
+ppv-lite86 v0.2.21
+    Checking ahash 
+v0.8.12
+    Checking 
+hashbrown v0.13.2
+    Checking 
+rand_chacha v0.3.1
+    Checking ecdsa 
+v0.16.9
+    Checking 
+wasmi_arena v0.4.1
+    Checking rand 
+v0.8.5
+    Checking base64 
+v0.13.1
+    Checking spin 
+v0.9.8
+    Checking 
+smallvec v1.15.1
+    Checking 
+wasmparser v0.116.1
+    Checking ark-std 
+v0.4.0
+    Checking 
+primeorder v0.13.6
+    Checking 
+ark-serialize v0.4.2
+    Checking ark-ff 
+v0.4.2
+    Checking ed25519 
+v2.2.3
+    Checking ethnum 
+v1.5.2
+    Checking 
+soroban-wasmi v0.31.1
+-soroban.20.0.1
+    Checking keccak 
+v0.1.6
+    Checking 
+static_assertions 
+v1.1.0
+    Checking sha3 
+v0.10.8
+    Checking 
+ed25519-dalek v2.2.0
+    Checking p256 
+v0.13.2
+    Checking k256 
+v0.13.4
+   Compiling 
+soroban-sdk-macros 
+v22.0.11
+    Checking 
+hex-literal v0.4.1
+   Compiling 
+soroban-sdk v22.0.11
+    Checking 
+ark-poly v0.4.2
+    Checking ark-ec 
+v0.4.2
+    Checking 
+ark-bls12-381 v0.4.0
+   Compiling 
+soroban-spec v22.0.11
+   Compiling 
+soroban-spec-rust 
+v22.0.11
+   Compiling 
+soroban-env-macros 
+v22.1.3
+    Checking 
+soroban-env-host 
+v22.1.3
+    Checking soroban-
+ledger-snapshot 
+v22.0.11
+    Checking escrow 
+v0.1.0 (C:\Users\ADMI
+N\Desktop\midea-drips
+\Talenttrust-Contract
+s\contracts\escrow)
+error[E0277]: the 
+trait bound 
+`soroban_sdk::Error: 
+From<EscrowError>` 
+is not satisfied
+   --> contracts\escr
+ow\src\lib.rs:121:51
+    |
+121 |         
+.unwrap_or_else(|| pa
+nic_with_error!(env, 
+EscrowError::NotFound
+))
+    |                
+            ---------
+--------------^^^^^^^
+^^^^^^^^^^^^^^-
+    |                
+            |        
+              |
+    |                
+            |        
+              the 
+trait 
+`From<EscrowError>` 
+is not implemented 
+for 
+`soroban_sdk::Error`
+    |                
+            required 
+by a bound 
+introduced by this 
+call
+    |
+    = help: the 
+following other 
+types implement 
+trait `From<T>`:
+              
+`soroban_sdk::Error` 
+implements `From<&sor
+oban_sdk::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<(sor
+oban_sdk::xdr::ScErro
+rType, soroban_sdk::x
+dr::ScErrorCode)>`
+              
+`soroban_sdk::Error` 
+implements `From<Conv
+ersionError>`
+              
+`soroban_sdk::Error` 
+implements 
+`From<Infallible>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_common::symbo
+l::SymbolError>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_host::builtin
+_contracts::contract_
+error::ContractError>
+`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::ScError
+>`
+            and 4 
+others
+    = note: required 
+for `EscrowError` to 
+implement `Into<sorob
+an_sdk::Error>`
+note: required by a 
+bound in `Env::panic_
+with_error`
+   --> C:\Users\ADMIN
+\.cargo\registry\src\
+index.crates.io-1949c
+f8c6b5b557f\soroban-s
+dk-22.0.11\src\env.rs
+:276:48
+    |
+276 |     pub fn pani
+c_with_error(&self, 
+error: impl Into<inte
+rnal::Error>) -> ! {
+    |                
+                     
+           ^^^^^^^^^^
+^^^^^^^^^^^ required 
+by this bound in `Env
+::panic_with_error`
+
+error[E0277]: the 
+trait bound 
+`soroban_sdk::Error: 
+From<EscrowError>` 
+is not satisfied
+   --> contracts\escr
+ow\src\lib.rs:171:41
+    |
+171 |                
+ panic_with_error!(&e
+nv, EscrowError::Inva
+lidAmount);
+    |                
+ --------------------
+----^^^^^^^^^^^^^^^^^
+^^^^^^^^^-
+    |                
+ |                   
+    |
+    |                
+ |                   
+    the trait 
+`From<EscrowError>` 
+is not implemented 
+for 
+`soroban_sdk::Error`
+    |                
+ required by a bound 
+introduced by this 
+call
+    |
+    = help: the 
+following other 
+types implement 
+trait `From<T>`:
+              
+`soroban_sdk::Error` 
+implements `From<&sor
+oban_sdk::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<(sor
+oban_sdk::xdr::ScErro
+rType, soroban_sdk::x
+dr::ScErrorCode)>`
+              
+`soroban_sdk::Error` 
+implements `From<Conv
+ersionError>`
+              
+`soroban_sdk::Error` 
+implements 
+`From<Infallible>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_common::symbo
+l::SymbolError>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_host::builtin
+_contracts::contract_
+error::ContractError>
+`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::ScError
+>`
+            and 4 
+others
+    = note: required 
+for `EscrowError` to 
+implement `Into<sorob
+an_sdk::Error>`
+note: required by a 
+bound in `Env::panic_
+with_error`
+   --> C:\Users\ADMIN
+\.cargo\registry\src\
+index.crates.io-1949c
+f8c6b5b557f\soroban-s
+dk-22.0.11\src\env.rs
+:276:48
+    |
+276 |     pub fn pani
+c_with_error(&self, 
+error: impl Into<inte
+rnal::Error>) -> ! {
+    |                
+                     
+           ^^^^^^^^^^
+^^^^^^^^^^^ required 
+by this bound in `Env
+::panic_with_error`
+
+error[E0277]: the 
+trait bound 
+`soroban_sdk::Error: 
+From<EscrowError>` 
+is not satisfied
+   --> contracts\escr
+ow\src\lib.rs:216:37
+    |
+216 |             pan
+ic_with_error!(&env, 
+EscrowError::InvalidA
+mount);
+    |             ---
+---------------------
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^-
+    |             |  
+                     
+|
+    |             |  
+                     
+the trait 
+`From<EscrowError>` 
+is not implemented 
+for 
+`soroban_sdk::Error`
+    |             
+required by a bound 
+introduced by this 
+call
+    |
+    = help: the 
+following other 
+types implement 
+trait `From<T>`:
+              
+`soroban_sdk::Error` 
+implements `From<&sor
+oban_sdk::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<(sor
+oban_sdk::xdr::ScErro
+rType, soroban_sdk::x
+dr::ScErrorCode)>`
+              
+`soroban_sdk::Error` 
+implements `From<Conv
+ersionError>`
+              
+`soroban_sdk::Error` 
+implements 
+`From<Infallible>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_common::symbo
+l::SymbolError>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_host::builtin
+_contracts::contract_
+error::ContractError>
+`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::ScError
+>`
+            and 4 
+others
+    = note: required 
+for `EscrowError` to 
+implement `Into<sorob
+an_sdk::Error>`
+note: required by a 
+bound in `Env::panic_
+with_error`
+   --> C:\Users\ADMIN
+\.cargo\registry\src\
+index.crates.io-1949c
+f8c6b5b557f\soroban-s
+dk-22.0.11\src\env.rs
+:276:48
+    |
+276 |     pub fn pani
+c_with_error(&self, 
+error: impl Into<inte
+rnal::Error>) -> ! {
+    |                
+                     
+           ^^^^^^^^^^
+^^^^^^^^^^^ required 
+by this bound in `Env
+::panic_with_error`
+
+error[E0277]: the 
+trait bound 
+`soroban_sdk::Error: 
+From<EscrowError>` 
+is not satisfied
+   --> contracts\escr
+ow\src\lib.rs:223:37
+    |
+223 |             pan
+ic_with_error!(&env, 
+EscrowError::InvalidS
+tatus);
+    |             ---
+---------------------
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^-
+    |             |  
+                     
+|
+    |             |  
+                     
+the trait 
+`From<EscrowError>` 
+is not implemented 
+for 
+`soroban_sdk::Error`
+    |             
+required by a bound 
+introduced by this 
+call
+    |
+    = help: the 
+following other 
+types implement 
+trait `From<T>`:
+              
+`soroban_sdk::Error` 
+implements `From<&sor
+oban_sdk::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<(sor
+oban_sdk::xdr::ScErro
+rType, soroban_sdk::x
+dr::ScErrorCode)>`
+              
+`soroban_sdk::Error` 
+implements `From<Conv
+ersionError>`
+              
+`soroban_sdk::Error` 
+implements 
+`From<Infallible>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_common::symbo
+l::SymbolError>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_host::builtin
+_contracts::contract_
+error::ContractError>
+`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::ScError
+>`
+            and 4 
+others
+    = note: required 
+for `EscrowError` to 
+implement `Into<sorob
+an_sdk::Error>`
+note: required by a 
+bound in `Env::panic_
+with_error`
+   --> C:\Users\ADMIN
+\.cargo\registry\src\
+index.crates.io-1949c
+f8c6b5b557f\soroban-s
+dk-22.0.11\src\env.rs
+:276:48
+    |
+276 |     pub fn pani
+c_with_error(&self, 
+error: impl Into<inte
+rnal::Error>) -> ! {
+    |                
+                     
+           ^^^^^^^^^^
+^^^^^^^^^^^ required 
+by this bound in `Env
+::panic_with_error`
+
+error[E0277]: the 
+trait bound 
+`soroban_sdk::Error: 
+From<EscrowError>` 
+is not satisfied
+   --> contracts\escr
+ow\src\lib.rs:260:37
+    |
+260 |             pan
+ic_with_error!(&env, 
+EscrowError::InvalidS
+tatus);
+    |             ---
+---------------------
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^-
+    |             |  
+                     
+|
+    |             |  
+                     
+the trait 
+`From<EscrowError>` 
+is not implemented 
+for 
+`soroban_sdk::Error`
+    |             
+required by a bound 
+introduced by this 
+call
+    |
+    = help: the 
+following other 
+types implement 
+trait `From<T>`:
+              
+`soroban_sdk::Error` 
+implements `From<&sor
+oban_sdk::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<(sor
+oban_sdk::xdr::ScErro
+rType, soroban_sdk::x
+dr::ScErrorCode)>`
+              
+`soroban_sdk::Error` 
+implements `From<Conv
+ersionError>`
+              
+`soroban_sdk::Error` 
+implements 
+`From<Infallible>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_common::symbo
+l::SymbolError>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_host::builtin
+_contracts::contract_
+error::ContractError>
+`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::ScError
+>`
+            and 4 
+others
+    = note: required 
+for `EscrowError` to 
+implement `Into<sorob
+an_sdk::Error>`
+note: required by a 
+bound in `Env::panic_
+with_error`
+   --> C:\Users\ADMIN
+\.cargo\registry\src\
+index.crates.io-1949c
+f8c6b5b557f\soroban-s
+dk-22.0.11\src\env.rs
+:276:48
+    |
+276 |     pub fn pani
+c_with_error(&self, 
+error: impl Into<inte
+rnal::Error>) -> ! {
+    |                
+                     
+           ^^^^^^^^^^
+^^^^^^^^^^^ required 
+by this bound in `Env
+::panic_with_error`
+
+error[E0277]: the 
+trait bound 
+`soroban_sdk::Error: 
+From<EscrowError>` 
+is not satisfied
+   --> contracts\escr
+ow\src\lib.rs:265:37
+    |
+265 |             pan
+ic_with_error!(&env, 
+EscrowError::InvalidM
+ilestone);
+    |             ---
+---------------------
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^-
+    |             |  
+                     
+|
+    |             |  
+                     
+the trait 
+`From<EscrowError>` 
+is not implemented 
+for 
+`soroban_sdk::Error`
+    |             
+required by a bound 
+introduced by this 
+call
+    |
+    = help: the 
+following other 
+types implement 
+trait `From<T>`:
+              
+`soroban_sdk::Error` 
+implements `From<&sor
+oban_sdk::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<(sor
+oban_sdk::xdr::ScErro
+rType, soroban_sdk::x
+dr::ScErrorCode)>`
+              
+`soroban_sdk::Error` 
+implements `From<Conv
+ersionError>`
+              
+`soroban_sdk::Error` 
+implements 
+`From<Infallible>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_common::symbo
+l::SymbolError>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_host::builtin
+_contracts::contract_
+error::ContractError>
+`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::ScError
+>`
+            and 4 
+others
+    = note: required 
+for `EscrowError` to 
+implement `Into<sorob
+an_sdk::Error>`
+note: required by a 
+bound in `Env::panic_
+with_error`
+   --> C:\Users\ADMIN
+\.cargo\registry\src\
+index.crates.io-1949c
+f8c6b5b557f\soroban-s
+dk-22.0.11\src\env.rs
+:276:48
+    |
+276 |     pub fn pani
+c_with_error(&self, 
+error: impl Into<inte
+rnal::Error>) -> ! {
+    |                
+                     
+           ^^^^^^^^^^
+^^^^^^^^^^^ required 
+by this bound in `Env
+::panic_with_error`
+
+error[E0277]: the 
+trait bound 
+`soroban_sdk::Error: 
+From<EscrowError>` 
+is not satisfied
+   --> contracts\escr
+ow\src\lib.rs:270:37
+    |
+270 |             pan
+ic_with_error!(&env, 
+EscrowError::InvalidS
+tatus);
+    |             ---
+---------------------
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^-
+    |             |  
+                     
+|
+    |             |  
+                     
+the trait 
+`From<EscrowError>` 
+is not implemented 
+for 
+`soroban_sdk::Error`
+    |             
+required by a bound 
+introduced by this 
+call
+    |
+    = help: the 
+following other 
+types implement 
+trait `From<T>`:
+              
+`soroban_sdk::Error` 
+implements `From<&sor
+oban_sdk::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<(sor
+oban_sdk::xdr::ScErro
+rType, soroban_sdk::x
+dr::ScErrorCode)>`
+              
+`soroban_sdk::Error` 
+implements `From<Conv
+ersionError>`
+              
+`soroban_sdk::Error` 
+implements 
+`From<Infallible>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_common::symbo
+l::SymbolError>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_host::builtin
+_contracts::contract_
+error::ContractError>
+`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::ScError
+>`
+            and 4 
+others
+    = note: required 
+for `EscrowError` to 
+implement `Into<sorob
+an_sdk::Error>`
+note: required by a 
+bound in `Env::panic_
+with_error`
+   --> C:\Users\ADMIN
+\.cargo\registry\src\
+index.crates.io-1949c
+f8c6b5b557f\soroban-s
+dk-22.0.11\src\env.rs
+:276:48
+    |
+276 |     pub fn pani
+c_with_error(&self, 
+error: impl Into<inte
+rnal::Error>) -> ! {
+    |                
+                     
+           ^^^^^^^^^^
+^^^^^^^^^^^ required 
+by this bound in `Env
+::panic_with_error`
+
+error[E0277]: the 
+trait bound 
+`soroban_sdk::Error: 
+From<EscrowError>` 
+is not satisfied
+   --> contracts\escr
+ow\src\lib.rs:338:37
+    |
+338 |             pan
+ic_with_error!(&env, 
+EscrowError::InvalidS
+tatus);
+    |             ---
+---------------------
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^-
+    |             |  
+                     
+|
+    |             |  
+                     
+the trait 
+`From<EscrowError>` 
+is not implemented 
+for 
+`soroban_sdk::Error`
+    |             
+required by a bound 
+introduced by this 
+call
+    |
+    = help: the 
+following other 
+types implement 
+trait `From<T>`:
+              
+`soroban_sdk::Error` 
+implements `From<&sor
+oban_sdk::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<(sor
+oban_sdk::xdr::ScErro
+rType, soroban_sdk::x
+dr::ScErrorCode)>`
+              
+`soroban_sdk::Error` 
+implements `From<Conv
+ersionError>`
+              
+`soroban_sdk::Error` 
+implements 
+`From<Infallible>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_common::symbo
+l::SymbolError>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_host::builtin
+_contracts::contract_
+error::ContractError>
+`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::ScError
+>`
+            and 4 
+others
+    = note: required 
+for `EscrowError` to 
+implement `Into<sorob
+an_sdk::Error>`
+note: required by a 
+bound in `Env::panic_
+with_error`
+   --> C:\Users\ADMIN
+\.cargo\registry\src\
+index.crates.io-1949c
+f8c6b5b557f\soroban-s
+dk-22.0.11\src\env.rs
+:276:48
+    |
+276 |     pub fn pani
+c_with_error(&self, 
+error: impl Into<inte
+rnal::Error>) -> ! {
+    |                
+                     
+           ^^^^^^^^^^
+^^^^^^^^^^^ required 
+by this bound in `Env
+::panic_with_error`
+
+error[E0277]: the 
+trait bound 
+`soroban_sdk::Error: 
+From<EscrowError>` 
+is not satisfied
+   --> contracts\escr
+ow\src\lib.rs:342:37
+    |
+342 |             pan
+ic_with_error!(&env, 
+EscrowError::InvalidS
+tatus);
+    |             ---
+---------------------
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^-
+    |             |  
+                     
+|
+    |             |  
+                     
+the trait 
+`From<EscrowError>` 
+is not implemented 
+for 
+`soroban_sdk::Error`
+    |             
+required by a bound 
+introduced by this 
+call
+    |
+    = help: the 
+following other 
+types implement 
+trait `From<T>`:
+              
+`soroban_sdk::Error` 
+implements `From<&sor
+oban_sdk::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<(sor
+oban_sdk::xdr::ScErro
+rType, soroban_sdk::x
+dr::ScErrorCode)>`
+              
+`soroban_sdk::Error` 
+implements `From<Conv
+ersionError>`
+              
+`soroban_sdk::Error` 
+implements 
+`From<Infallible>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_common::symbo
+l::SymbolError>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_host::builtin
+_contracts::contract_
+error::ContractError>
+`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::ScError
+>`
+            and 4 
+others
+    = note: required 
+for `EscrowError` to 
+implement `Into<sorob
+an_sdk::Error>`
+note: required by a 
+bound in `Env::panic_
+with_error`
+   --> C:\Users\ADMIN
+\.cargo\registry\src\
+index.crates.io-1949c
+f8c6b5b557f\soroban-s
+dk-22.0.11\src\env.rs
+:276:48
+    |
+276 |     pub fn pani
+c_with_error(&self, 
+error: impl Into<inte
+rnal::Error>) -> ! {
+    |                
+                     
+           ^^^^^^^^^^
+^^^^^^^^^^^ required 
+by this bound in `Env
+::panic_with_error`
+
+error[E0277]: the 
+trait bound 
+`soroban_sdk::Error: 
+From<EscrowError>` 
+is not satisfied
+   --> contracts\escr
+ow\src\lib.rs:354:37
+    |
+354 |             pan
+ic_with_error!(&env, 
+EscrowError::NothingT
+oRefund);
+    |             ---
+---------------------
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^-
+    |             |  
+                     
+|
+    |             |  
+                     
+the trait 
+`From<EscrowError>` 
+is not implemented 
+for 
+`soroban_sdk::Error`
+    |             
+required by a bound 
+introduced by this 
+call
+    |
+    = help: the 
+following other 
+types implement 
+trait `From<T>`:
+              
+`soroban_sdk::Error` 
+implements `From<&sor
+oban_sdk::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<(sor
+oban_sdk::xdr::ScErro
+rType, soroban_sdk::x
+dr::ScErrorCode)>`
+              
+`soroban_sdk::Error` 
+implements `From<Conv
+ersionError>`
+              
+`soroban_sdk::Error` 
+implements 
+`From<Infallible>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_common::symbo
+l::SymbolError>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_env_host::builtin
+_contracts::contract_
+error::ContractError>
+`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::Error>`
+              
+`soroban_sdk::Error` 
+implements `From<soro
+ban_sdk::xdr::ScError
+>`
+            and 4 
+others
+    = note: required 
+for `EscrowError` to 
+implement `Into<sorob
+an_sdk::Error>`
+note: required by a 
+bound in `Env::panic_
+with_error`
+   --> C:\Users\ADMIN
+\.cargo\registry\src\
+index.crates.io-1949c
+f8c6b5b557f\soroban-s
+dk-22.0.11\src\env.rs
+:276:48
+    |
+276 |     pub fn pani
+c_with_error(&self, 
+error: impl Into<inte
+rnal::Error>) -> ! {
+    |                
+                     
+           ^^^^^^^^^^
+^^^^^^^^^^^ required 
+by this bound in `Env
+::panic_with_error`
+
+For more information 
+about this error, 
+try `rustc --explain 
+E0277`.
+error: could not 
+compile `escrow` 
+(lib) due to 10 
+previous errors

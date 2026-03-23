@@ -1,0 +1,94 @@
+cargo :     Blocking 
+waiting for file lock on 
+package cache
+At line:1 char:1
++ cargo test 2>&1 | 
+Out-File -FilePath 
+test_output_v3.txt 
+-Encoding asc ...
++ ~~~~~~~~~~~~~~~
+    + CategoryInfo          
+    : NotSpecified: (    B  
+  locking wa...n package    
+ cache:String) [], Remot    
+eException
+    + FullyQualifiedErrorId 
+    : NativeCommandError
+ 
+warning: calls to 
+`std::mem::drop` with a 
+value that implements 
+`Copy` does nothing
+   --> contracts\escrow\src\
+test.rs:242:5
+    |
+242 |     drop(env.mock_all_
+auths_allowing_non_root_auth
+());
+    |     ^^^^^-------------
+----------------------------
+--^
+    |          |
+    |          argument has 
+type `()`
+    |
+    = note: `#[warn(dropping
+_copy_types)]` on by default
+help: use `let _ = ...` to 
+ignore the expression or 
+result
+    |
+242 -     drop(env.mock_all_
+auths_allowing_non_root_auth
+());
+242 +     let _ = env.mock_a
+ll_auths_allowing_non_root_a
+uth();
+    |
+
+warning: `escrow` (lib 
+test) generated 1 warning
+    Finished `test` profile 
+[unoptimized + debuginfo] 
+target(s) in 4.24s
+     Running unittests 
+src\lib.rs (C:\Users\ADMIN\D
+esktop\midea-drips\Talenttru
+st-Contracts\target\debug\de
+ps\escrow-c31b68219c35f0e5.e
+xe)
+
+running 19 tests
+test test::test_hello ... ok
+test test::test_create_contract_returns_id ... ok
+test test::test_create_multiple_contracts_unique_ids ... ok
+test test::test_deposit_then_immediate_refund ... ok
+test test::test_create_contract_invalid_milestone_amount - should panic ... ok
+test test::test_deposit_funds_returns_true ... ok
+test test::test_deposit_invalid_amount_zero - should panic ... ok
+test test::test_refund_emits_event ... ok
+test test::test_refund_fails_when_already_cancelled - should panic ... ok
+test test::test_refund_fails_unauthorized - should panic ... FAILED
+test test::test_refund_partial_unreleased_two_released ... ok
+test test::test_refund_single_milestone ... ok
+test test::test_refund_fails_when_completed - should panic ... ok
+test test::test_refund_full_unreleased ... ok
+test test::test_refund_fails_zero_unreleased - should panic ... ok
+test test::test_refund_partial_unreleased_one_released ... ok
+test test::test_release_milestone_out_of_range - should panic ... ok
+test test::test_release_milestone_already_released - should panic ... ok
+test test::test_release_milestone_returns_true ... ok
+
+failures:
+
+---- test::test_refund_fails_unauthorized stdout ----
+Writing test snapshot file for test "test::test_refund_fails_unauthorized" to "test_snapshots\\test\\test_refund_fails_unauthorized.1.json".
+note: test did not panic as expected at contracts\escrow\src\test.rs:225:4
+
+failures:
+    test::test_refund_fails_unauthorized
+
+test result: FAILED. 18 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+error: test failed, to 
+rerun pass `--lib`

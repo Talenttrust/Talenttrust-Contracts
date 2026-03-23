@@ -4,7 +4,7 @@ Soroban smart contracts for the TalentTrust decentralized freelancer escrow prot
 
 ## What's in this repo
 
-- **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments and reputation credential issuance.
+- **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments, reputation credential issuance, and **partial refunds** for unreleased balances.
 
 ## Prerequisites
 
@@ -40,6 +40,18 @@ cargo fmt --all
    - `cargo test`
    - `cargo build`
 3. Open a pull request. CI runs `cargo fmt --all -- --check`, `cargo build`, and `cargo test` on push/PR to `main`.
+
+## Features
+
+### Partial Refund Logic
+
+The escrow contract now supports a partial refund mechanism for unreleased milestone balances. This allows the client to recover funds if a contract is cancelled before all milestones are completed.
+
+- **Secure**: Only the client can initiate a refund.
+- **Accurate**: Computes the refund amount based on on-chain milestone data.
+- **Protected**: Guards against double-refunds and refunds on completed contracts.
+
+For more details, see the [Partial Refund Documentation](file:///c:/Users/ADMIN/Desktop/midea-drips/Talenttrust-Contracts/docs/escrow/PARTIAL_REFUND.md).
 
 ## CI/CD
 
