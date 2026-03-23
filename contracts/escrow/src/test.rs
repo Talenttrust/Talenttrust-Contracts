@@ -11,7 +11,6 @@
 //! - Deposit then immediate refund
 //! - Deposit rejected on invalid amount
 //! - release_milestone out-of-range index
-// 
 
 #![cfg(test)]
 
