@@ -1,8 +1,9 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, Address, Env, Symbol, Vec, Map, 
-    storage::{Persistent, Instance},
+    contract, contractimpl, contracttype,
+    storage::{Instance, Persistent},
+    Address, Env, Map, Symbol, Vec,
 };
 
 /// Storage keys for persistent data
@@ -83,7 +84,7 @@ pub struct Escrow;
 #[contractimpl]
 impl Escrow {
     /// Initialize the contract with admin and arbitrator addresses
-    /// 
+    ///
     /// # Arguments
     /// * `admin` - Address that can manage contract settings
     /// * `arbitrator` - Address that can resolve disputes
@@ -92,9 +93,9 @@ impl Escrow {
         if env.storage().persistent().has(&ADMIN) {
             panic!("already initialized");
         }
-        
+
         admin.require_auth();
-        
+
         env.storage().persistent().set(&ADMIN, &admin);
         env.storage().persistent().set(&ARBITRATOR, &arbitrator);
         env.storage().persistent().set(&NEXT_CONTRACT_ID, &1u32);
@@ -103,12 +104,12 @@ impl Escrow {
 
     /// Create a new escrow contract. Client and freelancer addresses are stored
     /// for access control. Milestones define payment amounts.
-    /// 
+    ///
     /// # Arguments
     /// * `client` - Address of the client funding the escrow
     /// * `freelancer` - Address of the freelancer receiving payments
     /// * `milestone_amounts` - Vector of milestone payment amounts
-    /// 
+    ///
     /// # Returns
     /// * `u32` - The unique contract ID
     pub fn create_contract(
@@ -118,17 +119,18 @@ impl Escrow {
         milestone_amounts: Vec<i128>,
     ) -> u32 {
         client.require_auth();
-        
+
         let contract_id = get_next_contract_id(&env);
         let total_amount = milestone_amounts.iter().sum();
-        
-        let milestones: Vec<Milestone> = milestone_amounts.iter()
+
+        let milestones: Vec<Milestone> = milestone_amounts
+            .iter()
             .map(|&amount| Milestone {
                 amount,
                 released: false,
             })
             .collect();
-        
+
         let escrow_contract = EscrowContract {
             id: contract_id,
             client: client.clone(),
@@ -138,99 +140,97 @@ impl Escrow {
             status: ContractStatus::Created,
             created_at: env.ledger().timestamp(),
         };
-        
+
         let mut contracts = get_contracts_map(&env);
         contracts.set(contract_id, &escrow_contract);
         env.storage().persistent().set(&CONTRACTS, &contracts);
-        
+
         contract_id
     }
 
     /// Deposit funds into escrow. Only the client may call this.
-    /// 
+    ///
     /// # Arguments
     /// * `contract_id` - The ID of the escrow contract
     /// * `amount` - Amount to deposit (must equal total contract amount)
-    /// 
+    ///
     /// # Returns
     /// * `bool` - True if deposit successful
     pub fn deposit_funds(env: Env, contract_id: u32, amount: i128) -> bool {
         let mut contracts = get_contracts_map(&env);
-        let mut contract = contracts.get(contract_id)
-            .expect("contract not found");
-        
+        let mut contract = contracts.get(contract_id).expect("contract not found");
+
         // Only client can deposit
         contract.client.require_auth();
-        
+
         // Validate contract state
         require_contract_status(&contract, ContractStatus::Created);
-        
+
         // Validate amount
         if amount != contract.total_amount {
             panic!("amount must equal total contract amount");
         }
-        
+
         // Update contract status
         contract.status = ContractStatus::Funded;
         contracts.set(contract_id, &contract);
         env.storage().persistent().set(&CONTRACTS, &contracts);
-        
+
         true
     }
 
     /// Release a milestone payment to the freelancer after verification.
-    /// 
+    ///
     /// # Arguments
     /// * `contract_id` - The ID of the escrow contract
     /// * `milestone_id` - The ID of the milestone to release
-    /// 
+    ///
     /// # Returns
     /// * `bool` - True if milestone released successfully
     pub fn release_milestone(env: Env, contract_id: u32, milestone_id: u32) -> bool {
         let mut contracts = get_contracts_map(&env);
-        let mut contract = contracts.get(contract_id)
-            .expect("contract not found");
-        
+        let mut contract = contracts.get(contract_id).expect("contract not found");
+
         // Only client can release milestones
         contract.client.require_auth();
-        
+
         // Validate contract state
         require_contract_status(&contract, ContractStatus::Funded);
-        
+
         // Validate milestone exists and is not released
         if milestone_id >= contract.milestones.len() as u32 {
             panic!("milestone not found");
         }
-        
+
         let mut milestones = contract.milestones;
         let milestone = &mut milestones[milestone_id as usize];
-        
+
         if milestone.released {
             panic!("milestone already released");
         }
-        
+
         // Release milestone
         milestone.released = true;
         contract.milestones = milestones;
-        
+
         // Check if all milestones are released
         if contract.milestones.iter().all(|m| m.released) {
             contract.status = ContractStatus::Completed;
         }
-        
+
         contracts.set(contract_id, &contract);
         env.storage().persistent().set(&CONTRACTS, &contracts);
-        
+
         true
     }
 
     /// Create a dispute for a contract
-    /// 
+    ///
     /// # Arguments
     /// * `contract_id` - The ID of the escrow contract
     /// * `reason` - Symbol representing the dispute reason
     /// * `evidence` - Vector of evidence symbols
-    /// 
+    ///
     /// # Returns
     /// * `u32` - The unique dispute ID
     pub fn create_dispute(
@@ -240,20 +240,19 @@ impl Escrow {
         evidence: Vec<Symbol>,
     ) -> u32 {
         let contracts = get_contracts_map(&env);
-        let contract = contracts.get(contract_id)
-            .expect("contract not found");
-        
+        let contract = contracts.get(contract_id).expect("contract not found");
+
         // Only client or freelancer can create disputes
         let caller = env.invoker();
         if caller != contract.client && caller != contract.freelancer {
             panic!("only client or freelancer can create dispute");
         }
-        
+
         // Validate contract state
         require_contract_status(&contract, ContractStatus::Funded);
-        
+
         let dispute_id = get_next_dispute_id(&env);
-        
+
         let dispute = Dispute {
             id: dispute_id,
             contract_id,
@@ -268,29 +267,29 @@ impl Escrow {
             resolved_at: 0,
             resolved_by: caller, // Will be updated when resolved
         };
-        
+
         let mut disputes = get_disputes_map(&env);
         disputes.set(dispute_id, &dispute);
         env.storage().persistent().set(&DISPUTES, &disputes);
-        
+
         // Update contract status
         let mut contracts = get_contracts_map(&env);
         let mut contract = contracts.get(contract_id).expect("contract not found");
         contract.status = ContractStatus::Disputed;
         contracts.set(contract_id, &contract);
         env.storage().persistent().set(&CONTRACTS, &contracts);
-        
+
         dispute_id
     }
 
     /// Resolve a dispute with a specific outcome
-    /// 
+    ///
     /// # Arguments
     /// * `dispute_id` - The ID of the dispute
     /// * `resolution` - The resolution type
     /// * `client_payout` - Amount to pay to client (for Split resolution)
     /// * `freelancer_payout` - Amount to pay to freelancer (for Split resolution)
-    /// 
+    ///
     /// # Returns
     /// * `bool` - True if dispute resolved successfully
     pub fn resolve_dispute(
@@ -301,23 +300,26 @@ impl Escrow {
         freelancer_payout: i128,
     ) -> bool {
         // Only arbitrator can resolve disputes
-        let arbitrator = env.storage().persistent().get(&ARBITRATOR)
+        let arbitrator = env
+            .storage()
+            .persistent()
+            .get(&ARBITRATOR)
             .expect("arbitrator not set");
         arbitrator.require_auth();
-        
+
         let mut disputes = get_disputes_map(&env);
-        let mut dispute = disputes.get(dispute_id)
-            .expect("dispute not found");
-        
+        let mut dispute = disputes.get(dispute_id).expect("dispute not found");
+
         // Validate dispute status
         if dispute.status != DisputeStatus::Open && dispute.status != DisputeStatus::InReview {
             panic!("dispute already resolved");
         }
-        
+
         let contracts = get_contracts_map(&env);
-        let contract = contracts.get(dispute.contract_id)
+        let contract = contracts
+            .get(dispute.contract_id)
             .expect("contract not found");
-        
+
         // Calculate payouts based on resolution
         let (client_amount, freelancer_amount) = match resolution {
             DisputeResolution::FullRefund => (contract.total_amount, 0),
@@ -326,7 +328,7 @@ impl Escrow {
                 let client_amount = contract.total_amount * 70 / 100;
                 let freelancer_amount = contract.total_amount - client_amount;
                 (client_amount, freelancer_amount)
-            },
+            }
             DisputeResolution::FullPayout => (0, contract.total_amount),
             DisputeResolution::Split => {
                 // Validate custom split
@@ -334,9 +336,9 @@ impl Escrow {
                     panic!("split amounts must equal total contract amount");
                 }
                 (client_payout, freelancer_payout)
-            },
+            }
         };
-        
+
         // Update dispute
         dispute.status = DisputeStatus::Resolved;
         dispute.resolution = resolution;
@@ -344,41 +346,49 @@ impl Escrow {
         dispute.freelancer_payout = freelancer_amount;
         dispute.resolved_at = env.ledger().timestamp();
         dispute.resolved_by = arbitrator;
-        
+
         disputes.set(dispute_id, &dispute);
         env.storage().persistent().set(&DISPUTES, &disputes);
-        
+
         // Update contract status
         let mut contracts = get_contracts_map(&env);
-        let mut contract = contracts.get(dispute.contract_id).expect("contract not found");
+        let mut contract = contracts
+            .get(dispute.contract_id)
+            .expect("contract not found");
         contract.status = ContractStatus::Resolved;
         contracts.set(dispute.contract_id, &contract);
         env.storage().persistent().set(&CONTRACTS, &contracts);
-        
+
         true
     }
 
     /// Update admin address (only current admin can call)
-    /// 
+    ///
     /// # Arguments
     /// * `new_admin` - New admin address
     pub fn update_admin(env: Env, new_admin: Address) {
-        let admin = env.storage().persistent().get(&ADMIN)
+        let admin = env
+            .storage()
+            .persistent()
+            .get(&ADMIN)
             .expect("admin not set");
         admin.require_auth();
-        
+
         env.storage().persistent().set(&ADMIN, &new_admin);
     }
 
     /// Update arbitrator address (only admin can call)
-    /// 
+    ///
     /// # Arguments
     /// * `new_arbitrator` - New arbitrator address
     pub fn update_arbitrator(env: Env, new_arbitrator: Address) {
-        let admin = env.storage().persistent().get(&ADMIN)
+        let admin = env
+            .storage()
+            .persistent()
+            .get(&ADMIN)
             .expect("admin not set");
         admin.require_auth();
-        
+
         env.storage().persistent().set(&ARBITRATOR, &new_arbitrator);
     }
 
@@ -391,7 +401,10 @@ impl Escrow {
 // Helper functions
 
 fn get_next_contract_id(env: &Env) -> u32 {
-    let mut next_id = env.storage().persistent().get(&NEXT_CONTRACT_ID)
+    let mut next_id = env
+        .storage()
+        .persistent()
+        .get(&NEXT_CONTRACT_ID)
         .unwrap_or(1u32);
     let current_id = next_id;
     next_id += 1;
@@ -400,7 +413,10 @@ fn get_next_contract_id(env: &Env) -> u32 {
 }
 
 fn get_next_dispute_id(env: &Env) -> u32 {
-    let mut next_id = env.storage().persistent().get(&NEXT_DISPUTE_ID)
+    let mut next_id = env
+        .storage()
+        .persistent()
+        .get(&NEXT_DISPUTE_ID)
         .unwrap_or(1u32);
     let current_id = next_id;
     next_id += 1;
@@ -409,11 +425,17 @@ fn get_next_dispute_id(env: &Env) -> u32 {
 }
 
 fn get_contracts_map(env: &Env) -> Map<u32, EscrowContract> {
-    env.storage().persistent().get(&CONTRACTS).unwrap_or(Map::new(env))
+    env.storage()
+        .persistent()
+        .get(&CONTRACTS)
+        .unwrap_or(Map::new(env))
 }
 
 fn get_disputes_map(env: &Env) -> Map<u32, Dispute> {
-    env.storage().persistent().get(&DISPUTES).unwrap_or(Map::new(env))
+    env.storage()
+        .persistent()
+        .get(&DISPUTES)
+        .unwrap_or(Map::new(env))
 }
 
 fn require_contract_status(contract: &EscrowContract, expected_status: ContractStatus) {
