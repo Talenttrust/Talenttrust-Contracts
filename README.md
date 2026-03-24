@@ -4,7 +4,37 @@ Soroban smart contracts for the TalentTrust decentralized freelancer escrow prot
 
 ## What's in this repo
 
-- **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments and reputation credential issuance.
+- **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments, and issues reputation credentials only after successful completion and final settlement.
+
+## Contract overview
+
+### Escrow
+
+| Function | Description |
+|---|---|
+| `create_contract(client, freelancer, milestone_amounts)` | Create a new escrow engagement; returns a unique numeric contract ID. |
+| `deposit_funds(contract_id, amount)` | Client deposits funds; transitions status to `Funded`. |
+| `release_milestone(contract_id, milestone_id)` | Client releases a single milestone payment to the freelancer. |
+| `complete_contract(contract_id)` | Client finalises the contract as `Completed`. Requires all milestones released. |
+| `issue_reputation(contract_id, rating)` | Issue a reputation credential (rating 1–5) for the freelancer. |
+
+### Reputation issuance constraints
+
+`issue_reputation` enforces the following ordered constraints — any violation panics with a descriptive error:
+
+1. **Contract existence** – the `contract_id` must exist.
+2. **Completion gate** – contract `status` must be `Completed`.
+3. **Final settlement** – every milestone must have `released == true`.
+4. **Single issuance** – a credential can only be issued once per contract (prevents replay / double-issuance).
+5. **Valid rating** – `rating` must be in `[1, 5]`.
+
+The full lifecycle to reach a state where reputation can be issued:
+
+```
+create_contract → deposit_funds → release_milestone (×N) → complete_contract → issue_reputation
+```
+
+See [`docs/escrow/README.md`](docs/escrow/README.md) for the full contract specification.
 
 ## Prerequisites
 

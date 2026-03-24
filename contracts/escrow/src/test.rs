@@ -511,3 +511,315 @@ fn test_edge_cases() {
     );
     assert_eq!(id2, 0); // ledger sequence stays the same in test env
 }
+
+// ============================================================================
+// CANCELLATION TESTS
+// ============================================================================
+
+#[test]
+fn test_cancel_contract_in_created_state_by_client() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    // Create contract
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    // Cancel before funding - client should succeed
+    env.mock_all_auths();
+    let result = client.cancel_contract(&1, &client_addr);
+    assert!(result);
+
+    // Verify contract is cancelled
+    let contract = client.get_contract(&1);
+    assert_eq!(contract.status, crate::ContractStatus::Cancelled);
+}
+
+#[test]
+fn test_cancel_contract_in_created_state_by_freelancer() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    // Create contract
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    // Cancel before funding - freelancer should succeed
+    env.mock_all_auths();
+    let result = client.cancel_contract(&1, &freelancer_addr);
+    assert!(result);
+
+    // Verify contract is cancelled
+    let contract = client.get_contract(&1);
+    assert_eq!(contract.status, crate::ContractStatus::Cancelled);
+}
+
+#[test]
+#[should_panic(expected = "Caller must be client or freelancer to cancel in Created state")]
+fn test_cancel_contract_in_created_state_unauthorized() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let unauthorized_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    // Create contract
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    // Try to cancel as unauthorized party - should panic
+    env.mock_all_auths();
+    client.cancel_contract(&1, &unauthorized_addr);
+}
+
+#[test]
+fn test_cancel_contract_in_funded_state_by_client_no_release() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    // Create contract
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    // Deposit funds
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+
+    // Cancel before any release - client should succeed
+    let result = client.cancel_contract(&1, &client_addr);
+    assert!(result);
+
+    // Verify contract is cancelled
+    let contract = client.get_contract(&1);
+    assert_eq!(contract.status, crate::ContractStatus::Cancelled);
+}
+
+#[test]
+#[should_panic(expected = "Client cannot cancel after milestones have been released")]
+fn test_cancel_contract_in_funded_state_client_after_release() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    // Use two milestones so contract stays Funded after first release
+    let milestones = vec![&env, 500_0000000_i128, 500_0000000_i128];
+
+    // Create contract
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    // Deposit funds and release only the first milestone
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+    client.approve_milestone_release(&1, &client_addr, &0);
+    client.release_milestone(&1, &client_addr, &0);
+    // Contract is still Funded (second milestone unreleased)
+
+    // Try to cancel after first release - should panic since some milestones were paid
+    client.cancel_contract(&1, &client_addr);
+}
+
+#[test]
+fn test_cancel_contract_by_arbiter_in_funded_state() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    // Create contract with arbiter
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones,
+        &ReleaseAuthorization::ClientAndArbiter,
+    );
+
+    // Deposit funds
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+
+    // Arbiter can cancel at any time
+    let result = client.cancel_contract(&1, &arbiter_addr);
+    assert!(result);
+
+    // Verify contract is cancelled with ArbiterApproved reason
+    let contract = client.get_contract(&1);
+    assert_eq!(contract.status, crate::ContractStatus::Cancelled);
+}
+
+#[test]
+#[should_panic(expected = "Contract already cancelled")]
+fn test_cancel_contract_already_cancelled() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    // Create and cancel contract
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    env.mock_all_auths();
+    client.cancel_contract(&1, &client_addr);
+
+    // Try to cancel again - should panic
+    client.cancel_contract(&1, &client_addr);
+}
+
+#[test]
+#[should_panic(expected = "Cannot cancel a completed contract")]
+fn test_cancel_contract_completed() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    // Create, fund, and complete contract
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+    client.approve_milestone_release(&1, &client_addr, &0);
+    client.release_milestone(&1, &client_addr, &0);
+
+    // Try to cancel after completion - should panic
+    client.cancel_contract(&1, &client_addr);
+}
+
+#[test]
+fn test_cancel_contract_freelancer_mutual_agreement() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    // Create and fund contract
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+
+    // Freelancer initiates cancellation with mutual agreement reason
+    let result = client.cancel_contract(&1, &freelancer_addr);
+    assert!(result);
+
+    // Verify contract is cancelled
+    let contract = client.get_contract(&1);
+    assert_eq!(contract.status, crate::ContractStatus::Cancelled);
+}
+
+#[test]
+fn test_get_contract() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128, 2000_0000000_i128];
+
+    // Create contract
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones,
+        &ReleaseAuthorization::ClientAndArbiter,
+    );
+
+    // Retrieve and verify
+    let contract = client.get_contract(&1);
+    assert_eq!(contract.client, client_addr);
+    assert_eq!(contract.freelancer, freelancer_addr);
+    assert_eq!(contract.arbiter, Some(arbiter_addr));
+    assert_eq!(contract.status, crate::ContractStatus::Created);
+    assert_eq!(contract.milestones.len(), 2);
+}
+
+#[test]
+#[should_panic(expected = "Contract not found")]
+fn test_get_nonexistent_contract() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    // Try to get contract that doesn't exist
+    client.get_contract(&999);
+}
