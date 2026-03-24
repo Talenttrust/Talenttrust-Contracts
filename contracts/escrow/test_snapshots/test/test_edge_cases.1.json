@@ -5,6 +5,7 @@
   },
   "auth": [
     [],
+    [],
     []
   ],
   "ledger": {
@@ -85,7 +86,112 @@
                                 "val": {
                                   "i128": {
                                     "hi": 0,
-                                    "lo": 10000000
+                                    "lo": 1000000000
+                                  }
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "approval_timestamp"
+                                },
+                                "val": "void"
+                              },
+                              {
+                                "key": {
+                                  "symbol": "approved_by"
+                                },
+                                "val": "void"
+                              },
+                              {
+                                "key": {
+                                  "symbol": "released"
+                                },
+                                "val": {
+                                  "bool": false
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "amount"
+                                },
+                                "val": {
+                                  "i128": {
+                                    "hi": 0,
+                                    "lo": 2000000000
+                                  }
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "approval_timestamp"
+                                },
+                                "val": "void"
+                              },
+                              {
+                                "key": {
+                                  "symbol": "approved_by"
+                                },
+                                "val": "void"
+                              },
+                              {
+                                "key": {
+                                  "symbol": "released"
+                                },
+                                "val": {
+                                  "bool": false
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "amount"
+                                },
+                                "val": {
+                                  "i128": {
+                                    "hi": 0,
+                                    "lo": 3000000000
+                                  }
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "approval_timestamp"
+                                },
+                                "val": "void"
+                              },
+                              {
+                                "key": {
+                                  "symbol": "approved_by"
+                                },
+                                "val": "void"
+                              },
+                              {
+                                "key": {
+                                  "symbol": "released"
+                                },
+                                "val": {
+                                  "bool": false
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "amount"
+                                },
+                                "val": {
+                                  "i128": {
+                                    "hi": 0,
+                                    "lo": 4000000000
                                   }
                                 }
                               },
