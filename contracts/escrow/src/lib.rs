@@ -121,13 +121,13 @@ impl Escrow {
         let contract_id = get_next_contract_id(&env);
         let total_amount = milestone_amounts.iter().sum();
 
-        let milestones: Vec<Milestone> = milestone_amounts
-            .iter()
-            .map(|amount| Milestone {
+        let mut milestones = Vec::new(&env);
+        for amount in milestone_amounts.iter() {
+            milestones.push_back(Milestone {
                 amount: amount,
                 released: false,
-            })
-            .collect();
+            });
+        }
 
         let escrow_contract = EscrowContract {
             id: contract_id,
