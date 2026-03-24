@@ -32,6 +32,37 @@ cargo fmt --all -- --check
 cargo fmt --all
 ```
 
+## Escrow contract — acceptance handshake
+
+Before a client can fund an escrow contract, the assigned freelancer must explicitly accept the terms. This two-party handshake ensures no funds are committed without mutual agreement.
+
+### State machine
+
+```
+Created ──► Accepted ──► Funded ──► Completed
+                                └──► Disputed
+```
+
+| Status      | Meaning                                                       |
+| ----------- | ------------------------------------------------------------- |
+| `Created`   | Contract created by the client; awaiting freelancer response. |
+| `Accepted`  | Freelancer has signed off; client may now deposit funds.      |
+| `Funded`    | Funds are held in escrow; milestones may be released.         |
+| `Completed` | All milestones released; engagement concluded.                |
+| `Disputed`  | Under dispute resolution.                                     |
+
+### Key functions
+
+| Function            | Caller     | Requires status | Resulting status |
+| ------------------- | ---------- | --------------- | ---------------- |
+| `create_contract`   | client     | —               | `Created`        |
+| `accept_contract`   | freelancer | `Created`       | `Accepted`       |
+| `deposit_funds`     | client     | `Accepted`      | `Funded`         |
+| `release_milestone` | client     | `Funded`        | `Funded`         |
+| `get_status`        | anyone     | —               | —                |
+
+See [`docs/escrow/README.md`](docs/escrow/README.md) for the full contract reference.
+
 ## Contributing
 
 1. Fork the repo and create a branch from `main`.
