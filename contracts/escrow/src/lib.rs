@@ -124,7 +124,7 @@ impl Escrow {
         let milestones: Vec<Milestone> = milestone_amounts
             .iter()
             .map(|amount| Milestone {
-                amount: *amount,
+                amount: amount,
                 released: false,
             })
             .collect();
@@ -200,7 +200,7 @@ impl Escrow {
             panic!("milestone not found");
         }
 
-        let milestone = contract.milestones.get_unchecked(milestone_id as usize);
+        let milestone = contract.milestones.get_unchecked(milestone_id);
 
         if milestone.released {
             panic!("milestone already released");
@@ -266,7 +266,7 @@ impl Escrow {
         let dispute = Dispute {
             id: dispute_id,
             contract_id,
-            initiator: caller,
+            initiator: caller.clone(),
             reason,
             evidence,
             status: DisputeStatus::Open,
@@ -318,7 +318,10 @@ impl Escrow {
         arbitrator.require_auth();
 
         let mut disputes = get_disputes_map(&env);
-        let mut dispute = disputes.get(dispute_id).expect("dispute not found");
+        let dispute = disputes.get(dispute_id).expect("dispute not found");
+        let contract_id = dispute.contract_id; // Save contract_id before moving dispute
+        
+        let mut dispute = dispute;
 
         // Validate dispute status
         if dispute.status != DisputeStatus::Open && dispute.status != DisputeStatus::InReview {
@@ -363,10 +366,10 @@ impl Escrow {
         // Update contract status
         let mut contracts = get_contracts_map(&env);
         let mut contract = contracts
-            .get(dispute.contract_id)
+            .get(contract_id)
             .expect("contract not found");
         contract.status = ContractStatus::Resolved;
-        contracts.set(dispute.contract_id, contract);
+        contracts.set(contract_id, contract);
         env.storage().persistent().set(&CONTRACTS, &contracts);
 
         true
