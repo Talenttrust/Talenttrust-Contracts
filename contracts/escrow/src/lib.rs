@@ -320,7 +320,7 @@ impl Escrow {
         let mut disputes = get_disputes_map(&env);
         let dispute = disputes.get(dispute_id).expect("dispute not found");
         let contract_id = dispute.contract_id; // Save contract_id before moving dispute
-        
+
         let mut dispute = dispute;
 
         // Validate dispute status
@@ -365,9 +365,7 @@ impl Escrow {
 
         // Update contract status
         let mut contracts = get_contracts_map(&env);
-        let mut contract = contracts
-            .get(contract_id)
-            .expect("contract not found");
+        let mut contract = contracts.get(contract_id).expect("contract not found");
         contract.status = ContractStatus::Resolved;
         contracts.set(contract_id, contract);
         env.storage().persistent().set(&CONTRACTS, &contracts);
