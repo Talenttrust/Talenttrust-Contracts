@@ -475,6 +475,87 @@ fn test_contract_completion_all_milestones_released() {
 }
 
 #[test]
+fn test_dispute_contract_transitions() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones,
+        &ReleaseAuthorization::ClientAndArbiter,
+    );
+
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+
+    let result = client.dispute_contract(&1, &client_addr);
+    assert!(result);
+}
+
+#[test]
+#[should_panic(expected = "Contract must be in Funded status to release milestones")]
+fn test_disputed_contract_cannot_release_milestone() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones,
+        &ReleaseAuthorization::ClientAndArbiter,
+    );
+
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+    client.dispute_contract(&1, &client_addr);
+
+    client.release_milestone(&1, &client_addr, &0);
+}
+
+#[test]
+#[should_panic(expected = "Contract must be in Created status to deposit funds")]
+fn test_invalid_status_transition_from_completed_to_funded() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+    client.approve_milestone_release(&1, &client_addr, &0);
+    client.release_milestone(&1, &client_addr, &0);
+
+    // Attempt invalid transition by re-depositing after completion.
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+}
+
+#[test]
 fn test_edge_cases() {
     let env = Env::default();
     let contract_id = env.register(Escrow, ());
@@ -510,4 +591,112 @@ fn test_edge_cases() {
         &ReleaseAuthorization::ClientOnly,
     );
     assert_eq!(id2, 0); // ledger sequence stays the same in test env
+}
+
+#[test]
+fn test_finalize_contract_success_and_immutable() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+    client.approve_milestone_release(&1, &client_addr, &0);
+    client.release_milestone(&1, &client_addr, &0);
+
+    let summary = symbol_short!("complete");
+    let result = client.finalize_contract(&1, &client_addr, &summary);
+    assert!(result);
+    assert!(client.is_finalized(&1));
+    assert_eq!(client.get_close_summary(&1), Some(summary));
+    assert_eq!(client.get_finalizer(&1), Some(client_addr.clone()));
+}
+
+#[test]
+#[should_panic(expected = "Contract already finalized")]
+fn test_finalize_contract_already_finalized() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+    client.approve_milestone_release(&1, &client_addr, &0);
+    client.release_milestone(&1, &client_addr, &0);
+
+    client.finalize_contract(&1, &client_addr, &symbol_short!("Done"));
+    client.finalize_contract(&1, &client_addr, &symbol_short!("replay"));
+}
+
+#[test]
+#[should_panic(expected = "Contract must be Completed or Disputed to finalize")]
+fn test_finalize_contract_not_ready() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    env.mock_all_auths();
+    client.finalize_contract(&1, &client_addr, &symbol_short!("too_early"));
+}
+
+#[test]
+#[should_panic(expected = "Only contract participants can finalize")]
+fn test_finalize_contract_unauthorized() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let unauthorized = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+    client.approve_milestone_release(&1, &client_addr, &0);
+    client.release_milestone(&1, &client_addr, &0);
+
+    client.finalize_contract(&1, &unauthorized, &symbol_short!("bad_actor"));
 }

@@ -13,6 +13,30 @@ pub enum ContractStatus {
     Disputed = 3,
 }
 
+impl ContractStatus {
+    /// Returns whether a transition from `self` to `next` is allowed.
+    pub fn can_transition_to(self, next: ContractStatus) -> bool {
+        if self == next {
+            return true;
+        }
+
+        match (self, next) {
+            (ContractStatus::Created, ContractStatus::Funded) => true,
+            (ContractStatus::Funded, ContractStatus::Completed) => true,
+            (ContractStatus::Funded, ContractStatus::Disputed) => true,
+            (ContractStatus::Disputed, ContractStatus::Completed) => true,
+            _ => false,
+        }
+    }
+
+    /// Enforces valid status transitions and panics on invalid ones.
+    pub fn assert_can_transition_to(self, next: ContractStatus) {
+        if !self.can_transition_to(next) {
+            panic!("Invalid contract status transition");
+        }
+    }
+}
+
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Milestone {
@@ -41,6 +65,17 @@ pub struct EscrowContract {
     pub status: ContractStatus,
     pub release_auth: ReleaseAuthorization,
     pub created_at: u64,
+    pub finalized_at: Option<u64>,
+    pub finalized_by: Option<Address>,
+    pub close_summary: Option<Symbol>,
+}
+
+impl EscrowContract {
+    /// Transition contract status with guardrails.
+    fn transition_status(&mut self, next: ContractStatus) {
+        self.status.assert_can_transition_to(next);
+        self.status = next;
+    }
 }
 
 #[contracttype]
@@ -128,6 +163,9 @@ impl Escrow {
             status: ContractStatus::Created,
             release_auth,
             created_at: env.ledger().timestamp(),
+            finalized_at: None,
+            finalized_by: None,
+            close_summary: None,
         };
 
         // Generate contract ID (in real implementation, this would use proper storage)
@@ -188,7 +226,7 @@ impl Escrow {
 
         // Update contract status to Funded
         let mut updated_contract = contract;
-        updated_contract.status = ContractStatus::Funded;
+        updated_contract.transition_status(ContractStatus::Funded);
         env.storage()
             .persistent()
             .set(&symbol_short!("contract"), &updated_contract);
@@ -380,7 +418,7 @@ impl Escrow {
         // Check if all milestones are released
         let all_released = contract.milestones.iter().all(|m| m.released);
         if all_released {
-            contract.status = ContractStatus::Completed;
+            contract.transition_status(ContractStatus::Completed);
         }
 
         env.storage()
@@ -391,6 +429,131 @@ impl Escrow {
         // For now, we'll just mark as released
 
         true
+    }
+
+    /// Mark a contract as disputed, guarded by allowed status transitions.
+    ///
+    /// # Errors
+    /// Panics if:
+    /// - Caller is not the client or arbiter
+    /// - Contract is not in Funded status
+    pub fn dispute_contract(env: Env, _contract_id: u32, caller: Address) -> bool {
+        caller.require_auth();
+
+        let mut contract: EscrowContract = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("contract"))
+            .unwrap_or_else(|| panic!("Contract not found"));
+
+        if contract.status != ContractStatus::Funded {
+            panic!("Contract must be in Funded status to dispute");
+        }
+
+        let allowed_caller = caller == contract.client
+            || contract.arbiter.clone().map_or(false, |arb| arb == caller);
+
+        if !allowed_caller {
+            panic!("Only client or arbiter can dispute contract");
+        }
+
+        contract.transition_status(ContractStatus::Disputed);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("contract"), &contract);
+
+        true
+    }
+
+    /// Finalize escrow closure with immutable close record and summary.
+    ///
+    /// # Arguments
+    /// * `contract_id` - ID of the escrow contract
+    /// * `caller` - Address of caller finalizing closure (client / freelancer / arbiter)
+    /// * `summary` - Finalization summary message
+    ///
+    /// # Returns
+    /// true if finalization successful.
+    ///
+    /// # Errors
+    /// Panics if:
+    /// - Contract is not in Completed or Disputed status
+    /// - Contract already finalized
+    /// - Caller is not a contract participant
+    pub fn finalize_contract(
+        env: Env,
+        _contract_id: u32,
+        caller: Address,
+        summary: Symbol,
+    ) -> bool {
+        caller.require_auth();
+
+        let mut contract: EscrowContract = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("contract"))
+            .unwrap_or_else(|| panic!("Contract not found"));
+
+        if contract.finalized_at.is_some() {
+            panic!("Contract already finalized");
+        }
+
+        if contract.status != ContractStatus::Completed
+            && contract.status != ContractStatus::Disputed
+        {
+            panic!("Contract must be Completed or Disputed to finalize");
+        }
+
+        let allowed_caller = caller == contract.client
+            || caller == contract.freelancer
+            || contract.arbiter.clone().map_or(false, |a| a == caller);
+
+        if !allowed_caller {
+            panic!("Only contract participants can finalize");
+        }
+
+        contract.finalized_at = Some(env.ledger().timestamp());
+        contract.finalized_by = Some(caller.clone());
+        contract.close_summary = Some(summary.clone());
+
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("contract"), &contract);
+
+        true
+    }
+
+    /// Retrieve whether the contract has been finalized.
+    pub fn is_finalized(env: Env, _contract_id: u32) -> bool {
+        let contract: EscrowContract = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("contract"))
+            .unwrap_or_else(|| panic!("Contract not found"));
+
+        contract.finalized_at.is_some()
+    }
+
+    /// Retrieve close summary if present.
+    pub fn get_close_summary(env: Env, _contract_id: u32) -> Option<Symbol> {
+        let contract: EscrowContract = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("contract"))
+            .unwrap_or_else(|| panic!("Contract not found"));
+
+        contract.close_summary
+    }
+
+    /// Retrieve finalizer address if contract finalized.
+    pub fn get_finalizer(env: Env, _contract_id: u32) -> Option<Address> {
+        let contract: EscrowContract = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("contract"))
+            .unwrap_or_else(|| panic!("Contract not found"));
+
+        contract.finalized_by
     }
 
     /// Issue a reputation credential for the freelancer after contract completion.

@@ -56,11 +56,29 @@
                     },
                     {
                       "key": {
+                        "symbol": "close_summary"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
                         "symbol": "created_at"
                       },
                       "val": {
                         "u64": 0
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "finalized_at"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "finalized_by"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {

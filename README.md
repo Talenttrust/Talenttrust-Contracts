@@ -41,6 +41,24 @@ cargo fmt --all
    - `cargo build`
 3. Open a pull request. CI runs `cargo fmt --all -- --check`, `cargo build`, and `cargo test` on push/PR to `main`.
 
+## Contract status transition guardrails
+
+Escrow contract status transitions are enforced using a guarded matrix to prevent invalid state changes. Supported transitions:
+
+- `Created` -> `Funded`
+- `Funded` -> `Completed`
+- `Funded` -> `Disputed`
+- `Disputed` -> `Completed`
+
+Invalid transitions cause a contract panic during execution.
+
+## Escrow closure finalization
+
+- `finalize_contract` records immutable close metadata (timestamp, finalizer, summary)
+- Finalization allowed only from `Completed` or `Disputed` status
+- Finalization can only be executed by contract parties (client/freelancer/arbiter)
+- Once finalized, the contract summary and record are immutable
+
 ## CI/CD
 
 On every push and pull request to `main`, GitHub Actions:
