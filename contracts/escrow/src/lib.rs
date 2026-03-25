@@ -83,14 +83,6 @@ pub enum EscrowError {
     InvalidParticipant = 6,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum DataKey {
-    Admin,
-    Paused,
-    EmergencyPaused,
-}
-
 /// Stored escrow state for a single agreement.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -123,9 +115,13 @@ pub struct ProtocolParameters {
     pub max_reputation_rating: i128,
 }
 
+/// Storage keys for contract data.
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
+    Admin,
+    Paused,
+    EmergencyPaused,
     NextContractId,
     Contract(u32),
     Reputation(Address),
@@ -688,6 +684,86 @@ impl Escrow {
     /// Returns the pending governance admin, if an admin transfer is in flight.
     pub fn get_pending_governance_admin(env: Env) -> Option<Address> {
         Self::pending_governance_admin(&env)
+    }
+
+    /// Initialize protocol governance with the first admin.
+    ///
+    /// # Panics
+    /// - If governance is already initialized.
+    pub fn initialize_governance(env: Env, admin: Address) -> bool {
+        if env.storage().persistent().has(&DataKey::GovernanceAdmin) {
+            panic!("protocol governance is already initialized");
+        }
+
+        admin.require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::GovernanceAdmin, &admin);
+        true
+    }
+
+    /// Update protocol parameters. Only the governance admin may call this.
+    ///
+    /// # Panics
+    /// - If governance is not initialized.
+    /// - If caller is not the governance admin.
+    /// - If parameters fail validation.
+    pub fn update_protocol_parameters(
+        env: Env,
+        min_milestone_amount: i128,
+        max_milestones: u32,
+        min_reputation_rating: i128,
+        max_reputation_rating: i128,
+    ) -> bool {
+        let admin = Self::governance_admin(&env);
+        admin.require_auth();
+
+        let params = Self::validated_protocol_parameters(
+            min_milestone_amount,
+            max_milestones,
+            min_reputation_rating,
+            max_reputation_rating,
+        );
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::ProtocolParameters, &params);
+        true
+    }
+
+    /// Propose a new governance admin. Only the current admin may call this.
+    ///
+    /// # Panics
+    /// - If governance is not initialized.
+    /// - If caller is not the current governance admin.
+    pub fn propose_governance_admin(env: Env, new_admin: Address) -> bool {
+        let admin = Self::governance_admin(&env);
+        admin.require_auth();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingGovernanceAdmin, &new_admin);
+        true
+    }
+
+    /// Accept governance admin transfer. Only the pending admin may call this.
+    ///
+    /// # Panics
+    /// - If there is no pending admin transfer.
+    /// - If caller is not the pending admin.
+    pub fn accept_governance_admin(env: Env) -> bool {
+        let pending_admin = Self::pending_governance_admin(&env)
+            .unwrap_or_else(|| panic!("no pending admin transfer"));
+
+        pending_admin.require_auth();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::GovernanceAdmin, &pending_admin);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingGovernanceAdmin);
+        true
     }
 }
 

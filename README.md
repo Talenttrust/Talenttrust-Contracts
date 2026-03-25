@@ -9,7 +9,7 @@ Soroban smart contracts for the TalentTrust decentralized freelancer escrow prot
 
 ## Security model
 
-The escrow contract now enforces a minimal on-chain state machine instead of placeholder return values:
+The escrow contract enforces a minimal on-chain state machine with comprehensive security controls:
 
 - Contract creation requires client authorization and validates immutable milestone inputs.
 - Funding is accepted exactly once and must match the total milestone amount.
@@ -17,16 +17,39 @@ The escrow contract now enforces a minimal on-chain state machine instead of pla
 - Reputation entries are gated behind completed-contract credits and are treated as informational data.
 - Protocol-wide validation parameters can be guarded by a governance admin and updated through audited state transitions.
 
-Reviewer-focused contract notes and the formal threat model live in [docs/escrow/README.md](/home/christopher/drips_projects/Talenttrust-Contracts/docs/escrow/README.md).
+Comprehensive security documentation:
+- [Threat Model](/docs/escrow/threat-model.md) - Complete threat analysis, attack vectors, and mitigations
+- [Security Notes](/docs/escrow/security.md) - Pause/emergency controls and operational security
+- [Contract Documentation](/docs/escrow/README.md) - Reviewer-focused contract notes
+
+## Threat Model
+
+The escrow contract has been analyzed for security threats across all functionality. Key security features include:
+
+- Multiple authorization layers preventing unauthorized fund access
+- State machine enforcement preventing invalid transitions
+- Input validation on all user-supplied data
+- Emergency pause controls for incident response
+- Two-step governance admin transfer
+- Protocol parameter validation
+
+See [docs/escrow/threat-model.md](/docs/escrow/threat-model.md) for the complete threat model including:
+- 15 identified threat scenarios with mitigations
+- Attack surface analysis
+- Security assumptions and residual risks
+- Recommended hardening steps
+- Incident response procedures
+- Security audit checklist
 
 ## Protocol governance
 
 The escrow contract supports guarded protocol parameter updates for live validation logic:
 
-- A one-time governance initialization assigns the first protocol admin.
-- The admin can update protocol parameters such as minimum milestone amount, maximum milestones per contract, and permitted reputation rating bounds.
-- Admin transfer is two-step: current admin proposes, pending admin accepts.
+- A one-time governance initialization assigns the first protocol admin via `initialize_governance`.
+- The admin can update protocol parameters such as minimum milestone amount, maximum milestones per contract, and permitted reputation rating bounds via `update_protocol_parameters`.
+- Admin transfer is two-step: current admin proposes via `propose_governance_admin`, pending admin accepts via `accept_governance_admin`.
 - Before governance is initialized, the contract uses safe built-in defaults so existing flows remain available.
+- Governance operations are independent of pause controls and can be executed even when the contract is paused.
 
 Current defaults:
 
@@ -34,6 +57,15 @@ Current defaults:
 - `max_milestones = 16`
 - `min_reputation_rating = 1`
 - `max_reputation_rating = 5`
+
+Governance functions:
+- `initialize_governance(admin)` - One-time initialization of governance admin
+- `update_protocol_parameters(min_milestone, max_milestones, min_rating, max_rating)` - Update validation parameters
+- `propose_governance_admin(new_admin)` - Propose admin transfer
+- `accept_governance_admin()` - Accept admin transfer (called by pending admin)
+- `get_governance_admin()` - Query current governance admin
+- `get_pending_governance_admin()` - Query pending admin transfer
+- `get_protocol_parameters()` - Query current parameters
 
 ## Prerequisites
 
