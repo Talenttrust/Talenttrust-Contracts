@@ -22,6 +22,9 @@ While paused, these state-changing flows revert with `ContractPaused`:
 - `deposit_funds`
 - `release_milestone`
 - `issue_reputation`
+- `propose_milestone_amendment`
+- `approve_milestone_amendment`
+- `reject_milestone_amendment`
 
 ### Error Codes
 
