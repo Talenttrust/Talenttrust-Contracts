@@ -1,10 +1,6 @@
 #![cfg(test)]
 
-use soroban_sdk::{
-    symbol_short,
-    testutils::{Address as _, MockAuth, MockAuthInvoke},
-    vec, Address, Env, IntoVal,
-};
+use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env};
 
 use crate::{Escrow, EscrowClient, ReleaseAuthorization};
 
@@ -519,4 +515,5 @@ fn test_edge_cases() {
 }
 
 mod emergency_controls;
+mod governance;
 mod pause_controls;
