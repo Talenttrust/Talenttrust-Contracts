@@ -1,47 +1,98 @@
-# Escrow Contract Documentation
+# Escrow Contract
 
-This document describes escrow-specific controls and operational guidance.
+This document summarizes the reviewer-facing architecture for `contracts/escrow`.
 
-## Emergency Pause Controls
+## Scope
 
-The escrow contract includes admin-managed incident response controls:
+The contract persists:
 
-- `initialize(admin)`: Sets the admin address once.
-- `pause()`: Temporarily pauses state-changing functions.
-- `unpause()`: Re-enables operations after a normal pause.
-- `activate_emergency_pause()`: Activates emergency mode and hard-pauses operations.
-- `resolve_emergency()`: Clears emergency mode and unpauses the contract.
-- `is_paused()`: Read-only pause status.
-- `is_emergency()`: Read-only emergency status.
+- escrow lifecycle state for each contract
+- participant metadata for the client and freelancer
+- milestone release state
+- funded and released accounting
+- pending and issued reputation aggregates
+- protocol governance parameters
+- pause and emergency flags
 
-### Guarded Functions
+## Public Flows
 
-While paused, these state-changing flows revert with `ContractPaused`:
+Core escrow endpoints:
 
-- `create_contract`
-- `deposit_funds`
-- `release_milestone`
-- `issue_reputation`
+- `create_contract(client, freelancer, milestone_amounts) -> u32`
+- `deposit_funds(contract_id, amount) -> bool`
+- `release_milestone(contract_id, milestone_id) -> bool`
+- `issue_reputation(contract_id, rating) -> bool`
+- `get_contract(contract_id) -> EscrowContractData`
+- `get_reputation(freelancer) -> Option<ReputationRecord>`
+- `get_pending_reputation_credits(freelancer) -> u32`
 
-### Error Codes
+Operational controls:
 
-- `1` `AlreadyInitialized`
-- `2` `NotInitialized`
-- `3` `ContractPaused`
-- `4` `NotPaused`
-- `5` `EmergencyActive`
+- `initialize(admin) -> bool`
+- `pause() -> bool`
+- `unpause() -> bool`
+- `activate_emergency_pause() -> bool`
+- `resolve_emergency() -> bool`
+- `is_paused() -> bool`
+- `is_emergency() -> bool`
 
-## Security Notes
+Governance:
 
-- Admin-only controls: pause and emergency operations require authenticated admin.
-- One-time initialization: admin cannot be replaced accidentally by repeated init calls.
-- Emergency lock discipline: `unpause` is blocked while emergency mode is active.
-- Fail-closed behavior: guarded functions revert whenever `paused == true`.
+- `initialize_protocol_governance(admin, min_milestone_amount, max_milestones, min_reputation_rating, max_reputation_rating) -> bool`
+- `update_protocol_parameters(...) -> bool`
+- `propose_governance_admin(next_admin) -> bool`
+- `accept_governance_admin() -> bool`
+- `get_protocol_parameters() -> ProtocolParameters`
+- `get_governance_admin() -> Option<Address>`
+- `get_pending_governance_admin() -> Option<Address>`
 
-## Operational Playbook
+## Lifecycle Model
 
-1. Detect incident and call `activate_emergency_pause`.
-2. Investigate and remediate root cause.
-3. Validate mitigations in test/staging.
-4. Call `resolve_emergency` to restore service.
-5. Publish incident summary for ecosystem transparency.
+Supported lifecycle transitions:
+
+- `Created -> Funded` after any positive deposit
+- `Funded -> Completed` after the final unreleased milestone is released
+
+Operational invariants:
+
+- client and freelancer addresses are immutable after creation
+- milestone amounts are immutable after creation
+- each milestone can transition from `released = false` to `released = true` exactly once
+- `released_amount` is the sum of released milestone amounts
+- `released_milestones` matches the number of released milestone flags
+- `reputation_issued` can only become `true` after `Completed`
+
+## Persistence Notes
+
+Each `EscrowContractData` record stores:
+
+- participant addresses
+- milestone vector and cached milestone count
+- total escrow amount
+- funded and released balances
+- released milestone count
+- contract status
+- reputation issuance flag
+- creation and update timestamps
+
+Detailed storage-key coverage is documented in [state-persistence.md](state-persistence.md).
+
+## Test Coverage
+
+The escrow regression suite is split by concern:
+
+- `flows.rs`: happy-path lifecycle and reputation aggregation
+- `lifecycle.rs`: state transition persistence
+- `persistence.rs`: storage round-trip assertions
+- `security.rs`: failure paths and validation checks
+- `governance.rs`: admin and parameter persistence
+- `pause_controls.rs` and `emergency_controls.rs`: operational safety controls
+- `performance.rs`: resource regression ceilings
+
+Latest local verification:
+
+```text
+cargo test -p escrow
+running 42 tests
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```

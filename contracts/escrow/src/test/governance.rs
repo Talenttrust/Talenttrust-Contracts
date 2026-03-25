@@ -1,20 +1,12 @@
-extern crate std;
-
+use super::register_client;
+use crate::{EscrowError, ProtocolParameters};
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
-
-use crate::{Escrow, EscrowClient, ProtocolParameters};
-
-fn setup() -> (Env, Address) {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(Escrow, ());
-    (env, contract_id)
-}
 
 #[test]
 fn protocol_parameters_default_before_governance_is_initialized() {
-    let (env, contract_id) = setup();
-    let client = EscrowClient::new(&env, &contract_id);
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
 
     let parameters = client.get_protocol_parameters();
 
@@ -33,8 +25,9 @@ fn protocol_parameters_default_before_governance_is_initialized() {
 
 #[test]
 fn governance_initialization_and_updates_change_live_validation_rules() {
-    let (env, contract_id) = setup();
-    let client = EscrowClient::new(&env, &contract_id);
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
 
     let admin = Address::generate(&env);
     assert!(client.initialize_protocol_governance(&admin, &50_i128, &2_u32, &2_i128, &4_i128));
@@ -63,23 +56,23 @@ fn governance_initialization_and_updates_change_live_validation_rules() {
     let freelancer = Address::generate(&env);
     let milestones = vec![&env, 75_i128, 90_i128, 120_i128];
 
-    let id = client.create_contract(&escrow_client, &freelancer, &milestones);
-    client.deposit_funds(&id, &285_i128);
-    client.release_milestone(&id, &0);
-    client.release_milestone(&id, &1);
-    client.release_milestone(&id, &2);
-
-    assert!(client.issue_reputation(&freelancer, &5_i128));
+    let contract_id = client.create_contract(&escrow_client, &freelancer, &milestones);
+    assert!(client.deposit_funds(&contract_id, &285_i128));
+    assert!(client.release_milestone(&contract_id, &0));
+    assert!(client.release_milestone(&contract_id, &1));
+    assert!(client.release_milestone(&contract_id, &2));
+    assert!(client.issue_reputation(&contract_id, &5_i128));
 }
 
 #[test]
 fn governance_admin_transfer_is_two_step() {
-    let (env, contract_id) = setup();
-    let client = EscrowClient::new(&env, &contract_id);
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
 
     let admin = Address::generate(&env);
     let next_admin = Address::generate(&env);
-    client.initialize_protocol_governance(&admin, &10_i128, &4_u32, &1_i128, &5_i128);
+    assert!(client.initialize_protocol_governance(&admin, &10_i128, &4_u32, &1_i128, &5_i128));
 
     assert!(client.propose_governance_admin(&next_admin));
     assert_eq!(
@@ -90,4 +83,34 @@ fn governance_admin_transfer_is_two_step() {
     assert!(client.accept_governance_admin());
     assert_eq!(client.get_governance_admin(), Some(next_admin));
     assert_eq!(client.get_pending_governance_admin(), None);
+}
+
+#[test]
+fn governance_rejects_invalid_parameter_updates() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let admin = Address::generate(&env);
+    assert!(client.initialize_protocol_governance(&admin, &10_i128, &4_u32, &1_i128, &5_i128));
+
+    let result = client.try_update_protocol_parameters(&0_i128, &4_u32, &1_i128, &5_i128);
+    super::assert_contract_error(result, EscrowError::InvalidProtocolParameters);
+}
+
+#[test]
+fn governance_requires_initialization_for_mutations() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let next_admin = Address::generate(&env);
+    super::assert_contract_error(
+        client.try_propose_governance_admin(&next_admin),
+        EscrowError::GovernanceNotInitialized,
+    );
+    super::assert_contract_error(
+        client.try_accept_governance_admin(),
+        EscrowError::InvalidState,
+    );
 }
