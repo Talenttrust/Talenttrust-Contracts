@@ -511,3 +511,6 @@ fn test_edge_cases() {
     );
     assert_eq!(id2, 0); // ledger sequence stays the same in test env
 }
+
+mod emergency_controls;
+mod pause_controls;
