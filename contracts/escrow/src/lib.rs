@@ -65,7 +65,9 @@ pub enum ContractStatus {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Milestone {
+    /// Amount in stroops allocated to this milestone.
     pub amount: i128,
+    /// Whether the milestone payment has been released to the freelancer.
     pub released: bool,
 }
 
@@ -218,6 +220,37 @@ pub enum EscrowError {
     /// No dispute active
     NoDisputeActive = 18,
 }
+
+/// Full on-chain state of an escrow contract.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EscrowState {
+    /// Address of the client who created and funded the escrow.
+    pub client: Address,
+    /// Address of the freelancer who will receive milestone payments.
+    pub freelancer: Address,
+    /// Current lifecycle status of the escrow.
+    pub status: ContractStatus,
+    /// Ordered list of payment milestones.
+    pub milestones: Vec<Milestone>,
+}
+
+/// Immutable record created when a dispute is initiated.
+/// Written once to persistent storage and never overwritten.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct DisputeRecord {
+    /// The address (client or freelancer) that initiated the dispute.
+    pub initiator: Address,
+    /// A short human-readable reason for the dispute.
+    pub reason: String,
+    /// Ledger timestamp (seconds since Unix epoch) at the moment the dispute was recorded.
+    pub timestamp: u64,
+}
+
+// ---------------------------------------------------------------------------
+// Contract
+// ---------------------------------------------------------------------------
 
 #[contract]
 pub struct Escrow;
