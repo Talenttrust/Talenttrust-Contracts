@@ -6,6 +6,7 @@ Soroban smart contracts for the TalentTrust decentralized freelancer escrow prot
 
 - **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments, reputation credential issuance, and emergency pause controls.
 - **Escrow docs** (`docs/escrow`): Escrow operations, security notes, and pause/emergency threat model.
+- **Milestone amendment process** (`docs/escrow/milestone_amendments.md`): Details the flow for mutually approved milestone changes.
 
 ## Security model
 
