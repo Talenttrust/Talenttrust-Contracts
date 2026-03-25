@@ -160,6 +160,17 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "protocol_fee"
+                                },
+                                "val": {
+                                  "i128": {
+                                    "hi": 0,
+                                    "lo": 0
+                                  }
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "released"
                                 },
                                 "val": {
@@ -169,6 +180,33 @@
                             ]
                           }
                         ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "protocol_fee_account"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "protocol_fee_accrued"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "protocol_fee_bps"
+                      },
+                      "val": {
+                        "u32": 100
                       }
                     },
                     {

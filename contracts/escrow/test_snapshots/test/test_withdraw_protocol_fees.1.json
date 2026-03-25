@@ -83,7 +83,36 @@
           "sub_invocations": []
         }
       ]
-    ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "withdraw_protocol_fees",
+              "args": [
+                {
+                  "u32": 1
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 100000000
+                  }
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    []
   ],
   "ledger": {
     "protocol_version": 22,
@@ -222,7 +251,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 100000000
+                          "lo": 0
                         }
                       }
                     },
@@ -346,6 +375,39 @@
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": 1033654523790656264
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+            "key": {
+              "ledger_key_nonce": {
+                "nonce": 4837995959683129791
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 4837995959683129791
                   }
                 },
                 "durability": "temporary",

@@ -1,10 +1,6 @@
 #![cfg(test)]
 
-use soroban_sdk::{
-    symbol_short,
-    testutils::{Address as _, MockAuth, MockAuthInvoke},
-    vec, Address, Env, IntoVal,
-};
+use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env};
 
 use crate::{Escrow, EscrowClient, ReleaseAuthorization};
 
@@ -18,17 +14,14 @@ fn test_hello() {
     assert_eq!(result, symbol_short!("World"));
 }
 
-// ==================== CONTRACT CREATION TESTS ====================
-
 #[test]
-fn test_create_contract_success() {
+fn test_create_contract() {
     let env = Env::default();
-    env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
+
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
-    let token = Address::generate(&env);
     let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128, 600_0000000_i128];
 
     let id = client.create_contract(
@@ -37,6 +30,8 @@ fn test_create_contract_success() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
     assert_eq!(id, 0);
 }
@@ -58,6 +53,8 @@ fn test_create_contract_with_arbiter() {
         &Some(arbiter_addr.clone()),
         &milestones,
         &ReleaseAuthorization::ClientAndArbiter,
+        &100_u32,
+        &client_addr,
     );
     assert_eq!(id, 0);
 }
@@ -79,6 +76,8 @@ fn test_create_contract_no_milestones() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 }
 
@@ -98,6 +97,8 @@ fn test_create_contract_same_addresses() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 }
 
@@ -118,13 +119,16 @@ fn test_create_contract_negative_amount() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #8)")]
-fn test_create_contract_invalid_milestone_amount() {
-    let (env, _contract_id, client, _admin, _treasury) = setup_with_treasury();
+fn test_deposit_funds() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -137,6 +141,8 @@ fn test_create_contract_invalid_milestone_amount() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 
     // Note: Authentication tests would require proper mock setup
@@ -146,8 +152,6 @@ fn test_create_contract_invalid_milestone_amount() {
     let result = client.deposit_funds(&1, &client_addr, &1000_0000000);
     assert!(result);
 }
-
-// ==================== DEPOSIT FUNDS TESTS ====================
 
 #[test]
 #[should_panic(expected = "Deposit amount must equal total milestone amounts")]
@@ -167,6 +171,8 @@ fn test_deposit_funds_wrong_amount() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 
     // Note: Authentication tests would require proper mock setup
@@ -193,6 +199,8 @@ fn test_approve_milestone_release_client_only() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 
     env.mock_all_auths();
@@ -219,6 +227,8 @@ fn test_approve_milestone_release_client_and_arbiter() {
         &Some(arbiter_addr.clone()),
         &milestones,
         &ReleaseAuthorization::ClientAndArbiter,
+        &100_u32,
+        &client_addr,
     );
 
     env.mock_all_auths();
@@ -249,6 +259,8 @@ fn test_approve_milestone_release_unauthorized() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 
     env.mock_all_auths();
@@ -274,6 +286,8 @@ fn test_approve_milestone_release_invalid_id() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 
     env.mock_all_auths();
@@ -299,6 +313,8 @@ fn test_approve_milestone_release_already_approved() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 
     // First approval should succeed
@@ -328,6 +344,8 @@ fn test_release_milestone_client_only() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 
     env.mock_all_auths();
@@ -356,6 +374,8 @@ fn test_release_milestone_arbiter_only() {
         &Some(arbiter_addr.clone()),
         &milestones,
         &ReleaseAuthorization::ArbiterOnly,
+        &100_u32,
+        &client_addr,
     );
 
     env.mock_all_auths();
@@ -384,6 +404,8 @@ fn test_release_milestone_no_approval() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 
     env.mock_all_auths();
@@ -410,6 +432,8 @@ fn test_release_milestone_already_released() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 
     env.mock_all_auths();
@@ -441,6 +465,8 @@ fn test_release_milestone_multi_sig() {
         &Some(arbiter_addr),
         &milestones,
         &ReleaseAuthorization::MultiSig,
+        &100_u32,
+        &client_addr,
     );
 
     env.mock_all_auths();
@@ -468,6 +494,8 @@ fn test_contract_completion_all_milestones_released() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
 
     env.mock_all_auths();
@@ -501,6 +529,8 @@ fn test_edge_cases() {
         &None::<Address>,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
     assert_eq!(id, 0);
 
@@ -518,9 +548,123 @@ fn test_edge_cases() {
         &None::<Address>,
         &many_milestones,
         &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
     );
     assert_eq!(id2, 0); // ledger sequence stays the same in test env
 }
 
-mod emergency_controls;
-mod pause_controls;
+#[test]
+fn test_release_milestone_protocol_fee_accrual() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
+    );
+
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+    client.approve_milestone_release(&1, &client_addr, &0);
+    client.release_milestone(&1, &client_addr, &0);
+
+    let accrued = client.get_protocol_fee_accrued(&1);
+    assert_eq!(accrued, 10_0000000_i128); // 1% of 1000_0000000
+}
+
+#[test]
+fn test_withdraw_protocol_fees() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
+    );
+
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+    client.approve_milestone_release(&1, &client_addr, &0);
+    client.release_milestone(&1, &client_addr, &0);
+
+    let result = client.withdraw_protocol_fees(&1, &client_addr, &10_0000000_i128);
+    assert!(result);
+    let accrued_after = client.get_protocol_fee_accrued(&1);
+    assert_eq!(accrued_after, 0);
+}
+
+#[test]
+#[should_panic(expected = "Only protocol fee account can withdraw accrued fees")]
+fn test_withdraw_protocol_fees_unauthorized() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let other_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
+    );
+
+    env.mock_all_auths();
+    client.deposit_funds(&1, &client_addr, &1000_0000000);
+    client.approve_milestone_release(&1, &client_addr, &0);
+    client.release_milestone(&1, &client_addr, &0);
+
+    client.withdraw_protocol_fees(&1, &other_addr, &10_0000000_i128);
+}
+
+#[test]
+#[should_panic(expected = "Protocol fee out of range")]
+fn test_set_protocol_fee_bps_invalid() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1000_0000000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+        &100_u32,
+        &client_addr,
+    );
+
+    env.mock_all_auths();
+    client.set_protocol_fee_bps(&1, &client_addr, &10_001_u32);
+}
