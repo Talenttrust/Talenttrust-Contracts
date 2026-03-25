@@ -1,108 +1,71 @@
 # TalentTrust Contracts
 
-Soroban smart contracts for the TalentTrust decentralized freelancer escrow protocol on the Stellar network.
+Soroban smart contracts for the TalentTrust freelancer escrow protocol on Stellar.
 
-## What's in this repo
+## Repository Scope
 
-- **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments, reputation credential issuance, and emergency pause controls.
-- **Escrow docs** (`docs/escrow`): Escrow operations, security notes, and pause/emergency threat model.
+- `contracts/escrow`: milestone escrow contract with persisted lifecycle state, participant metadata, governed validation parameters, reputation issuance, and pause controls
+- `docs/escrow`: reviewer-focused escrow design, storage notes, and threat assumptions
 
-## Security model
+## Escrow State Persistence
 
-The escrow contract now enforces a minimal on-chain state machine instead of placeholder return values:
+The escrow contract now persists the full payment lifecycle instead of relying on placeholder behavior:
 
-- Contract creation requires client authorization and validates immutable milestone inputs.
-- Funding is accepted exactly once and must match the total milestone amount.
-- Milestones can be released once each and only by the recorded client.
-- Reputation entries are gated behind completed-contract credits and are treated as informational data.
-- Protocol-wide validation parameters can be guarded by a governance admin and updated through audited state transitions.
+- each escrow record stores the client, freelancer, milestone definitions, funded and released balances, milestone counters, lifecycle status, and timestamps
+- milestone releases are one-way state transitions and cannot be replayed
+- completed contracts mint a pending reputation credit for the recorded freelancer, and that credit is consumed exactly once when a rating is issued
+- protocol governance parameters and pause or emergency flags are persisted separately from escrow records so operational controls survive across calls
 
-Reviewer-focused contract notes and the formal threat model live in [docs/escrow/README.md](/home/christopher/drips_projects/Talenttrust-Contracts/docs/escrow/README.md).
-
-## Protocol governance
-
-The escrow contract supports guarded protocol parameter updates for live validation logic:
-
-- A one-time governance initialization assigns the first protocol admin.
-- The admin can update protocol parameters such as minimum milestone amount, maximum milestones per contract, and permitted reputation rating bounds.
-- Admin transfer is two-step: current admin proposes, pending admin accepts.
-- Before governance is initialized, the contract uses safe built-in defaults so existing flows remain available.
-
-Current defaults:
+Default protocol parameters:
 
 - `min_milestone_amount = 1`
 - `max_milestones = 16`
 - `min_reputation_rating = 1`
 - `max_reputation_rating = 5`
 
-## Prerequisites
+Reviewer-oriented notes live in [docs/escrow/README.md](docs/escrow/README.md), with storage-key details in [docs/escrow/state-persistence.md](docs/escrow/state-persistence.md) and threat analysis in [docs/escrow/security.md](docs/escrow/security.md).
 
-- [Rust](https://rustup.rs/) (stable, 1.75+)
-- `rustfmt`: `rustup component add rustfmt`
-- Optional: [Stellar CLI](https://developers.stellar.org/docs/tools/stellar-cli) for deployment
+## Security Model
 
-## Setup
+The escrow implementation follows a fail-closed state machine:
+
+- contract creation requires client authorization and rejects invalid participant or milestone metadata before persisting state
+- deposits cannot exceed the required escrow total
+- releases require the recorded client, a valid unreleased milestone, and enough funded balance to cover the payment
+- reputation is gated behind contract completion and is issued once per contract
+- governance changes use a one-time initialization plus a two-step admin transfer
+- pause and emergency controls block all state-changing escrow operations while active
+
+## Local Verification
 
 ```bash
-# Clone (or you're already in the repo)
-git clone <your-repo-url>
-cd talenttrust-contracts
-
-# Build
-cargo build
-
-# Run tests (includes 95%+ coverage negative path testing for escrow)
-cargo test
-
-# Run escrow performance/gas baseline tests only
-cargo test test::performance
-
-# Check formatting
 cargo fmt --all -- --check
-
-# Format code
-cargo fmt --all
+cargo test -p escrow
 ```
 
-## Escrow Emergency Controls
+Latest local escrow test result:
 
-The escrow contract now supports critical-incident response with admin-managed controls:
+```text
+running 42 tests
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
 
-- `initialize(admin)` (one-time setup)
-- `pause()` and `unpause()`
-- `activate_emergency_pause()` and `resolve_emergency()`
-- `is_paused()` and `is_emergency()`
+## Development
 
-When paused, mutating escrow operations are blocked.
+Prerequisites:
 
-## Contributing
+- Rust 1.75+
+- `rustfmt`
+- optional Stellar CLI for deployment workflows
 
-1. Fork the repo and create a branch from `main`.
-2. Make changes; keep tests and formatting passing:
-   - `cargo fmt --all`
-   - `cargo test`
-   - `cargo build`
-3. Open a pull request. CI runs `cargo fmt --all -- --check`, `cargo build`, and `cargo test` on push/PR to `main`.
+Common commands:
 
-## CI/CD
-
-On every push and pull request to `main`, GitHub Actions:
-
-- Checks formatting (`cargo fmt --all -- --check`)
-- Builds the workspace (`cargo build`)
-- Runs tests (`cargo test`)
-
-Ensure these pass locally before pushing.
-
-## Escrow Performance and Security
-
-- Performance/gas baseline tests for key flows are in `contracts/escrow/src/test/performance.rs`.
-- Functional and failure-path coverage is split by module:
-  - `contracts/escrow/src/test/flows.rs`
-  - `contracts/escrow/src/test/security.rs`
-- Contract-specific reviewer docs:
-  - `docs/escrow/performance-baselines.md`
-  - `docs/escrow/security.md`
+```bash
+cargo build
+cargo test -p escrow
+cargo test test::performance -p escrow
+cargo fmt --all
+```
 
 ## License
 
