@@ -4,8 +4,8 @@ Soroban smart contracts for the TalentTrust decentralized freelancer escrow prot
 
 ## What's in this repo
 
-- **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments, reputation credential issuance, and emergency pause controls.
-- **Escrow docs** (`docs/escrow`): Escrow operations, security notes, and pause/emergency threat model.
+- **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments, reputation credential issuance, emergency pause controls, and standardized event emission.
+- **Escrow docs** (`docs/escrow`): Escrow operations, security notes, pause/emergency threat model, and event emission specifications.
 
 ## Security model
 
@@ -74,6 +74,19 @@ The escrow contract now supports critical-incident response with admin-managed c
 - `is_paused()` and `is_emergency()`
 
 When paused, mutating escrow operations are blocked.
+
+## Event Emission Standardization
+
+The escrow contract emits standardized events for all critical actions:
+
+- **ContractCreatedEvent**: Fired when a new escrow contract is created
+- **ContractFundedEvent**: Fired when funds are deposited (tracks full funding)
+- **MilestoneReleasedEvent**: Fired when a milestone payment is released
+- **DisputeInitiatedEvent**: Fired when a dispute is initiated
+- **DisputeResolvedEvent**: Fired when a dispute is resolved
+- **ContractClosedEvent**: Fired when a contract is closed
+
+Events enable off-chain listeners to maintain synchronized views and maintain audit trails. See [docs/escrow/EVENT_EMISSION.md](docs/escrow/EVENT_EMISSION.md) for complete event specifications.
 
 ## Contributing
 
