@@ -23,8 +23,11 @@ cd talenttrust-contracts
 # Build
 cargo build
 
-# Run tests
+# Run tests (includes 95%+ coverage negative path testing for escrow)
 cargo test
+
+# Run escrow performance/gas baseline tests only
+cargo test test::performance
 
 # Check formatting
 cargo fmt --all -- --check
@@ -32,6 +35,17 @@ cargo fmt --all -- --check
 # Format code
 cargo fmt --all
 ```
+
+## Escrow Emergency Controls
+
+The escrow contract now supports critical-incident response with admin-managed controls:
+
+- `initialize(admin)` (one-time setup)
+- `pause()` and `unpause()`
+- `activate_emergency_pause()` and `resolve_emergency()`
+- `is_paused()` and `is_emergency()`
+
+When paused, mutating escrow operations are blocked.
 
 ## Contributing
 
@@ -51,6 +65,16 @@ On every push and pull request to `main`, GitHub Actions:
 - Runs tests (`cargo test`)
 
 Ensure these pass locally before pushing.
+
+## Escrow Performance and Security
+
+- Performance/gas baseline tests for key flows are in `contracts/escrow/src/test/performance.rs`.
+- Functional and failure-path coverage is split by module:
+  - `contracts/escrow/src/test/flows.rs`
+  - `contracts/escrow/src/test/security.rs`
+- Contract-specific reviewer docs:
+  - `docs/escrow/performance-baselines.md`
+  - `docs/escrow/security.md`
 
 ## License
 
