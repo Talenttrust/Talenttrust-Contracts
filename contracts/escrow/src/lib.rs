@@ -401,7 +401,7 @@ impl Escrow {
         if milestone_amounts.is_empty() {
             panic!("At least one milestone required");
         }
-        
+
         let protocol_params = Self::protocol_parameters(&env);
         if milestone_amounts.len() > protocol_params.max_milestones {
             panic!("Exceeds maximum milestone count");
@@ -410,7 +410,9 @@ impl Escrow {
         let mut total_amount: i128 = 0;
         for i in 0..milestone_amounts.len() {
             let amount = milestone_amounts.get(i).unwrap();
-            total_amount = total_amount.checked_add(amount).unwrap_or_else(|| panic!("Amount overflow"));
+            total_amount = total_amount
+                .checked_add(amount)
+                .unwrap_or_else(|| panic!("Amount overflow"));
         }
 
         // Limit contract size conceptually: prevent massive state requirements by bounding total scale
@@ -480,20 +482,14 @@ impl Escrow {
         if contract.status != ContractStatus::Created {
             panic!("Contract must be in Created status to deposit funds");
         }
-        Ok(())
-    }
 
         let mut total_required = 0i128;
         for i in 0..contract.milestones.len() {
             total_required += contract.milestones.get(i).unwrap().amount;
         }
-        Ok(())
-    }
 
-    fn ensure_valid_milestone_id(milestone_id: u32) -> Result<(), EscrowError> {
-        // `u32::MAX` is reserved as an invalid sentinel in this placeholder implementation.
-        if milestone_id == u32::MAX {
-            return Err(EscrowError::InvalidMilestoneId);
+        if amount != total_required {
+            panic!("Deposit amount must equal total milestone amounts");
         }
 
         let mut updated_contract = contract;
@@ -504,8 +500,14 @@ impl Escrow {
 
         true
     }
-}
 
+    fn ensure_valid_milestone_id(milestone_id: u32) -> Result<(), EscrowError> {
+        // `u32::MAX` is reserved as an invalid sentinel in this placeholder implementation.
+        if milestone_id == u32::MAX {
+            return Err(EscrowError::InvalidMilestoneId);
+        }
+        Ok(())
+    }
     /// Approve a milestone for release with proper authorization.
     pub fn approve_milestone_release(
         env: Env,
@@ -572,11 +574,7 @@ impl Escrow {
     }
 
     /// Release a milestone payment to the freelancer after proper authorization.
-    pub fn release_milestone(
-        _env: Env,
-        contract_id: u32,
-        milestone_id: u32,
-    ) -> bool {
+    pub fn release_milestone(_env: Env, contract_id: u32, milestone_id: u32) -> bool {
         Self::ensure_not_paused(&env);
         caller.require_auth();
 

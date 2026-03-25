@@ -156,7 +156,7 @@ fn test_create_contract_too_many_milestones() {
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
-    
+
     // Create vector with 17 milestones (1 more than DEFAULT_MAX_MILESTONES of 16)
     let mut milestones = vec![&env];
     for _ in 0..17 {
@@ -181,7 +181,7 @@ fn test_create_contract_exceeds_size_limit() {
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
-    
+
     // Amount exceeds 1_000_000_000_000_i128 limit
     let milestones = vec![&env, 2_000_000_000_000_i128];
 
