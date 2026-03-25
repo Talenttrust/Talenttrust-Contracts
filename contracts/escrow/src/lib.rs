@@ -20,6 +20,7 @@ pub struct Milestone {
     pub released: bool,
     pub approved_by: Option<Address>,
     pub approval_timestamp: Option<u64>,
+    pub protocol_fee: i128,
 }
 
 #[contracttype]
@@ -41,6 +42,9 @@ pub struct EscrowContract {
     pub status: ContractStatus,
     pub release_auth: ReleaseAuthorization,
     pub created_at: u64,
+    pub protocol_fee_bps: u32,
+    pub protocol_fee_account: Address,
+    pub protocol_fee_accrued: i128,
 }
 
 #[contracttype]
@@ -66,7 +70,7 @@ pub struct Escrow;
 
 #[contractimpl]
 impl Escrow {
-    /// Create a new escrow contract with milestone release authorization
+    /// Create a new escrow contract with milestone release authorization and protocol fee config.
     ///
     /// # Arguments
     /// * `client` - Address of the client who funds the escrow
@@ -74,6 +78,8 @@ impl Escrow {
     /// * `arbiter` - Optional arbiter address for dispute resolution
     /// * `milestone_amounts` - Vector of milestone payment amounts
     /// * `release_auth` - Authorization scheme for milestone releases
+    /// * `protocol_fee_bps` - Protocol fee in basis points (0-10000)
+    /// * `protocol_fee_account` - Address entitled to withdraw accrued protocol fees
     ///
     /// # Returns
     /// Contract ID for the newly created escrow
@@ -83,6 +89,7 @@ impl Escrow {
     /// - Milestone amounts vector is empty
     /// - Any milestone amount is zero or negative
     /// - Client and freelancer addresses are the same
+    /// - Protocol fee is out of range
     pub fn create_contract(
         env: Env,
         client: Address,
@@ -90,6 +97,8 @@ impl Escrow {
         arbiter: Option<Address>,
         milestone_amounts: Vec<i128>,
         release_auth: ReleaseAuthorization,
+        protocol_fee_bps: u32,
+        protocol_fee_account: Address,
     ) -> u32 {
         // Validate inputs
         if milestone_amounts.is_empty() {
@@ -116,10 +125,15 @@ impl Escrow {
                 released: false,
                 approved_by: None,
                 approval_timestamp: None,
+                protocol_fee: 0,
             });
         }
 
         // Create contract
+        if protocol_fee_bps > 10000 {
+            panic!("Protocol fee out of range");
+        }
+
         let contract_data = EscrowContract {
             client: client.clone(),
             freelancer: freelancer.clone(),
@@ -128,6 +142,9 @@ impl Escrow {
             status: ContractStatus::Created,
             release_auth,
             created_at: env.ledger().timestamp(),
+            protocol_fee_bps,
+            protocol_fee_account: protocol_fee_account.clone(),
+            protocol_fee_accrued: 0,
         };
 
         // Generate contract ID (in real implementation, this would use proper storage)
@@ -370,11 +387,15 @@ impl Escrow {
             panic!("Insufficient approvals for milestone release");
         }
 
-        // Release milestone
+        // Release milestone, compute protocol fee and accrue it
+        let protocol_fee = milestone.amount * (contract.protocol_fee_bps as i128) / 10_000;
+
         let mut updated_milestone = milestone;
         updated_milestone.released = true;
+        updated_milestone.protocol_fee = protocol_fee;
 
-        // Update contract
+        // Update contract fee tracker
+        contract.protocol_fee_accrued += protocol_fee;
         contract.milestones.set(milestone_id, updated_milestone);
 
         // Check if all milestones are released
@@ -387,8 +408,83 @@ impl Escrow {
             .persistent()
             .set(&symbol_short!("contract"), &contract);
 
-        // In real implementation, transfer funds to freelancer
-        // For now, we'll just mark as released
+        // In real implementation, transfer funds to freelancer minus fee.
+        // For now, we'll just mark milestone as released and record fee accrual.
+
+        true
+    }
+
+    /// Get accrued protocol fees for this contract.
+    pub fn get_protocol_fee_accrued(env: Env, _contract_id: u32) -> i128 {
+        let contract: EscrowContract = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("contract"))
+            .unwrap_or_else(|| panic!("Contract not found"));
+        contract.protocol_fee_accrued
+    }
+
+    /// Withdraw accrued protocol fees to fee account, decreasing accrual balance.
+    pub fn withdraw_protocol_fees(
+        env: Env,
+        _contract_id: u32,
+        caller: Address,
+        amount: i128,
+    ) -> bool {
+        caller.require_auth();
+        if amount <= 0 {
+            panic!("Withdraw amount must be positive");
+        }
+
+        let mut contract: EscrowContract = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("contract"))
+            .unwrap_or_else(|| panic!("Contract not found"));
+
+        if caller != contract.protocol_fee_account {
+            panic!("Only protocol fee account can withdraw accrued fees");
+        }
+
+        if amount > contract.protocol_fee_accrued {
+            panic!("Insufficient accrued protocol fee balance");
+        }
+
+        contract.protocol_fee_accrued -= amount;
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("contract"), &contract);
+
+        // In real implementation, transfer protocol fees out of escrow.
+        true
+    }
+
+    /// Update protocol fee basis points. Only fee account may change.
+    pub fn set_protocol_fee_bps(
+        env: Env,
+        _contract_id: u32,
+        caller: Address,
+        protocol_fee_bps: u32,
+    ) -> bool {
+        caller.require_auth();
+        if protocol_fee_bps > 10_000 {
+            panic!("Protocol fee out of range");
+        }
+
+        let mut contract: EscrowContract = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("contract"))
+            .unwrap_or_else(|| panic!("Contract not found"));
+
+        if caller != contract.protocol_fee_account {
+            panic!("Only protocol fee account can update fee rate");
+        }
+
+        contract.protocol_fee_bps = protocol_fee_bps;
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("contract"), &contract);
 
         true
     }
