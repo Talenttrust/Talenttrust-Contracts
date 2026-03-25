@@ -147,6 +147,53 @@ fn test_create_contract_invalid_milestone_amount() {
     assert!(result);
 }
 
+#[test]
+#[should_panic(expected = "Exceeds maximum milestone count")]
+fn test_create_contract_too_many_milestones() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    
+    // Create vector with 17 milestones (1 more than DEFAULT_MAX_MILESTONES of 16)
+    let mut milestones = vec![&env];
+    for _ in 0..17 {
+        milestones.push_back(1000_0000000_i128);
+    }
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Exceeds maximum contract funding size")]
+fn test_create_contract_exceeds_size_limit() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    
+    // Amount exceeds 1_000_000_000_000_i128 limit
+    let milestones = vec![&env, 2_000_000_000_000_i128];
+
+    client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None::<Address>,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+}
+
 // ==================== DEPOSIT FUNDS TESTS ====================
 
 #[test]

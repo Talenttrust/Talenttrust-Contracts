@@ -12,10 +12,11 @@ Soroban smart contracts for the TalentTrust decentralized freelancer escrow prot
 The escrow contract now enforces a minimal on-chain state machine instead of placeholder return values:
 
 - Contract creation requires client authorization and validates immutable milestone inputs.
+- Contract creation enforces minimum and maximum size/funding limits to prevent unbounded state and massive logic errors.
 - Funding is accepted exactly once and must match the total milestone amount.
 - Milestones can be released once each and only by the recorded client.
 - Reputation entries are gated behind completed-contract credits and are treated as informational data.
-- Protocol-wide validation parameters can be guarded by a governance admin and updated through audited state transitions.
+- Protocol-wide validation parameters (like maximum milestone counts) can be guarded by a governance admin and updated through audited state transitions.
 
 Reviewer-focused contract notes and the formal threat model live in [docs/escrow/README.md](/home/christopher/drips_projects/Talenttrust-Contracts/docs/escrow/README.md).
 

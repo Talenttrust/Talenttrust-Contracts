@@ -401,6 +401,23 @@ impl Escrow {
         if milestone_amounts.is_empty() {
             panic!("At least one milestone required");
         }
+        
+        let protocol_params = Self::protocol_parameters(&env);
+        if milestone_amounts.len() > protocol_params.max_milestones {
+            panic!("Exceeds maximum milestone count");
+        }
+
+        let mut total_amount: i128 = 0;
+        for i in 0..milestone_amounts.len() {
+            let amount = milestone_amounts.get(i).unwrap();
+            total_amount = total_amount.checked_add(amount).unwrap_or_else(|| panic!("Amount overflow"));
+        }
+
+        // Limit contract size conceptually: prevent massive state requirements by bounding total scale
+        if total_amount > 1_000_000_000_000_i128 {
+            panic!("Exceeds maximum contract funding size");
+        }
+
         Ok(())
     }
 

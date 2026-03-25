@@ -31,6 +31,12 @@ While paused, these state-changing flows revert with `ContractPaused`:
 - `4` `NotPaused`
 - `5` `EmergencyActive`
 
+## Escrow Creation Boundaries
+
+To prevent out-of-gas or infinite-loop denial of service attacks, the escrow contract enforces creation limits:
+- **Maximum Milestone Count**: Hard-capped by `ProtocolParameters.max_milestones` (defaults to 16).
+- **Maximum Contract Size/Funding**: Total escrow amounts are bounded (e.g., `< 1,000,000,000,000` stroops) to prevent integer overflows or massive storage requirements footprint.
+
 ## Security Notes
 
 - Admin-only controls: pause and emergency operations require authenticated admin.
