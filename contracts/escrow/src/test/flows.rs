@@ -61,7 +61,9 @@ fn test_full_flow_completes_and_issues_reputation() {
 
     assert!(client.issue_reputation(&contract_id, &5));
 
-    let reputation = client.get_reputation(&freelancer_addr).expect("reputation not found");
+    let reputation = client
+        .get_reputation(&freelancer_addr)
+        .expect("reputation not found");
     assert_eq!(reputation.total_rating, 5);
     assert_eq!(reputation.ratings_count, 1);
 
@@ -110,7 +112,9 @@ fn test_reputation_aggregates_across_completed_contracts() {
     assert!(client.release_milestone(&contract_two, &2));
     assert!(client.issue_reputation(&contract_two, &4));
 
-    let reputation = client.get_reputation(&freelancer_addr).expect("reputation not found");
+    let reputation = client
+        .get_reputation(&freelancer_addr)
+        .expect("reputation not found");
     assert_eq!(reputation.total_rating, 9);
     assert_eq!(reputation.ratings_count, 2);
 }

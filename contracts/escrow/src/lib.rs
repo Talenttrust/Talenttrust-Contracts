@@ -272,7 +272,9 @@ impl Escrow {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Paused, &false);
-        env.storage().instance().set(&DataKey::EmergencyPaused, &false);
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyPaused, &false);
         env.events()
             .publish((symbol_short!("pause"), symbol_short!("init")), admin);
         true
@@ -311,7 +313,9 @@ impl Escrow {
     /// Activates emergency mode.  Emits `("pause","emerg")`.
     pub fn activate_emergency_pause(env: Env) -> bool {
         Self::require_pause_admin(&env);
-        env.storage().instance().set(&DataKey::EmergencyPaused, &true);
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyPaused, &true);
         env.storage().instance().set(&DataKey::Paused, &true);
         let admin = Self::pause_admin(&env);
         env.events()
@@ -322,7 +326,9 @@ impl Escrow {
     /// Resolves emergency mode.  Emits `("pause","resolv")`.
     pub fn resolve_emergency(env: Env) -> bool {
         Self::require_pause_admin(&env);
-        env.storage().instance().set(&DataKey::EmergencyPaused, &false);
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyPaused, &false);
         env.storage().instance().set(&DataKey::Paused, &false);
         let admin = Self::pause_admin(&env);
         env.events()
@@ -351,11 +357,7 @@ impl Escrow {
         min_reputation_rating: i128,
         max_reputation_rating: i128,
     ) -> bool {
-        if env
-            .storage()
-            .persistent()
-            .has(&DataKey::GovernanceAdmin)
-        {
+        if env.storage().persistent().has(&DataKey::GovernanceAdmin) {
             panic!("governance already initialized");
         }
         admin.require_auth();
@@ -365,8 +367,12 @@ impl Escrow {
             min_reputation_rating,
             max_reputation_rating,
         );
-        env.storage().persistent().set(&DataKey::GovernanceAdmin, &admin);
-        env.storage().persistent().set(&DataKey::ProtocolParameters, &params);
+        env.storage()
+            .persistent()
+            .set(&DataKey::GovernanceAdmin, &admin);
+        env.storage()
+            .persistent()
+            .set(&DataKey::ProtocolParameters, &params);
         env.events()
             .publish((symbol_short!("gov"), symbol_short!("init")), admin);
         true
@@ -388,7 +394,9 @@ impl Escrow {
             min_reputation_rating,
             max_reputation_rating,
         );
-        env.storage().persistent().set(&DataKey::ProtocolParameters, &params);
+        env.storage()
+            .persistent()
+            .set(&DataKey::ProtocolParameters, &params);
         env.events().publish(
             (symbol_short!("gov"), symbol_short!("params")),
             (
@@ -408,7 +416,9 @@ impl Escrow {
         if new_admin == current {
             panic!("cannot propose current admin as successor");
         }
-        env.storage().persistent().set(&DataKey::PendingGovernanceAdmin, &new_admin);
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingGovernanceAdmin, &new_admin);
         env.events()
             .publish((symbol_short!("gov"), symbol_short!("propose")), new_admin);
         true
@@ -416,12 +426,18 @@ impl Escrow {
 
     /// Completes the governance-admin transfer.  Emits `("gov","accept")`.
     pub fn accept_governance_admin(env: Env) -> bool {
-        let new_admin = env.storage().persistent()
+        let new_admin = env
+            .storage()
+            .persistent()
             .get::<_, Address>(&DataKey::PendingGovernanceAdmin)
             .unwrap_or_else(|| panic!("no pending admin transfer"));
         new_admin.require_auth();
-        env.storage().persistent().set(&DataKey::GovernanceAdmin, &new_admin);
-        env.storage().persistent().remove(&DataKey::PendingGovernanceAdmin);
+        env.storage()
+            .persistent()
+            .set(&DataKey::GovernanceAdmin, &new_admin);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingGovernanceAdmin);
         env.events()
             .publish((symbol_short!("gov"), symbol_short!("accept")), new_admin);
         true
@@ -488,7 +504,9 @@ impl Escrow {
         client.require_auth();
 
         let contract_id = Self::next_contract_id(&env);
-        env.storage().persistent().set(&DataKey::NextContractId, &(contract_id + 1));
+        env.storage()
+            .persistent()
+            .set(&DataKey::NextContractId, &(contract_id + 1));
 
         let contract = EscrowContractData {
             client: client.clone(),
@@ -517,11 +535,7 @@ impl Escrow {
     /// # Errors
     /// [`EscrowError::InvalidAmount`] | [`EscrowError::ContractNotFound`] |
     /// [`EscrowError::InvalidState`] | [`EscrowError::FundingExceedsRequired`]
-    pub fn deposit_funds(
-        env: Env,
-        contract_id: u32,
-        amount: i128,
-    ) -> Result<bool, EscrowError> {
+    pub fn deposit_funds(env: Env, contract_id: u32, amount: i128) -> Result<bool, EscrowError> {
         Self::require_not_paused(&env);
 
         if amount <= 0 {
@@ -645,11 +659,7 @@ impl Escrow {
     /// # Errors
     /// [`EscrowError::InvalidRating`] | [`EscrowError::ContractNotFound`] |
     /// [`EscrowError::InvalidState`] | [`EscrowError::ReputationAlreadyIssued`]
-    pub fn issue_reputation(
-        env: Env,
-        contract_id: u32,
-        rating: i128,
-    ) -> Result<bool, EscrowError> {
+    pub fn issue_reputation(env: Env, contract_id: u32, rating: i128) -> Result<bool, EscrowError> {
         Self::require_not_paused(&env);
 
         let params = Self::protocol_parameters(&env);
@@ -711,10 +721,7 @@ impl Escrow {
     // Read-only accessors
     // ────────────────────────────────────────────────────────────────────────
 
-    pub fn get_contract(
-        env: Env,
-        contract_id: u32,
-    ) -> Result<EscrowContractData, EscrowError> {
+    pub fn get_contract(env: Env, contract_id: u32) -> Result<EscrowContractData, EscrowError> {
         Self::load_contract(&env, contract_id)
     }
 

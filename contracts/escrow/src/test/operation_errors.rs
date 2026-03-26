@@ -93,8 +93,8 @@ fn test_issue_reputation_fails_for_rating_above_range() {
 /// the return-Err branch inside deposit_funds is properly instrumented.
 #[test]
 fn test_deposit_fails_for_completed_contract() {
-    use soroban_sdk::{testutils::Address as _, vec, Address, Env};
     use crate::{Escrow, EscrowClient, EscrowError};
+    use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
     let env = Env::default();
     env.mock_all_auths();

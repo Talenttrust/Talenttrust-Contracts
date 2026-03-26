@@ -31,8 +31,17 @@ fn fresh(env: &Env) -> (EscrowClient<'_>, Address) {
 }
 
 /// Asserts that an event's `topics[0]` == `ns_sym` and `topics[1]` == `op_sym`.
-fn assert_topics(env: &Env, event_topics: &soroban_sdk::Vec<soroban_sdk::Val>, ns: Symbol, op: Symbol) {
-    assert_eq!(event_topics.len(), 2, "events must have exactly 2 topics (namespace, operation)");
+fn assert_topics(
+    env: &Env,
+    event_topics: &soroban_sdk::Vec<soroban_sdk::Val>,
+    ns: Symbol,
+    op: Symbol,
+) {
+    assert_eq!(
+        event_topics.len(),
+        2,
+        "events must have exactly 2 topics (namespace, operation)"
+    );
     let t0 = Symbol::try_from_val(env, &event_topics.get(0).unwrap()).unwrap();
     let t1 = Symbol::try_from_val(env, &event_topics.get(1).unwrap()).unwrap();
     assert_eq!(t0, ns, "topic[0] (namespace) mismatch");
@@ -75,7 +84,12 @@ fn test_pause_emits_pause_pause() {
     assert_eq!(events.len(), 1);
     let (contract, topics, data) = events.get(0).unwrap();
     assert_eq!(contract, addr);
-    assert_topics(&env, &topics, symbol_short!("pause"), symbol_short!("pause"));
+    assert_topics(
+        &env,
+        &topics,
+        symbol_short!("pause"),
+        symbol_short!("pause"),
+    );
     assert_eq!(Address::try_from_val(&env, &data).unwrap(), admin);
 }
 
@@ -94,7 +108,12 @@ fn test_unpause_emits_pause_unpause() {
     assert_eq!(events.len(), 1);
     let (contract, topics, data) = events.get(0).unwrap();
     assert_eq!(contract, addr);
-    assert_topics(&env, &topics, symbol_short!("pause"), symbol_short!("unpause"));
+    assert_topics(
+        &env,
+        &topics,
+        symbol_short!("pause"),
+        symbol_short!("unpause"),
+    );
     assert_eq!(Address::try_from_val(&env, &data).unwrap(), admin);
 }
 
@@ -112,7 +131,12 @@ fn test_activate_emergency_emits_pause_emerg() {
     assert_eq!(events.len(), 1);
     let (contract, topics, data) = events.get(0).unwrap();
     assert_eq!(contract, addr);
-    assert_topics(&env, &topics, symbol_short!("pause"), symbol_short!("emerg"));
+    assert_topics(
+        &env,
+        &topics,
+        symbol_short!("pause"),
+        symbol_short!("emerg"),
+    );
     assert_eq!(Address::try_from_val(&env, &data).unwrap(), admin);
 }
 
@@ -131,7 +155,12 @@ fn test_resolve_emergency_emits_pause_resolv() {
     assert_eq!(events.len(), 1);
     let (contract, topics, data) = events.get(0).unwrap();
     assert_eq!(contract, addr);
-    assert_topics(&env, &topics, symbol_short!("pause"), symbol_short!("resolv"));
+    assert_topics(
+        &env,
+        &topics,
+        symbol_short!("pause"),
+        symbol_short!("resolv"),
+    );
     assert_eq!(Address::try_from_val(&env, &data).unwrap(), admin);
 }
 
@@ -195,7 +224,12 @@ fn test_propose_governance_admin_emits_gov_propose() {
     assert_eq!(events.len(), 1);
     let (contract, topics, data) = events.get(0).unwrap();
     assert_eq!(contract, addr);
-    assert_topics(&env, &topics, symbol_short!("gov"), symbol_short!("propose"));
+    assert_topics(
+        &env,
+        &topics,
+        symbol_short!("gov"),
+        symbol_short!("propose"),
+    );
     assert_eq!(Address::try_from_val(&env, &data).unwrap(), new_admin);
 }
 
@@ -238,7 +272,12 @@ fn test_create_contract_emits_escrow_create_with_correct_payload() {
     assert_eq!(events.len(), 1);
     let (contract, topics, data) = events.get(0).unwrap();
     assert_eq!(contract, addr);
-    assert_topics(&env, &topics, symbol_short!("escrow"), symbol_short!("create"));
+    assert_topics(
+        &env,
+        &topics,
+        symbol_short!("escrow"),
+        symbol_short!("create"),
+    );
     // payload: (contract_id: u32, client: Address, freelancer: Address, total: i128)
     let (id, client_ev, freelancer_ev, total): (u32, Address, Address, i128) =
         <(u32, Address, Address, i128)>::try_from_val(&env, &data).unwrap();
@@ -282,7 +321,12 @@ fn test_deposit_funds_emits_escrow_deposit_with_correct_payload() {
     assert_eq!(events.len(), 1);
     let (contract, topics, data) = events.get(0).unwrap();
     assert_eq!(contract, addr);
-    assert_topics(&env, &topics, symbol_short!("escrow"), symbol_short!("deposit"));
+    assert_topics(
+        &env,
+        &topics,
+        symbol_short!("escrow"),
+        symbol_short!("deposit"),
+    );
     // payload: (contract_id, amount, funded_amount)
     let (id, amount, funded): (u32, i128, i128) =
         <(u32, i128, i128)>::try_from_val(&env, &data).unwrap();
@@ -326,10 +370,19 @@ fn test_release_milestone_emits_escrow_release_with_correct_payload() {
     client.release_milestone(&contract_id, &0);
 
     let events = env.events().all();
-    assert_eq!(events.len(), 1, "non-final release must emit exactly 1 event");
+    assert_eq!(
+        events.len(),
+        1,
+        "non-final release must emit exactly 1 event"
+    );
     let (contract, topics, data) = events.get(0).unwrap();
     assert_eq!(contract, addr);
-    assert_topics(&env, &topics, symbol_short!("escrow"), symbol_short!("release"));
+    assert_topics(
+        &env,
+        &topics,
+        symbol_short!("escrow"),
+        symbol_short!("release"),
+    );
     // payload: (contract_id, milestone_id, amount)
     let (id, mid, amount): (u32, u32, i128) =
         <(u32, u32, i128)>::try_from_val(&env, &data).unwrap();
@@ -353,7 +406,11 @@ fn test_release_last_milestone_emits_release_then_complete_in_order() {
     client.release_milestone(&contract_id, &2);
 
     let events = env.events().all();
-    assert_eq!(events.len(), 2, "final release must emit both 'release' and 'complete'");
+    assert_eq!(
+        events.len(),
+        2,
+        "final release must emit both 'release' and 'complete'"
+    );
 
     // First: release event.
     let (c0, t0, d0) = events.get(0).unwrap();
@@ -368,7 +425,12 @@ fn test_release_last_milestone_emits_release_then_complete_in_order() {
     // Second: complete event.
     let (c1, t1, d1) = events.get(1).unwrap();
     assert_eq!(c1, addr);
-    assert_topics(&env, &t1, symbol_short!("escrow"), symbol_short!("complete"));
+    assert_topics(
+        &env,
+        &t1,
+        symbol_short!("escrow"),
+        symbol_short!("complete"),
+    );
     let complete_id = u32::try_from_val(&env, &d1).unwrap();
     assert_eq!(complete_id, contract_id);
 }
@@ -391,15 +453,19 @@ fn test_single_milestone_contract_release_emits_both_release_and_complete() {
 
     let (_, t0, d0) = events.get(0).unwrap();
     assert_topics(&env, &t0, symbol_short!("escrow"), symbol_short!("release"));
-    let (id, mid, amount): (u32, u32, i128) =
-        <(u32, u32, i128)>::try_from_val(&env, &d0).unwrap();
+    let (id, mid, amount): (u32, u32, i128) = <(u32, u32, i128)>::try_from_val(&env, &d0).unwrap();
     assert_eq!(id, contract_id);
     assert_eq!(mid, 0_u32);
     assert_eq!(amount, 500_i128);
 
     let (c1, t1, d1) = events.get(1).unwrap();
     assert_eq!(c1, addr);
-    assert_topics(&env, &t1, symbol_short!("escrow"), symbol_short!("complete"));
+    assert_topics(
+        &env,
+        &t1,
+        symbol_short!("escrow"),
+        symbol_short!("complete"),
+    );
     assert_eq!(u32::try_from_val(&env, &d1).unwrap(), contract_id);
 }
 
@@ -525,7 +591,12 @@ fn test_all_escrow_events_emitted_in_order_across_full_flow() {
         let (_, t0, _) = events.get(0).unwrap();
         let (_, t1, _) = events.get(1).unwrap();
         assert_topics(&env, &t0, symbol_short!("escrow"), symbol_short!("release"));
-        assert_topics(&env, &t1, symbol_short!("escrow"), symbol_short!("complete"));
+        assert_topics(
+            &env,
+            &t1,
+            symbol_short!("escrow"),
+            symbol_short!("complete"),
+        );
     }
 
     // reputation → 1 event
@@ -634,7 +705,10 @@ fn test_deposit_event_shows_partial_then_full_funding() {
         let (_, _, data) = events.get(0).unwrap();
         let (_, _, funded): (u32, i128, i128) =
             <(u32, i128, i128)>::try_from_val(&env, &data).unwrap();
-        assert_eq!(funded, MILESTONE_ONE, "partial funded_amount after first deposit");
+        assert_eq!(
+            funded, MILESTONE_ONE,
+            "partial funded_amount after first deposit"
+        );
     }
 
     // Second deposit brings total to MILESTONE_ONE + MILESTONE_TWO.
@@ -664,7 +738,12 @@ fn test_complete_event_data_is_just_the_contract_id() {
     assert_eq!(events.len(), 2);
     // complete event is at index 1.
     let (_, t1, d1) = events.get(1).unwrap();
-    assert_topics(&env, &t1, symbol_short!("escrow"), symbol_short!("complete"));
+    assert_topics(
+        &env,
+        &t1,
+        symbol_short!("escrow"),
+        symbol_short!("complete"),
+    );
     // data is just the u32 contract_id (not a tuple).
     let complete_id = u32::try_from_val(&env, &d1).unwrap();
     assert_eq!(complete_id, contract_id);

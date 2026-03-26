@@ -75,20 +75,55 @@ fn assert_within_baseline(
     fee_total: i64,
     baseline: ResourceBaseline,
 ) {
-    assert!(resources.instructions <= baseline.max_instructions,
-        "{} instruction regression: {} > {}", label, resources.instructions, baseline.max_instructions);
-    assert!(resources.mem_bytes <= baseline.max_mem_bytes,
-        "{} memory regression: {} > {}", label, resources.mem_bytes, baseline.max_mem_bytes);
-    assert!(resources.read_entries <= baseline.max_read_entries,
-        "{} read-entry regression: {} > {}", label, resources.read_entries, baseline.max_read_entries);
-    assert!(resources.write_entries <= baseline.max_write_entries,
-        "{} write-entry regression: {} > {}", label, resources.write_entries, baseline.max_write_entries);
-    assert!(resources.read_bytes <= baseline.max_read_bytes,
-        "{} read-byte regression: {} > {}", label, resources.read_bytes, baseline.max_read_bytes);
-    assert!(resources.write_bytes <= baseline.max_write_bytes,
-        "{} write-byte regression: {} > {}", label, resources.write_bytes, baseline.max_write_bytes);
-    assert!(fee_total <= baseline.max_fee_total,
-        "{} fee regression: {} > {}", label, fee_total, baseline.max_fee_total);
+    assert!(
+        resources.instructions <= baseline.max_instructions,
+        "{} instruction regression: {} > {}",
+        label,
+        resources.instructions,
+        baseline.max_instructions
+    );
+    assert!(
+        resources.mem_bytes <= baseline.max_mem_bytes,
+        "{} memory regression: {} > {}",
+        label,
+        resources.mem_bytes,
+        baseline.max_mem_bytes
+    );
+    assert!(
+        resources.read_entries <= baseline.max_read_entries,
+        "{} read-entry regression: {} > {}",
+        label,
+        resources.read_entries,
+        baseline.max_read_entries
+    );
+    assert!(
+        resources.write_entries <= baseline.max_write_entries,
+        "{} write-entry regression: {} > {}",
+        label,
+        resources.write_entries,
+        baseline.max_write_entries
+    );
+    assert!(
+        resources.read_bytes <= baseline.max_read_bytes,
+        "{} read-byte regression: {} > {}",
+        label,
+        resources.read_bytes,
+        baseline.max_read_bytes
+    );
+    assert!(
+        resources.write_bytes <= baseline.max_write_bytes,
+        "{} write-byte regression: {} > {}",
+        label,
+        resources.write_bytes,
+        baseline.max_write_bytes
+    );
+    assert!(
+        fee_total <= baseline.max_fee_total,
+        "{} fee regression: {} > {}",
+        label,
+        fee_total,
+        baseline.max_fee_total
+    );
 }
 
 #[test]
