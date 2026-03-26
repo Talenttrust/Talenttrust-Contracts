@@ -75,7 +75,7 @@ pub enum ContractStatus {
 
 /// A single deliverable in the contract.
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Milestone {
     /// Payment amount in stroops (1 XLM = 10 000 000 stroops).
     pub amount: i128,
@@ -140,6 +140,40 @@ fn next_id(env: &Env) -> u32 {
 
 #[contract]
 pub struct Escrow;
+
+impl Escrow {
+    fn read_admin(env: &Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic!("Pause controls are not initialized"))
+    }
+
+    fn require_admin(env: &Env) {
+        let admin = Self::read_admin(env);
+        admin.require_auth();
+    }
+
+    fn is_paused_internal(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    fn is_emergency_internal(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::EmergencyPaused)
+            .unwrap_or(false)
+    }
+
+    fn ensure_not_paused(env: &Env) {
+        if Self::is_paused_internal(env) {
+            panic!("Contract is paused");
+        }
+    }
+}
 
 #[contractimpl]
 impl Escrow {
@@ -395,6 +429,142 @@ impl Escrow {
     /// Health-check / CI smoke-test.
     pub fn hello(_env: Env, to: Symbol) -> Symbol {
         to
+    }
+
+    /// Returns the stored contract state.
+    pub fn get_contract(env: Env, contract_id: u32) -> EscrowContractData {
+        Self::load_contract(&env, contract_id)
+    }
+
+    /// Returns the stored reputation record for a freelancer, if present.
+    pub fn get_reputation(env: Env, freelancer: Address) -> Option<ReputationRecord> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Reputation(freelancer))
+    }
+
+    /// Returns the number of pending reputation updates that can be claimed.
+    pub fn get_pending_reputation_credits(env: Env, freelancer: Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::PendingReputationCredits(freelancer))
+            .unwrap_or(0)
+    }
+
+    /// Returns the active protocol parameters.
+    ///
+    /// If governance has not been initialized yet, this returns the safe default
+    /// parameters baked into the contract.
+    pub fn get_protocol_parameters(env: Env) -> ProtocolParameters {
+        Self::protocol_parameters(&env)
+    }
+
+    /// Returns the current governance admin, if governance has been initialized.
+    pub fn get_governance_admin(env: Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::GovernanceAdmin)
+    }
+
+    /// Returns the pending governance admin, if an admin transfer is in flight.
+    pub fn get_pending_governance_admin(env: Env) -> Option<Address> {
+        Self::pending_governance_admin(&env)
+    }
+}
+
+impl Escrow {
+    fn next_contract_id(env: &Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::NextContractId)
+            .unwrap_or(1)
+    }
+
+    fn load_contract(env: &Env, contract_id: u32) -> EscrowContractData {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| panic!("contract not found"))
+    }
+
+    fn save_contract(env: &Env, contract_id: u32, contract: &EscrowContractData) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), contract);
+    }
+
+    fn add_pending_reputation_credit(env: &Env, freelancer: &Address) {
+        let key = DataKey::PendingReputationCredits(freelancer.clone());
+        let current = env.storage().persistent().get::<_, u32>(&key).unwrap_or(0);
+        env.storage().persistent().set(&key, &(current + 1));
+    }
+
+    fn governance_admin(env: &Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&DataKey::GovernanceAdmin)
+            .unwrap_or_else(|| panic!("protocol governance is not initialized"))
+    }
+
+    fn pending_governance_admin(env: &Env) -> Option<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::PendingGovernanceAdmin)
+    }
+
+    fn protocol_parameters(env: &Env) -> ProtocolParameters {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ProtocolParameters)
+            .unwrap_or_else(Self::default_protocol_parameters)
+    }
+
+    fn default_protocol_parameters() -> ProtocolParameters {
+        ProtocolParameters {
+            min_milestone_amount: DEFAULT_MIN_MILESTONE_AMOUNT,
+            max_milestones: DEFAULT_MAX_MILESTONES,
+            min_reputation_rating: DEFAULT_MIN_REPUTATION_RATING,
+            max_reputation_rating: DEFAULT_MAX_REPUTATION_RATING,
+        }
+    }
+
+    fn validated_protocol_parameters(
+        min_milestone_amount: i128,
+        max_milestones: u32,
+        min_reputation_rating: i128,
+        max_reputation_rating: i128,
+    ) -> ProtocolParameters {
+        if min_milestone_amount <= 0 {
+            panic!("minimum milestone amount must be positive");
+        }
+        if max_milestones == 0 {
+            panic!("maximum milestones must be positive");
+        }
+        if min_reputation_rating <= 0 {
+            panic!("minimum reputation rating must be positive");
+        }
+        if min_reputation_rating > max_reputation_rating {
+            panic!("reputation rating range is invalid");
+        }
+
+        ProtocolParameters {
+            min_milestone_amount,
+            max_milestones,
+            min_reputation_rating,
+            max_reputation_rating,
+        }
+    }
+
+    fn all_milestones_released(milestones: &Vec<Milestone>) -> bool {
+        let mut index = 0_u32;
+        while index < milestones.len() {
+            let milestone = milestones
+                .get(index)
+                .unwrap_or_else(|| panic!("missing milestone"));
+            if !milestone.released {
+                return false;
+            }
+            index += 1;
+        }
+        true
     }
 }
 
