@@ -25,7 +25,7 @@ struct MeasuredResources {
 const CREATE_CONTRACT_BASELINE: ResourceBaseline = ResourceBaseline {
     max_instructions: 8_000_000,
     max_mem_bytes: 800_000,
-    max_read_entries: 2,
+    max_read_entries: 3, // Paused (instance) + ProtocolParameters + NextContractId
     max_write_entries: 3,
     max_read_bytes: 2_048,
     max_write_bytes: 8_192,

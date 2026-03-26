@@ -5,7 +5,37 @@ Soroban smart contracts for the TalentTrust decentralized freelancer escrow prot
 ## What's in this repo
 
 - **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments, reputation credential issuance, and emergency pause controls.
-- **Escrow docs** (`docs/escrow`): Escrow operations, security notes, and pause/emergency threat model.
+- **Escrow docs** (`docs/escrow`): Escrow operations, security notes, pause/emergency threat model, and event reference.
+
+## Event system
+
+The escrow contract publishes structured events for every successful state-changing operation.  Events are indexed by a 2-symbol topic pair `(namespace, operation)` and carry a typed data payload.
+
+Full event catalogue: [docs/escrow/events.md](docs/escrow/events.md)
+
+### Quick reference
+
+| Topics | Data | Operation |
+|--------|------|-----------|
+| `("pause","init")` | `admin` | `initialize` |
+| `("pause","pause")` | `admin` | `pause` |
+| `("pause","unpause")` | `admin` | `unpause` |
+| `("pause","emerg")` | `admin` | `activate_emergency_pause` |
+| `("pause","resolv")` | `admin` | `resolve_emergency` |
+| `("gov","init")` | `admin` | `initialize_protocol_governance` |
+| `("gov","params")` | `(min_milestone_amount, max_milestones, min_rep, max_rep)` | `update_protocol_parameters` |
+| `("gov","propose")` | `new_admin` | `propose_governance_admin` |
+| `("gov","accept")` | `new_admin` | `accept_governance_admin` |
+| `("escrow","create")` | `(id, client, freelancer, total_amount)` | `create_contract` |
+| `("escrow","deposit")` | `(id, amount, funded_amount)` | `deposit_funds` |
+| `("escrow","release")` | `(id, milestone_id, amount)` | `release_milestone` |
+| `("escrow","complete")` | `id` | `release_milestone` (last milestone) |
+| `("escrow","rep")` | `(id, freelancer, rating)` | `issue_reputation` |
+
+**Key guarantees:**
+- A failed operation emits **no** events.
+- When the final milestone is released, `("escrow","release")` is followed immediately by `("escrow","complete")` in the same invocation.
+- Event payload field types are stable; see [docs/escrow/events.md](docs/escrow/events.md) for decode examples.
 
 ## Security model
 
@@ -51,11 +81,14 @@ cd talenttrust-contracts
 # Build
 cargo build
 
-# Run tests (includes 95%+ coverage negative path testing for escrow)
+# Run all tests (80 tests, 95%+ coverage on impacted modules)
 cargo test
 
+# Run event-contract tests only
+cargo test -p escrow events
+
 # Run escrow performance/gas baseline tests only
-cargo test test::performance
+cargo test -p escrow performance
 
 # Check formatting
 cargo fmt --all -- --check
@@ -97,10 +130,12 @@ Ensure these pass locally before pushing.
 ## Escrow Performance and Security
 
 - Performance/gas baseline tests for key flows are in `contracts/escrow/src/test/performance.rs`.
+- Event-contract tests (payload correctness + ordering) are in `contracts/escrow/src/test/events.rs`.
 - Functional and failure-path coverage is split by module:
   - `contracts/escrow/src/test/flows.rs`
   - `contracts/escrow/src/test/security.rs`
 - Contract-specific reviewer docs:
+  - `docs/escrow/events.md`
   - `docs/escrow/performance-baselines.md`
   - `docs/escrow/security.md`
 

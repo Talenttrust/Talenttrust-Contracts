@@ -97,7 +97,7 @@ fn issue_reputation_updates_record_and_consumes_credit() {
     client.deposit_funds(&id, &300_i128);
     client.release_milestone(&id, &0);
 
-    assert!(client.issue_reputation(&freelancer_addr, &5));
+    assert!(client.issue_reputation(&id, &5));
 
     let reputation = client
         .get_reputation(&freelancer_addr)

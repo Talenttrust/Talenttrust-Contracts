@@ -1,9 +1,30 @@
+extern crate std;
+
 use super::{
     default_milestones, generated_participants, register_client, total_milestone_amount,
     MILESTONE_ONE,
 };
-use crate::EscrowError;
-use soroban_sdk::Env;
+use crate::{Escrow, EscrowClient, EscrowError};
+use soroban_sdk::{testutils::Address as _, vec, Address, Env};
+
+// ─── Local helpers ─────────────────────────────────────────────────────────
+
+/// Sets up a fresh contract environment; mocks all auths when `mock_auth` is true.
+fn setup(mock_auth: bool) -> (Env, Address) {
+    let env = Env::default();
+    if mock_auth {
+        env.mock_all_auths();
+    }
+    let contract_addr = env.register(Escrow, ());
+    (env, contract_addr)
+}
+
+/// Asserts that `f` panics.  Uses `AssertUnwindSafe` so closures that capture
+/// non-`UnwindSafe` references are accepted.
+fn assert_panics<F: FnOnce()>(f: F) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    assert!(result.is_err(), "expected a panic but none occurred");
+}
 
 #[test]
 fn test_create_rejects_same_participants() {
@@ -40,7 +61,7 @@ fn test_create_rejects_non_positive_milestone_amount() {
     let milestones = soroban_sdk::vec![&env, 100_i128, 0_i128];
 
     let result = client.try_create_contract(&client_addr, &freelancer_addr, &milestones);
-    assert_eq!(result, Err(Ok(EscrowError::InvalidMilestoneAmount)));
+    assert_eq!(result, Err(Ok(EscrowError::InvalidAmount)));
 }
 
 #[test]
@@ -54,7 +75,7 @@ fn test_deposit_rejects_non_positive_amount() {
         client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
 
     let result = client.try_deposit_funds(&contract_id, &0);
-    assert_eq!(result, Err(Ok(EscrowError::AmountMustBePositive)));
+    assert_eq!(result, Err(Ok(EscrowError::InvalidAmount)));
 }
 
 #[test]
@@ -259,9 +280,9 @@ fn governance_admin_actions_require_current_admin_and_ratings_follow_governed_ra
     client.release_milestone(&id, &0_u32);
 
     assert_panics(|| {
-        client.issue_reputation(&freelancer, &2_i128);
+        client.issue_reputation(&id, &2_i128);
     });
     assert_panics(|| {
-        client.issue_reputation(&freelancer, &5_i128);
+        client.issue_reputation(&id, &5_i128);
     });
 }
