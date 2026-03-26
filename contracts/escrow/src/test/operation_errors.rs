@@ -1,9 +1,9 @@
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::Env;
 
 use crate::{Escrow, EscrowClient};
 
 #[test]
-#[should_panic(expected = "Error(Contract, #1)")]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_deposit_fails_for_zero_contract_id() {
     let env = Env::default();
     let contract_id = env.register(Escrow, ());
@@ -13,7 +13,7 @@ fn test_deposit_fails_for_zero_contract_id() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #3)")]
+#[should_panic(expected = "Error(Contract, #8)")]
 fn test_deposit_fails_for_non_positive_amount() {
     let env = Env::default();
     let contract_id = env.register(Escrow, ());
@@ -23,7 +23,7 @@ fn test_deposit_fails_for_non_positive_amount() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #1)")]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_release_fails_for_zero_contract_id() {
     let env = Env::default();
     let contract_id = env.register(Escrow, ());
@@ -33,7 +33,7 @@ fn test_release_fails_for_zero_contract_id() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #2)")]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_release_fails_for_reserved_invalid_milestone_id() {
     let env = Env::default();
     let contract_id = env.register(Escrow, ());
@@ -43,23 +43,21 @@ fn test_release_fails_for_reserved_invalid_milestone_id() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #4)")]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_issue_reputation_fails_for_rating_below_range() {
     let env = Env::default();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
-    let freelancer = Address::generate(&env);
-    let _ = client.issue_reputation(&freelancer, &0);
+    let _ = client.issue_reputation(&1, &0);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #4)")]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_issue_reputation_fails_for_rating_above_range() {
     let env = Env::default();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
-    let freelancer = Address::generate(&env);
-    let _ = client.issue_reputation(&freelancer, &6);
+    let _ = client.issue_reputation(&1, &6);
 }

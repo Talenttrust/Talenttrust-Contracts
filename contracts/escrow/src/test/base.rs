@@ -15,6 +15,7 @@ fn test_hello() {
 #[test]
 fn test_create_contract() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
@@ -29,19 +30,32 @@ fn test_create_contract() {
 #[test]
 fn test_deposit_funds() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
-    let result = client.deposit_funds(&1, &1_000_0000000);
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1_000_0000000_i128];
+    let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
+
+    let result = client.deposit_funds(&id, &1_000_0000000);
     assert!(result);
 }
 
 #[test]
 fn test_release_milestone() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
-    let result = client.release_milestone(&1, &0);
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 1_000_0000000_i128];
+    let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
+    client.deposit_funds(&id, &1_000_0000000);
+
+    let result = client.release_milestone(&id, &0);
     assert!(result);
 }

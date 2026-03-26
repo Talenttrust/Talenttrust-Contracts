@@ -3,7 +3,11 @@ use super::{
     world_symbol,
 };
 use crate::{ContractStatus, EscrowError};
-use soroban_sdk::Env;
+use soroban_sdk::{Env, Error};
+
+fn contract_error(error: EscrowError) -> Error {
+    Error::from_contract_error(error as u32)
+}
 
 #[test]
 fn test_hello() {
@@ -29,7 +33,7 @@ fn test_create_contract_stores_expected_state() {
     let record = client.get_contract(&contract_id);
     assert_eq!(record.client, client_addr);
     assert_eq!(record.freelancer, freelancer_addr);
-    assert_eq!(record.milestone_count, 3);
+    assert_eq!(record.milestones.len(), 3);
     assert_eq!(record.total_amount, total_milestone_amount());
     assert_eq!(record.funded_amount, 0);
     assert_eq!(record.released_amount, 0);
@@ -61,9 +65,11 @@ fn test_full_flow_completes_and_issues_reputation() {
 
     assert!(client.issue_reputation(&contract_id, &5));
 
-    let reputation = client.get_reputation(&freelancer_addr);
+    let reputation = client
+        .get_reputation(&freelancer_addr)
+        .expect("reputation should exist after issuance");
     assert_eq!(reputation.total_rating, 5);
-    assert_eq!(reputation.ratings_count, 1);
+    assert_eq!(reputation.completed_contracts, 1);
 
     let post_rating = client.get_contract(&contract_id);
     assert!(post_rating.reputation_issued);
@@ -110,9 +116,11 @@ fn test_reputation_aggregates_across_completed_contracts() {
     assert!(client.release_milestone(&contract_two, &2));
     assert!(client.issue_reputation(&contract_two, &4));
 
-    let reputation = client.get_reputation(&freelancer_addr);
+    let reputation = client
+        .get_reputation(&freelancer_addr)
+        .expect("reputation should exist after issuance");
     assert_eq!(reputation.total_rating, 9);
-    assert_eq!(reputation.ratings_count, 2);
+    assert_eq!(reputation.completed_contracts, 2);
 }
 
 #[test]
@@ -121,5 +129,5 @@ fn test_get_contract_for_missing_id_fails() {
     let client = register_client(&env);
 
     let result = client.try_get_contract(&999);
-    assert_eq!(result, Err(Ok(EscrowError::ContractNotFound)));
+    assert_eq!(result, Err(Ok(contract_error(EscrowError::ContractNotFound))));
 }

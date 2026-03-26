@@ -6,6 +6,7 @@ use crate::{Escrow, EscrowClient};
 #[should_panic(expected = "Error(Contract, #6)")]
 fn test_create_contract_fails_for_same_participants() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
@@ -19,6 +20,7 @@ fn test_create_contract_fails_for_same_participants() {
 #[should_panic(expected = "Error(Contract, #5)")]
 fn test_create_contract_fails_for_empty_milestones() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
@@ -33,6 +35,7 @@ fn test_create_contract_fails_for_empty_milestones() {
 #[should_panic(expected = "Error(Contract, #3)")]
 fn test_create_contract_fails_for_non_positive_milestones() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
