@@ -495,21 +495,21 @@ impl Escrow {
     /// - Milestone amounts vector is empty
     /// - Any milestone amount is zero or negative
     /// - Client and freelancer addresses are the same
-pub fn create_contract(
-    env: Env,
-    client: Address,
-    freelancer: Address,
-    arbiter: Option<Address>,
-    milestone_amounts: Vec<i128>,
-    release_auth: ReleaseAuthorization,
-) -> u32 {
-    Self::ensure_not_paused(&env);
+    pub fn create_contract(
+        env: Env,
+        client: Address,
+        freelancer: Address,
+        arbiter: Option<Address>,
+        milestone_amounts: Vec<i128>,
+        release_auth: ReleaseAuthorization,
+    ) -> u32 {
+        Self::ensure_not_paused(&env);
 
-    if milestone_amounts.is_empty() {
-        panic!("At least one milestone required");
+        if milestone_amounts.is_empty() {
+            panic!("At least one milestone required");
+        }
+        Ok(())
     }
-    Ok(())
-}
 
     /// Deposit funds into escrow. Only the client may call this.
     ///
@@ -543,25 +543,25 @@ pub fn create_contract(
     }
 
     /// Deposit funds into escrow. Only the client may call this.
-pub fn deposit_funds(env: Env, _contract_id: u32, caller: Address, amount: i128) -> bool {
-    Self::ensure_not_paused(&env);
-    caller.require_auth();
+    pub fn deposit_funds(env: Env, _contract_id: u32, caller: Address, amount: i128) -> bool {
+        Self::ensure_not_paused(&env);
+        caller.require_auth();
 
-    let contract: EscrowContract = env
-        .storage()
-        .persistent()
-        .get(&symbol_short!("contract"))
-        .unwrap_or_else(|| panic!("Contract not found"));
+        let contract: EscrowContract = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("contract"))
+            .unwrap_or_else(|| panic!("Contract not found"));
 
-    if caller != contract.client {
-        panic!("Only client can deposit funds");
+        if caller != contract.client {
+            panic!("Only client can deposit funds");
+        }
+
+        if contract.status != ContractStatus::Created {
+            panic!("Contract must be in Created status to deposit funds");
+        }
+        Ok(())
     }
-
-    if contract.status != ContractStatus::Created {
-        panic!("Contract must be in Created status to deposit funds");
-    }
-    Ok(())
-}
 
     /// Release a milestone payment to the freelancer after verification.
     ///
@@ -571,55 +571,52 @@ pub fn deposit_funds(env: Env, _contract_id: u32, caller: Address, amount: i128)
     ///
     /// # Returns
     /// * `bool` - True if milestone released successfully
-pub fn release_milestone(env: Env, contract_id: u32, milestone_id: u32) -> bool {
-    let mut contracts = get_contracts_map(&env);
-    let mut contract = contracts.get(contract_id).expect("contract not found");
+    pub fn release_milestone(env: Env, contract_id: u32, milestone_id: u32) -> bool {
+        let mut contracts = get_contracts_map(&env);
+        let mut contract = contracts.get(contract_id).expect("contract not found");
 
-    // Only client can release milestones
-    contract.client.require_auth();
+        // Only client can release milestones
+        contract.client.require_auth();
 
-    // Validate contract state
-    require_contract_status(&contract, ContractStatus::Funded);
+        // Validate contract state
+        require_contract_status(&contract, ContractStatus::Funded);
 
-    // Validate milestone exists and is not released
-    if milestone_id >= contract.milestones.len() {
-        panic!("milestone not found");
-    }
-
-    let milestone = contract.milestones.get_unchecked(milestone_id);
-
-    if milestone.released {
-        panic!("milestone already released");
-    }
-
-    // Create new milestones with updated release status
-    let mut updated_milestones = Vec::new(&env);
-    for (i, ms) in contract.milestones.iter().enumerate() {
-        if i == milestone_id as usize {
-            updated_milestones.push_back(Milestone {
-                amount: ms.amount,
-                released: true,
-            });
-        } else {
-            updated_milestones.push_back(Milestone {
-                amount: ms.amount,
-                released: ms.released,
-            });
+        // Validate milestone exists and is not released
+        if milestone_id >= contract.milestones.len() {
+            panic!("milestone not found");
         }
-    }
-    contract.milestones = updated_milestones;
 
-    // Check if all milestones are released
-    if contract.milestones.iter().all(|m| m.released) {
-        contract.status = ContractStatus::Completed;
-    }
+        let milestone = contract.milestones.get_unchecked(milestone_id);
 
-    contracts.set(contract_id, contract);
-    env.storage().persistent().set(&CONTRACTS, &contracts);
-    true
-}
-    true
-}
+        if milestone.released {
+            panic!("milestone already released");
+        }
+
+        // Create new milestones with updated release status
+        let mut updated_milestones = Vec::new(&env);
+        for (i, ms) in contract.milestones.iter().enumerate() {
+            if i == milestone_id as usize {
+                updated_milestones.push_back(Milestone {
+                    amount: ms.amount,
+                    released: true,
+                });
+            } else {
+                updated_milestones.push_back(Milestone {
+                    amount: ms.amount,
+                    released: ms.released,
+                });
+            }
+        }
+        contract.milestones = updated_milestones;
+
+        // Check if all milestones are released
+        if contract.milestones.iter().all(|m| m.released) {
+            contract.status = ContractStatus::Completed;
+        }
+
+        contracts.set(contract_id, contract);
+        env.storage().persistent().set(&CONTRACTS, &contracts);
+        true
     }
 
     /// Approve a milestone for release with proper authorization.
@@ -688,11 +685,7 @@ pub fn release_milestone(env: Env, contract_id: u32, milestone_id: u32) -> bool 
     }
 
     /// Release a milestone payment to the freelancer after proper authorization.
-    pub fn release_milestone(
-        _env: Env,
-        contract_id: u32,
-        milestone_id: u32,
-    ) -> bool {
+    pub fn release_milestone(_env: Env, contract_id: u32, milestone_id: u32) -> bool {
         Self::ensure_not_paused(&env);
         caller.require_auth();
 
@@ -772,54 +765,54 @@ pub fn release_milestone(env: Env, contract_id: u32, milestone_id: u32) -> bool 
     ///
     /// # Returns
     /// * `u32` - The unique dispute ID
-pub fn create_dispute(
-    env: Env,
-    contract_id: u32,
-    reason: Symbol,
-    evidence: Vec<Symbol>,
-) -> u32 {
-    let contracts = get_contracts_map(&env);
-    let contract = contracts.get(contract_id).expect("contract not found");
+    pub fn create_dispute(
+        env: Env,
+        contract_id: u32,
+        reason: Symbol,
+        evidence: Vec<Symbol>,
+    ) -> u32 {
+        let contracts = get_contracts_map(&env);
+        let contract = contracts.get(contract_id).expect("contract not found");
 
-    // Only client or freelancer can create disputes
-    // Note: In Soroban, we use the invoking address
-    let caller = env.current_contract_address();
-    // For now, we'll allow any caller since proper auth is handled by require_auth()
-    // In a real implementation, you'd want to get the actual invoker
+        // Only client or freelancer can create disputes
+        // Note: In Soroban, we use the invoking address
+        let caller = env.current_contract_address();
+        // For now, we'll allow any caller since proper auth is handled by require_auth()
+        // In a real implementation, you'd want to get the actual invoker
 
-    // Validate contract state
-    require_contract_status(&contract, ContractStatus::Funded);
+        // Validate contract state
+        require_contract_status(&contract, ContractStatus::Funded);
 
-    let dispute_id = get_next_dispute_id(&env);
+        let dispute_id = get_next_dispute_id(&env);
 
-    let dispute = Dispute {
-        id: dispute_id,
-        contract_id,
-        initiator: caller.clone(),
-        reason,
-        evidence,
-        status: DisputeStatus::Open,
-        resolution: DisputeResolution::FullRefund, // Default
-        client_payout: 0,
-        freelancer_payout: 0,
-        created_at: env.ledger().timestamp(),
-        resolved_at: 0,
-        resolved_by: caller, // Will be updated when resolved
-    };
+        let dispute = Dispute {
+            id: dispute_id,
+            contract_id,
+            initiator: caller.clone(),
+            reason,
+            evidence,
+            status: DisputeStatus::Open,
+            resolution: DisputeResolution::FullRefund, // Default
+            client_payout: 0,
+            freelancer_payout: 0,
+            created_at: env.ledger().timestamp(),
+            resolved_at: 0,
+            resolved_by: caller, // Will be updated when resolved
+        };
 
-    let mut disputes = get_disputes_map(&env);
-    disputes.set(dispute_id, dispute);
-    env.storage().persistent().set(&DISPUTES, &disputes);
+        let mut disputes = get_disputes_map(&env);
+        disputes.set(dispute_id, dispute);
+        env.storage().persistent().set(&DISPUTES, &disputes);
 
-    // Update contract status
-    let mut contracts = get_contracts_map(&env);
-    let mut contract = contracts.get(contract_id).expect("contract not found");
-    contract.status = ContractStatus::Disputed;
-    contracts.set(contract_id, contract);
-    env.storage().persistent().set(&CONTRACTS, &contracts);
+        // Update contract status
+        let mut contracts = get_contracts_map(&env);
+        let mut contract = contracts.get(contract_id).expect("contract not found");
+        contract.status = ContractStatus::Disputed;
+        contracts.set(contract_id, contract);
+        env.storage().persistent().set(&CONTRACTS, &contracts);
 
-    dispute_id
-}
+        dispute_id
+    }
 
     /// Resolve a dispute with a specific outcome
     ///
@@ -831,77 +824,74 @@ pub fn create_dispute(
     ///
     /// # Returns
     /// * `bool` - True if dispute resolved successfully
-pub fn resolve_dispute(
-    env: Env,
-    dispute_id: u32,
-    resolution: DisputeResolution,
-    client_payout: i128,
-    freelancer_payout: i128,
-) -> bool {
-    // Only arbitrator can resolve disputes
-    let arbitrator: Address = env
-        .storage()
-        .persistent()
-        .get(&ARBITRATOR)
-        .expect("arbitrator not set");
-    arbitrator.require_auth();
+    pub fn resolve_dispute(
+        env: Env,
+        dispute_id: u32,
+        resolution: DisputeResolution,
+        client_payout: i128,
+        freelancer_payout: i128,
+    ) -> bool {
+        // Only arbitrator can resolve disputes
+        let arbitrator: Address = env
+            .storage()
+            .persistent()
+            .get(&ARBITRATOR)
+            .expect("arbitrator not set");
+        arbitrator.require_auth();
 
-    let mut disputes = get_disputes_map(&env);
-    let dispute = disputes.get(dispute_id).expect("dispute not found");
-    let contract_id = dispute.contract_id; // Save contract_id before moving dispute
+        let mut disputes = get_disputes_map(&env);
+        let dispute = disputes.get(dispute_id).expect("dispute not found");
+        let contract_id = dispute.contract_id; // Save contract_id before moving dispute
 
-    let mut dispute = dispute;
+        let mut dispute = dispute;
 
-    // Validate dispute status
-    if dispute.status != DisputeStatus::Open && dispute.status != DisputeStatus::InReview {
-        panic!("dispute already resolved");
-    }
-
-    let contracts = get_contracts_map(&env);
-    let contract = contracts
-        .get(dispute.contract_id)
-        .expect("contract not found");
-
-    // Calculate payouts based on resolution
-let (client_amount, freelancer_amount) = match resolution {
-        DisputeResolution::FullRefund => (contract.total_amount, 0),
-        DisputeResolution::PartialRefund => {
-            // Default 70% to client, 30% to freelancer
-            let client_amount = contract.total_amount * 70 / 100;
-            let freelancer_amount = contract.total_amount - client_amount;
-            (client_amount, freelancer_amount)
+        // Validate dispute status
+        if dispute.status != DisputeStatus::Open && dispute.status != DisputeStatus::InReview {
+            panic!("dispute already resolved");
         }
-        DisputeResolution::FullPayout => (0, contract.total_amount),
-        DisputeResolution::Split => {
-            // Validate custom split
-            if client_payout + freelancer_payout != contract.total_amount {
-                panic!("split amounts must equal total contract amount");
+
+        let contracts = get_contracts_map(&env);
+        let contract = contracts
+            .get(dispute.contract_id)
+            .expect("contract not found");
+
+        // Calculate payouts based on resolution
+        let (client_amount, freelancer_amount) = match resolution {
+            DisputeResolution::FullRefund => (contract.total_amount, 0),
+            DisputeResolution::PartialRefund => {
+                // Default 70% to client, 30% to freelancer
+                let client_amount = contract.total_amount * 70 / 100;
+                let freelancer_amount = contract.total_amount - client_amount;
+                (client_amount, freelancer_amount)
             }
-            (client_payout, freelancer_payout)
-        }
-    };
+            DisputeResolution::FullPayout => (0, contract.total_amount),
+            DisputeResolution::Split => {
+                // Validate custom split
+                if client_payout + freelancer_payout != contract.total_amount {
+                    panic!("split amounts must equal total contract amount");
+                }
+                (client_payout, freelancer_payout)
+            }
+        };
 
-    // Update dispute
-    dispute.status = DisputeStatus::Resolved;
-    dispute.resolution = resolution;
-    dispute.client_payout = client_amount;
-    dispute.freelancer_payout = freelancer_amount;
-    dispute.resolved_at = env.ledger().timestamp();
-    dispute.resolved_by = arbitrator;
+        // Update dispute
+        dispute.status = DisputeStatus::Resolved;
+        dispute.resolution = resolution;
+        dispute.client_payout = client_amount;
+        dispute.freelancer_payout = freelancer_amount;
+        dispute.resolved_at = env.ledger().timestamp();
+        dispute.resolved_by = arbitrator;
 
-    disputes.set(dispute_id, dispute);
-    env.storage().persistent().set(&DISPUTES, &disputes);
+        disputes.set(dispute_id, dispute);
+        env.storage().persistent().set(&DISPUTES, &disputes);
 
-    // Update contract status
-    let mut contracts = get_contracts_map(&env);
-    let mut contract = contracts.get(contract_id).expect("contract not found");
-    contract.status = ContractStatus::Resolved;
-    contracts.set(contract_id, contract);
-    env.storage().persistent().set(&CONTRACTS, &contracts);
-    true
-}
-    true
-}
+        // Update contract status
+        let mut contracts = get_contracts_map(&env);
+        let mut contract = contracts.get(contract_id).expect("contract not found");
+        contract.status = ContractStatus::Resolved;
+        contracts.set(contract_id, contract);
+        env.storage().persistent().set(&CONTRACTS, &contracts);
+        true
     }
 
     /// Issue a reputation credential for the freelancer after contract completion.
