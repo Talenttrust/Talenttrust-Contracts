@@ -73,6 +73,13 @@ The escrow contract now supports critical-incident response with admin-managed c
 - `activate_emergency_pause()` and `resolve_emergency()`
 - `is_paused()` and `is_emergency()`
 
+## Multi-Contract Indexing
+
+The escrow contract supports efficient querying of contracts:
+
+- `get_contracts_by_participant(Address)` (returns contract IDs for client/freelancer)
+- `get_contracts_by_status(ContractStatus)` (returns contract IDs by current status)
+
 When paused, mutating escrow operations are blocked.
 
 ## Contributing

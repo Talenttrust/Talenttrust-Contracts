@@ -14,6 +14,13 @@ The escrow contract includes admin-managed incident response controls:
 - `is_paused()`: Read-only pause status.
 - `is_emergency()`: Read-only emergency status.
 
+## Multi-Contract Indexing
+
+The escrow contract provides query-friendly indexing for efficient retrieval of contract IDs:
+
+- `get_contracts_by_participant(Address)`: Returns all contract IDs where the address is either the client or the freelancer.
+- `get_contracts_by_status(ContractStatus)`: Returns all contract IDs currently in the specified status (e.g., `Created`, `Funded`, `Completed`).
+
 ### Guarded Functions
 
 While paused, these state-changing flows revert with `ContractPaused`:
