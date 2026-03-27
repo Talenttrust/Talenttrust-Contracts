@@ -1,2 +1,7 @@
-/target/
+/target
 **/*.rs.bk
+# Soroban test snapshot artifacts (auto-generated, not source)
+contracts/escrow/test_snapshots/
+# Coverage output
+coverage_summary.txt
+lcov.info
