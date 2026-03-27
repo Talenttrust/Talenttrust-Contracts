@@ -1,154 +1,220 @@
-# Escrow Contract
-
-Soroban smart contract implementing milestone-based escrow with a freelancer acceptance handshake for the TalentTrust protocol.
-
----
+# Escrow Contract Documentation
 
 ## Overview
 
-The escrow contract mediates payment between a client and a freelancer. Funds are locked until both parties have agreed to the engagement, enforced by a two-step handshake before any value is committed.
+The TalentTrust Escrow contract provides a decentralized escrow system for freelancer-client relationships with built-in dispute resolution capabilities. Built on Soroban (Stellar), it ensures secure fund management and fair dispute resolution.
 
----
+## Architecture
 
-## State machine
+### Core Components
+
+1. **EscrowContract**: Main contract structure storing client, freelancer, milestones, and status
+2. **Dispute**: Dispute tracking with evidence, resolution type, and payout amounts
+3. **Access Control**: Role-based permissions for admin, arbitrator, client, and freelancer
+
+### Storage Structure
 
 ```
-Created ──► Accepted ──► Funded ──► Completed
-                                └──► Disputed
+├── ADMIN: Address           # Contract administrator
+├── ARBITRATOR: Address     # Dispute resolver
+├── CONTRACTS: Map<u32, EscrowContract>
+├── DISPUTES: Map<u32, Dispute>
+├── NEXT_CONTRACT_ID: u32
+└── NEXT_DISPUTE_ID: u32
 ```
 
-| Status      | Description                                                |
-| ----------- | ---------------------------------------------------------- |
-| `Created`   | Contract initialised by the client; no funds involved yet. |
-| `Accepted`  | Freelancer has explicitly accepted; client may now fund.   |
-| `Funded`    | Client deposited funds; milestones are releasable.         |
-| `Completed` | All milestones released.                                   |
-| `Disputed`  | Under dispute resolution.                                  |
+## Contract States
 
----
+### ContractStatus
+- `Created`: Contract created, awaiting funding
+- `Funded`: Funds deposited, milestones available for release
+- `Completed`: All milestones released successfully
+- `Disputed`: Dispute opened, contract paused
+- `Resolved`: Dispute resolved, payouts processed
+- `Cancelled`: Contract cancelled (future feature)
 
-## Data structures
-
-### `ContractRecord`
-
-| Field        | Type             | Description                              |
-| ------------ | ---------------- | ---------------------------------------- |
-| `client`     | `Address`        | Party that created and funds the escrow. |
-| `freelancer` | `Address`        | Party that accepts and delivers work.    |
-| `milestones` | `Vec<Milestone>` | Ordered list of payment milestones.      |
-| `status`     | `ContractStatus` | Current lifecycle state.                 |
-
-### `Milestone`
-
-| Field      | Type   | Description                          |
-| ---------- | ------ | ------------------------------------ |
-| `amount`   | `i128` | Payment amount for this deliverable. |
-| `released` | `bool` | Whether funds have been released.    |
-
----
+### DisputeStatus
+- `Open`: Dispute created, awaiting review
+- `InReview`: Dispute being reviewed by arbitrator
+- `Resolved`: Dispute resolved with payouts determined
 
 ## Functions
 
-### `create_contract`
+### Initialization
 
+#### `initialize(admin: Address, arbitrator: Address)`
+- **Purpose**: Initialize contract with admin and arbitrator addresses
+- **Access**: Anyone (but requires admin signature)
+- **Security**: Prevents re-initialization
+
+### Contract Management
+
+#### `create_contract(client: Address, freelancer: Address, milestone_amounts: Vec<i128>) -> u32`
+- **Purpose**: Create new escrow contract with milestone payments
+- **Access**: Client only
+- **Returns**: Unique contract ID
+
+#### `deposit_funds(contract_id: u32, amount: i128) -> bool`
+- **Purpose**: Deposit total contract amount into escrow
+- **Access**: Client only
+- **Validation**: Amount must equal total milestone amounts
+
+#### `release_milestone(contract_id: u32, milestone_id: u32) -> bool`
+- **Purpose**: Release specific milestone payment to freelancer
+- **Access**: Client only
+- **Validation**: Milestone must exist and not be previously released
+
+### Dispute Resolution
+
+#### `create_dispute(contract_id: u32, reason: Symbol, evidence: Vec<Symbol>) -> u32`
+- **Purpose**: Create dispute for funded contract
+- **Access**: Client or Freelancer only
+- **Returns**: Unique dispute ID
+- **Effect**: Contract status changes to `Disputed`
+
+#### `resolve_dispute(dispute_id: u32, resolution: DisputeResolution, client_payout: i128, freelancer_payout: i128) -> bool`
+- **Purpose**: Resolve dispute with specific outcome
+- **Access**: Arbitrator only
+- **Resolution Types**:
+  - `FullRefund`: 100% to client
+  - `PartialRefund`: 70% to client, 30% to freelancer
+  - `FullPayout`: 100% to freelancer
+  - `Split`: Custom amounts (must total contract amount)
+
+### Admin Functions
+
+#### `update_admin(new_admin: Address)`
+- **Purpose**: Update admin address
+- **Access**: Current admin only
+
+#### `update_arbitrator(new_arbitrator: Address)`
+- **Purpose**: Update arbitrator address
+- **Access**: Admin only
+
+## Security Features
+
+### Access Control
+- **Admin**: Can update arbitrator, manage contract settings
+- **Arbitrator**: Can resolve disputes, determine payouts
+- **Client**: Can create contracts, deposit funds, release milestones, create disputes
+- **Freelancer**: Can create disputes, receive milestone payments
+
+### Validation Rules
+1. Contract must be in correct state for operations
+2. Financial amounts must be mathematically valid
+3. Only authorized parties can perform actions
+4. Dispute resolution payouts are deterministic
+
+### Threat Mitigation
+- **Unauthorized access**: Role-based authentication
+- **Invalid payouts**: Mathematical validation of splits
+- **Double spending**: State machine prevents invalid transitions
+- **Front-running**: Timestamp tracking for dispute resolution
+
+## Usage Examples
+
+### Basic Workflow
+
+```rust
+// 1. Initialize contract
+escrow.initialize(admin_address, arbitrator_address);
+
+// 2. Create contract
+let contract_id = escrow.create_contract(
+    client_address,
+    freelancer_address,
+    vec![1000_0000000, 2000_0000000] // Milestones in stroops
+);
+
+// 3. Deposit funds
+escrow.deposit_funds(contract_id, 3000_0000000);
+
+// 4. Release milestone
+escrow.release_milestone(contract_id, 0); // First milestone
 ```
-create_contract(env, client, freelancer, milestone_amounts) -> u32
+
+### Dispute Resolution
+
+```rust
+// 5. Create dispute (when issues arise)
+let dispute_id = escrow.create_dispute(
+    contract_id,
+    symbol_short!("quality_issues"),
+    vec![symbol_short!("evidence1"), symbol_short!("evidence2")]
+);
+
+// 6. Resolve dispute (arbitrator only)
+escrow.resolve_dispute(
+    dispute_id,
+    DisputeResolution::PartialRefund,
+    0,  // Not used for PartialRefund
+    0   // Not used for PartialRefund
+);
 ```
 
-Creates a new escrow engagement. Returns the `contract_id`.
+## Testing
 
-- **Auth**: `client` must authorise.
-- **Preconditions**: `milestone_amounts` must be non-empty.
-- **Post-state**: `Created`.
+The contract includes comprehensive tests covering:
+- Normal workflow operations
+- All dispute resolution scenarios
+- Access control violations
+- Edge cases and error conditions
+- Security validation
 
----
-
-### `accept_contract`
-
-```
-accept_contract(env, contract_id)
-```
-
-Freelancer accepts the terms of the contract. This is the required handshake before any funds can be deposited. Without this call, `deposit_funds` will always fail.
-
-- **Auth**: `freelancer` (as stored in the record) must authorise.
-- **Preconditions**: Status must be `Created`.
-- **Post-state**: `Accepted`.
-
----
-
-### `deposit_funds`
-
-```
-deposit_funds(env, contract_id, amount) -> bool
+Run tests with:
+```bash
+cargo test
 ```
 
-Client deposits funds into escrow.
+## Future Enhancements
 
-- **Auth**: `client` must authorise.
-- **Preconditions**: Status must be `Accepted`; `amount > 0`.
-- **Post-state**: `Funded`.
+- Reputation system integration
+- Multi-signature dispute resolution
+- Time-based escrow releases
+- Gas optimization for high-volume usage
+- Cross-chain dispute resolution
+This document describes escrow-specific controls and operational guidance.
 
-> **Security note**: The guard on `Accepted` status is the enforcement point of the handshake. A contract stuck in `Created` cannot receive funds, preventing the client from funding a deal the freelancer has not agreed to.
+## Emergency Pause Controls
 
----
+The escrow contract includes admin-managed incident response controls:
 
-### `release_milestone`
+- `initialize(admin)`: Sets the admin address once.
+- `pause()`: Temporarily pauses state-changing functions.
+- `unpause()`: Re-enables operations after a normal pause.
+- `activate_emergency_pause()`: Activates emergency mode and hard-pauses operations.
+- `resolve_emergency()`: Clears emergency mode and unpauses the contract.
+- `is_paused()`: Read-only pause status.
+- `is_emergency()`: Read-only emergency status.
 
-```
-release_milestone(env, contract_id, milestone_id) -> bool
-```
+### Guarded Functions
 
-Releases a single milestone payment to the freelancer.
+While paused, these state-changing flows revert with `ContractPaused`:
 
-- **Auth**: `client` must authorise.
-- **Preconditions**: Status must be `Funded`; `milestone_id` in range; milestone not yet released.
-- **Post-state**: `Funded` (milestone marked released).
+- `create_contract`
+- `deposit_funds`
+- `release_milestone`
+- `issue_reputation`
 
----
+### Error Codes
 
-### `get_status`
+- `1` `AlreadyInitialized`
+- `2` `NotInitialized`
+- `3` `ContractPaused`
+- `4` `NotPaused`
+- `5` `EmergencyActive`
 
-```
-get_status(env, contract_id) -> ContractStatus
-```
+## Security Notes
 
-Returns the current status of a contract. Panics if the `contract_id` does not exist.
+- Admin-only controls: pause and emergency operations require authenticated admin.
+- One-time initialization: admin cannot be replaced accidentally by repeated init calls.
+- Emergency lock discipline: `unpause` is blocked while emergency mode is active.
+- Fail-closed behavior: guarded functions revert whenever `paused == true`.
 
----
+## Operational Playbook
 
-### `issue_reputation`
-
-```
-issue_reputation(env, freelancer, rating) -> bool
-```
-
-Issues a reputation credential after contract completion.
-
----
-
-## Security considerations
-
-| Threat                                                 | Mitigation                                                                                     |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| Client funds a contract the freelancer never agreed to | `deposit_funds` asserts `status == Accepted`; impossible without prior `accept_contract` call. |
-| Wrong party calls `accept_contract`                    | `freelancer.require_auth()` enforces the stored freelancer address.                            |
-| Wrong party deposits funds                             | `client.require_auth()` enforces the stored client address.                                    |
-| Replay / double-acceptance                             | State guard (`Created` only) prevents a second call from succeeding.                           |
-| Zero or negative deposit                               | Explicit `amount > 0` assertion.                                                               |
-| Out-of-range or double milestone release               | Range check + `released` flag guard.                                                           |
-
----
-
-## Test coverage
-
-All branches are covered by `contracts/escrow/src/test.rs`:
-
-- Happy-path: full `Created → Accepted → Funded` flow
-- Funding without acceptance (must fail)
-- Double acceptance (must fail)
-- Accepting a funded contract (must fail)
-- Zero / negative deposit (must fail)
-- Non-existent contract IDs
-- Milestone out-of-range / double-release
-- Multiple independent contracts with independent states
+1. Detect incident and call `activate_emergency_pause`.
+2. Investigate and remediate root cause.
+3. Validate mitigations in test/staging.
+4. Call `resolve_emergency` to restore service.
+5. Publish incident summary for ecosystem transparency.
