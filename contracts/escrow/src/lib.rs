@@ -13,6 +13,7 @@ pub enum ContractStatus {
     Disputed = 3,
 }
 
+/// Represents a payment milestone in the escrow contract.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Milestone {
@@ -101,6 +102,19 @@ pub enum EscrowError {
     ReputationAlreadyIssued = 13,
     UnsupportedStorageVersion = 14,
     UnsupportedMigrationTarget = 15,
+}
+
+/// Error types for milestone validation and contract logic.
+#[derive(Debug, PartialEq, Eq)]
+pub enum EscrowError {
+    /// Milestone amount is zero or negative.
+    InvalidMilestoneAmount,
+    /// Milestone index is out of bounds.
+    InvalidMilestoneIndex,
+    /// No milestones provided.
+    NoMilestones,
+    /// Milestone already released.
+    MilestoneAlreadyReleased,
 }
 
 #[contract]
