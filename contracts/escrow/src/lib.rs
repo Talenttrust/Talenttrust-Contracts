@@ -32,8 +32,10 @@
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String,
-    Symbol, Vec,
+    Map, Symbol, Vec,
 };
+
+pub(crate) mod cross_contract;
 
 /// Persistent storage keys used by the Escrow contract.
 ///
@@ -63,6 +65,10 @@ pub enum DataKey {
     GovernanceAdmin,
     PendingGovernanceAdmin,
     ProtocolParameters,
+    /// Registered SEP-41 token contract used for escrow transfers.
+    TokenContract,
+    /// Reentrancy lock set during guarded external calls.
+    CallLock,
 }
 
 /// The lifecycle status of an escrow contract.
@@ -230,6 +236,18 @@ pub enum EscrowError {
     InvalidRating = 22,
     /// Invalid milestone ID
     InvalidMilestoneId = 23,
+    /// Token contract address is not configured
+    TokenContractNotSet = 24,
+    /// Cross-contract call failed or returned an error
+    ExternalCallFailed = 25,
+    /// Reentrant external call attempt detected
+    ReentrancyDetected = 26,
+    /// External address points to this contract
+    SelfReferentialAddress = 27,
+    /// Transfer verification failed due to balance delta mismatch
+    TransferVerificationFailed = 28,
+    /// Transfer amount must be strictly positive
+    AmountMustBePositive = 29,
 }
 
 // (ReleaseAuthorization enum moved)
@@ -275,6 +293,52 @@ const DEFAULT_MILESTONE_TIMEOUT_SECS: u64 = 7 * 24 * 60 * 60;
 
 #[contractimpl]
 impl Escrow {
+    /// @notice Register or rotate the SEP-41 token contract used for escrow transfers.
+    /// @dev Security: the caller must authorize this operation.
+    /// @param caller Address authorizing token contract configuration.
+    /// @param token_contract External token contract address to persist.
+    /// @return bool True when the token contract address is stored.
+    pub fn set_token_contract(env: Env, caller: Address, token_contract: Address) -> bool {
+        caller.require_auth();
+
+        if token_contract == env.current_contract_address() {
+            panic!("Token contract cannot be escrow contract");
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::TokenContract, &token_contract);
+
+        true
+    }
+
+    /// @notice Return the configured SEP-41 token contract address, if present.
+    /// @return Option<Address> Configured token address or `None`.
+    pub fn get_token_contract(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::TokenContract)
+    }
+
+    /// @notice Perform a guarded token transfer using the configured token contract.
+    ///
+    /// @dev This helper centralizes external call assumptions and failure mapping:
+    /// it requires a configured token contract, validates it is non-self,
+    /// applies a reentrancy lock, and surfaces external failures as
+    /// `EscrowError` values.
+    /// @param from Token source address.
+    /// @param to Token recipient address.
+    /// @param amount Transfer amount in token base units.
+    /// @return Result<bool, EscrowError> `Ok(true)` on successful guarded transfer.
+    pub fn guarded_external_transfer(
+        env: Env,
+        from: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<bool, EscrowError> {
+        let token_contract = cross_contract::get_required_token_contract(&env)?;
+        cross_contract::safe_token_transfer(&env, &token_contract, &from, &to, amount)?;
+        Ok(true)
+    }
+
     /// Create a new escrow contract with milestone-based release authorization.
     ///
     /// Stores the contract record in persistent storage and returns a numeric

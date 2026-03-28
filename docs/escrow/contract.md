@@ -54,6 +54,19 @@ status: ContractStatus – current state
 - Issues a reputation score for the freelancer after contract completion.
 - Returns true.
 
+### set_token_contract(env, caller, token_contract) -> bool
+- Registers the SEP-41 token contract used by guarded transfer paths.
+- Requires `caller` authorization.
+- Rejects self-referential token addresses.
+
+### get_token_contract(env) -> Option<Address>
+- Returns the configured token contract address, if set.
+
+### guarded_external_transfer(env, from, to, amount) -> Result<bool, EscrowError>
+- Executes token transfer through guarded cross-contract call wrappers.
+- Enforces configured token contract presence and positive amount.
+- Uses reentrancy lock and explicit external-call failure mapping.
+
 ### hello(env, to) -> Symbol
 - Simple test function to verify contract interaction.
 - Returns the same symbol passed in.

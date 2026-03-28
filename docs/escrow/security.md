@@ -37,6 +37,37 @@ Mitigation: all critical mutating endpoints check `ensure_not_paused`.
 2. Add role separation for `pauser` and `resolver`.
 3. Add on-chain event emission for pause state transitions.
 4. Add optional time-delayed unpause for high-severity incidents.
+
+## Cross-Contract External Call Hardening
+
+The escrow module now uses guarded wrappers for external token-contract calls.
+
+### Assumptions validated
+
+- Token contract address must be explicitly configured.
+- Token contract address must not equal the escrow contract address.
+- Transfer amount must be strictly positive.
+
+### Runtime guards
+
+- A reentrancy lock is set before calling into an external token contract.
+- The lock is always cleared after external call return.
+- External call failures are converted into typed `EscrowError` values instead of silent assumptions.
+
+### Failure mapping
+
+- Missing token contract: `EscrowError::TokenContractNotSet`
+- Self-referential target: `EscrowError::SelfReferentialAddress`
+- Reentrancy attempt: `EscrowError::ReentrancyDetected`
+- External call failure: `EscrowError::ExternalCallFailed`
+- Invalid amount: `EscrowError::AmountMustBePositive`
+
+### Test coverage for this area
+
+- `contracts/escrow/src/test/cross_contract_hardening.rs`
+  - token contract set/get behavior
+  - guarded transfer rejection when token contract is missing
+  - guarded transfer rejection for non-positive amounts
 # Escrow Security Notes
 
 This document summarizes security assumptions and threat handling for escrow storage planning and core flows.
