@@ -75,7 +75,9 @@ Automatically sets `contract_created`, `parties_authenticated`, `milestones_defi
 
 **Constraints:**
 - `milestone_amounts` must be non-empty and have ≤ `MAX_MILESTONES` (20) entries.
-- Panics with `TooManyMilestones` otherwise.
+- `client` and `freelancer` must be distinct identities.
+- Every milestone amount must be strictly positive (`> 0`).
+- Panics with `TooManyMilestones`, `DuplicateIdentities`, or `InvalidMilestoneAmount` on invalid input.
 
 ---
 
@@ -168,6 +170,8 @@ deployment lifecycle, payment settlement, and reputation issuance are complete.
 | `ChecklistIncomplete` | 4 | Release gate not satisfied |
 | `InvalidDepositAmount` | 5 | Deposit amount ≤ 0 |
 | `TooManyMilestones` | 6 | Milestone count exceeds `MAX_MILESTONES` (20) |
+| `DuplicateIdentities` | 7 | `client` and `freelancer` are the same address |
+| `InvalidMilestoneAmount` | 8 | One or more milestone amounts are ≤ 0 |
 
 ---
 
@@ -180,6 +184,10 @@ deployment lifecycle, payment settlement, and reputation issuance are complete.
   (`DataKey::NextId`) that increments atomically — no ID reuse.
 - **Input validation at boundaries:** Deposit amounts and milestone counts are
   validated at the contract boundary before any state is written.
+- **Identity collision prevention:** Contract creation rejects `client == freelancer`
+  to avoid role-collision ambiguity and self-dealing pathways.
+- **Malformed payload rejection:** Contract creation rejects non-positive
+  milestone values to prevent invalid financial state from being persisted.
 - **Duplicate-release protection:** `release_milestone` panics with
   `MilestoneAlreadyReleased` on re-entrancy or double-spend attempts.
 
@@ -208,10 +216,15 @@ issue_reputation(1, freelancer, 5)
 
 ## Testing
 
-All checklist behaviour is covered in `contracts/escrow/src/test.rs`:
+Checklist and input-sanitization behaviour is covered in `contracts/escrow/src/test.rs`
+and dedicated modules under `contracts/escrow/src/test/`:
 
 | Test | Covers |
 |---|---|
+| `test_create_contract_panics_when_client_equals_freelancer` | Duplicate identity rejection |
+| `test_create_contract_panics_when_single_milestone_is_zero` | Non-positive milestone rejection (zero) |
+| `test_create_contract_panics_when_single_milestone_is_negative` | Non-positive milestone rejection (negative) |
+| `test_create_contract_panics_when_any_milestone_is_non_positive` | Mixed malformed payload rejection |
 | `test_checklist_initialized_on_create` | 3 items auto-set on creation |
 | `test_deposit_funds_sets_checklist_flag` | `funds_deposited` updated |
 | `test_is_release_ready_false_before_deposit` | Gate enforcement (false path) |

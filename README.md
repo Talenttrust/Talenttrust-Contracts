@@ -12,10 +12,11 @@ Soroban smart contracts for the TalentTrust decentralized freelancer escrow prot
 The escrow contract now enforces a minimal on-chain state machine instead of placeholder return values:
 
 - Contract creation requires client authorization and validates immutable milestone inputs.
+- Contract creation enforces minimum and maximum size/funding limits to prevent unbounded state and massive logic errors.
 - Funding is accepted exactly once and must match the total milestone amount.
 - Milestones can be released once each and only by the recorded client.
 - Reputation entries are gated behind completed-contract credits and are treated as informational data.
-- Protocol-wide validation parameters can be guarded by a governance admin and updated through audited state transitions.
+- Protocol-wide validation parameters (like maximum milestone counts) can be guarded by a governance admin and updated through audited state transitions.
 
 Reviewer-focused contract notes and the formal threat model live in [docs/escrow/README.md](/home/christopher/drips_projects/Talenttrust-Contracts/docs/escrow/README.md).
 
@@ -35,21 +36,6 @@ Current defaults:
 - `min_reputation_rating = 1`
 - `max_reputation_rating = 5`
 
-### Release Readiness Checklist
-
-The escrow contract includes an on-chain **release readiness checklist** that automatically tracks and enforces deployment, verification, and post-deploy monitoring gates:
-
-| Phase | Items |
-|---|---|
-| Deployment | Contract created, funds deposited |
-| Verification | Parties authenticated, milestones defined |
-| Post-Deploy Monitoring | All milestones released, reputation issued |
-
-`release_milestone` is **hard-blocked** until all Deployment and Verification items are satisfied.  
-Query checklist state with `get_release_checklist`, `is_release_ready`, and `is_post_deploy_complete`.
-
-See [docs/escrow/release-readiness-checklist.md](docs/escrow/release-readiness-checklist.md) for full details, function reference, error codes, and security model.
-
 ## Prerequisites
 
 - [Rust](https://rustup.rs/) (stable, 1.75+)
@@ -66,11 +52,15 @@ cd talenttrust-contracts
 # Build
 cargo build
 
-# Run tests (includes 95%+ coverage negative path testing for escrow)
+# Run tests
 cargo test
 
-# Run escrow performance/gas baseline tests only
-cargo test test::performance
+# Run access-control focused tests
+cargo test access_control
+
+# Run upgradeable storage planning tests only
+cargo test test::storage
+
 
 # Check formatting
 cargo fmt --all -- --check
@@ -79,16 +69,36 @@ cargo fmt --all -- --check
 cargo fmt --all
 ```
 
-## Escrow Emergency Controls
+## Escrow contract — acceptance handshake
 
-The escrow contract now supports critical-incident response with admin-managed controls:
+Before a client can fund an escrow contract, the assigned freelancer must explicitly accept the terms. This two-party handshake ensures no funds are committed without mutual agreement.
 
-- `initialize(admin)` (one-time setup)
-- `pause()` and `unpause()`
-- `activate_emergency_pause()` and `resolve_emergency()`
-- `is_paused()` and `is_emergency()`
+### State machine
 
-When paused, mutating escrow operations are blocked.
+```
+Created ──► Accepted ──► Funded ──► Completed
+                                └──► Disputed
+```
+
+| Status      | Meaning                                                       |
+| ----------- | ------------------------------------------------------------- |
+| `Created`   | Contract created by the client; awaiting freelancer response. |
+| `Accepted`  | Freelancer has signed off; client may now deposit funds.      |
+| `Funded`    | Funds are held in escrow; milestones may be released.         |
+| `Completed` | All milestones released; engagement concluded.                |
+| `Disputed`  | Under dispute resolution.                                     |
+
+### Key functions
+
+| Function            | Caller     | Requires status | Resulting status |
+| ------------------- | ---------- | --------------- | ---------------- |
+| `create_contract`   | client     | —               | `Created`        |
+| `accept_contract`   | freelancer | `Created`       | `Accepted`       |
+| `deposit_funds`     | client     | `Accepted`      | `Funded`         |
+| `release_milestone` | client     | `Funded`        | `Funded`         |
+| `get_status`        | anyone     | —               | —                |
+
+See [`docs/escrow/README.md`](docs/escrow/README.md) for the full contract reference.
 
 ## Contributing
 
@@ -98,6 +108,17 @@ When paused, mutating escrow operations are blocked.
    - `cargo test`
    - `cargo build`
 3. Open a pull request. CI runs `cargo fmt --all -- --check`, `cargo build`, and `cargo test` on push/PR to `main`.
+
+## Contract status transition guardrails
+
+Escrow contract status transitions are enforced using a guarded matrix to prevent invalid state changes. Supported transitions:
+
+- `Created` -> `Funded`
+- `Funded` -> `Completed`
+- `Funded` -> `Disputed`
+- `Disputed` -> `Completed`
+
+Invalid transitions cause a contract panic during execution.
 
 ## CI/CD
 
@@ -109,14 +130,15 @@ On every push and pull request to `main`, GitHub Actions:
 
 Ensure these pass locally before pushing.
 
-## Escrow Performance and Security
+## Upgradeable Storage Planning
 
-- Performance/gas baseline tests for key flows are in `contracts/escrow/src/test/performance.rs`.
-- Functional and failure-path coverage is split by module:
+- Versioned storage metadata and key namespaces are implemented in `contracts/escrow/src/lib.rs`.
+- Dedicated storage planning tests are in:
+  - `contracts/escrow/src/test/storage.rs`
   - `contracts/escrow/src/test/flows.rs`
   - `contracts/escrow/src/test/security.rs`
-- Contract-specific reviewer docs:
-  - `docs/escrow/performance-baselines.md`
+- Contract-specific documentation:
+  - `docs/escrow/upgradeable-storage.md`
   - `docs/escrow/security.md`
 
 ## License
