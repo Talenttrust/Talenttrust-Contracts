@@ -1,11 +1,20 @@
-#![cfg(test)]
-use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env, Vec};
+extern crate std;
 
-<<<<<<< Contract-creation-constraints
+use soroban_sdk::{testutils::Address as _, vec, Address, Env, Vec};
+
+use crate::{ContractStatus, Escrow, EscrowClient, EscrowContractData, Milestone};
+
+#[path = "create_contract.rs"]
+mod create_contract;
+#[path = "deposit.rs"]
+mod deposit;
+#[path = "refund.rs"]
+mod refund;
+#[path = "release.rs"]
+mod release;
+
+fn setup() -> (Env, Address, Address) {
 use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env};
-=======
-use crate::{Escrow, EscrowClient};
->>>>>>> main
 
 pub(crate) const MILESTONE_ONE: i128 = 200_0000000;
 pub(crate) const MILESTONE_TWO: i128 = 400_0000000;
@@ -38,159 +47,55 @@ fn test_create_contract_success() {
 #[test]
 fn test_create_contract_with_arbiter() {
     let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
+    env.mock_all_auths();
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
-    let arbiter_addr = Address::generate(&env);
-    let milestones = vec![&env, 1000_0000000_i128];
 
-    let id = client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &Some(arbiter_addr.clone()),
-        &milestones,
-        &ReleaseAuthorization::ClientAndArbiter,
-    );
-    assert_eq!(id, 0);
+    (env, client_addr, freelancer_addr)
 }
 
-#[test]
-#[should_panic(expected = "At least one milestone required")]
-fn test_create_contract_no_milestones() {
-    let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env];
-
-pub(crate) fn register_client(env: &Env) -> EscrowClient<'_> {
-    let contract_id = env.register(Escrow, ());
-    EscrowClient::new(env, &contract_id)
-}
-
-pub(crate) fn default_milestones(env: &Env) -> Vec<i128> {
-    vec![&env, MILESTONE_ONE, MILESTONE_TWO, MILESTONE_THREE]
-}
-
-<<<<<<< Contract-creation-constraints
+fn create_client(env: &Env) -> EscrowClient<'_> {
 #[test]
 #[should_panic(expected = "Deposit amount must equal total milestone amounts")]
 fn test_create_contract_invalid_milestone_amount() {
     let env = Env::default();
     let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env, 1000_0000000_i128];
-
-    // Create contract first
-    let id = client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-
-    // Note: Authentication tests would require proper mock setup
-    // For now, we test the basic contract creation logic
-
-    env.mock_all_auths();
-    let result = client.deposit_funds(&id, &client_addr, &500_0000000);
-    assert!(result);
+    EscrowClient::new(env, &contract_id)
 }
 
-#[test]
-#[should_panic(expected = "Exceeds maximum milestone count")]
-fn test_create_contract_too_many_milestones() {
-    let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-
-    // Create vector with 17 milestones (1 more than DEFAULT_MAX_MILESTONES of 16)
-    let mut milestones = vec![&env];
-    for _ in 0..17 {
-        milestones.push_back(1000_0000000_i128);
-    }
-
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
+fn create_default_contract(
+    env: &Env,
+    client: &EscrowClient<'_>,
+    client_addr: &Address,
+    freelancer_addr: &Address,
+) -> u32 {
+    let milestones = vec![env, 200_0000000_i128, 400_0000000_i128, 600_0000000_i128];
+    client.create_contract(client_addr, freelancer_addr, &milestones)
 }
 
-#[test]
-#[should_panic(expected = "Exceeds maximum contract funding size")]
-fn test_create_contract_exceeds_size_limit() {
-    let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-
-    // Amount exceeds 1_000_000_000_000_i128 limit
-    let milestones = vec![&env, 2_000_000_000_000_i128];
-
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
+fn assert_contract_state(
+    contract: EscrowContractData,
+    expected_status: ContractStatus,
+    expected_funded: i128,
+    expected_released: i128,
+    expected_refunded: i128,
+) {
+    assert_eq!(contract.status, expected_status);
+    assert_eq!(contract.funded_amount, expected_funded);
+    assert_eq!(contract.released_amount, expected_released);
+    assert_eq!(contract.refunded_amount, expected_refunded);
 }
 
-// ==================== DEPOSIT FUNDS TESTS ====================
-
-#[test]
-#[should_panic(expected = "Deposit amount must equal total milestone amounts")]
-fn test_deposit_funds_wrong_amount() {
-    let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env, 1000_0000000_i128];
-
-    // Create contract first
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-
-    // Note: Authentication tests would require proper mock setup
-    // For now, we test the basic contract creation logic
-
-    env.mock_all_auths();
-    client.deposit_funds(&1, &client_addr, &500_0000000);
-=======
-pub(crate) fn total_milestones() -> i128 {
-    MILESTONE_ONE + MILESTONE_TWO + MILESTONE_THREE
-}
-
-pub(crate) fn generated_participants(env: &Env) -> (Address, Address, Address) {
-    (
-        Address::generate(env),
-        Address::generate(env),
-        Address::generate(env),
-    )
->>>>>>> main
+fn assert_milestone_flags(
+    milestones: Vec<Milestone>,
+    milestone_id: u32,
+    expected_released: bool,
+    expected_refunded: bool,
+) {
+    let milestone = milestones.get(milestone_id).unwrap();
+    assert_eq!(milestone.released, expected_released);
+    assert_eq!(milestone.refunded, expected_refunded);
 }
 
 pub(crate) fn create_default_contract(

@@ -1,226 +1,88 @@
-# Escrow Contract Documentation
+# Escrow Contract
 
-## Overview
+## Summary
 
-The TalentTrust Escrow contract provides a decentralized escrow system for freelancer-client relationships with built-in dispute resolution capabilities. Built on Soroban (Stellar), it ensures secure fund management and fair dispute resolution.
+The escrow contract stores a client, a freelancer, and a fixed list of milestone balances.
+Funds are tracked internally through three counters:
 
-## Architecture
+- `funded_amount`: total deposits accepted from the client
+- `released_amount`: total milestone value already released to the freelancer
+- `refunded_amount`: total milestone value already refunded to the client
 
-### Core Components
+The refundable balance is derived as:
 
-1. **EscrowContract**: Main contract structure storing client, freelancer, milestones, and status
-2. **Dispute**: Dispute tracking with evidence, resolution type, and payout amounts
-3. **Access Control**: Role-based permissions for admin, arbitrator, client, and freelancer
-
-### Storage Structure
-
-```
-├── ADMIN: Address           # Contract administrator
-├── ARBITRATOR: Address     # Dispute resolver
-├── CONTRACTS: Map<u32, EscrowContract>
-├── DISPUTES: Map<u32, Dispute>
-├── NEXT_CONTRACT_ID: u32
-└── NEXT_DISPUTE_ID: u32
+```text
+funded_amount - released_amount - refunded_amount
 ```
 
-## Contract States
+## Partial refund behavior
 
-### ContractStatus
-- `Created`: Contract created, awaiting funding
-- `Funded`: Funds deposited, milestones available for release
-- `Completed`: All milestones released successfully
-- `Disputed`: Dispute opened, contract paused
-- `Resolved`: Dispute resolved, payouts processed
-- `Cancelled`: Contract cancelled (future feature)
+`refund_unreleased_milestones(contract_id, milestone_ids)` enables the client to recover balances tied to unreleased milestones.
 
-### DisputeStatus
-- `Open`: Dispute created, awaiting review
-- `InReview`: Dispute being reviewed by arbitrator
-- `Resolved`: Dispute resolved with payouts determined
+Each requested milestone must satisfy all of the following:
 
-## Functions
+- it exists
+- it has not already been released
+- it has not already been refunded
+- it appears only once in the request
 
-### Initialization
+The function computes the full refund amount first and only mutates milestone flags after all validations pass. This keeps the flow easy to audit and avoids partial logical updates within a successful call.
 
-#### `initialize(admin: Address, arbitrator: Address)`
-- **Purpose**: Initialize contract with admin and arbitrator addresses
-- **Access**: Anyone (but requires admin signature)
-- **Security**: Prevents re-initialization
+## State transitions
 
-### Contract Management
+- `Created`: contract exists and is not yet fully funded
+- `Funded`: deposits now equal the total milestone value and unresolved milestones still remain
+- `Completed`: every milestone has been released
+- `Refunded`: every unresolved milestone has been refunded
+- `Disputed`: reserved for future dispute handling
 
-#### `create_contract(client: Address, freelancer: Address, milestone_amounts: Vec<i128>) -> u32`
-- **Purpose**: Create new escrow contract with milestone payments
-- **Access**: Client only
-- **Returns**: Unique contract ID
+Notes:
 
-#### `deposit_funds(contract_id: u32, amount: i128) -> bool`
-- **Purpose**: Deposit total contract amount into escrow
-- **Access**: Client only
-- **Validation**: Amount must equal total milestone amounts
+- A contract can remain `Funded` after a partial refund if at least one unresolved milestone still exists.
+- Once a contract becomes `Completed` or `Refunded`, further deposits, releases, and refunds are rejected.
 
-#### `release_milestone(contract_id: u32, milestone_id: u32) -> bool`
-- **Purpose**: Release specific milestone payment to freelancer
-- **Access**: Client only
-- **Validation**: Milestone must exist and not be previously released
+## Security assumptions
 
-### Dispute Resolution
+- Only the stored client address can create the contract, deposit funds, release milestones, or trigger refunds.
+- Deposits cannot exceed the original milestone total.
+- Releases and refunds both consume the same escrow balance, preventing the same funded value from being spent twice.
+- A refunded milestone can never be released later.
+- A released milestone can never be refunded later.
+- Duplicate milestone IDs in a single refund request are rejected.
+- Empty milestone sets, zero-value milestones, and zero-value deposits are rejected.
 
-#### `create_dispute(contract_id: u32, reason: Symbol, evidence: Vec<Symbol>) -> u32`
-- **Purpose**: Create dispute for funded contract
-- **Access**: Client or Freelancer only
-- **Returns**: Unique dispute ID
-- **Effect**: Contract status changes to `Disputed`
+## Threat scenarios reviewed
 
-#### `resolve_dispute(dispute_id: u32, resolution: DisputeResolution, client_payout: i128, freelancer_payout: i128) -> bool`
-- **Purpose**: Resolve dispute with specific outcome
-- **Access**: Arbitrator only
-- **Resolution Types**:
-  - `FullRefund`: 100% to client
-  - `PartialRefund`: 70% to client, 30% to freelancer
-  - `FullPayout`: 100% to freelancer
-  - `Split`: Custom amounts (must total contract amount)
+- Double refund attempt: blocked by milestone `refunded` flag checks.
+- Release after refund: blocked by milestone status validation.
+- Refund after release: blocked by milestone status validation.
+- Overfunding: blocked by total milestone cap enforcement.
+- Underfunded release/refund: blocked when the derived escrow balance is insufficient.
+- Replay on terminal contracts: blocked by status gating once the contract is fully resolved.
 
-### Admin Functions
+## Test coverage focus
 
-#### `update_admin(new_admin: Address)`
-- **Purpose**: Update admin address
-- **Access**: Current admin only
+The escrow tests are grouped into dedicated modules:
 
-#### `update_arbitrator(new_arbitrator: Address)`
-- **Purpose**: Update arbitrator address
-- **Access**: Admin only
+- `create_contract.rs`
+- `deposit.rs`
+- `release.rs`
+- `refund.rs`
 
-## Security Features
+Covered scenarios include:
 
-### Access Control
-- **Admin**: Can update arbitrator, manage contract settings
-- **Arbitrator**: Can resolve disputes, determine payouts
-- **Client**: Can create contracts, deposit funds, release milestones, create disputes
-- **Freelancer**: Can create disputes, receive milestone payments
+- successful creation, deposit, release, and refund flows
+- invalid participant and milestone input
+- overfunding and zero-value deposit rejection
+- invalid milestone selection
+- duplicate refund requests
+- double release and double refund protection
+- insufficient-balance failure paths
+- terminal-state operation rejection
 
-### Validation Rules
-1. Contract must be in correct state for operations
-2. Financial amounts must be mathematically valid
-3. Only authorized parties can perform actions
-4. Dispute resolution payouts are deterministic
+## Reviewer checklist
 
-### Threat Mitigation
-- **Unauthorized access**: Role-based authentication
-- **Invalid payouts**: Mathematical validation of splits
-- **Double spending**: State machine prevents invalid transitions
-- **Front-running**: Timestamp tracking for dispute resolution
-
-## Usage Examples
-
-### Basic Workflow
-
-```rust
-// 1. Initialize contract
-escrow.initialize(admin_address, arbitrator_address);
-
-// 2. Create contract
-let contract_id = escrow.create_contract(
-    client_address,
-    freelancer_address,
-    vec![1000_0000000, 2000_0000000] // Milestones in stroops
-);
-
-// 3. Deposit funds
-escrow.deposit_funds(contract_id, 3000_0000000);
-
-// 4. Release milestone
-escrow.release_milestone(contract_id, 0); // First milestone
-```
-
-### Dispute Resolution
-
-```rust
-// 5. Create dispute (when issues arise)
-let dispute_id = escrow.create_dispute(
-    contract_id,
-    symbol_short!("quality_issues"),
-    vec![symbol_short!("evidence1"), symbol_short!("evidence2")]
-);
-
-// 6. Resolve dispute (arbitrator only)
-escrow.resolve_dispute(
-    dispute_id,
-    DisputeResolution::PartialRefund,
-    0,  // Not used for PartialRefund
-    0   // Not used for PartialRefund
-);
-```
-
-## Testing
-
-The contract includes comprehensive tests covering:
-- Normal workflow operations
-- All dispute resolution scenarios
-- Access control violations
-- Edge cases and error conditions
-- Security validation
-
-Run tests with:
-```bash
-cargo test
-```
-
-## Future Enhancements
-
-- Reputation system integration
-- Multi-signature dispute resolution
-- Time-based escrow releases
-- Gas optimization for high-volume usage
-- Cross-chain dispute resolution
-This document describes escrow-specific controls and operational guidance.
-
-## Emergency Pause Controls
-
-The escrow contract includes admin-managed incident response controls:
-
-- `initialize(admin)`: Sets the admin address once.
-- `pause()`: Temporarily pauses state-changing functions.
-- `unpause()`: Re-enables operations after a normal pause.
-- `activate_emergency_pause()`: Activates emergency mode and hard-pauses operations.
-- `resolve_emergency()`: Clears emergency mode and unpauses the contract.
-- `is_paused()`: Read-only pause status.
-- `is_emergency()`: Read-only emergency status.
-
-### Guarded Functions
-
-While paused, these state-changing flows revert with `ContractPaused`:
-
-- `create_contract`
-- `deposit_funds`
-- `release_milestone`
-- `issue_reputation`
-
-### Error Codes
-
-- `1` `AlreadyInitialized`
-- `2` `NotInitialized`
-- `3` `ContractPaused`
-- `4` `NotPaused`
-- `5` `EmergencyActive`
-
-## Escrow Creation Boundaries
-
-To prevent out-of-gas or infinite-loop denial of service attacks, the escrow contract enforces creation limits:
-- **Maximum Milestone Count**: Hard-capped by `ProtocolParameters.max_milestones` (defaults to 16).
-- **Maximum Contract Size/Funding**: Total escrow amounts are bounded (e.g., `< 1,000,000,000,000` stroops) to prevent integer overflows or massive storage requirements footprint.
-
-## Security Notes
-
-- Admin-only controls: pause and emergency operations require authenticated admin.
-- One-time initialization: admin cannot be replaced accidentally by repeated init calls.
-- Emergency lock discipline: `unpause` is blocked while emergency mode is active.
-- Fail-closed behavior: guarded functions revert whenever `paused == true`.
-
-## Operational Playbook
-
-1. Detect incident and call `activate_emergency_pause`.
-2. Investigate and remediate root cause.
-3. Validate mitigations in test/staging.
-4. Call `resolve_emergency` to restore service.
-5. Publish incident summary for ecosystem transparency.
+- Confirm the milestone-based refund model matches product expectations.
+- Confirm client-only authorization is the intended release policy.
+- Confirm `Refunded` as a terminal status is acceptable for fully refunded contracts.
+- Confirm token transfer integration, if added later, preserves the same accounting invariant before and after transfer side effects.

@@ -36,6 +36,23 @@ Current defaults:
 - `min_reputation_rating = 1`
 - `max_reputation_rating = 5`
 
+## Escrow refund support
+
+The escrow contract now supports partial refunds for unreleased milestone balances.
+
+- `create_contract` stores milestone definitions and initializes tracked balances.
+- `deposit_funds` accepts client-authorized deposits up to the contract total.
+- `release_milestone` marks a milestone as paid and decreases the refundable escrow balance.
+- `refund_unreleased_milestones` refunds any selected unreleased milestones back to the client and prevents double refund or refund-after-release.
+- `get_contract`, `get_milestones`, and `get_refundable_balance` expose review and integration state without mutating storage.
+
+Reviewer notes:
+
+- Refunds are milestone-based, not arbitrary-amount based, so the remaining funded balance always maps to unresolved milestones.
+- Double spend protection is enforced through milestone flags plus balance accounting.
+- Terminal contracts reject further deposit, release, and refund actions.
+- Detailed contract behavior and security assumptions are documented in [docs/escrow/README.md](/c:/Users/ADMIN/Desktop/midea-drips/Talenttrust-Contracts/docs/escrow/README.md).
+
 ## Prerequisites
 
 - [Rust](https://rustup.rs/) (stable, 1.75+)
@@ -130,16 +147,20 @@ On every push and pull request to `main`, GitHub Actions:
 
 Ensure these pass locally before pushing.
 
-## Upgradeable Storage Planning
+## Escrow testing
 
-- Versioned storage metadata and key namespaces are implemented in `contracts/escrow/src/lib.rs`.
-- Dedicated storage planning tests are in:
-  - `contracts/escrow/src/test/storage.rs`
-  - `contracts/escrow/src/test/flows.rs`
-  - `contracts/escrow/src/test/security.rs`
-- Contract-specific documentation:
-  - `docs/escrow/upgradeable-storage.md`
-  - `docs/escrow/security.md`
+The escrow test suite is organized by behavior area:
+
+- contract creation validation
+- deposits and overfunding protection
+- milestone release paths
+- partial refund and refund failure cases
+
+Run the escrow-specific suite with:
+
+```bash
+cargo test -p escrow
+```
 
 ## License
 
