@@ -196,6 +196,38 @@ While paused, these state-changing flows revert with `ContractPaused`:
 - `release_milestone`
 - `issue_reputation`
 
+## Dispute Lifecycle
+
+The escrow contract supports a dispute lifecycle for funded contracts. Disputes are stored in persistent contract storage and transition the escrow agreement into `Disputed` status.
+
+### Entry points
+
+- `open_dispute(contract_id, initiator, reason)`
+- `submit_dispute_evidence(contract_id, submitter, uri)`
+- `resolve_dispute(contract_id, resolver, outcome)`
+- `payout_dispute(contract_id)`
+
+### Access control
+
+- `open_dispute`:
+  - Requires auth from `initiator`.
+  - `initiator` must be either the `client` or the `freelancer`.
+  - Contract must be `Funded`.
+- `submit_dispute_evidence`:
+  - Requires auth from `submitter`.
+  - `submitter` must be either the `client` or the `freelancer`.
+  - Evidence submission is blocked after the dispute is resolved.
+- `resolve_dispute`:
+  - Restricted to the pause-control `admin` set via `initialize(admin)`.
+- `payout_dispute`:
+  - Requires the dispute to be resolved first.
+  - Marks the escrow contract `Completed` and records a payout state update.
+
+### Threat-model notes
+
+- Dispute resolution is admin-restricted so the protocol can enforce a clear incident-response and governance model.
+- Mutating dispute operations respect `pause` and `activate_emergency_pause` fail-closed behavior.
+
 ### Error Codes
 
 - `1` `AlreadyInitialized`
@@ -204,6 +236,7 @@ While paused, these state-changing flows revert with `ContractPaused`:
 - `4` `NotPaused`
 - `5` `EmergencyActive`
 
+Note: Escrow lifecycle operations (including dispute flows) use Soroban contract errors (`Error(Contract, #N)`) defined in the escrow contract's `EscrowError` enum.
 ## Escrow Creation Boundaries
 
 To prevent out-of-gas or infinite-loop denial of service attacks, the escrow contract enforces creation limits:

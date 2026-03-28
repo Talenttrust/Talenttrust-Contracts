@@ -69,7 +69,7 @@ fn governance_initialization_and_updates_change_live_validation_rules() {
     client.release_milestone(&id, &1);
     client.release_milestone(&id, &2);
 
-    assert!(client.issue_reputation(&freelancer, &5_i128));
+    assert!(client.issue_reputation(&id, &5_i128));
 }
 
 #[test]

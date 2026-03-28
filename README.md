@@ -18,7 +18,7 @@ The escrow contract now enforces a minimal on-chain state machine instead of pla
 - Reputation entries are gated behind completed-contract credits and are treated as informational data.
 - Protocol-wide validation parameters (like maximum milestone counts) can be guarded by a governance admin and updated through audited state transitions.
 
-Reviewer-focused contract notes and the formal threat model live in [docs/escrow/README.md](/home/christopher/drips_projects/Talenttrust-Contracts/docs/escrow/README.md).
+Reviewer-focused contract notes and the formal threat model live in [docs/escrow/README.md](docs/escrow/README.md).
 
 ## Protocol governance
 
