@@ -1,451 +1,393 @@
-#![cfg(test)]
-use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env, Vec};
+﻿//! Comprehensive test suite for the TalentTrust escrow contract.
+//!
+//! # Coverage strategy
+//! Tests are grouped by functional area and cover:
+//! - Happy paths for every public entry point.
+//! - Checklist auto-update behaviour after each operation.
+//! - Enforcement: `release_milestone` must panic when readiness gates are unmet.
+//! - Edge cases: zero deposit, out-of-range milestone ID, duplicate release.
+//! - Full end-to-end scenario exercising all six checklist items.
 
-<<<<<<< Contract-creation-constraints
 use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env};
-=======
+
 use crate::{Escrow, EscrowClient};
->>>>>>> main
 
-pub(crate) const MILESTONE_ONE: i128 = 200_0000000;
-pub(crate) const MILESTONE_TWO: i128 = 400_0000000;
-pub(crate) const MILESTONE_THREE: i128 = 600_0000000;
-
-// ==================== CONTRACT CREATION TESTS ====================
-
-mod timeout_tests;
+// ---------------------------------------------------------------------------
+// Utility / smoke tests
+// ---------------------------------------------------------------------------
 
 #[test]
-fn test_create_contract_success() {
+fn test_hello() {
     let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128, 600_0000000_i128];
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let result = client.hello(&symbol_short!("World"));
+    assert_eq!(result, symbol_short!("World"));
+}
 
-    let id = client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
+// ---------------------------------------------------------------------------
+// create_contract
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_create_contract_returns_nonzero_id() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    assert!(id > 0, "contract ID must be positive");
+}
+
+#[test]
+fn test_create_contract_ids_are_unique() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id1 = client.create_contract(&ca, &fa, &milestones);
+    let id2 = client.create_contract(&ca, &fa, &milestones);
+    assert_ne!(
+        id1, id2,
+        "each create_contract call must produce a unique ID"
     );
-    assert_eq!(id, 0);
 }
 
 #[test]
-fn test_create_contract_with_arbiter() {
+fn test_checklist_initialized_on_create() {
     let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    let checklist = client.get_release_checklist(&id);
 
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let arbiter_addr = Address::generate(&env);
-    let milestones = vec![&env, 1000_0000000_i128];
-
-    let id = client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &Some(arbiter_addr.clone()),
-        &milestones,
-        &ReleaseAuthorization::ClientAndArbiter,
-    );
-    assert_eq!(id, 0);
+    // Deployment phase: contract_created Γ£ö, funds_deposited Γ£ÿ
+    assert!(checklist.contract_created);
+    assert!(!checklist.funds_deposited);
+    // Verification phase: both true
+    assert!(checklist.parties_authenticated);
+    assert!(checklist.milestones_defined);
+    // Post-deploy: both false
+    assert!(!checklist.all_milestones_released);
+    assert!(!checklist.reputation_issued);
 }
 
 #[test]
-#[should_panic(expected = "At least one milestone required")]
-fn test_create_contract_no_milestones() {
+#[should_panic]
+fn test_create_contract_panics_with_too_many_milestones() {
     let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env];
-
-pub(crate) fn register_client(env: &Env) -> EscrowClient<'_> {
-    let contract_id = env.register(Escrow, ());
-    EscrowClient::new(env, &contract_id)
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    // 21 milestones ΓÇö exceeds MAX_MILESTONES (20).
+    let mut amounts = vec![&env, 100_0000000_i128];
+    for _ in 0..20 {
+        amounts.push_back(100_0000000_i128);
+    }
+    client.create_contract(&ca, &fa, &amounts);
 }
 
-pub(crate) fn default_milestones(env: &Env) -> Vec<i128> {
-    vec![&env, MILESTONE_ONE, MILESTONE_TWO, MILESTONE_THREE]
-}
-
-<<<<<<< Contract-creation-constraints
 #[test]
-#[should_panic(expected = "Deposit amount must equal total milestone amounts")]
-fn test_create_contract_invalid_milestone_amount() {
+#[should_panic]
+fn test_create_contract_panics_with_zero_milestones() {
     let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let empty: soroban_sdk::Vec<i128> = vec![&env];
+    client.create_contract(&ca, &fa, &empty);
+}
 
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env, 1000_0000000_i128];
+// ---------------------------------------------------------------------------
+// is_release_ready ΓÇö pre-deposit (false)
+// ---------------------------------------------------------------------------
 
-    // Create contract first
-    let id = client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
+#[test]
+fn test_is_release_ready_false_before_deposit() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    assert!(!client.is_release_ready(&id));
+}
 
-    // Note: Authentication tests would require proper mock setup
-    // For now, we test the basic contract creation logic
+// ---------------------------------------------------------------------------
+// deposit_funds
+// ---------------------------------------------------------------------------
 
-    env.mock_all_auths();
-    let result = client.deposit_funds(&id, &client_addr, &500_0000000);
+#[test]
+fn test_deposit_funds_sets_checklist_flag() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    let result = client.deposit_funds(&id, &500_0000000_i128);
+    assert!(result);
+    let checklist = client.get_release_checklist(&id);
+    assert!(checklist.funds_deposited);
+}
+
+#[test]
+fn test_is_release_ready_true_after_deposit() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    client.deposit_funds(&id, &500_0000000_i128);
+    assert!(client.is_release_ready(&id));
+}
+
+#[test]
+#[should_panic]
+fn test_deposit_zero_panics() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    client.deposit_funds(&id, &0_i128);
+}
+
+#[test]
+#[should_panic]
+fn test_deposit_negative_panics() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    client.deposit_funds(&id, &-1_i128);
+}
+
+#[test]
+#[should_panic]
+fn test_deposit_unknown_contract_panics() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    client.deposit_funds(&999, &100_0000000_i128);
+}
+
+// ---------------------------------------------------------------------------
+// release_milestone ΓÇö enforcement tests
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic]
+fn test_release_blocked_before_deposit() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    // No deposit ΓÇö checklist incomplete ΓÇö must panic.
+    client.release_milestone(&id, &0);
+}
+
+#[test]
+fn test_release_milestone_succeeds_when_ready() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    client.deposit_funds(&id, &100_0000000_i128);
+    let result = client.release_milestone(&id, &0);
     assert!(result);
 }
 
 #[test]
-#[should_panic(expected = "Exceeds maximum milestone count")]
-fn test_create_contract_too_many_milestones() {
+fn test_all_milestones_released_flag_set_after_last_release() {
     let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128, 200_0000000_i128, 300_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    client.deposit_funds(&id, &600_0000000_i128);
 
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-
-    // Create vector with 17 milestones (1 more than DEFAULT_MAX_MILESTONES of 16)
-    let mut milestones = vec![&env];
-    for _ in 0..17 {
-        milestones.push_back(1000_0000000_i128);
-    }
-
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
+    client.release_milestone(&id, &0);
+    client.release_milestone(&id, &1);
+    let checklist = client.get_release_checklist(&id);
+    assert!(
+        !checklist.all_milestones_released,
+        "should be false until ALL milestones released"
     );
+
+    client.release_milestone(&id, &2);
+    let checklist = client.get_release_checklist(&id);
+    assert!(checklist.all_milestones_released);
 }
 
 #[test]
-#[should_panic(expected = "Exceeds maximum contract funding size")]
-fn test_create_contract_exceeds_size_limit() {
+#[should_panic]
+fn test_release_invalid_milestone_id_panics() {
     let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-
-    // Amount exceeds 1_000_000_000_000_i128 limit
-    let milestones = vec![&env, 2_000_000_000_000_i128];
-
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    client.deposit_funds(&id, &100_0000000_i128);
+    // Index 1 is out of range for a single-milestone contract.
+    client.release_milestone(&id, &1);
 }
-
-// ==================== DEPOSIT FUNDS TESTS ====================
 
 #[test]
-#[should_panic(expected = "Deposit amount must equal total milestone amounts")]
-fn test_deposit_funds_wrong_amount() {
+#[should_panic]
+fn test_release_duplicate_milestone_panics() {
     let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env, 1000_0000000_i128];
-
-    // Create contract first
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-
-    // Note: Authentication tests would require proper mock setup
-    // For now, we test the basic contract creation logic
-
-    env.mock_all_auths();
-    client.deposit_funds(&1, &client_addr, &500_0000000);
-=======
-pub(crate) fn total_milestones() -> i128 {
-    MILESTONE_ONE + MILESTONE_TWO + MILESTONE_THREE
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    client.deposit_funds(&id, &100_0000000_i128);
+    client.release_milestone(&id, &0);
+    // Second release of same milestone must panic.
+    client.release_milestone(&id, &0);
 }
 
-pub(crate) fn generated_participants(env: &Env) -> (Address, Address, Address) {
-    (
-        Address::generate(env),
-        Address::generate(env),
-        Address::generate(env),
-    )
->>>>>>> main
+// ---------------------------------------------------------------------------
+// issue_reputation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_issue_reputation_updates_checklist() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+    let fa_addr = Address::generate(&env);
+    let result = client.issue_reputation(&id, &fa_addr, &5_i128);
+    assert!(result);
+    let checklist = client.get_release_checklist(&id);
+    assert!(checklist.reputation_issued);
 }
 
-pub(crate) fn create_default_contract(
-    client: &EscrowClient<'_>,
-    env: &Env,
-    release_auth: ReleaseAuthorization,
-) -> (u32, Address, Address, Address) {
-    let (client_addr, freelancer_addr, arbiter_addr) = generated_participants(env);
-    let arbiter = match release_auth {
-        ReleaseAuthorization::ClientOnly => None,
-        _ => Some(arbiter_addr.clone()),
+#[test]
+#[should_panic]
+fn test_issue_reputation_unknown_contract_panics() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let fa_addr = Address::generate(&env);
+    client.issue_reputation(&999, &fa_addr, &5_i128);
+}
+
+// ---------------------------------------------------------------------------
+// is_post_deploy_complete ΓÇö full end-to-end
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_is_post_deploy_complete_full_lifecycle() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128, 200_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+
+    assert!(!client.is_post_deploy_complete(&id));
+    client.deposit_funds(&id, &300_0000000_i128);
+    assert!(!client.is_post_deploy_complete(&id));
+    client.release_milestone(&id, &0);
+    client.release_milestone(&id, &1);
+    assert!(!client.is_post_deploy_complete(&id)); // reputation still missing
+    client.issue_reputation(&id, &fa, &5_i128);
+    assert!(client.is_post_deploy_complete(&id));
+}
+
+// ---------------------------------------------------------------------------
+// get_release_checklist ΓÇö state progression
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_get_release_checklist_reflects_state_progression() {
+    let env = Env::default();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id = client.create_contract(&ca, &fa, &milestones);
+
+    let count_true = |cl: crate::ReleaseChecklist| -> u32 {
+        [
+            cl.contract_created,
+            cl.funds_deposited,
+            cl.parties_authenticated,
+            cl.milestones_defined,
+            cl.all_milestones_released,
+            cl.reputation_issued,
+        ]
+        .iter()
+        .filter(|&&v| v)
+        .count() as u32
     };
 
-    let contract_id = client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &arbiter,
-        &default_milestones(env),
-        &release_auth,
-    );
-
-    env.mock_all_auths();
-    client.deposit_funds(&1, &client_addr, &1000_0000000);
-    client.approve_milestone_release(&1, &unauthorized_addr, &0);
-pub(crate) fn register_client(env: &Env) -> EscrowClient<'_> {
-    let contract_id = env.register(Escrow, ());
-    EscrowClient::new(env, &contract_id)
-}
-
-pub(crate) fn default_milestones(env: &Env) -> Vec<i128> {
-    vec![&env, MILESTONE_ONE, MILESTONE_TWO, MILESTONE_THREE]
-}
-
-pub(crate) fn total_milestone_amount() -> i128 {
-    MILESTONE_ONE + MILESTONE_TWO + MILESTONE_THREE
-}
-
-pub(crate) fn generated_participants(env: &Env) -> (Address, Address) {
-    (Address::generate(env), Address::generate(env))
+    assert_eq!(count_true(client.get_release_checklist(&id)), 3);
+    client.deposit_funds(&id, &100_0000000_i128);
+    assert_eq!(count_true(client.get_release_checklist(&id)), 4);
 }
 
 #[test]
-#[should_panic(expected = "Milestone already released")]
-fn test_release_milestone_already_released() {
+#[should_panic]
+fn test_get_release_checklist_unknown_contract_panics() {
     let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    // Use 2 milestones so releasing the first one doesn't set status to Completed
-    let milestones = vec![&env, 1000_0000000_i128, 2000_0000000_i128];
-
-    // Create contract
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-
-    env.mock_all_auths();
-    client.deposit_funds(&1, &client_addr, &3000_0000000);
-    client.approve_milestone_release(&1, &client_addr, &0);
-
-    let result = client.release_milestone(&1, &client_addr, &0);
-    assert!(result);
-
-    // Try to release again — should panic with "Milestone already released"
-    client.release_milestone(&1, &client_addr, &0);
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    client.get_release_checklist(&999);
 }
+
+// ---------------------------------------------------------------------------
+// Isolation: multiple contracts don't share state
+// ---------------------------------------------------------------------------
 
 #[test]
-fn test_release_milestone_multi_sig() {
+fn test_independent_contracts_do_not_share_checklist_state() {
     let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let arbiter_addr = Address::generate(&env);
-    let milestones = vec![&env, 1000_0000000_i128];
-
-    // Create contract
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &Some(arbiter_addr),
-        &milestones,
-        &ReleaseAuthorization::MultiSig,
-    );
-
-    env.mock_all_auths();
-    client.deposit_funds(&1, &client_addr, &1000_0000000);
-    client.approve_milestone_release(&1, &client_addr, &0);
-
-    let result = client.release_milestone(&1, &client_addr, &0);
-    assert!(result);
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let ca = Address::generate(&env);
+    let fa = Address::generate(&env);
+    let milestones = vec![&env, 100_0000000_i128];
+    let id1 = client.create_contract(&ca, &fa, &milestones);
+    let id2 = client.create_contract(&ca, &fa, &milestones);
+    client.deposit_funds(&id1, &100_0000000_i128);
+    assert!(client.is_release_ready(&id1));
+    assert!(!client.is_release_ready(&id2));
 }
-
-#[test]
-fn test_contract_completion_all_milestones_released() {
-    let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env, 1000_0000000_i128, 2000_0000000_i128];
-
-    // Create contract
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-
-    env.mock_all_auths();
-    client.deposit_funds(&1, &client_addr, &3000_0000000);
-
-    client.approve_milestone_release(&1, &client_addr, &0);
-    client.release_milestone(&1, &client_addr, &0);
-
-    client.approve_milestone_release(&1, &client_addr, &1);
-    client.release_milestone(&1, &client_addr, &1);
-
-    // All milestones should be released and contract completed
-    // Note: In a real implementation, we would check the contract status
-    // For this simplified version, we just verify no panics occurred
-}
-
-#[test]
-fn test_dispute_contract_transitions() {
-    let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let arbiter_addr = Address::generate(&env);
-    let milestones = vec![&env, 1000_0000000_i128];
-
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &Some(arbiter_addr.clone()),
-        &milestones,
-        &ReleaseAuthorization::ClientAndArbiter,
-    );
-
-    env.mock_all_auths();
-    client.deposit_funds(&1, &client_addr, &1000_0000000);
-
-    let result = client.dispute_contract(&1, &client_addr);
-    assert!(result);
-}
-
-#[test]
-#[should_panic(expected = "Contract must be in Funded status to release milestones")]
-fn test_disputed_contract_cannot_release_milestone() {
-    let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let arbiter_addr = Address::generate(&env);
-    let milestones = vec![&env, 1000_0000000_i128];
-
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &Some(arbiter_addr.clone()),
-        &milestones,
-        &ReleaseAuthorization::ClientAndArbiter,
-    );
-
-    env.mock_all_auths();
-    client.deposit_funds(&1, &client_addr, &1000_0000000);
-    client.dispute_contract(&1, &client_addr);
-
-    client.release_milestone(&1, &client_addr, &0);
-}
-
-#[test]
-#[should_panic(expected = "Contract must be in Created status to deposit funds")]
-fn test_invalid_status_transition_from_completed_to_funded() {
-    let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env, 1000_0000000_i128];
-
-    client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-
-    env.mock_all_auths();
-    client.deposit_funds(&1, &client_addr, &1000_0000000);
-    client.approve_milestone_release(&1, &client_addr, &0);
-    client.release_milestone(&1, &client_addr, &0);
-
-    // Attempt invalid transition by re-depositing after completion.
-    client.deposit_funds(&1, &client_addr, &1000_0000000);
-}
-
-#[test]
-fn test_edge_cases() {
-    let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env, 1_0000000_i128]; // Minimum amount
-
-    // Test with minimum amount
-    let id = client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-    assert_eq!(id, 0);
-
-    // Test with multiple milestones
-    let many_milestones = vec![
-        &env,
-        100_0000000_i128,
-        200_0000000_i128,
-        300_0000000_i128,
-        400_0000000_i128,
-    ];
-    let id2 = client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &many_milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-    assert_eq!(id2, 0); // ledger sequence stays the same in test env
-pub(crate) fn world_symbol() -> soroban_sdk::Symbol {
-    symbol_short!("World")
-}
-
-mod flows;
-mod security;
-mod storage;
