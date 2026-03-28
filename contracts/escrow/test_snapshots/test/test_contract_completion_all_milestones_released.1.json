@@ -235,6 +235,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "deadline_at"
+                                },
+                                "val": {
+                                  "u64": 604800
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "released"
                                 },
                                 "val": {
@@ -270,6 +278,14 @@
                                 },
                                 "val": {
                                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "deadline_at"
+                                },
+                                "val": {
+                                  "u64": 604800
                                 }
                               },
                               {

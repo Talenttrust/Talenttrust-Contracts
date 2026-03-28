@@ -1,14 +1,15 @@
-# Escrow Pause/Emergency Threat Model
+# Escrow Security Notes
 
-## Scope
+This document summarizes security assumptions and threat scenarios for access-control enforcement.
 
-This model covers pause and emergency controls in `contracts/escrow/src/lib.rs`.
+## Security Controls
 
-## Assumptions
-
-- The admin key is securely managed.
-- Soroban address authentication behaves as expected.
-- Off-chain operators monitor incidents and invoke controls quickly.
+- Explicit role checks on all mutating methods.
+- Mandatory auth calls (`require_auth`) for role-bearing callers.
+- Role-aware release gating based on `ReleaseAuthorization`.
+- Strict state transition validation (`Created` -> `Funded` -> `Completed`).
+- Defensive checks for invalid milestone IDs and duplicate actions.
+- Checked arithmetic for milestone total and reputation accumulation.
 
 ## Threat Scenarios and Mitigations
 
@@ -36,3 +37,47 @@ Mitigation: all critical mutating endpoints check `ensure_not_paused`.
 2. Add role separation for `pauser` and `resolver`.
 3. Add on-chain event emission for pause state transitions.
 4. Add optional time-delayed unpause for high-severity incidents.
+# Escrow Security Notes
+
+This document summarizes security assumptions and threat handling for escrow storage planning and core flows.
+
+## Controls Implemented
+
+- Authorization:
+  - `create_contract` requires client auth.
+  - `deposit_funds` requires stored contract client auth.
+  - `release_milestone` requires stored contract client auth.
+  - `issue_reputation` requires stored contract client auth.
+- Input and state validation:
+  - participant addresses must differ
+  - milestone list must be non-empty
+  - milestone amounts must be positive
+  - deposit amount must be positive
+  - rating must be within `[1, 5]`
+  - release requires funded status and unreleased milestone
+  - reputation issuance requires completed contract and one-time issuance
+- Arithmetic safety:
+  - all amount/count updates use checked arithmetic with explicit errors.
+- Storage version safety:
+  - unknown layout versions are rejected
+  - layout metadata is initialized deterministically
+  - migration targets are explicit and validated
+
+## Threat Scenarios and Mitigations
+
+- Unauthorized state mutation:
+  - Mitigated by `require_auth` on mutating methods.
+- Overfunding / accounting drift:
+  - Mitigated with total funding cap and release-balance checks.
+- Duplicate release attacks:
+  - Mitigated with per-milestone release flag and state transitions.
+- Cross-version decode risk after upgrades:
+  - Mitigated by explicit `LayoutVersion` checks before reads/writes.
+- Ambiguous migration execution:
+  - Mitigated by explicit `migrate_storage(target_version)` with strict target validation.
+
+## Residual Assumptions
+
+- Token transfer plumbing is out of scope here; accounting is contract-state based.
+- Dispute flow (`Disputed`) is reserved for future feature implementation.
+- Production fee/resource values should be validated using network simulation tooling.

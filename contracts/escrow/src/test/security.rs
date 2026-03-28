@@ -22,7 +22,7 @@ fn test_create_rejects_same_participants() {
 }
 
 #[test]
-fn test_create_rejects_empty_milestone_list() {
+fn test_create_rejects_empty_milestones() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -77,7 +77,7 @@ fn test_deposit_rejects_overfunding() {
 }
 
 #[test]
-fn test_release_rejects_when_contract_not_funded() {
+fn test_release_requires_funded_state() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -91,7 +91,7 @@ fn test_release_rejects_when_contract_not_funded() {
 }
 
 #[test]
-fn test_release_rejects_insufficient_escrow_balance() {
+fn test_release_rejects_insufficient_balance() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -99,7 +99,6 @@ fn test_release_rejects_insufficient_escrow_balance() {
     let (client_addr, freelancer_addr) = generated_participants(&env);
     let contract_id =
         client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-
     assert!(client.deposit_funds(&contract_id, &(MILESTONE_ONE - 1)));
 
     let result = client.try_release_milestone(&contract_id, &0);
@@ -115,7 +114,6 @@ fn test_release_rejects_invalid_milestone_id() {
     let (client_addr, freelancer_addr) = generated_participants(&env);
     let contract_id =
         client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-
     assert!(client.deposit_funds(&contract_id, &total_milestone_amount()));
 
     let result = client.try_release_milestone(&contract_id, &99);
@@ -140,7 +138,7 @@ fn test_release_rejects_double_release() {
 }
 
 #[test]
-fn test_issue_reputation_rejects_unfinished_contract() {
+fn test_issue_reputation_requires_completed_contract() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -188,7 +186,6 @@ fn test_issue_reputation_once_per_contract() {
     assert!(client.release_milestone(&contract_id, &2));
 
     assert!(client.issue_reputation(&contract_id, &5));
-
     let result = client.try_issue_reputation(&contract_id, &4);
     assert_eq!(result, Err(Ok(contract_error(EscrowError::ReputationAlreadyIssued))));
 }
@@ -200,6 +197,8 @@ fn test_create_requires_client_authorization() {
     let client = register_client(&env);
     let (client_addr, freelancer_addr) = generated_participants(&env);
 
-    // No auth mocking in this test: create_contract must request client auth.
     let _ = client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
 }
+    });
+}
+
