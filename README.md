@@ -20,6 +20,27 @@ The escrow contract now enforces a minimal on-chain state machine instead of pla
 
 Reviewer-focused contract notes and the formal threat model live in [docs/escrow/README.md](/home/christopher/drips_projects/Talenttrust-Contracts/docs/escrow/README.md).
 
+## Cross-contract call hardening
+
+The escrow contract includes explicit guards for external token-contract assumptions and failures:
+
+- A configured token contract is required before guarded transfers.
+- External call target validation rejects self-referential addresses.
+- A reentrancy lock is acquired during transfer attempts.
+- External token call failures are mapped to typed `EscrowError` values.
+- Non-positive transfer amounts are rejected before any external call.
+
+Primary implementation points:
+
+- `contracts/escrow/src/lib.rs`:
+  - `set_token_contract`
+  - `get_token_contract`
+  - `guarded_external_transfer`
+- `contracts/escrow/src/cross_contract.rs`:
+  - `safe_token_transfer`
+  - `validate_external_address`
+  - `acquire_call_lock` / `release_call_lock`
+
 ## Protocol governance
 
 The escrow contract supports guarded protocol parameter updates for live validation logic:
