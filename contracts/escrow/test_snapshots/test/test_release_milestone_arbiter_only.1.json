@@ -187,6 +187,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "deadline_at"
+                                },
+                                "val": {
+                                  "u64": 604800
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "released"
                                 },
                                 "val": {
