@@ -1,5 +1,7 @@
 # Escrow Contract Documentation
 
+**Mainnet readiness (limits, events, risks):** [mainnet-readiness.md](mainnet-readiness.md)
+
 ## Overview
 
 The TalentTrust Escrow contract provides a decentralized escrow system for freelancer-client relationships with built-in dispute resolution capabilities. Built on Soroban (Stellar), it ensures secure fund management and fair dispute resolution.
