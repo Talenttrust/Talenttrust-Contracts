@@ -44,6 +44,8 @@ mod operation_errors;
 mod pause_controls;
 mod performance;
 mod security;
+mod mainnet_readiness;
+
 #![cfg(test)]
 use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env, Vec};
 
