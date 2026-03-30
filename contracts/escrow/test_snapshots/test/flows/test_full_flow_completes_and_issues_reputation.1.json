@@ -25,19 +25,19 @@
                     {
                       "i128": {
                         "hi": 0,
-                        "lo": 2000000000
+                        "lo": 200
                       }
                     },
                     {
                       "i128": {
                         "hi": 0,
-                        "lo": 4000000000
+                        "lo": 400
                       }
                     },
                     {
                       "i128": {
                         "hi": 0,
-                        "lo": 6000000000
+                        "lo": 600
                       }
                     }
                   ]
@@ -64,7 +64,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 12000000000
+                    "lo": 1200
                   }
                 }
               ]
@@ -358,16 +358,8 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 12000000000
+                          "lo": 1200
                         }
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "milestone_count"
-                      },
-                      "val": {
-                        "u32": 3
                       }
                     },
                     {
@@ -385,7 +377,7 @@
                                 "val": {
                                   "i128": {
                                     "hi": 0,
-                                    "lo": 2000000000
+                                    "lo": 200
                                   }
                                 }
                               },
@@ -408,7 +400,7 @@
                                 "val": {
                                   "i128": {
                                     "hi": 0,
-                                    "lo": 4000000000
+                                    "lo": 400
                                   }
                                 }
                               },
@@ -431,7 +423,7 @@
                                 "val": {
                                   "i128": {
                                     "hi": 0,
-                                    "lo": 6000000000
+                                    "lo": 600
                                   }
                                 }
                               },
@@ -455,7 +447,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 12000000000
+                          "lo": 1200
                         }
                       }
                     },
@@ -490,7 +482,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 12000000000
+                          "lo": 1200
                         }
                       }
                     }
@@ -521,6 +513,74 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                     }
                   ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u32": 2
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          4095
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "PendingReputationCredits"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "PendingReputationCredits"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u32": 0
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          4095
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "Reputation"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 }
               ]
             },
@@ -556,10 +616,21 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "ratings_count"
+                        "symbol": "completed_contracts"
                       },
                       "val": {
                         "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "last_rating"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 5
+                        }
                       }
                     },
                     {

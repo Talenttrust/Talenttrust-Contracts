@@ -1,6 +1,6 @@
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
-use crate::{Escrow, EscrowClient, ReleaseAuthorization};
+use crate::{Escrow, EscrowClient};
 
 fn setup_initialized() -> (Env, EscrowClient<'static>, Address) {
     let env = Env::default();
@@ -51,12 +51,6 @@ fn test_resolve_emergency_restores_operations() {
     let freelancer_addr = Address::generate(&env);
     let milestones = vec![&env, 10_i128, 20_i128];
 
-    let created = client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None::<Address>,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-    assert_eq!(created, 0);
+    let created = client.create_contract(&client_addr, &freelancer_addr, &milestones);
+    assert_eq!(created, 1);
 }
