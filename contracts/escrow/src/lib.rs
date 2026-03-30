@@ -160,14 +160,8 @@ impl Escrow {
 
     fn add_pending_reputation_credit(env: &Env, freelancer: &Address) {
         let key = DataKey::PendingReputationCredits(freelancer.clone());
-        let current = env
-            .storage()
-            .persistent()
-            .get::<_, u32>(&key)
-            .unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&key, &(current + 1));
+        let current = env.storage().persistent().get::<_, u32>(&key).unwrap_or(0);
+        env.storage().persistent().set(&key, &(current + 1));
     }
 
     fn validate_protocol_parameters(
@@ -267,8 +261,8 @@ impl Escrow {
         min_reputation_rating: i128,
         max_reputation_rating: i128,
     ) -> bool {
-        let admin = Self::governance_admin(&env)
-            .unwrap_or_else(|| panic!("governance is not initialized"));
+        let admin =
+            Self::governance_admin(&env).unwrap_or_else(|| panic!("governance is not initialized"));
         admin.require_auth();
         Self::validate_protocol_parameters(
             min_milestone_amount,
@@ -291,8 +285,8 @@ impl Escrow {
     }
 
     pub fn propose_governance_admin(env: Env, next_admin: Address) -> bool {
-        let admin = Self::governance_admin(&env)
-            .unwrap_or_else(|| panic!("governance is not initialized"));
+        let admin =
+            Self::governance_admin(&env).unwrap_or_else(|| panic!("governance is not initialized"));
         admin.require_auth();
 
         if next_admin == admin {
