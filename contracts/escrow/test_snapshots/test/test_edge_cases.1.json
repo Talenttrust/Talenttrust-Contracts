@@ -122,6 +122,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "deadline_at"
+                                },
+                                "val": {
+                                  "u64": 604800
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "released"
                                 },
                                 "val": {
@@ -154,6 +162,14 @@
                                   "symbol": "approved_by"
                                 },
                                 "val": "void"
+                              },
+                              {
+                                "key": {
+                                  "symbol": "deadline_at"
+                                },
+                                "val": {
+                                  "u64": 604800
+                                }
                               },
                               {
                                 "key": {
@@ -192,6 +208,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "deadline_at"
+                                },
+                                "val": {
+                                  "u64": 604800
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "released"
                                 },
                                 "val": {
@@ -224,6 +248,14 @@
                                   "symbol": "approved_by"
                                 },
                                 "val": "void"
+                              },
+                              {
+                                "key": {
+                                  "symbol": "deadline_at"
+                                },
+                                "val": {
+                                  "u64": 604800
+                                }
                               },
                               {
                                 "key": {
