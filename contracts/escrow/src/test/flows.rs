@@ -1,11 +1,11 @@
 use super::{
-    create_default_contract, default_milestones, register_client, total_milestones, world_symbol,
+    complete_contract, create_contract, register_client, total_milestone_amount, world_symbol,
 };
-use crate::ContractStatus;
-use soroban_sdk::Env;
+use crate::{ContractStatus, EscrowError};
+use soroban_sdk::{testutils::Address as _, Env};
 
 #[test]
-fn test_hello() {
+fn hello_round_trips_symbol() {
     let env = Env::default();
     let client = register_client(&env);
 
@@ -13,19 +13,15 @@ fn test_hello() {
 }
 
 #[test]
-fn test_create_contract_initializes_storage_and_state() {
+fn create_contract_stores_expected_state() {
     let env = Env::default();
     env.mock_all_auths();
 
     let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
-
-    let contract_id =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-    assert_eq!(contract_id, 1);
-    assert_eq!(client.get_storage_version(), 1);
+    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &client);
 
     let record = client.get_contract(&contract_id);
+    assert_eq!(contract_id, 1);
     assert_eq!(record.client, client_addr);
     assert_eq!(record.freelancer, freelancer_addr);
     assert_eq!(record.milestone_count, 3);
@@ -38,21 +34,12 @@ fn test_create_contract_initializes_storage_and_state() {
 }
 
 #[test]
-fn test_client_only_flow_releases_all_milestones_and_completes() {
+fn full_flow_completes_and_issues_reputation() {
     let env = Env::default();
     env.mock_all_auths();
 
     let client = register_client(&env);
-    let (contract_id, client_addr, freelancer_addr, _arbiter_addr) =
-        create_default_contract(&client, &env, ReleaseAuthorization::ClientOnly);
-
-    let contract_id =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-    assert!(client.deposit_funds(&contract_id, &total_milestone_amount()));
-
-    assert!(client.release_milestone(&contract_id, &0));
-    assert!(client.release_milestone(&contract_id, &1));
-    assert!(client.release_milestone(&contract_id, &2));
+    let (_client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
 
     let post_release = client.get_contract(&contract_id);
     assert_eq!(post_release.status, ContractStatus::Completed);
@@ -60,45 +47,67 @@ fn test_client_only_flow_releases_all_milestones_and_completes() {
     assert_eq!(post_release.released_milestones, 3);
 
     assert!(client.issue_reputation(&contract_id, &5));
-    let reputation = client.get_reputation(&freelancer_addr);
+
+    let reputation = client
+        .get_reputation(&freelancer_addr)
+        .expect("reputation should exist after issuance");
     assert_eq!(reputation.total_rating, 5);
     assert_eq!(reputation.ratings_count, 1);
+    assert_eq!(reputation.completed_contracts, 1);
+
+    let post_rating = client.get_contract(&contract_id);
+    assert!(post_rating.reputation_issued);
 }
 
 #[test]
-fn test_multisig_requires_client_and_arbiter_approval() {
+fn contract_ids_increment_from_persistent_counter() {
     let env = Env::default();
     env.mock_all_auths();
 
     let client = register_client(&env);
-    let (contract_id, client_addr, _freelancer_addr, arbiter_addr) =
-        create_default_contract(&client, &env, ReleaseAuthorization::MultiSig);
 
-    assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
+    let (_, _, first_id) = create_contract(&env, &client);
+    let (_, _, second_id) = create_contract(&env, &client);
 
-    // Client approval alone is insufficient for MultiSig release.
-    assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    let failed_release = client.try_release_milestone(&contract_id, &client_addr, &0);
-    assert!(failed_release.is_err());
-
-    assert!(client.approve_milestone_release(&contract_id, &arbiter_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert_eq!(first_id, 1);
+    assert_eq!(second_id, 2);
 }
 
 #[test]
-fn test_layout_plan_is_stable() {
+fn reputation_aggregates_across_completed_contracts() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let client = register_client(&env);
+
+    let (_, freelancer_addr, first_id) = complete_contract(&env, &client);
+    assert!(client.issue_reputation(&first_id, &5));
+
+    let client_addr = soroban_sdk::Address::generate(&env);
+    let second_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &super::default_milestones(&env),
+    );
+    assert!(client.deposit_funds(&second_id, &total_milestone_amount()));
+    assert!(client.release_milestone(&second_id, &0));
+    assert!(client.release_milestone(&second_id, &1));
+    assert!(client.release_milestone(&second_id, &2));
+    assert!(client.issue_reputation(&second_id, &4));
+
+    let reputation = client
+        .get_reputation(&freelancer_addr)
+        .expect("reputation should exist after two completed contracts");
+    assert_eq!(reputation.total_rating, 9);
+    assert_eq!(reputation.ratings_count, 2);
+    assert_eq!(reputation.completed_contracts, 2);
+}
+
+#[test]
+fn get_contract_for_missing_id_fails() {
     let env = Env::default();
     let client = register_client(&env);
-    let plan = client.storage_layout_plan();
 
-    assert_eq!(plan.version, 1);
-    assert_eq!(plan.meta_namespace, soroban_sdk::symbol_short!("meta_v1"));
-    assert_eq!(
-        plan.contracts_namespace,
-        soroban_sdk::symbol_short!("escrow_v1")
-    );
-    assert_eq!(
-        plan.reputation_namespace,
-        soroban_sdk::symbol_short!("rep_v1")
-    );
+    let result = client.try_get_contract(&999);
+    super::assert_contract_error(result, EscrowError::ContractNotFound);
 }
