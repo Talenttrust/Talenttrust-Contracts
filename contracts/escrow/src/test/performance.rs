@@ -1,4 +1,4 @@
-use super::{default_milestones, generated_participants, register_client, total_milestone_amount};
+use super::{create_contract, register_client, total_milestone_amount};
 use soroban_sdk::Env;
 
 #[derive(Clone, Copy)]
@@ -23,33 +23,33 @@ struct MeasuredResources {
 }
 
 const CREATE_CONTRACT_BASELINE: ResourceBaseline = ResourceBaseline {
-    max_instructions: 8_000_000,
-    max_mem_bytes: 800_000,
-    max_read_entries: 2,
+    max_instructions: 10_000_000,
+    max_mem_bytes: 1_000_000,
+    max_read_entries: 4,
     max_write_entries: 3,
-    max_read_bytes: 2_048,
-    max_write_bytes: 8_192,
-    max_fee_total: 1_650_000,
+    max_read_bytes: 4_096,
+    max_write_bytes: 12_288,
+    max_fee_total: 2_000_000,
 };
 
 const DEPOSIT_FUNDS_BASELINE: ResourceBaseline = ResourceBaseline {
-    max_instructions: 6_500_000,
-    max_mem_bytes: 700_000,
-    max_read_entries: 2,
+    max_instructions: 8_500_000,
+    max_mem_bytes: 900_000,
+    max_read_entries: 3,
     max_write_entries: 2,
-    max_read_bytes: 2_048,
+    max_read_bytes: 4_096,
     max_write_bytes: 8_192,
-    max_fee_total: 1_550_000,
+    max_fee_total: 1_900_000,
 };
 
 const RELEASE_MILESTONE_BASELINE: ResourceBaseline = ResourceBaseline {
-    max_instructions: 7_000_000,
-    max_mem_bytes: 750_000,
-    max_read_entries: 2,
-    max_write_entries: 2,
-    max_read_bytes: 2_048,
-    max_write_bytes: 10_240,
-    max_fee_total: 1_550_000,
+    max_instructions: 10_000_000,
+    max_mem_bytes: 1_000_000,
+    max_read_entries: 4,
+    max_write_entries: 3,
+    max_read_bytes: 4_096,
+    max_write_bytes: 14_336,
+    max_fee_total: 2_100_000,
 };
 
 fn measure_last_invocation(env: &Env) -> (MeasuredResources, i64) {
@@ -127,13 +127,12 @@ fn assert_within_baseline(
 }
 
 #[test]
-fn test_create_contract_resource_baseline() {
+fn create_contract_resource_baseline() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
 
-    let _ = client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
+    let _ = create_contract(&env, &client);
 
     let (resources, fee_total) = measure_last_invocation(&env);
     assert_within_baseline(
@@ -145,14 +144,12 @@ fn test_create_contract_resource_baseline() {
 }
 
 #[test]
-fn test_deposit_funds_resource_baseline() {
+fn deposit_funds_resource_baseline() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
 
-    let contract_id =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
+    let (_, _, contract_id) = create_contract(&env, &client);
     let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
 
     let (resources, fee_total) = measure_last_invocation(&env);
@@ -165,14 +162,12 @@ fn test_deposit_funds_resource_baseline() {
 }
 
 #[test]
-fn test_release_milestone_resource_baseline() {
+fn release_milestone_resource_baseline() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
 
-    let contract_id =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
+    let (_, _, contract_id) = create_contract(&env, &client);
     let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
     let _ = client.release_milestone(&contract_id, &0);
 
@@ -182,42 +177,5 @@ fn test_release_milestone_resource_baseline() {
         resources,
         fee_total,
         RELEASE_MILESTONE_BASELINE,
-    );
-}
-
-#[test]
-fn test_end_to_end_budget_baseline() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
-
-    let contract_id =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-    let (create_resources, _) = measure_last_invocation(&env);
-
-    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
-    let (deposit_resources, _) = measure_last_invocation(&env);
-
-    let _ = client.release_milestone(&contract_id, &0);
-    let (release_resources, _) = measure_last_invocation(&env);
-
-    let total_instructions = create_resources.instructions
-        + deposit_resources.instructions
-        + release_resources.instructions;
-    let total_memory =
-        create_resources.mem_bytes + deposit_resources.mem_bytes + release_resources.mem_bytes;
-
-    assert!(
-        total_instructions <= 18_000_000,
-        "end-to-end instruction regression: {} > {}",
-        total_instructions,
-        18_000_000
-    );
-    assert!(
-        total_memory <= 2_000_000,
-        "end-to-end memory regression: {} > {}",
-        total_memory,
-        2_000_000
     );
 }

@@ -1,55 +1,24 @@
 # TalentTrust Contracts
 
-Soroban smart contracts for the TalentTrust decentralized freelancer escrow protocol on the Stellar network.
+Soroban smart contracts for the TalentTrust freelancer escrow protocol on Stellar.
 
-## What's in this repo
+## Repository Scope
 
-- **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments, reputation credential issuance, and emergency pause controls.
-- **Escrow docs** (`docs/escrow`): Escrow operations, security notes, and pause/emergency threat model.
+- **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments and reputation credential issuance.
+- **Escrow fee model**: Configurable protocol fee per release with accounting/withdrawal paths (`protocol_fee_bps`, `protocol_fee_account`).
 
-## Security model
+Reviewer-oriented notes live in [docs/escrow/README.md](docs/escrow/README.md), with storage-key details in [docs/escrow/state-persistence.md](docs/escrow/state-persistence.md) and threat analysis in [docs/escrow/security.md](docs/escrow/security.md).
 
-The escrow contract now enforces a minimal on-chain state machine instead of placeholder return values:
+## Security Model
 
-- Contract creation requires client authorization and validates immutable milestone inputs.
-- Funding is accepted exactly once and must match the total milestone amount.
-- Milestones can be released once each and only by the recorded client.
-- Reputation entries are gated behind completed-contract credits and are treated as informational data.
-- Protocol-wide validation parameters can be guarded by a governance admin and updated through audited state transitions.
+The escrow implementation follows a fail-closed state machine:
 
-Reviewer-focused contract notes and the formal threat model live in [docs/escrow/README.md](/home/christopher/drips_projects/Talenttrust-Contracts/docs/escrow/README.md).
-
-## Protocol governance
-
-The escrow contract supports guarded protocol parameter updates for live validation logic:
-
-- A one-time governance initialization assigns the first protocol admin.
-- The admin can update protocol parameters such as minimum milestone amount, maximum milestones per contract, and permitted reputation rating bounds.
-- Admin transfer is two-step: current admin proposes, pending admin accepts.
-- Before governance is initialized, the contract uses safe built-in defaults so existing flows remain available.
-
-Current defaults:
-
-- `min_milestone_amount = 1`
-- `max_milestones = 16`
-- `min_reputation_rating = 1`
-- `max_reputation_rating = 5`
-
-## Prerequisites
-
-- [Rust](https://rustup.rs/) (stable, 1.75+)
-- `rustfmt`: `rustup component add rustfmt`
-- Optional: [Stellar CLI](https://developers.stellar.org/docs/tools/stellar-cli) for deployment
-
-## Setup
-
-```bash
-# Clone (or you're already in the repo)
-git clone <your-repo-url>
-cd talenttrust-contracts
-
-# Build
-cargo build
+- contract creation requires client authorization and rejects invalid participant or milestone metadata before persisting state
+- deposits cannot exceed the required escrow total
+- releases require the recorded client, a valid unreleased milestone, and enough funded balance to cover the payment
+- reputation is gated behind contract completion and is issued once per contract
+- governance changes use a one-time initialization plus a two-step admin transfer
+- pause and emergency controls block all state-changing escrow operations while active
 
 # Run tests (includes 95%+ coverage negative path testing for escrow)
 cargo test
@@ -59,9 +28,8 @@ cargo test test::performance
 
 # Check formatting
 cargo fmt --all -- --check
-
-# Format code
-cargo fmt --all
+cargo test -p escrow
+cargo test test::performance -p escrow
 ```
 
 ## Escrow Emergency Controls
@@ -83,6 +51,23 @@ When paused, mutating escrow operations are blocked.
    - `cargo test`
    - `cargo build`
 3. Open a pull request. CI runs `cargo fmt --all -- --check`, `cargo build`, and `cargo test` on push/PR to `main`.
+
+## Contract status transition guardrails
+
+Prerequisites:
+
+- Rust 1.75+
+- `rustfmt`
+- optional Stellar CLI for deployment workflows
+
+Common commands:
+
+## Escrow closure finalization
+
+- `finalize_contract` records immutable close metadata (timestamp, finalizer, summary)
+- Finalization allowed only from `Completed` or `Disputed` status
+- Finalization can only be executed by contract parties (client/freelancer/arbiter)
+- Once finalized, the contract summary and record are immutable
 
 ## CI/CD
 
