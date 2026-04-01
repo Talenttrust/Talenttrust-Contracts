@@ -75,7 +75,7 @@ Governance:
 - `get_governance_admin() -> Option<Address>`
 - `get_pending_governance_admin() -> Option<Address>`
 
-## Escrow Creation Boundaries
+The escrow tests are grouped into dedicated modules:
 
 To prevent out-of-gas or infinite-loop denial of service attacks, the escrow contract enforces creation limits:
 
