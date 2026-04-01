@@ -100,6 +100,8 @@ Operational invariants:
 
 ## Incident Response
 
+### Emergency Response
+
 1. Detect incident and call `activate_emergency_pause`.
 2. Investigate and remediate root cause.
 3. Validate mitigations in test/staging.
