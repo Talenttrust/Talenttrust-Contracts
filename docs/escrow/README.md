@@ -1,88 +1,136 @@
-# Escrow Contract
+# Escrow Contract Fee Model
 
-## Summary
+This module adds configurable protocol fee settings for the escrow milestone model.
 
-The escrow contract stores a client, a freelancer, and a fixed list of milestone balances.
-Funds are tracked internally through three counters:
+## New features
 
-- `funded_amount`: total deposits accepted from the client
-- `released_amount`: total milestone value already released to the freelancer
-- `refunded_amount`: total milestone value already refunded to the client
+- `protocol_fee_bps` configurable in `create_contract` (0-10000 basis points).
+- `protocol_fee_account` set at creation time; only this account can withdraw fees and update fee rate.
+- Per-milestone fee accounting via `Milestone.protocol_fee` and `EscrowContract.protocol_fee_accrued`.
+- `get_protocol_fee_accrued` to query current fee balance.
+- `withdraw_protocol_fees` for controlled withdrawal.
+- `set_protocol_fee_bps` to update protocol fee rate with authorization.
 
-The refundable balance is derived as:
+## Security controls
 
-```text
-funded_amount - released_amount - refunded_amount
-```
+- Only the `protocol_fee_account` can adjust fee rate or withdraw accrued fees.
+- Fee account is authenticated with `caller.require_auth()`.
+- Fee bounds enforced at 0..=10000.
+- All protocol fee operations use persisted state and safe integer arithmetic.
 
-## Partial refund behavior
+## Behaviour on release
 
-`refund_unreleased_milestones(contract_id, milestone_ids)` enables the client to recover balances tied to unreleased milestones.
+On each milestone release:
+- Compute fee: `milestone.amount * protocol_fee_bps / 10000`.
+- Save fee to milestone object.
+- Increment `protocol_fee_accrued`.
+- Mark milestone released and contract status completed when all milestones done.
+# Escrow Contract Documentation
 
-Each requested milestone must satisfy all of the following:
+**Mainnet readiness (limits, events, risks):** [mainnet-readiness.md](mainnet-readiness.md)
 
-- it exists
-- it has not already been released
-- it has not already been refunded
-- it appears only once in the request
+This document summarizes the reviewer-facing architecture for `contracts/escrow`.
 
-The function computes the full refund amount first and only mutates milestone flags after all validations pass. This keeps the flow easy to audit and avoids partial logical updates within a successful call.
+## Scope
 
-## State transitions
+The contract persists:
 
-- `Created`: contract exists and is not yet fully funded
-- `Funded`: deposits now equal the total milestone value and unresolved milestones still remain
-- `Completed`: every milestone has been released
-- `Refunded`: every unresolved milestone has been refunded
-- `Disputed`: reserved for future dispute handling
+- escrow lifecycle state for each contract
+- participant metadata for the client and freelancer
+- milestone release state
+- funded and released accounting
+- pending and issued reputation aggregates
+- protocol governance parameters
+- pause and emergency flags
 
-Notes:
+## Public Flows
 
-- A contract can remain `Funded` after a partial refund if at least one unresolved milestone still exists.
-- Once a contract becomes `Completed` or `Refunded`, further deposits, releases, and refunds are rejected.
+Core escrow endpoints:
 
-## Security assumptions
+- `create_contract(client, freelancer, milestone_amounts) -> u32`
+- `deposit_funds(contract_id, amount) -> bool`
+- `release_milestone(contract_id, milestone_id) -> bool`
+- `issue_reputation(contract_id, rating) -> bool`
+- `get_contract(contract_id) -> EscrowContractData`
+- `get_reputation(freelancer) -> Option<ReputationRecord>`
+- `get_pending_reputation_credits(freelancer) -> u32`
 
-- Only the stored client address can create the contract, deposit funds, release milestones, or trigger refunds.
-- Deposits cannot exceed the original milestone total.
-- Releases and refunds both consume the same escrow balance, preventing the same funded value from being spent twice.
-- A refunded milestone can never be released later.
-- A released milestone can never be refunded later.
-- Duplicate milestone IDs in a single refund request are rejected.
-- Empty milestone sets, zero-value milestones, and zero-value deposits are rejected.
+Operational controls:
 
-## Threat scenarios reviewed
+- `initialize(admin) -> bool`
+- `pause() -> bool`
+- `unpause() -> bool`
+- `activate_emergency_pause() -> bool`
+- `resolve_emergency() -> bool`
+- `is_paused() -> bool`
+- `is_emergency() -> bool`
 
-- Double refund attempt: blocked by milestone `refunded` flag checks.
-- Release after refund: blocked by milestone status validation.
-- Refund after release: blocked by milestone status validation.
-- Overfunding: blocked by total milestone cap enforcement.
-- Underfunded release/refund: blocked when the derived escrow balance is insufficient.
-- Replay on terminal contracts: blocked by status gating once the contract is fully resolved.
+Governance:
 
-## Test coverage focus
+- `initialize_protocol_governance(admin, min_milestone_amount, max_milestones, min_reputation_rating, max_reputation_rating) -> bool`
+- `update_protocol_parameters(...) -> bool`
+- `propose_governance_admin(next_admin) -> bool`
+- `accept_governance_admin() -> bool`
+- `get_protocol_parameters() -> ProtocolParameters`
+- `get_governance_admin() -> Option<Address>`
+- `get_pending_governance_admin() -> Option<Address>`
 
 The escrow tests are grouped into dedicated modules:
 
-- `create_contract.rs`
-- `deposit.rs`
-- `release.rs`
-- `refund.rs`
+To prevent out-of-gas or infinite-loop denial of service attacks, the escrow contract enforces creation limits:
 
-Covered scenarios include:
+- maximum milestone count is capped by `ProtocolParameters.max_milestones` (defaults to 16)
+- total escrow amount is bounded by the immutable mainnet cap (`MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS`)
 
-- successful creation, deposit, release, and refund flows
-- invalid participant and milestone input
-- overfunding and zero-value deposit rejection
-- invalid milestone selection
-- duplicate refund requests
-- double release and double refund protection
-- insufficient-balance failure paths
-- terminal-state operation rejection
+## Lifecycle Model
 
-## Reviewer checklist
+Supported lifecycle transitions:
 
-- Confirm the milestone-based refund model matches product expectations.
-- Confirm client-only authorization is the intended release policy.
-- Confirm `Refunded` as a terminal status is acceptable for fully refunded contracts.
-- Confirm token transfer integration, if added later, preserves the same accounting invariant before and after transfer side effects.
+- `Created -> Funded` after any positive deposit
+- `Funded -> Completed` after the final unreleased milestone is released
+
+Operational invariants:
+
+- client and freelancer addresses are immutable after creation
+- milestone amounts are immutable after creation
+- each milestone can transition from `released = false` to `released = true` exactly once
+- `released_amount` is the sum of released milestone amounts
+- `released_milestones` matches the number of released milestone flags
+- `reputation_issued` can only become `true` after `Completed`
+
+## Incident Response
+
+### Emergency Response
+
+1. Detect incident and call `activate_emergency_pause`.
+2. Investigate and remediate root cause.
+3. Validate mitigations in test/staging.
+4. Call `resolve_emergency` to restore service.
+5. Publish incident summary for ecosystem transparency.
+
+## Persistence Notes
+
+Each `EscrowContractData` record stores:
+
+- participant addresses
+- milestone vector and cached milestone count
+- total escrow amount
+- funded and released balances
+- released milestone count
+- contract status
+- reputation issuance flag
+- creation and update timestamps
+
+Detailed storage-key coverage is documented in [state-persistence.md](state-persistence.md).
+
+## Test Coverage
+
+The escrow regression suite is split by concern:
+
+- `flows.rs`: happy-path lifecycle and reputation aggregation
+- `lifecycle.rs`: state transition persistence
+- `persistence.rs`: storage round-trip assertions
+- `security.rs`: failure paths and validation checks
+- `governance.rs`: admin and parameter persistence
+- `pause_controls.rs` and `emergency_controls.rs`: operational safety controls
+- `performance.rs`: resource regression ceilings

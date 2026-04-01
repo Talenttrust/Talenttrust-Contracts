@@ -14,6 +14,7 @@ The escrow contract implements a strict status transition guardrail to avoid inv
 - `deposit_funds`: requires `Created`; transitions to `Funded`.
 - `release_milestone`: requires `Funded`; final milestone release sets status to `Completed`.
 - `dispute_contract`: requires `Funded`; transitions to `Disputed`.
+- `finalize_contract`: requires `Completed` or `Disputed`; records immutable closure metadata and summary.
 - `disputed` state forbids milestone release while requiring explicit resolution logic before moving to `Completed` (or another allowed transition).
 
 ## Security

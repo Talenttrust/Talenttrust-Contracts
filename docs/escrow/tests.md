@@ -336,16 +336,115 @@ GitHub Actions automatically runs `cargo test` on every push to `main` and pull 
 
 ## Future Test Enhancements
 
-- **Dispute Status:** Once `Disputed` logic is implemented, add tests for transition to/from `Disputed`.
+- **Dispute Status -> Cancellation Flow:** Test full lifecycle of dispute leading to cancellation.
 - **Stress Testing:** Large number of milestones (e.g., 1000s) to verify scalability.
 - **Asset Integration:** Integration tests with actual Stellar asset contracts (currently mocked).
 - **Fuzzing:** Randomized input testing for rating values, contract IDs, milestone counts.
 - **Performance:** Benchmark contract invocation times for gas cost estimation.
+- **Timeout Expiry:** Once timeout logic is implemented, add `TimeoutExpired` cancellation tests.
+
+---
+
+## Cancellation Tests (Added in v0.2.0)
+
+### 7. Contract Cancellation Path
+
+The cancellation tests cover all policy-defined scenarios for `cancel_contract`.
+
+#### `test_cancel_contract_in_created_state_by_client`
+- **Purpose:** Client can unilaterally cancel before any funds are deposited.
+- **Setup:** Create contract (no deposit).
+- **Calls:** `cancel_contract(1, client_addr)`
+- **Assertions:** Returns `true`; contract status is `Cancelled`.
+- **Importance:** Validates that either party can exit freely before funding.
+
+#### `test_cancel_contract_in_created_state_by_freelancer`
+- **Purpose:** Freelancer can unilaterally cancel before any funds are deposited.
+- **Setup:** Create contract (no deposit).
+- **Calls:** `cancel_contract(1, freelancer_addr)`
+- **Assertions:** Returns `true`; contract status is `Cancelled`.
+- **Importance:** Validates that freelancer can also exit early (reason: `FreelancerInitiated`).
+
+#### `test_cancel_contract_in_created_state_unauthorized`
+- **Purpose:** Third party cannot cancel a contract they're not party to.
+- **Setup:** Create contract, use unrelated address.
+- **Calls:** `cancel_contract(1, unauthorized_addr)`
+- **Assertion:** Panics with `"Caller must be client or freelancer to cancel in Created state"`.
+- **Importance:** Validates strict access control on cancellation.
+
+#### `test_cancel_contract_in_funded_state_by_client_no_release`
+- **Purpose:** Client can cancel a funded contract if no milestones have been released.
+- **Setup:** Create and fund contract.
+- **Calls:** `cancel_contract(1, client_addr)`
+- **Assertions:** Returns `true`; contract status is `Cancelled`.
+- **Importance:** Validates client refund path before work is delivered.
+
+#### `test_cancel_contract_in_funded_state_client_after_release`
+- **Purpose:** Client cannot cancel if any milestone has already been released.
+- **Setup:** Create contract with 2 milestones, fund, release milestone 0.
+- **Calls:** `cancel_contract(1, client_addr)`
+- **Assertion:** Panics with `"Client cannot cancel after milestones have been released"`.
+- **Importance:** Prevents client from taking back payments after freelancer delivered work.
+
+#### `test_cancel_contract_by_arbiter_in_funded_state`
+- **Purpose:** Arbiter can cancel a funded contract at any time.
+- **Setup:** Create contract with arbiter, deposit funds.
+- **Calls:** `cancel_contract(1, arbiter_addr)`
+- **Assertions:** Returns `true`; contract status is `Cancelled`.
+- **Importance:** Validates arbiter authority for dispute resolution scenarios.
+
+#### `test_cancel_contract_already_cancelled`
+- **Purpose:** A cancelled contract cannot be cancelled again.
+- **Setup:** Create and cancel contract, then try again.
+- **Calls:** second `cancel_contract(1, client_addr)`
+- **Assertion:** Panics with `"Contract already cancelled"`.
+- **Importance:** Prevents double-cancellation and audit trail corruption.
+
+#### `test_cancel_contract_completed`
+- **Purpose:** A completed contract cannot be cancelled.
+- **Setup:** Create, fund, release all milestones (contract becomes Completed).
+- **Calls:** `cancel_contract(1, client_addr)`
+- **Assertion:** Panics with `"Cannot cancel a completed contract"`.
+- **Importance:** Protects finalized contracts from retroactive cancellation.
+
+#### `test_cancel_contract_freelancer_mutual_agreement`
+- **Purpose:** Freelancer can initiate cancellation in funded state (mutual agreement path).
+- **Setup:** Create and fund contract.
+- **Calls:** `cancel_contract(1, freelancer_addr)`
+- **Assertions:** Returns `true`; contract status is `Cancelled`.
+- **Importance:** Validates freelancer's ability to exit an engagement in progress.
+
+#### `test_get_contract`
+- **Purpose:** Verify contract data retrieval works correctly.
+- **Setup:** Create contract with arbiter.
+- **Calls:** `get_contract(1)`
+- **Assertions:** Client, freelancer, arbiter, status, and milestone count match.
+- **Importance:** Validates query API and confirms storage correctness.
+
+#### `test_get_nonexistent_contract`
+- **Purpose:** Verify querying a contract that doesn't exist panics.
+- **Setup:** None.
+- **Calls:** `get_contract(999)`
+- **Assertion:** Panics with `"Contract not found"`.
+- **Importance:** Validates error handling for invalid contract IDs.
+
+---
+
+## Test Design Principles
+
+1. **Happy Path First:** Each tested function has at least one test showing the successful path.
+2. **Guard-Driven Coverage:** Every constraint or guard in the contract has a corresponding negative test.
+3. **Boundary Testing:** Min/max values tested (ratings 1 & 5, empty milestones, max_u32).
+4. **Idempotency & Replay:** Double-issuance and re-fund tests verify immutability.
+5. **State Isolation:** Multi-contract tests prove persistence storage key scoping is correct.
+6. **Authorization (implicit):** All tests use `env.mock_all_auths()`, confirming auth checks don't accidentally block valid callers.
+7. **Cancellation Path Coverage:** All cancellation policies tested — every authorized and unauthorized path.
 
 ---
 
 ## Version
 
-- **Version:** 0.1.0
+- **Version:** 0.2.0
 - **Last Updated:** 2026-03-24
-- **Test Count:** 45
+- **Test Count:** 31
+- **New in v0.2.0:** Contract cancellation path — 9 tests covering all status/role combinations

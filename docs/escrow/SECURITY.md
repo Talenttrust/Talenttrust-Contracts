@@ -350,15 +350,78 @@ All key state transitions are visible on-chain:
 - `deposit_funds` invocation -> status changes to `Funded`
 - `release_milestone` invocation -> milestone marked released
 - `complete_contract` invocation -> status changes to `Completed`
+- `cancel_contract` invocation -> status changes to `Cancelled` + event emitted
 - `issue_reputation` invocation -> `ReputationIssued` flag set + event emitted
 
 Off-chain observers can reconstruct the exact timeline and verify no constraints were violated.
 
 ---
 
+## Cancellation Threat Model (v0.2.0)
+
+### Threat 7: Unauthorized Cancellation (Severity: CRITICAL)
+
+**Attack:** A malicious actor cancels a contract they are not party to, forcing funds to be returned before work is complete.
+
+**Scenarios:**
+1. A random address calls `cancel_contract(cid, random_addr)`.
+2. A client cancels after the freelancer has started work and milestones are released.
+3. A freelancer cancels immediately after being funded to disrupt client.
+
+**Mitigations:**
+
+1. **Role-Based Gate (Caller Authorization):**
+   - In `Created` state: only client or freelancer can cancel.
+   - In `Funded` state: only client (before releases), freelancer (mutual agreement), or arbiter allowed.
+   - In `Disputed` state: arbiter-only cancellation.
+   - Any unauthorized caller panics immediately.
+
+2. **Release Check (Protects Freelancer):**
+   - In `Funded` state, client can only cancel if **zero milestones** were released.
+   - Prevents client from cancelling after receiving the freelancer's delivered work.
+   - Panics with `"Client cannot cancel after milestones have been released"`.
+
+3. **Status Gate (Prevents Retroactive Cancellation):**
+   - `Completed` contracts cannot be cancelled (work is done, funds disbursed).
+   - Already `Cancelled` contracts panicis immediately (no double-cancellation).
+
+4. **Atomic Event Emission:**
+   - `contract_cancelled` event is emitted on success for off-chain audit trails.
+   - Cancellation is fully atomic; no partial state is possible.
+
+**Residual Risk:** Client and arbiter collusion can cancel a funded contract even when milestones remain. Both must cooperate, raising the bar significantly.
+
+---
+
+### Threat 8: Griefing via Premature Freelancer Cancellation (Severity: MEDIUM)
+
+**Attack:** Freelancer cancels immediately after funding to disrupt client operations.
+
+**Mitigation:**
+- **Economic deterrent:** Freelancer gains nothing from cancellation (funds go back to client).
+- **Off-chain monitoring:** Client can detect cancellation via the `contract_cancelled` event.
+- **Arbiter Role:** Client can request arbiter oversight to prevent unilateral freelancer cancellation.
+
+**Residual Risk:** The contract does not prevent freelancer griefing (cancel-then-create-loop), but the cost is borne entirely by the freelancer (gas), not by clients.
+
+---
+
+## Security Recommendations for Cancellation
+
+### For Clients
+1. **Deposit Only When Ready:** Confirm milestones and terms off-chain before funding.
+2. **Nominate an Arbiter:** Always include an arbiter in high-value contracts for third-party cancellation rights.
+3. **Track Release Events:** Once milestones are released, unilateral cancellation is blocked.
+
+### For Freelancers
+1. **Monitor Funded Status:** Watch for unauthorized cancellation via `contract_cancelled` events.
+2. **Use Arbiter for Disputes:** Prefer dispute escalation over cancellation if client withholds payment.
+
+---
+
 ## Version
 
-- **Version:** 0.1.0
+- **Version:** 0.2.0
 - **Last Updated:** 2026-03-24
-- **Threat Model:** Complete
+- **Threat Model:** Complete (updated for cancellation path)
 - **Risk Assessment:** Mitigations adequate for production use with noted caveats.
