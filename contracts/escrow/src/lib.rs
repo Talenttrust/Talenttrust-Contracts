@@ -62,6 +62,10 @@ pub enum EscrowError {
     AlreadyCancelled = 8,
     ContractNotFound = 9,
     MilestonesAlreadyReleased = 10,
+    /// Evidence hash has already been set for this milestone; it is immutable.
+    EvidenceHashAlreadySet = 11,
+    /// Milestone index is out of range for the contract.
+    EvidenceHashInvalidMilestoneIndex = 12,
 }
 
 #[contracttype]
@@ -100,6 +104,10 @@ enum DataKey {
     Contract(u32),
     MilestoneReleased(u32, u32),
     RefundableBalance(u32),
+    /// Immutable evidence hash for a milestone (e.g. IPFS CID).
+    /// Write-once: once set it cannot be overwritten.
+    /// Key: (contract_id, milestone_idx)
+    MilestoneEvidenceHash(u32, u32),
 }
 
 fn update_readiness_checklist<F>(env: &Env, f: F)
@@ -362,6 +370,82 @@ impl Escrow {
             }
         }
         released
+    }
+
+    // ─── Milestone evidence hash entry points ─────────────────────────────────
+
+    /// Returns the evidence hash for `milestone_idx`, or `None` if not yet set.
+    ///
+    /// The hash is a 32-byte value (e.g. an IPFS CID digest) that was committed
+    /// by an authorized party.  Returning `None` means no evidence has been
+    /// attached; the raw content is never stored on-chain.
+    pub fn get_milestone_evidence_hash(
+        env: Env,
+        contract_id: u32,
+        milestone_idx: u32,
+    ) -> Option<BytesN<32>> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MilestoneEvidenceHash(contract_id, milestone_idx))
+    }
+
+    /// Attach an immutable evidence hash to a milestone.
+    ///
+    /// Authorization: the caller must be the contract's **client** or
+    /// **freelancer**.  The arbiter may read but not write evidence.
+    ///
+    /// Immutability: once a hash is stored it cannot be overwritten.  Any
+    /// second call for the same `(contract_id, milestone_idx)` panics with
+    /// `EvidenceHashAlreadySet`.
+    ///
+    /// The `hash` is a 32-byte digest (e.g. SHA-256 of an IPFS CID) so that
+    /// the raw content is never exposed on-chain.
+    ///
+    /// Emits a `milestone_evidence` event on success.
+    pub fn set_milestone_evidence_hash(
+        env: Env,
+        contract_id: u32,
+        milestone_idx: u32,
+        hash: BytesN<32>,
+        caller: Address,
+    ) -> bool {
+        caller.require_auth();
+
+        let contract_key = DataKey::Contract(contract_id);
+        let contract = env
+            .storage()
+            .persistent()
+            .get::<_, ContractData>(&contract_key)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+
+        // Authorization: only client or freelancer may attach evidence.
+        if caller != contract.client && caller != contract.freelancer {
+            env.panic_with_error(EscrowError::UnauthorizedRole);
+        }
+
+        // Bounds check.
+        if milestone_idx >= contract.milestones.len() {
+            env.panic_with_error(EscrowError::EvidenceHashInvalidMilestoneIndex);
+        }
+
+        let key = DataKey::MilestoneEvidenceHash(contract_id, milestone_idx);
+
+        // Write-once: reject any attempt to overwrite an existing hash.
+        if env.storage().persistent().has(&key) {
+            env.panic_with_error(EscrowError::EvidenceHashAlreadySet);
+        }
+
+        env.storage().persistent().set(&key, &hash);
+
+        // Emit an indexer-friendly event so off-chain tooling can correlate
+        // the on-chain commitment with the off-chain content without storing
+        // the content itself.
+        env.events().publish(
+            (Symbol::new(&env, "milestone_evidence"), contract_id),
+            (milestone_idx, hash, caller),
+        );
+
+        true
     }
 }
 

@@ -27,6 +27,8 @@ fn total_milestone_amount() -> i128 {
 
 mod ttl_tests;
 
+mod milestone_evidence_hash;
+
 #[test]
 fn test_hello() {
     let env = new_env();
