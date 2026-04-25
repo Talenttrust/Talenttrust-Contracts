@@ -43,6 +43,24 @@ The contract persists:
 - protocol governance parameters
 - pause and emergency flags
 
+## Read API Semantics
+
+All three read entrypoints use `panic_with_error` to surface typed error codes rather than generic panics. This keeps indexers and off-chain clients able to distinguish "not found" from unexpected failures.
+
+| Entrypoint | Missing-data error | Error code |
+|---|---|---|
+| `get_contract(contract_id)` | `EscrowError::ContractNotFound` | 9 |
+| `get_milestones(contract_id)` | `EscrowError::MilestoneNotFound` | 11 |
+| `get_checklist(contract_id)` | `EscrowError::ChecklistNotFound` | 12 |
+
+Each entrypoint loads its own storage key independently:
+
+- `get_contract` reads `DataKey::Contract(contract_id)`.
+- `get_milestones` reads `DataKey::Milestones(contract_id)` — it does **not** delegate to `get_contract`, so a missing milestone list returns `MilestoneNotFound` even if the contract record exists.
+- `get_checklist` reads `DataKey::Checklist(contract_id)` and returns `ChecklistNotFound` when absent.
+
+Callers that need to distinguish "contract does not exist" from "milestones not yet written" should call `get_contract` first, then `get_milestones`.
+
 ## Public Flows
 
 Core escrow endpoints:

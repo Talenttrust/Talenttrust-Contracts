@@ -62,6 +62,10 @@ pub enum EscrowError {
     AlreadyCancelled = 8,
     ContractNotFound = 9,
     MilestonesAlreadyReleased = 10,
+    /// No milestone list is stored for the given contract_id.
+    MilestoneNotFound = 11,
+    /// No checklist is stored for the given contract_id.
+    ChecklistNotFound = 12,
 }
 
 #[contracttype]
@@ -100,6 +104,8 @@ enum DataKey {
     Contract(u32),
     MilestoneReleased(u32, u32),
     RefundableBalance(u32),
+    Milestones(u32),
+    Checklist(u32),
 }
 
 fn update_readiness_checklist<F>(env: &Env, f: F)
@@ -264,10 +270,22 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound))
     }
 
-    /// Get milestones for a contract
+    /// Get milestones for a contract.
+    /// Panics with `MilestoneNotFound` if no milestone list is stored for `contract_id`.
     pub fn get_milestones(env: Env, contract_id: u32) -> Vec<i128> {
-        let contract = Self::get_contract(env.clone(), contract_id);
-        contract.milestones
+        env.storage()
+            .persistent()
+            .get::<_, Vec<i128>>(&DataKey::Milestones(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::MilestoneNotFound))
+    }
+
+    /// Get the checklist for a contract.
+    /// Panics with `ChecklistNotFound` if no checklist is stored for `contract_id`.
+    pub fn get_checklist(env: Env, contract_id: u32) -> Vec<bool> {
+        env.storage()
+            .persistent()
+            .get::<_, Vec<bool>>(&DataKey::Checklist(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ChecklistNotFound))
     }
 
     /// Cancel an escrow contract under strict authorization and state constraints
