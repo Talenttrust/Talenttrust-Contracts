@@ -42,8 +42,8 @@ pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
 pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
 
 mod types;
-pub use crate::types::{MainnetReadinessInfo, ReadinessChecklist};
 use crate::types::DataKey as ReadinessDataKey;
+pub use crate::types::{MainnetReadinessInfo, ReadinessChecklist};
 
 #[contract]
 pub struct Escrow;
@@ -62,6 +62,18 @@ pub enum EscrowError {
     AlreadyCancelled = 8,
     ContractNotFound = 9,
     MilestonesAlreadyReleased = 10,
+    /// No milestone list is stored for the given contract_id.
+    MilestoneNotFound = 11,
+    /// No checklist is stored for the given contract_id.
+    ChecklistNotFound = 12,
+    /// Admin has already been initialized.
+    AlreadyInitialized = 13,
+    /// Admin has not been initialized yet.
+    NotInitialized = 14,
+    /// Contract is paused; mutating operations are blocked.
+    ContractPaused = 15,
+    /// Emergency pause is active; unpause is blocked until emergency is resolved.
+    EmergencyActive = 16,
 }
 
 #[contracttype]
@@ -100,6 +112,11 @@ enum DataKey {
     Contract(u32),
     MilestoneReleased(u32, u32),
     RefundableBalance(u32),
+    Milestones(u32),
+    Checklist(u32),
+    Admin,
+    Paused,
+    Emergency,
 }
 
 fn update_readiness_checklist<F>(env: &Env, f: F)
@@ -123,6 +140,124 @@ impl Escrow {
         to
     }
 
+    // ─── Admin / pause / emergency controls ──────────────────────────────────
+
+    /// One-time initialization: records the admin address.
+    /// Emits `initialized` event. Fails with `AlreadyInitialized` on repeat calls.
+    pub fn initialize(env: Env, admin: Address) -> bool {
+        if env.storage().instance().has(&DataKey::Admin) {
+            env.panic_with_error(EscrowError::AlreadyInitialized);
+        }
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.events()
+            .publish((symbol_short!("init"),), (admin,));
+        true
+    }
+
+    /// Returns the current admin, or `None` if not yet initialized.
+    pub fn get_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Admin)
+    }
+
+    /// Pause all mutating escrow operations. Requires prior initialization.
+    /// Admin authorization is enforced via `mock_all_auths` in tests; on-chain
+    /// the admin address must sign the transaction.
+    pub fn pause(env: Env) -> bool {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Paused, &true);
+        env.events().publish((symbol_short!("paused"),), ());
+        true
+    }
+
+    /// Unpause normal operations. Fails with `EmergencyActive` if an emergency
+    /// pause is in effect (must call `resolve_emergency` first).
+    pub fn unpause(env: Env) -> bool {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+        if env
+            .storage()
+            .instance()
+            .get::<_, bool>(&DataKey::Emergency)
+            .unwrap_or(false)
+        {
+            env.panic_with_error(EscrowError::EmergencyActive);
+        }
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.events().publish((symbol_short!("unpaused"),), ());
+        true
+    }
+
+    /// Activate an emergency pause: sets both the `Emergency` and `Paused` flags.
+    /// `unpause` is blocked until `resolve_emergency` is called.
+    pub fn activate_emergency_pause(env: Env) -> bool {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Emergency, &true);
+        env.storage().instance().set(&DataKey::Paused, &true);
+        env.events()
+            .publish((symbol_short!("emergency"),), ());
+        true
+    }
+
+    /// Resolve an active emergency: clears both `Emergency` and `Paused` flags,
+    /// restoring normal operations.
+    pub fn resolve_emergency(env: Env) -> bool {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Emergency, &false);
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.events()
+            .publish((symbol_short!("resolved"),), ());
+        true
+    }
+
+    /// Returns `true` when the contract is paused (normal or emergency).
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get::<_, bool>(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    /// Returns `true` when an emergency pause is active.
+    pub fn is_emergency(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get::<_, bool>(&DataKey::Emergency)
+            .unwrap_or(false)
+    }
+
+    // ─── Internal guard ───────────────────────────────────────────────────────
+
+    /// Panics with `ContractPaused` if the contract is currently paused.
+    fn require_not_paused(env: &Env) {
+        if env
+            .storage()
+            .instance()
+            .get::<_, bool>(&DataKey::Paused)
+            .unwrap_or(false)
+        {
+            env.panic_with_error(EscrowError::ContractPaused);
+        }
+    }
+
     /// Returns the hard-coded bounds enforced by this contract.
     /// Useful for client-side pre-validation and monitoring dashboards.
     pub fn get_bounds(_env: Env) -> EscrowBounds {
@@ -141,6 +276,7 @@ impl Escrow {
         terms_hash: Option<Bytes>,
         grace_period_seconds: Option<u64>,
     ) -> u32 {
+        Self::require_not_paused(&env);
         client.require_auth();
 
         if client == freelancer {
@@ -191,16 +327,21 @@ impl Escrow {
             released_amount: 0,
         };
 
-        env.storage().persistent().set(&DataKey::Contract(id), &data);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(id), &data);
         env.storage()
             .persistent()
             .set(&DataKey::Milestones(id), &milestones);
-        env.storage().persistent().set(&DataKey::ContractCount, &(id + 1));
+        env.storage()
+            .persistent()
+            .set(&DataKey::ContractCount, &(id + 1));
 
         id
     }
 
     pub fn deposit_funds(env: Env, contract_id: u32, amount: i128) -> bool {
+        Self::require_not_paused(&env);
         if amount <= 0 {
             env.panic_with_error(EscrowError::InvalidDepositAmount);
         }
@@ -225,6 +366,7 @@ impl Escrow {
     }
 
     pub fn approve_milestone(env: Env, contract_id: u32, milestone_index: u32) -> bool {
+        Self::require_not_paused(&env);
         // Store approval time using ledger timestamp
         let approval_time = env.ledger().timestamp();
         env.storage().persistent().set(
@@ -235,6 +377,7 @@ impl Escrow {
     }
 
     pub fn release_milestone(env: Env, contract_id: u32, milestone_index: u32) -> bool {
+        Self::require_not_paused(&env);
         let contract_key = DataKey::Contract(contract_id);
         let mut contract = env
             .storage()
@@ -264,14 +407,27 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound))
     }
 
-    /// Get milestones for a contract
+    /// Get milestones for a contract.
+    /// Panics with `MilestoneNotFound` if no milestone list is stored for `contract_id`.
     pub fn get_milestones(env: Env, contract_id: u32) -> Vec<i128> {
-        let contract = Self::get_contract(env.clone(), contract_id);
-        contract.milestones
+        env.storage()
+            .persistent()
+            .get::<_, Vec<i128>>(&DataKey::Milestones(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::MilestoneNotFound))
+    }
+
+    /// Get the checklist for a contract.
+    /// Panics with `ChecklistNotFound` if no checklist is stored for `contract_id`.
+    pub fn get_checklist(env: Env, contract_id: u32) -> Vec<bool> {
+        env.storage()
+            .persistent()
+            .get::<_, Vec<bool>>(&DataKey::Checklist(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ChecklistNotFound))
     }
 
     /// Cancel an escrow contract under strict authorization and state constraints
     pub fn cancel_contract(env: Env, contract_id: u32, caller: Address) -> bool {
+        Self::require_not_paused(&env);
         // 1. Require cryptographic authorization
         caller.require_auth();
 

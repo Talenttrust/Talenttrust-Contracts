@@ -3,8 +3,7 @@ extern crate std;
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 use crate::{
-    Escrow, EscrowClient, MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS,
-    MAINNET_PROTOCOL_VERSION,
+    Escrow, EscrowClient, MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS, MAINNET_PROTOCOL_VERSION,
 };
 
 /// Returns a fresh (Env, contract Address) pair with all auths mocked.
@@ -25,8 +24,14 @@ fn fresh_contract_returns_safe_defaults() {
 
     let info = client.get_mainnet_readiness_info();
 
-    assert!(!info.initialized, "initialized should be false on a fresh contract");
-    assert!(!info.governed_params_set, "governed_params_set should be false on a fresh contract");
+    assert!(
+        !info.initialized,
+        "initialized should be false on a fresh contract"
+    );
+    assert!(
+        !info.governed_params_set,
+        "governed_params_set should be false on a fresh contract"
+    );
     assert!(
         !info.emergency_controls_enabled,
         "emergency_controls_enabled should be false on a fresh contract"
@@ -55,7 +60,10 @@ fn initialize_sets_initialized_to_true() {
     client.initialize(&admin);
 
     let info = client.get_mainnet_readiness_info();
-    assert!(info.initialized, "initialized must be true after initialize()");
+    assert!(
+        info.initialized,
+        "initialized must be true after initialize()"
+    );
 }
 
 // ── 4.3 ─────────────────────────────────────────────────────────────────────
@@ -138,7 +146,10 @@ fn caps_set_reflects_compile_time_constant() {
         "caps_set must equal (MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS > 0)"
     );
     // The constant is 1_000_000_000_000_000, so caps_set must be true.
-    assert!(info.caps_set, "caps_set must be true for the mainnet constant");
+    assert!(
+        info.caps_set,
+        "caps_set must be true for the mainnet constant"
+    );
 }
 
 // ── 4.8 ─────────────────────────────────────────────────────────────────────
@@ -178,8 +189,14 @@ fn get_mainnet_readiness_info_is_idempotent() {
     let second = client.get_mainnet_readiness_info();
     let third = client.get_mainnet_readiness_info();
 
-    assert_eq!(first, second, "repeated calls must return identical results");
-    assert_eq!(second, third, "repeated calls must return identical results");
+    assert_eq!(
+        first, second,
+        "repeated calls must return identical results"
+    );
+    assert_eq!(
+        second, third,
+        "repeated calls must return identical results"
+    );
 }
 
 // ── 4.10 ────────────────────────────────────────────────────────────────────

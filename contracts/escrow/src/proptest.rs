@@ -49,10 +49,7 @@ fn op_strategy(n_milestones: usize, total: i128) -> impl Strategy<Value = Op> {
     ]
 }
 
-fn op_sequence_strategy(
-    n_milestones: usize,
-    total: i128,
-) -> impl Strategy<Value = StdVec<Op>> {
+fn op_sequence_strategy(n_milestones: usize, total: i128) -> impl Strategy<Value = StdVec<Op>> {
     prop::collection::vec(op_strategy(n_milestones, total), 0..=MAX_OPS)
 }
 
@@ -90,7 +87,10 @@ impl Shadow {
     }
 
     fn is_open(&self) -> bool {
-        matches!(self.status, ContractStatus::Created | ContractStatus::Funded)
+        matches!(
+            self.status,
+            ContractStatus::Created | ContractStatus::Funded
+        )
     }
 
     fn recompute_status(&mut self) {

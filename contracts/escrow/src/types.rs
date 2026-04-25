@@ -48,4 +48,3 @@ pub struct MilestoneFunding {
     pub milestone_idx: u32,
     pub funded_amount: i128,
 }
-

@@ -113,6 +113,24 @@ fn get_contract_for_missing_id_fails() {
 }
 
 #[test]
+fn get_milestones_for_missing_id_fails() {
+    let env = Env::default();
+    let client = register_client(&env);
+
+    let result = client.try_get_milestones(&999);
+    super::assert_contract_error(result, EscrowError::MilestoneNotFound);
+}
+
+#[test]
+fn get_checklist_for_missing_id_fails() {
+    let env = Env::default();
+    let client = register_client(&env);
+
+    let result = client.try_get_checklist(&999);
+    super::assert_contract_error(result, EscrowError::ChecklistNotFound);
+}
+
+#[test]
 fn scenario_happy_path_full_lifecycle() {
     let env = Env::default();
     env.mock_all_auths();
@@ -126,7 +144,9 @@ fn scenario_happy_path_full_lifecycle() {
 
     assert!(client.issue_reputation(&contract_id, &5));
 
-    let reputation = client.get_reputation(&freelancer_addr).expect("reputation should exist");
+    let reputation = client
+        .get_reputation(&freelancer_addr)
+        .expect("reputation should exist");
     assert_eq!(reputation.total_rating, 5);
     assert_eq!(reputation.ratings_count, 1);
 
@@ -202,7 +222,9 @@ fn scenario_boundary_amounts_single_milestone() {
     client.complete_contract(&contract_id);
     client.issue_reputation(&contract_id, &1);
 
-    let reputation = client.get_reputation(&freelancer_addr).expect("reputation should exist");
+    let reputation = client
+        .get_reputation(&freelancer_addr)
+        .expect("reputation should exist");
     assert_eq!(reputation.total_rating, 1);
 }
 
@@ -221,7 +243,9 @@ fn scenario_boundary_amounts_max_rating() {
     client.complete_contract(&contract_id);
     client.issue_reputation(&contract_id, &5);
 
-    let reputation = client.get_reputation(&freelancer_addr).expect("reputation should exist");
+    let reputation = client
+        .get_reputation(&freelancer_addr)
+        .expect("reputation should exist");
     assert_eq!(reputation.total_rating, 5);
 }
 
