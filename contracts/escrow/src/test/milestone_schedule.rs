@@ -20,8 +20,8 @@
 use soroban_sdk::{testutils::Address as _, vec, Address, Env, String, Vec};
 
 use crate::{
-    Escrow, EscrowClient, MilestoneSchedule, ReleaseAuthorization,
-    MAX_SCHEDULE_DESCRIPTION_LEN, MAX_SCHEDULE_TITLE_LEN,
+    Escrow, EscrowClient, MilestoneSchedule, ReleaseAuthorization, MAX_SCHEDULE_DESCRIPTION_LEN,
+    MAX_SCHEDULE_TITLE_LEN,
 };
 
 // ---------------------------------------------------------------------------
@@ -131,7 +131,9 @@ fn valid_create_with_partial_schedules() {
         &scheds,
     );
 
-    let stored = client.get_milestone_schedule(&id, &0).expect("schedule should exist");
+    let stored = client
+        .get_milestone_schedule(&id, &0)
+        .expect("schedule should exist");
     assert_eq!(stored.due_date, Some(due));
     assert!(client.get_milestone_schedule(&id, &1).is_none());
 }
@@ -149,8 +151,18 @@ fn valid_create_with_all_schedules_populated() {
     let due2 = future(&env, 300_000);
 
     let mut scheds: Vec<Option<MilestoneSchedule>> = Vec::new(&env);
-    scheds.push_back(Some(full_schedule(&env, due0, "Phase 1", "Initial deliverable")));
-    scheds.push_back(Some(full_schedule(&env, due1, "Phase 2", "Mid-point review")));
+    scheds.push_back(Some(full_schedule(
+        &env,
+        due0,
+        "Phase 1",
+        "Initial deliverable",
+    )));
+    scheds.push_back(Some(full_schedule(
+        &env,
+        due1,
+        "Phase 2",
+        "Mid-point review",
+    )));
     scheds.push_back(Some(full_schedule(&env, due2, "Phase 3", "Final delivery")));
 
     let id = client.create_contract(
@@ -503,7 +515,9 @@ fn set_schedule_client_can_update_before_release() {
 
     assert!(client.set_milestone_schedule(&id, &0, &new_sched));
 
-    let stored = client.get_milestone_schedule(&id, &0).expect("should exist after set");
+    let stored = client
+        .get_milestone_schedule(&id, &0)
+        .expect("should exist after set");
     assert_eq!(stored.due_date, Some(new_due));
 }
 

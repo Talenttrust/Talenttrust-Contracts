@@ -124,7 +124,7 @@ fn test_migration_preserves_funded_contract_state() {
     // Create and fund a contract
     let contract_id =
         client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-    
+
     let total_amount = 1000_i128 + 2000_i128 + 3000_i128;
     client.deposit_funds(&contract_id, &total_amount);
 
@@ -145,7 +145,7 @@ fn test_migration_validates_layout_before_execution() {
 
     // Migration should succeed because layout is valid
     assert!(client.migrate_storage(&1));
-    
+
     // Verify version is still correct
     assert_eq!(client.get_storage_version(), 1);
 }
