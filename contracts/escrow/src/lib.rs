@@ -62,6 +62,14 @@ pub enum EscrowError {
     AlreadyCancelled = 8,
     ContractNotFound = 9,
     MilestonesAlreadyReleased = 10,
+    /// `deadline` or `expected_delivery` is ≤ current ledger timestamp.
+    ScheduleDeadlineInPast = 16,
+    /// `deadline` values across milestones are not strictly increasing.
+    ScheduleDeadlineNotMonotonic = 17,
+    /// Schedule update attempted on an already-released milestone.
+    ScheduleImmutableAfterRelease = 18,
+    /// Milestone index is out of range for the contract.
+    ScheduleInvalidMilestoneIndex = 19,
 }
 
 #[contracttype]
@@ -114,6 +122,29 @@ pub struct ContractChecklist {
     pub cancelled: bool,
 }
 
+/// Optional scheduling metadata for a single milestone.
+///
+/// Stored under `DataKey::MilestoneSchedule(contract_id, milestone_idx)` in
+/// persistent storage, **separate** from the core `Milestone` record.  This
+/// separation means adding schedule data never invalidates existing on-chain
+/// contract storage — contracts created before this feature was deployed simply
+/// have no `MilestoneSchedule` entry, which `get_milestone_schedule` returns
+/// as `None`.
+///
+/// Both deadline fields are Unix timestamps (seconds).  The contract stamps
+/// `updated_at` from `env.ledger().timestamp()` on every write; callers cannot
+/// supply their own value.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneSchedule {
+    /// Hard deadline: the milestone must be complete by this timestamp.
+    pub deadline: Option<u64>,
+    /// Soft expected-delivery date (informational).
+    pub expected_delivery: Option<u64>,
+    /// Ledger timestamp of the last write — set by the contract, not the caller.
+    pub updated_at: u64,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -123,6 +154,11 @@ enum DataKey {
     /// Per-contract lifecycle checklist. Keyed by contract ID.
     /// Only written by the private `update_checklist` helper.
     Checklist(u32),
+    /// Optional schedule metadata for a single milestone.
+    /// Stored separately from the core Milestone record so that adding
+    /// schedule data never invalidates existing on-chain contract storage.
+    /// Key: (contract_id, milestone_idx)
+    MilestoneSchedule(u32, u32),
 }
 
 fn update_readiness_checklist<F>(env: &Env, f: F)
@@ -434,6 +470,133 @@ impl Escrow {
             }
         }
         released
+    }
+
+    // ─── Milestone schedule entry points ──────────────────────────────────────
+
+    /// Returns the schedule metadata for a single milestone, or `None` if no
+    /// schedule has been stored (including contracts created before this feature).
+    pub fn get_milestone_schedule(
+        env: Env,
+        contract_id: u32,
+        milestone_idx: u32,
+    ) -> Option<MilestoneSchedule> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MilestoneSchedule(contract_id, milestone_idx))
+    }
+
+    /// Set or update the schedule metadata for a single milestone.
+    ///
+    /// Authorization: only the contract's client may call this.
+    /// Immutability: once a milestone is released its schedule is frozen.
+    /// Validation (all checked before any write):
+    ///   - `milestone_idx` must be in range.
+    ///   - `deadline`, if set, must be strictly in the future.
+    ///   - `expected_delivery`, if set, must be strictly in the future.
+    ///   - `deadline` must be ≥ `expected_delivery` when both are set.
+    ///
+    /// `updated_at` is always overwritten with `env.ledger().timestamp()`.
+    pub fn set_milestone_schedule(
+        env: Env,
+        contract_id: u32,
+        milestone_idx: u32,
+        schedule: MilestoneSchedule,
+    ) -> bool {
+        let contract_key = DataKey::Contract(contract_id);
+        let contract = env
+            .storage()
+            .persistent()
+            .get::<_, ContractData>(&contract_key)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+
+        // Authorization: only the client may update schedule metadata.
+        contract.client.require_auth();
+
+        // Bounds check.
+        if milestone_idx >= contract.milestones.len() {
+            env.panic_with_error(EscrowError::ScheduleInvalidMilestoneIndex);
+        }
+
+        // Immutability: released milestones are frozen.
+        let released = env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::MilestoneReleased(contract_id, milestone_idx))
+            .unwrap_or(false);
+        if released {
+            env.panic_with_error(EscrowError::ScheduleImmutableAfterRelease);
+        }
+
+        let now = env.ledger().timestamp();
+
+        // Validate deadline.
+        if let Some(dl) = schedule.deadline {
+            if dl <= now {
+                env.panic_with_error(EscrowError::ScheduleDeadlineInPast);
+            }
+        }
+
+        // Validate expected_delivery.
+        if let Some(ed) = schedule.expected_delivery {
+            if ed <= now {
+                env.panic_with_error(EscrowError::ScheduleDeadlineInPast);
+            }
+        }
+
+        // When both are set, deadline must be ≥ expected_delivery.
+        if let (Some(dl), Some(ed)) = (schedule.deadline, schedule.expected_delivery) {
+            if dl < ed {
+                env.panic_with_error(EscrowError::ScheduleDeadlineNotMonotonic);
+            }
+        }
+
+        let entry = MilestoneSchedule {
+            deadline: schedule.deadline,
+            expected_delivery: schedule.expected_delivery,
+            updated_at: now,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MilestoneSchedule(contract_id, milestone_idx), &entry);
+
+        true
+    }
+
+    /// Idempotent migration: for every milestone in `contract_id` that does not
+    /// yet have a `MilestoneSchedule` entry, write a default entry with both
+    /// date fields set to `None`.
+    ///
+    /// Safe to call multiple times — milestones that already have a schedule
+    /// entry are left untouched.  This allows the migration to be re-run after
+    /// partial failures without corrupting existing data.
+    pub fn migrate_milestone_schedules(env: Env, contract_id: u32) -> u32 {
+        let contract = env
+            .storage()
+            .persistent()
+            .get::<_, ContractData>(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+
+        let now = env.ledger().timestamp();
+        let mut migrated: u32 = 0;
+
+        for idx in 0..contract.milestones.len() {
+            let key = DataKey::MilestoneSchedule(contract_id, idx);
+            if !env.storage().persistent().has(&key) {
+                env.storage().persistent().set(
+                    &key,
+                    &MilestoneSchedule {
+                        deadline: None,
+                        expected_delivery: None,
+                        updated_at: now,
+                    },
+                );
+                migrated += 1;
+            }
+        }
+
+        migrated
     }
 }
 
