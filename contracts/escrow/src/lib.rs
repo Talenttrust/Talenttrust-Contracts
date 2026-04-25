@@ -96,10 +96,15 @@ pub struct PendingMigration {
 
 #[contracttype]
 #[derive(Clone)]
-enum DataKey {
+pub enum DataKey {
     Contract(u32),
     MilestoneReleased(u32, u32),
     RefundableBalance(u32),
+    /// Monotonically increasing counter. Holds the *next* ID to be issued.
+    /// Written before contract data is stored so the ID is permanently
+    /// consumed even if a subsequent write panics (write-ahead reservation).
+    /// Never decremented; IDs are never reused.
+    NextContractId,
 }
 
 fn update_readiness_checklist<F>(env: &Env, f: F)
@@ -178,8 +183,15 @@ impl Escrow {
         let id: u32 = env
             .storage()
             .persistent()
-            .get(&DataKey::ContractCount)
-            .unwrap_or(0u32);
+            .get(&DataKey::NextContractId)
+            .unwrap_or(1u32);
+
+        // Write-ahead: reserve the ID by persisting the incremented counter
+        // BEFORE writing contract data. If any subsequent write panics, the
+        // counter has already advanced, so this ID is never reused.
+        env.storage()
+            .persistent()
+            .set(&DataKey::NextContractId, &(id + 1));
 
         let data = EscrowContractData {
             client,
@@ -195,7 +207,6 @@ impl Escrow {
         env.storage()
             .persistent()
             .set(&DataKey::Milestones(id), &milestones);
-        env.storage().persistent().set(&DataKey::ContractCount, &(id + 1));
 
         id
     }

@@ -74,3 +74,37 @@ Reputation invariants:
 3. Confirm milestone double release is rejected.
 4. Confirm completed contracts can issue reputation once.
 5. Confirm pause and emergency flags block every mutating payment path.
+
+## Contract ID Allocation
+
+Contract IDs are issued by a monotonically increasing counter stored under the
+`NextContractId` key in persistent storage.
+
+### Allocation algorithm
+
+1. Read `NextContractId` from persistent storage; default to `1` if absent.
+2. **Write-ahead**: persist `NextContractId + 1` before writing any contract data.
+3. Write the `Contract(id)` record.
+4. Return `id` to the caller.
+
+### Safety properties
+
+**Monotonic** — the counter is never decremented. Every successful call to
+`create_contract` produces an ID strictly greater than all previously issued IDs.
+
+**Never reused** — the counter is advanced in step 2, before the contract data
+write in step 3. If the contract write panics or the transaction is rolled back
+after step 2, the counter has already moved forward. The skipped ID is
+permanently retired; it will never be assigned to a different contract.
+
+**Failure safe** — validation errors (empty milestones, invalid participants,
+etc.) are checked before step 2. A rejected call leaves the counter unchanged,
+so no IDs are wasted on invalid inputs.
+
+**Storage-migration safe** — `NextContractId` is a dedicated, named key with no
+dependency on the shape of `EscrowContractData`. Migrating or upgrading the
+contract record schema does not affect the counter.
+
+**Per-instance isolation** — each deployed contract instance has its own
+persistent storage namespace. Counters from different instances are independent
+and do not interfere.
