@@ -98,10 +98,7 @@ pub struct SampleContractParties {
     pub replacement_client: Address,
 }
 
-pub fn create_sample_contract(
-    env: &Env,
-    client: &EscrowClient,
-) -> (SampleContractParties, u32) {
+pub fn create_sample_contract(env: &Env, client: &EscrowClient) -> (SampleContractParties, u32) {
     let client_addr = Address::generate(env);
     let freelancer_addr = Address::generate(env);
     let replacement_client = Address::generate(env);
