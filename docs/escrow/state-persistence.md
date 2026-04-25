@@ -18,6 +18,7 @@ For transient keys (pending approvals, pending migrations) and their TTL / expir
 | `GovernanceAdmin` | `Address` | current protocol parameter admin |
 | `PendingGovernanceAdmin` | `Address` | proposed next governance admin |
 | `ProtocolParameters` | `ProtocolParameters` | live validation bounds for creation and rating |
+| `Checklist(id)` | `ContractChecklist` | per-contract lifecycle progress flags; written only by internal helpers, readable via `get_checklist` |
 
 ## Escrow Record Fields
 
@@ -74,3 +75,17 @@ Reputation invariants:
 3. Confirm milestone double release is rejected.
 4. Confirm completed contracts can issue reputation once.
 5. Confirm pause and emergency flags block every mutating payment path.
+
+## ContractChecklist Fields
+
+`ContractChecklist` is stored at `Checklist(contract_id)` in persistent storage and is written exclusively by the private `update_checklist` helper. No public entry-point accepts it as an argument.
+
+| Field | Set by | Meaning |
+| --- | --- | --- |
+| `created` | `create_contract` | contract record was successfully persisted |
+| `funded` | `deposit_funds` | at least one deposit was accepted |
+| `milestone_released` | `release_milestone` | at least one milestone payment was released |
+| `all_milestones_released` | `release_milestone` | every milestone has been released (contract completed) |
+| `cancelled` | `cancel_contract` | contract was transitioned to `Cancelled` |
+
+Read via `get_checklist(contract_id)`. Returns `ContractNotFound` if no checklist exists for the given ID.
