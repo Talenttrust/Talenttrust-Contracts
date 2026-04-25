@@ -17,9 +17,7 @@ pub const PENDING_MIGRATION_TTL_LEDGERS: u32 = LEDGERS_PER_DAY * 21;
 pub const PENDING_MIGRATION_BUMP_THRESHOLD: u32 = LEDGERS_PER_DAY * 3;
 
 pub fn compute_expiry(env: &Env, ttl_ledgers: u32) -> u32 {
-    env.ledger()
-        .sequence()
-        .saturating_add(ttl_ledgers)
+    env.ledger().sequence().saturating_add(ttl_ledgers)
 }
 
 pub fn store_with_ttl<K, V>(env: &Env, key: &K, value: &V, ttl_ledgers: u32)
@@ -40,12 +38,7 @@ where
     env.storage().temporary().get(key)
 }
 
-pub fn extend_if_below_threshold<K>(
-    env: &Env,
-    key: &K,
-    threshold: u32,
-    extend_to: u32,
-) -> bool
+pub fn extend_if_below_threshold<K>(env: &Env, key: &K, threshold: u32, extend_to: u32) -> bool
 where
     K: IntoVal<Env, Val>,
 {
