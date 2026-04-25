@@ -94,12 +94,35 @@ pub struct PendingMigration {
     pub expires_at_ledger: u32,
 }
 
+/// Per-contract lifecycle checklist persisted alongside the contract record.
+///
+/// Each field is set to `true` exactly once by the internal `update_checklist`
+/// helper. No public entry-point accepts a `ContractChecklist` argument —
+/// external callers can only read it via `get_checklist`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct ContractChecklist {
+    /// Set when `create_contract` succeeds.
+    pub created: bool,
+    /// Set on the first successful `deposit_funds` call.
+    pub funded: bool,
+    /// Set when at least one milestone has been released.
+    pub milestone_released: bool,
+    /// Set when all milestones have been released (contract completed).
+    pub all_milestones_released: bool,
+    /// Set when `cancel_contract` transitions the contract to `Cancelled`.
+    pub cancelled: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Contract(u32),
     MilestoneReleased(u32, u32),
     RefundableBalance(u32),
+    /// Per-contract lifecycle checklist. Keyed by contract ID.
+    /// Only written by the private `update_checklist` helper.
+    Checklist(u32),
 }
 
 fn update_readiness_checklist<F>(env: &Env, f: F)
@@ -115,6 +138,22 @@ where
     env.storage()
         .instance()
         .set(&ReadinessDataKey::ReadinessChecklist, &checklist);
+}
+
+/// Internal-only helper: load, mutate, and persist the checklist for `id`.
+/// Never exposed as a contract entry-point; callers cannot invoke it directly.
+fn update_checklist<F>(env: &Env, id: u32, f: F)
+where
+    F: FnOnce(&mut ContractChecklist),
+{
+    let key = DataKey::Checklist(id);
+    let mut cl: ContractChecklist = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_default();
+    f(&mut cl);
+    env.storage().persistent().set(&key, &cl);
 }
 
 #[contractimpl]
@@ -197,6 +236,8 @@ impl Escrow {
             .set(&DataKey::Milestones(id), &milestones);
         env.storage().persistent().set(&DataKey::ContractCount, &(id + 1));
 
+        update_checklist(&env, id, |cl| cl.created = true);
+
         id
     }
 
@@ -220,6 +261,8 @@ impl Escrow {
         }
 
         env.storage().persistent().set(&contract_key, &contract);
+
+        update_checklist(&env, contract_id, |cl| cl.funded = true);
 
         true
     }
@@ -253,6 +296,21 @@ impl Escrow {
 
         env.storage().persistent().set(&contract_key, &contract);
 
+        // Check whether every milestone is now released.
+        let total = contract.milestones.len();
+        let all_released = (0..total).all(|i| {
+            env.storage()
+                .persistent()
+                .get::<_, bool>(&DataKey::MilestoneReleased(contract_id, i))
+                .unwrap_or(false)
+        });
+        update_checklist(&env, contract_id, |cl| {
+            cl.milestone_released = true;
+            if all_released {
+                cl.all_milestones_released = true;
+            }
+        });
+
         true
     }
 
@@ -268,6 +326,18 @@ impl Escrow {
     pub fn get_milestones(env: Env, contract_id: u32) -> Vec<i128> {
         let contract = Self::get_contract(env.clone(), contract_id);
         contract.milestones
+    }
+
+    /// Returns the lifecycle checklist for `contract_id`.
+    ///
+    /// Read-only. Intended for monitoring and ops tooling to verify that a
+    /// contract has progressed through the expected lifecycle stages.
+    /// Panics with `ContractNotFound` if no checklist exists for the given ID.
+    pub fn get_checklist(env: Env, contract_id: u32) -> ContractChecklist {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Checklist(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound))
     }
 
     /// Cancel an escrow contract under strict authorization and state constraints
@@ -338,6 +408,8 @@ impl Escrow {
         contract.status = ContractStatus::Cancelled;
         env.storage().persistent().set(&contract_key, &contract);
 
+        update_checklist(&env, contract_id, |cl| cl.cancelled = true);
+
         // 7. Emit indexer-friendly event
         env.events().publish(
             (Symbol::new(&env, "contract_cancelled"), contract_id),
@@ -367,6 +439,9 @@ impl Escrow {
 
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod test_lifecycle_checklist;
 
 #[cfg(test)]
 mod proptest;
