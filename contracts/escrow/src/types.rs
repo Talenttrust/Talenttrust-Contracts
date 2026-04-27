@@ -9,6 +9,9 @@ pub enum DataKey {
     Milestones,
     Initialized,
     MilestoneFunded(u32),
+    Admin,
+    ProtocolFeeBps,
+    AccumulatedProtocolFees,
     ReadinessChecklist,
 }
 
@@ -40,8 +43,11 @@ pub enum ContractStatus {
 pub struct Milestone {
     pub amount: i128,
     pub released: bool,
+    pub refunded: bool,
     pub work_evidence: Option<String>,
     pub funded_amount: i128,
+    /// Amount refunded for this specific milestone (≤ amount).
+    pub refunded_amount: i128,
 }
 
 #[contracttype]

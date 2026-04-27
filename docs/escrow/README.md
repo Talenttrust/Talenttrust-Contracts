@@ -134,3 +134,31 @@ The escrow regression suite is split by concern:
 - `governance.rs`: admin and parameter persistence
 - `pause_controls.rs` and `emergency_controls.rs`: operational safety controls
 - `performance.rs`: resource regression ceilings
+
+## Deterministic Lifecycle Events (v1)
+
+Lifecycle operations now emit a standardized event shape to simplify indexing and alerting.
+
+- Topic tuple: `("escrow", "v1", operation, contract_id)`
+- Data tuple: `(status, amount, milestone_index, actor, timestamp)`
+
+Operation values:
+
+- `create`
+- `deposit`
+- `approve`
+- `release`
+- `cancel`
+
+Schema notes:
+
+- `status`: post-operation `ContractStatus`
+- `amount`: operation amount (or `0` when not applicable)
+- `milestone_index`: milestone index (or `0` when not applicable)
+- `actor`: `Some(Address)` when a caller identity is relevant, otherwise `None`
+- `timestamp`: ledger timestamp at emission
+
+Backwards compatibility:
+
+- Previous ad-hoc topics such as `("contract_cancelled", contract_id)` are replaced by the v1 lifecycle schema.
+- Indexers should migrate to the new topic/data tuples for deterministic parsing.

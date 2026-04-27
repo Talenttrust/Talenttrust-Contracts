@@ -59,7 +59,7 @@ released_amount: i128 – total amount released to freelancer
 
 ### cancel_contract(env, contract_id, caller) -> bool
 - Cancels an escrow contract under strict authorization and state constraints.
-- Emits `contract_cancelled` event for indexer consumption.
+- Emits deterministic lifecycle event payload for indexer consumption.
 
 **Authorization Rules:**
 - Created state: Client or Freelancer can cancel
@@ -77,9 +77,9 @@ released_amount: i128 – total amount released to freelancer
 - Cancelled → Cancelled ✗ (idempotent error)
 
 **Event Emission:**
-Emits `contract_cancelled` event with:
-- Topics: `("contract_cancelled", contract_id)`
-- Data: `(caller: Address, status: ContractStatus, timestamp: u64)`
+Emits lifecycle event with:
+- Topics: `("escrow", "v1", "cancel", contract_id)`
+- Data: `(status: ContractStatus, amount: i128, milestone_index: u32, actor: Option<Address>, timestamp: u64)`
 
 **Security Guarantees:**
 - Cryptographic authorization required (caller.require_auth())
@@ -138,3 +138,22 @@ Tests include:
 - Milestone release
 - Invalid deposit handling
 - Hello-world function check
+
+## Deterministic Event Schema
+
+The escrow lifecycle uses a shared event schema for deterministic indexing:
+
+- Topic tuple: `("escrow", "v1", operation, contract_id)`
+- Data tuple: `(status, amount, milestone_index, actor, timestamp)`
+
+Lifecycle operations covered:
+
+- `create_contract` -> operation `create`
+- `deposit_funds` -> operation `deposit`
+- `approve_milestone` -> operation `approve`
+- `release_milestone` -> operation `release`
+- `cancel_contract` -> operation `cancel`
+
+Breaking change note:
+
+- Consumers listening to legacy cancellation topic `contract_cancelled` must migrate to the v1 lifecycle event topic.

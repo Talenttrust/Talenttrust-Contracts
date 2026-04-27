@@ -2,135 +2,178 @@
 
 ## Overview
 
-The TalentTrust escrow contract supports a formal on-chain dispute mechanism. Either the **client** or the **freelancer** may raise a dispute against a funded or completed escrow. Once raised, the dispute is recorded immutably in persistent storage and the escrow status transitions to `Disputed`.
+The TalentTrust escrow contract supports a formal on-chain dispute mechanism. Either the **client** or the **freelancer** may raise a dispute against a funded escrow. Once raised, dispute metadata is stored in persistent storage and the escrow status transitions to `Disputed`. Only the **arbiter** may resolve the dispute.
 
 ## State Machine
 
 ```
-┌─────────┐   deposit    ┌────────┐   dispute   ┌──────────┐
-│ Created │ ──────────► │ Funded │ ──────────► │ Disputed │
-└─────────┘             └────────┘             └──────────┘
-                             │
-                          complete
-                             │
-                             ▼
-                        ┌───────────┐   dispute   ┌──────────┐
-                        │ Completed │ ──────────► │ Disputed │
-                        └───────────┘             └──────────┘
+┌─────────┐   deposit    ┌────────┐   raise_dispute   ┌──────────┐
+│ Created │ ──────────► │ Funded │ ────────────────► │ Disputed │
+└─────────┘             └────────┘                   └──────────┘
+                                                           │
+                                              resolve_dispute(decision)
+                                                           │
+                                    ┌──────────────────────┼──────────────────────┐
+                                    ▼                      ▼                      ▼
+                               ┌───────────┐         ┌──────────┐          ┌───────────┐
+                               │ Completed │         │ Refunded │          │ Cancelled │
+                               └───────────┘         └──────────┘          └───────────┘
+                               (Release)             (Refund)               (Cancel)
 ```
 
-Valid transitions to `Disputed`:
-- `Funded` → `Disputed`
-- `Completed` → `Disputed`
+Valid transitions:
+- `Funded` → `Disputed` via `raise_dispute` (client or freelancer only)
+- `Disputed` → `Completed` via `resolve_dispute(Release)` (arbiter only)
+- `Disputed` → `Refunded` via `resolve_dispute(Refund)` (arbiter only)
+- `Disputed` → `Cancelled` via `resolve_dispute(Cancel)` (arbiter only)
 
-Invalid (rejected with error):
-- `Created` → `Disputed` — returns `DisputeError::InvalidStatus`
-- `Disputed` → `Disputed` — returns `DisputeError::AlreadyDisputed`
+Invalid (rejected):
+- `Created` → `Disputed` — `InvalidStatusTransition` (contract not yet funded)
+- `Disputed` → `Disputed` — `InvalidStatusTransition` (already disputed)
+- Any state → `Disputed` by arbiter — `UnauthorizedRole`
+- `Disputed` → any by non-arbiter — `UnauthorizedRole`
 
 ## Data Types
 
-### `DisputeRecord`
+### `DisputeMetadata`
 
-Immutable record written to persistent storage when a dispute is initiated.
+Written to persistent storage when a dispute is raised.
 
 ```rust
-pub struct DisputeRecord {
-    /// The address (client or freelancer) that initiated the dispute.
-    pub initiator: Address,
-    /// A short human-readable reason for the dispute.
-    pub reason: String,
-    /// Ledger timestamp (seconds since Unix epoch) at the moment the dispute was recorded.
-    pub timestamp: u64,
+pub struct DisputeMetadata {
+    /// SHA-256 hash of the off-chain dispute reason document.
+    pub reason_hash: BytesN<32>,
+    /// Ledger timestamp (seconds since Unix epoch) when the dispute was raised.
+    pub raised_at: u64,
+    /// Address (client or freelancer) that raised the dispute.
+    pub raised_by: Address,
 }
 ```
 
-### `DisputeError`
+### `DisputeResolution`
 
-Typed error enum returned by dispute functions.
+Arbiter decision passed to `resolve_dispute`.
 
-| Variant           | Value | Meaning                                                  |
-|-------------------|-------|----------------------------------------------------------|
-| `NotFound`        | 1     | No escrow with the given `contract_id` exists            |
-| `Unauthorized`    | 2     | Caller is not the client or freelancer of this escrow    |
-| `InvalidStatus`   | 3     | Escrow is in `Created` status (not yet funded)           |
-| `AlreadyDisputed` | 4     | A dispute record already exists for this escrow          |
+```rust
+pub enum DisputeResolution {
+    /// Release all remaining funded milestones to the freelancer → Completed.
+    Release = 0,
+    /// Refund all remaining funded milestones to the client → Refunded.
+    Refund  = 1,
+    /// Cancel the contract with no further payments → Cancelled.
+    Cancel  = 2,
+}
+```
 
 ## Functions
 
-### `initiate_dispute`
+### `raise_dispute`
 
 ```rust
-pub fn initiate_dispute(
+pub fn raise_dispute(
     env: Env,
     contract_id: u32,
-    initiator: Address,
-    reason: String,
-) -> Result<(), DisputeError>
+    caller: Address,
+    reason_hash: BytesN<32>,
+) -> bool
 ```
 
-Raises a dispute on an existing escrow.
+Raises a dispute on a funded escrow.
 
 **Execution flow:**
 
-1. `initiator.require_auth()` — Soroban-level authorization enforced before any state access.
-2. Load `EscrowState` from persistent storage; return `NotFound` if absent.
-3. Validate `initiator == state.client || initiator == state.freelancer`; return `Unauthorized` otherwise.
-4. Check `state.status`:
-   - `Created` → return `InvalidStatus`
-   - `Disputed` → return `AlreadyDisputed`
-   - `Funded` or `Completed` → continue
-5. Check for existing `DisputeRecord`; return `AlreadyDisputed` if present (defense-in-depth).
-6. Set `state.status = Disputed` and persist updated `EscrowState`.
-7. Write `DisputeRecord { initiator, reason, timestamp: env.ledger().timestamp() }` to persistent storage.
+1. `caller.require_auth()` — Soroban-level authorization enforced first.
+2. Load `EscrowContractData`; panic with `ContractNotFound` if absent.
+3. Validate `caller == contract.client || caller == contract.freelancer`; panic with `UnauthorizedRole` otherwise.
+4. Validate `contract.arbiter.is_some()`; panic with `NoArbiter` if no arbiter is assigned.
+5. Validate `contract.status == Funded`; panic with `InvalidStatusTransition` otherwise.
+6. Transition `contract.status = Disputed` and persist.
+7. Write `DisputeMetadata { reason_hash, raised_at, raised_by }` to persistent storage.
+8. Emit `dispute_raised` event: topics `(dispute_raised, contract_id)`, data `(caller, reason_hash, timestamp)`.
+
+### `resolve_dispute`
+
+```rust
+pub fn resolve_dispute(
+    env: Env,
+    contract_id: u32,
+    arbiter: Address,
+    resolution: DisputeResolution,
+) -> bool
+```
+
+Resolves a disputed escrow. Only the arbiter may call this.
+
+**Execution flow:**
+
+1. `arbiter.require_auth()` — Soroban-level authorization enforced first.
+2. Load `EscrowContractData`; panic with `ContractNotFound` if absent.
+3. Validate `contract.arbiter == Some(arbiter)`; panic with `UnauthorizedRole` otherwise.
+4. Validate `contract.status == Disputed`; panic with `InvalidStatusTransition` otherwise.
+5. Transition status based on `resolution`:
+   - `Release` → `Completed`
+   - `Refund` → `Refunded`
+   - `Cancel` → `Cancelled`
+6. Persist updated contract.
+7. Emit `dispute_resolved` event: topics `(dispute_resolved, contract_id)`, data `(arbiter, resolution, timestamp)`.
 
 ### `get_dispute`
 
 ```rust
-pub fn get_dispute(env: Env, contract_id: u32) -> Option<DisputeRecord>
+pub fn get_dispute(env: Env, contract_id: u32) -> DisputeMetadata
 ```
 
-Returns the dispute record for an escrow, or `None` if no dispute has been initiated.
+Returns the dispute metadata for a contract. Panics with `DisputeNotFound` if no dispute has been raised.
 
-## Security Assumptions and Threat Scenarios
+## Error Codes
 
-### Authorization
+| Variant                  | Code | Meaning                                                    |
+|--------------------------|------|------------------------------------------------------------|
+| `UnauthorizedRole`       | 6    | Caller is not a party or arbiter of this contract          |
+| `InvalidStatusTransition`| 7    | Contract is not in the required state for this operation   |
+| `NoArbiter`              | 13   | `raise_dispute` called on a contract with no arbiter       |
+| `DisputeNotFound`        | 14   | `get_dispute` called before any dispute was raised         |
 
-- `require_auth()` is the **first** operation — no storage reads or writes occur before the caller is authenticated.
-- Soroban's auth framework ensures that if `require_auth()` panics, the entire transaction is reverted atomically.
+## Events
 
-### Immutability of DisputeRecord
+| Event name         | Topics                          | Data                                    |
+|--------------------|---------------------------------|-----------------------------------------|
+| `dispute_raised`   | `(dispute_raised, contract_id)` | `(caller, reason_hash, timestamp)`      |
+| `dispute_resolved` | `(dispute_resolved, contract_id)` | `(arbiter, resolution, timestamp)`    |
 
-- The record is guarded by two independent checks before writing:
-  1. `state.status == Disputed` check (status-level guard).
-  2. `env.storage().persistent().has(DataKey::Dispute(id))` check (storage-level guard).
-- This defense-in-depth ensures the record cannot be overwritten even if the status check were somehow bypassed.
+Events are emitted after all state changes are persisted, making them safe for off-chain indexers.
 
-### Access Control
+## Security Properties
 
-- The `initiator` address is validated against the **on-chain** `client` and `freelancer` addresses stored at escrow creation time — not against any caller-supplied claim.
-- A third-party address (even one that passes `require_auth()`) will be rejected with `Unauthorized`.
-
-### Threat Scenarios
-
-| Threat | Mitigation |
-|--------|-----------|
-| Attacker calls `initiate_dispute` without authorization | `require_auth()` panics; transaction reverts |
-| Attacker supplies a different address as `initiator` | On-chain address comparison rejects non-parties |
-| Client/freelancer tries to dispute a `Created` escrow | `InvalidStatus` returned; no state change |
-| Party tries to overwrite an existing dispute record | `AlreadyDisputed` returned; record unchanged |
-| Reentrancy via cross-contract call | Soroban's single-threaded execution model prevents reentrancy |
+| Property | Mechanism |
+|----------|-----------|
+| Only parties may raise | `caller == client \|\| caller == freelancer` checked against on-chain state |
+| Only arbiter may resolve | `arbiter == contract.arbiter` checked against on-chain state |
+| Requires auth before any state read | `require_auth()` is the first call in both functions |
+| No dispute without arbiter | `NoArbiter` error prevents disputes on arbiter-less contracts |
+| Release blocked during dispute | `release_milestone` panics with `InvalidStatusTransition` in `Disputed` state |
+| No double-dispute | Second `raise_dispute` fails because status is no longer `Funded` |
 
 ## Testing
 
-All acceptance criteria are covered by unit tests in `contracts/escrow/src/test.rs`:
+Tests are in `contracts/escrow/src/test/dispute.rs`:
 
-| Test | Covers |
-|------|--------|
-| `test_initiate_dispute_from_client` | Req 1.1 — Funded → Disputed (client) |
-| `test_initiate_dispute_from_freelancer` | Req 1.1 — Funded → Disputed (freelancer) |
-| `test_dispute_on_completed_escrow` | Req 1.2 — Completed → Disputed |
-| `test_dispute_on_created_escrow_fails` | Req 1.3 — Created rejected |
-| `test_dispute_already_disputed_fails` | Req 1.4 — duplicate rejected |
-| `test_dispute_unauthorized_caller` | Req 1.5, 4.3 — third party rejected |
-| `test_get_dispute_no_record` | Req 2.4 — None before dispute |
-| `test_get_dispute_returns_record` | Req 2.1, 2.3 — record round-trip |
+| Test | Scenario |
+|------|----------|
+| `client_can_raise_dispute_on_funded_contract` | Happy path — client raises |
+| `freelancer_can_raise_dispute_on_funded_contract` | Happy path — freelancer raises |
+| `raise_dispute_stores_metadata` | Metadata round-trip |
+| `arbiter_can_resolve_with_release` | Resolution → Completed |
+| `arbiter_can_resolve_with_refund` | Resolution → Refunded |
+| `arbiter_can_resolve_with_cancel` | Resolution → Cancelled |
+| `arbiter_cannot_raise_dispute` | Unauthorized raise |
+| `third_party_cannot_raise_dispute` | Unauthorized raise |
+| `cannot_raise_dispute_without_arbiter` | NoArbiter guard |
+| `cannot_raise_dispute_on_created_contract` | Invalid state transition |
+| `cannot_raise_dispute_twice` | Double-dispute guard |
+| `client_cannot_resolve_dispute` | Unauthorized resolve |
+| `freelancer_cannot_resolve_dispute` | Unauthorized resolve |
+| `third_party_cannot_resolve_dispute` | Unauthorized resolve |
+| `cannot_resolve_non_disputed_contract` | Invalid state transition |
+| `release_milestone_blocked_in_disputed_state` | State blocking |
+| `get_dispute_fails_when_no_dispute_exists` | DisputeNotFound guard |

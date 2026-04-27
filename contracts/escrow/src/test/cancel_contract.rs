@@ -338,11 +338,8 @@ fn cancellation_emits_correct_event() {
     // Cancel
     assert!(client.cancel_contract(&contract_id, &client_addr));
 
-    // Event was emitted successfully (verified by successful cancellation)
-    // The event structure is:
-    // Topics: ("contract_cancelled", contract_id)
-    // Data: (caller, status, timestamp)
-    // This can be verified in test snapshots
+    let events = env.events().all();
+    assert!(!events.is_empty(), "cancel_contract must emit an event");
 }
 
 /// Cancellation is idempotent (consistent error on multiple attempts).

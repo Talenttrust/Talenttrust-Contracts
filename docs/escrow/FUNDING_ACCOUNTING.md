@@ -41,13 +41,13 @@ The Escrow contract implements comprehensive funding accounting invariants to en
 
 ### 4. Milestone Release Consistency Invariant
 
-**Formula:** `sum(milestone.amount for milestone in milestones where milestone.released) = total_released`
+**Formula:** `sum(milestone.amount for milestone in milestones where milestone.released) = total_released + accumulated_protocol_fees_for_milestones`
 
-**Description:** The sum of all released milestone amounts must exactly match the tracked total released.
+**Description:** Due to Hybrid Accounting, the sum of all released milestone amounts must exactly match the tracked total released plus the accrued protocol fees deducted from those milestones. The protocol fee is a percentage of the milestone amount (e.g. `fee = (amount * bps + 9999) / 10000`).
 
 **Enforcement:** Checked in `check_milestone_invariants()`.
 
-**Violation Scenario:** Prevents inconsistency between milestone state and accounting totals.
+**Violation Scenario:** Prevents inconsistency between milestone state and accounting totals, ensuring protocol fees are correctly tracked.
 
 ### 5. Milestone Amount Validity Invariant
 
