@@ -4,3 +4,4 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
+cc f2ce0752000f8e62996cc50e29903d593ddf3606a8c1a119614006cc4b10a754 # shrinks to (amounts, ops) = ([1], [Release(0)])

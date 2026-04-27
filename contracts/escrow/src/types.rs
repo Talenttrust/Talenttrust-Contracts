@@ -1,12 +1,15 @@
-use soroban_sdk::{contracterror, contracttype, Bytes, String};
+use soroban_sdk::{contracterror, contracttype, String};
 
+// Add Clone derive to DataKey for hashing
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
     Client,
     Freelancer,
     Milestones,
     Initialized,
     MilestoneFunded(u32),
+    ReadinessChecklist,
 }
 
 #[contracterror]
@@ -49,3 +52,21 @@ pub struct MilestoneFunding {
     pub funded_amount: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ReadinessChecklist {
+    pub initialized: bool,
+    pub governed_params_set: bool,
+    pub emergency_controls_enabled: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MainnetReadinessInfo {
+    pub initialized: bool,
+    pub governed_params_set: bool,
+    pub emergency_controls_enabled: bool,
+    pub caps_set: bool,
+    pub protocol_version: u32,
+    pub max_escrow_total_stroops: i128,
+}

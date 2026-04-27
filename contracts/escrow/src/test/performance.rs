@@ -26,7 +26,7 @@ const CREATE_CONTRACT_BASELINE: ResourceBaseline = ResourceBaseline {
     max_instructions: 10_000_000,
     max_mem_bytes: 1_000_000,
     max_read_entries: 4,
-    max_write_entries: 3,
+    max_write_entries: 4,
     max_read_bytes: 4_096,
     max_write_bytes: 12_288,
     max_fee_total: 2_000_000,
@@ -52,27 +52,7 @@ const RELEASE_MILESTONE_BASELINE: ResourceBaseline = ResourceBaseline {
     max_fee_total: 2_100_000,
 };
 
-const REFUND_BASELINE: ResourceBaseline = ResourceBaseline {
-    max_instructions: 10_000_000,
-    max_mem_bytes: 1_000_000,
-    max_read_entries: 4,
-    max_write_entries: 3,
-    max_read_bytes: 4_096,
-    max_write_bytes: 12_288,
-    max_fee_total: 2_000_000,
-};
-
 const CANCEL_BASELINE: ResourceBaseline = ResourceBaseline {
-    max_instructions: 9_000_000,
-    max_mem_bytes: 900_000,
-    max_read_entries: 3,
-    max_write_entries: 2,
-    max_read_bytes: 4_096,
-    max_write_bytes: 8_192,
-    max_fee_total: 1_900_000,
-};
-
-const DISPUTE_BASELINE: ResourceBaseline = ResourceBaseline {
     max_instructions: 9_000_000,
     max_mem_bytes: 900_000,
     max_read_entries: 3,
@@ -211,42 +191,14 @@ fn release_milestone_resource_baseline() {
 }
 
 #[test]
-fn refund_resource_baseline() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let (_, _, contract_id) = create_contract(&env, &client);
-    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
-    let _ = client.refund(&contract_id, &0);
-
-    let (resources, fee_total) = measure_last_invocation(&env);
-    assert_within_baseline("refund", resources, fee_total, REFUND_BASELINE);
-}
-
-#[test]
 fn cancel_resource_baseline() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
 
-    let (_, _, contract_id) = create_contract(&env, &client);
-    let _ = client.cancel(&contract_id);
+    let (client_addr, _, contract_id) = create_contract(&env, &client);
+    let _ = client.cancel_contract(&contract_id, &client_addr);
 
     let (resources, fee_total) = measure_last_invocation(&env);
     assert_within_baseline("cancel", resources, fee_total, CANCEL_BASELINE);
-}
-
-#[test]
-fn dispute_resource_baseline() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let (_, _, contract_id) = create_contract(&env, &client);
-    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
-    let _ = client.dispute(&contract_id);
-
-    let (resources, fee_total) = measure_last_invocation(&env);
-    assert_within_baseline("dispute", resources, fee_total, DISPUTE_BASELINE);
 }

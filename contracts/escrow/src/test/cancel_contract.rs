@@ -8,16 +8,16 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, testutils::Events as _, vec, Address, Env, Vec};
+use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
-use crate::{ContractStatus, Escrow, EscrowClient, EscrowError};
+use crate::{ContractStatus, Escrow, EscrowClient};
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
 /// Register the contract and return a client.
-fn register_client(env: &Env) -> EscrowClient {
+fn register_client(env: &Env) -> EscrowClient<'_> {
     let id = env.register(Escrow, ());
     EscrowClient::new(env, &id)
 }
@@ -40,7 +40,7 @@ fn create_default_contract(
     arbiter_addr: &Option<Address>,
 ) -> u32 {
     let milestones = vec![env, 100_i128, 200_i128, 300_i128];
-    client.create_contract(client_addr, freelancer_addr, arbiter_addr, &milestones)
+    client.create_contract(client_addr, freelancer_addr, arbiter_addr, &milestones, &None, &None)
 }
 
 /// Fund a contract with the full milestone amount (600 total).
@@ -379,6 +379,8 @@ fn arbiter_overlap_with_client_rejected() {
         &freelancer_addr,
         &Some(client_addr.clone()),
         &milestones,
+        &None,
+        &None,
     );
 }
 
@@ -398,6 +400,8 @@ fn arbiter_overlap_with_freelancer_rejected() {
         &freelancer_addr,
         &Some(freelancer_addr.clone()),
         &milestones,
+        &None,
+        &None,
     );
 }
 

@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env,
+    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env,
     Symbol, Vec,
 };
 
@@ -11,8 +11,6 @@ pub use ttl::{
     LEDGERS_PER_DAY, PENDING_APPROVAL_BUMP_THRESHOLD, PENDING_APPROVAL_TTL_LEDGERS,
     PENDING_MIGRATION_BUMP_THRESHOLD, PENDING_MIGRATION_TTL_LEDGERS,
 };
-
-use types::ContractStatus;
 
 mod types;
 
@@ -41,9 +39,18 @@ pub const MAX_TOTAL_ESCROW_STROOPS: i128 = 1_000_000_0000000; // 1 M tokens × 1
 pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
 pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
 
-mod types;
-pub use crate::types::{MainnetReadinessInfo, ReadinessChecklist};
 use crate::types::DataKey as ReadinessDataKey;
+pub use crate::types::{
+    ContractStatus, DataKey as StorageKey, Error as StorageError, MainnetReadinessInfo, Milestone,
+    MilestoneFunding, ReadinessChecklist,
+};
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowBounds {
+    pub max_milestones: u32,
+    pub max_total_escrow_stroops: i128,
+}
 
 #[contract]
 pub struct Escrow;
@@ -62,11 +69,12 @@ pub enum EscrowError {
     AlreadyCancelled = 8,
     ContractNotFound = 9,
     MilestonesAlreadyReleased = 10,
+    TooManyMilestones = 11,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EscrowContractData {
+pub struct ContractData {
     pub client: Address,
     pub freelancer: Address,
     pub arbiter: Option<Address>,
@@ -96,12 +104,16 @@ pub struct PendingMigration {
 
 #[contracttype]
 #[derive(Clone)]
-enum DataKey {
+pub enum DataKey {
     Contract(u32),
     MilestoneReleased(u32, u32),
     RefundableBalance(u32),
+    ContractCount,
+    Milestones(u32),
+    MilestoneApprovalTime(u32, u32),
 }
 
+#[allow(dead_code)]
 fn update_readiness_checklist<F>(env: &Env, f: F)
 where
     F: FnOnce(&mut ReadinessChecklist),
@@ -138,8 +150,8 @@ impl Escrow {
         freelancer: Address,
         arbiter: Option<Address>,
         milestones: Vec<i128>,
-        terms_hash: Option<Bytes>,
-        grace_period_seconds: Option<u64>,
+        _terms_hash: Option<Bytes>,
+        _grace_period_seconds: Option<u64>,
     ) -> u32 {
         client.require_auth();
 
@@ -162,16 +174,24 @@ impl Escrow {
         }
 
         let mut total_amount: i128 = 0;
-        let mut milestones: Vec<Milestone> = Vec::new(&env);
-        for amount in milestone_amounts.iter() {
+        let mut milestone_objs: Vec<Milestone> = Vec::new(&env);
+        for amount in milestones.iter() {
             if amount <= 0 {
                 env.panic_with_error(EscrowError::InvalidMilestoneAmount);
             }
             total_amount += amount;
-            milestones.push_back(Milestone {
+        }
+
+        if total_amount > MAX_TOTAL_ESCROW_STROOPS {
+            env.panic_with_error(EscrowError::InvalidDepositAmount);
+        }
+
+        for amount in milestones.iter() {
+            milestone_objs.push_back(Milestone {
                 amount,
                 released: false,
-                refunded: false,
+                work_evidence: None,
+                funded_amount: 0,
             });
         }
 
@@ -181,21 +201,25 @@ impl Escrow {
             .get(&DataKey::ContractCount)
             .unwrap_or(0u32);
 
-        let data = EscrowContractData {
+        let data = ContractData {
             client,
             freelancer,
             arbiter,
-            milestones,
+            milestones: milestones.clone(),
             status: ContractStatus::Created,
             total_deposited: 0,
             released_amount: 0,
         };
 
-        env.storage().persistent().set(&DataKey::Contract(id), &data);
         env.storage()
             .persistent()
-            .set(&DataKey::Milestones(id), &milestones);
-        env.storage().persistent().set(&DataKey::ContractCount, &(id + 1));
+            .set(&DataKey::Contract(id), &data);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Milestones(id), &milestone_objs);
+        env.storage()
+            .persistent()
+            .set(&DataKey::ContractCount, &(id + 1));
 
         id
     }
