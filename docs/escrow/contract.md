@@ -36,6 +36,51 @@ status: ContractStatus – current state
 total_deposited: i128 – total amount deposited  
 released_amount: i128 – total amount released to freelancer
 
+## Read API Semantics
+
+### Panicking vs. Result-returning variants
+
+The escrow contract exposes three read functions for contract data:
+
+| Contract function | Behavior on missing ID | Client-side `try_*` wrapper |
+|---|---|---|
+| `get_contract(contract_id)` | panics with `ContractNotFound` | `try_get_contract(contract_id)` → `Result` |
+| `get_milestones(contract_id)` | panics with `ContractNotFound` | `try_get_milestones(contract_id)` → `Result` |
+| `get_checklist()` | panics with `ContractNotFound` | `try_get_checklist()` → `Result` |
+
+**On-chain behavior**: all three functions call `env.panic_with_error(EscrowError::ContractNotFound)`
+when the requested data is absent. The Soroban runtime encodes the error code in the panic so it
+is observable on-chain, but the call still aborts. This is the correct Soroban idiom for
+mutating operations where a missing contract is always a programming error.
+
+**Off-chain / indexer behavior**: the Soroban SDK auto-generates a `try_*` client wrapper for
+every contract function. These wrappers return `Err(Ok(EscrowError::ContractNotFound))` instead
+of propagating the panic. Use the `try_*` wrappers in indexer pipelines and any off-chain read
+path where a missing contract should be handled gracefully.
+
+### Error codes
+
+| Code | Variant | Meaning |
+|---|---|---|
+| 9 | `ContractNotFound` | No contract, milestone list, or checklist exists for the given ID |
+
+### `get_checklist()`
+
+Returns the [`ReadinessChecklist`] stored under `DataKey::ReadinessChecklist`.
+
+The checklist is written by lifecycle operations (`initialize`,
+`initialize_protocol_governance`, `activate_emergency_pause`, etc.). A fresh contract that
+has not yet executed any of those operations will panic with `ContractNotFound` — use
+`try_get_checklist()` on the client side to get a `Result` instead.
+
+```
+ReadinessChecklist {
+    initialized: bool,               // true after initialize()
+    governed_params_set: bool,       // true after initialize_protocol_governance()
+    emergency_controls_enabled: bool, // true after activate_emergency_pause() / resolve_emergency()
+}
+```
+
 ## Functions
 ### create_contract(env, client, freelancer, arbiter, milestone_amounts) -> u32
 - Creates a new escrow contract.

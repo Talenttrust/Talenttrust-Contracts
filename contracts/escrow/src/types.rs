@@ -56,6 +56,21 @@ pub struct MilestoneFunding {
     pub funded_amount: i128,
 }
 
+/// Readiness checklist stored under [`DataKey::ReadinessChecklist`].
+///
+/// Tracks whether key one-time lifecycle operations have been executed.
+/// All fields default to `false` on a fresh contract.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReadinessChecklist {
+    /// `true` after `initialize` has been called successfully.
+    pub initialized: bool,
+    /// `true` after protocol governance parameters have been set.
+    pub governed_params_set: bool,
+    /// `true` after an emergency control operation has been invoked.
+    pub emergency_controls_enabled: bool,
+}
+
 // ─── Indexer summary types ────────────────────────────────────────────────────
 
 /// Schema version stamped on every [`ContractSummary`].

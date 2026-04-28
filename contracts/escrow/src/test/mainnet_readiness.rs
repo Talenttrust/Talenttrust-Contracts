@@ -1,6 +1,6 @@
 extern crate std;
 
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env};
 
 use crate::{
     Escrow, EscrowClient, MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS,

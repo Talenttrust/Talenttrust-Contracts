@@ -980,3 +980,101 @@ provides a summary for dashboards.
 | Refund-after-release guard | `MilestoneAlreadyReleased` error | **HIGH** |
 | Insufficient balance guard | `InsufficientEscrowBalance` error | **HIGH** |
 | Release-after-refund guard | `MilestoneAlreadyRefunded` error | **HIGH** |
+
+---
+
+## Emergency Controls
+
+### Overview
+
+The escrow contract supports admin-managed pause and emergency controls to block all state-changing operations during incidents while preserving read access.
+
+### Control Surface
+
+| Function | Effect | Auth Required |
+|----------|--------|---------------|
+| `initialize(admin)` | One-time setup; sets the admin address | `admin.require_auth()` |
+| `pause()` | Sets `Paused = true`; blocks all mutating ops | Admin |
+| `unpause()` | Clears `Paused`; fails if emergency is active | Admin |
+| `activate_emergency_pause()` | Sets both `Paused = true` and `Emergency = true` | Admin (if initialized) |
+| `resolve_emergency()` | Clears both `Emergency` and `Paused` | Admin (if initialized) |
+| `is_paused()` | Read-only flag query | None |
+| `is_emergency()` | Read-only flag query | None |
+
+### Blocked Operations
+
+When `Paused = true` (set by either `pause()` or `activate_emergency_pause()`), the following mutating entrypoints are blocked with `EscrowError::ContractPaused`:
+
+- `create_contract`
+- `deposit_funds`
+- `release_milestone`
+- `refund_milestone`
+- `cancel_contract`
+- `issue_reputation`
+
+Read-only operations (`get_contract`, `get_milestones`, `get_reputation`, `is_paused`, `is_emergency`, `get_mainnet_readiness_info`, etc.) are **never blocked**.
+
+### State Machine
+
+```
+Normal ──pause()──► Paused ──unpause()──► Normal
+                                ▲
+Normal ──activate_emergency_pause()──► Emergency+Paused
+                                           │
+                                    resolve_emergency()
+                                           │
+                                           ▼
+                                         Normal
+```
+
+Key invariant: `unpause()` is rejected while `Emergency = true`. Only `resolve_emergency()` can clear the emergency state.
+
+### Auditability
+
+Every control transition emits an on-chain event:
+
+| Event | Topics | Data |
+|-------|--------|------|
+| `initialized` | `(initialized,)` | `(admin, timestamp)` |
+| `paused` | `(paused,)` | `(admin, timestamp)` |
+| `unpaused` | `(unpaused,)` | `(admin, timestamp)` |
+| `emergency_pause` | `(emergency_pause,)` | `(timestamp,)` |
+| `emergency_resolved` | `(emergency_resolved,)` | `(timestamp,)` |
+
+### Security Properties
+
+1. **Admin-only:** `pause`, `unpause`, `activate_emergency_pause`, and `resolve_emergency` all require admin authorization. Calling them without a prior `initialize` panics with `NotInitialized`.
+2. **Fail-closed:** The guard `require_not_paused` is called at the top of every mutating entrypoint before any state is read or written.
+3. **Emergency cannot be bypassed:** `unpause()` explicitly checks the `Emergency` flag and rejects with `EmergencyActive` if set. The only exit from emergency mode is `resolve_emergency()`.
+4. **Readiness tracking:** Both `activate_emergency_pause` and `resolve_emergency` set `emergency_controls_enabled = true` in the `ReadinessChecklist`, confirming the emergency path has been exercised.
+
+### Test Coverage
+
+| Test | File | Covers |
+|------|------|--------|
+| `pause_blocks_create_contract` | `test/pause_controls.rs` | `create_contract` blocked when paused |
+| `pause_blocks_deposit_funds` | `test/pause_controls.rs` | `deposit_funds` blocked when paused |
+| `pause_blocks_release_milestone` | `test/pause_controls.rs` | `release_milestone` blocked when paused |
+| `pause_blocks_refund_milestone` | `test/pause_controls.rs` | `refund_milestone` blocked when paused |
+| `pause_blocks_cancel_contract` | `test/pause_controls.rs` | `cancel_contract` blocked when paused |
+| `pause_blocks_issue_reputation` | `test/pause_controls.rs` | `issue_reputation` blocked when paused |
+| `unpause_restores_all_operations` | `test/pause_controls.rs` | All ops unblocked after unpause |
+| `emergency_blocks_create_contract` | `test/emergency_controls.rs` | `create_contract` blocked in emergency |
+| `emergency_blocks_deposit_funds` | `test/emergency_controls.rs` | `deposit_funds` blocked in emergency |
+| `emergency_blocks_release_milestone` | `test/emergency_controls.rs` | `release_milestone` blocked in emergency |
+| `emergency_blocks_refund_milestone` | `test/emergency_controls.rs` | `refund_milestone` blocked in emergency |
+| `emergency_blocks_cancel_contract` | `test/emergency_controls.rs` | `cancel_contract` blocked in emergency |
+| `emergency_blocks_issue_reputation` | `test/emergency_controls.rs` | `issue_reputation` blocked in emergency |
+| `unpause_fails_while_emergency_is_active` | `test/emergency_controls.rs` | `unpause` rejected during emergency |
+| `resolve_emergency_restores_operations` | `test/emergency_controls.rs` | All ops unblocked after resolve |
+| `emergency_marks_readiness_checklist` | `test/emergency_controls.rs` | Checklist updated after emergency cycle |
+
+### Threat Analysis
+
+| Threat | Mitigation | Residual Risk |
+|--------|-----------|---------------|
+| Unauthorized pause | `require_admin` + `require_auth()` on every control fn | Negligible |
+| Bypassing pause via direct storage | Guard is in contract code, not storage; no bypass path | Negligible |
+| Unpause during active emergency | `unpause()` checks `Emergency` flag, rejects with `EmergencyActive` | Negligible |
+| Admin key compromise | Admin key rotation requires a new `initialize` (one-time); key management is off-chain | Low (off-chain key hygiene) |
+| Permanent lock (admin lost) | Emergency state can only be cleared by admin; loss of admin key = permanent pause | Medium (mitigated by key backup) |
