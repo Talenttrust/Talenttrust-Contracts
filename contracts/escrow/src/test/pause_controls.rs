@@ -45,8 +45,82 @@ fn pause_blocks_contract_creation() {
     let freelancer = Address::generate(&env);
     let milestones = vec![&env, 50_i128, 75_i128];
 
-    let result = client.try_create_contract(&client_addr, &freelancer, &milestones);
-    super::assert_contract_error(result, EscrowError::ContractPaused);
+    super::assert_contract_error(
+        client.try_create_contract(&client_addr, &freelancer, &milestones),
+        EscrowError::ContractPaused,
+    );
+}
+
+#[test]
+fn pause_blocks_deposit_funds() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let (_, _, cid) = super::create_contract(&env, &client);
+    assert!(client.pause());
+
+    super::assert_contract_error(
+        client.try_deposit_funds(&cid, &100_i128),
+        EscrowError::ContractPaused,
+    );
+}
+
+#[test]
+fn pause_blocks_release_milestone() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let (_, _, cid) = super::create_contract(&env, &client);
+    client.deposit_funds(&cid, &super::total_milestone_amount());
+    assert!(client.pause());
+
+    super::assert_contract_error(
+        client.try_release_milestone(&cid, &0),
+        EscrowError::ContractPaused,
+    );
+}
+
+#[test]
+fn pause_blocks_refund_milestone() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let (_, _, cid) = super::create_contract(&env, &client);
+    client.deposit_funds(&cid, &super::total_milestone_amount());
+    assert!(client.pause());
+
+    super::assert_contract_error(
+        client.try_refund_milestone(&cid, &vec![&env, 0_u32]),
+        EscrowError::ContractPaused,
+    );
+}
+
+#[test]
+fn pause_blocks_cancel_contract() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let (client_addr, _, cid) = super::create_contract(&env, &client);
+    assert!(client.pause());
+
+    super::assert_contract_error(
+        client.try_cancel_contract(&cid, &client_addr),
+        EscrowError::ContractPaused,
+    );
+}
+
+#[test]
+fn pause_blocks_issue_reputation() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let (client_addr, freelancer_addr, cid) = super::complete_contract(&env, &client);
+    assert!(client.pause());
+
+    super::assert_contract_error(
+        client.try_issue_reputation(&cid, &client_addr, &freelancer_addr, &5),
+        EscrowError::ContractPaused,
+    );
 }
 
 #[test]
@@ -57,4 +131,18 @@ fn pause_requires_initialization() {
     let client = EscrowClient::new(&env, &contract_id);
 
     super::assert_contract_error(client.try_pause(), EscrowError::NotInitialized);
+}
+
+#[test]
+fn unpause_restores_all_operations() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    assert!(client.pause());
+    assert!(client.unpause());
+
+    // All mutating ops should work again
+    let (_, _, cid) = super::create_contract(&env, &client);
+    assert!(client.deposit_funds(&cid, &super::total_milestone_amount()));
+    assert!(client.release_milestone(&cid, &0));
 }
