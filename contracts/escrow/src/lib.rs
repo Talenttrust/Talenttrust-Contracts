@@ -723,4 +723,7 @@ impl Escrow {
 mod simple_amount_test;
 
 #[cfg(test)]
+mod proptest;
+
+#[cfg(test)]
 mod test;

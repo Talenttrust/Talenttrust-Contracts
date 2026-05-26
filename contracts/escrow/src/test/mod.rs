@@ -6,6 +6,7 @@ use crate::{Escrow, EscrowClient, EscrowError};
 
 // ─── Submodules ───────────────────────────────────────────────────────────────
 
+mod accounting_invariants;
 mod emergency_controls;
 mod pause_controls;
 

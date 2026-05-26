@@ -412,3 +412,48 @@ fn emit_audit_event(env: &Env, contract_id: u32, from: ContractStatus, to: Contr
 Contracts enforce one of two strictness modes upon creation (`DepositMode`):
 - `ExactTotal`: Mandates that a single deposit matches the total milestone value exactly. Any partial payments or overpayments are rejected, and the contract immediately transitions from `Created` to `Funded`.
 - `Incremental`: Allows repeated smaller deposits until the total is reached. This leaves the contract in `PartiallyFunded` bridging state until the deposit threshold is fulfilled. Excess payments that would overshoot the total are strictly rejected to maintain invariants.
+
+## Property-Based Tests (Issue #326)
+
+The accounting invariant is now exercised by two complementary test suites that together provide ≥256 generated cases per property.
+
+### `contracts/escrow/src/proptest.rs` — Randomised property tests
+
+Six proptest properties drive random sequences of operations and assert the invariant after every step:
+
+| Property | What it proves |
+|---|---|
+| `prop_accounting_invariant_holds_under_random_ops` | Invariant holds after any random mix of deposits, releases, and cancels (256 cases) |
+| `prop_full_release_sequence_invariant` | Depositing the exact total then releasing all milestones ends in `Completed` with correct amounts |
+| `prop_double_release_rejected_invariant_preserved` | A second release of the same milestone is rejected and leaves state unchanged |
+| `prop_incremental_deposit_invariant` | Incremental deposits that sum to the total end in `Funded` status |
+| `prop_cancel_preserves_invariant` | Cancelling a contract (with or without funds) never violates the invariant |
+| `prop_overfund_rejected_invariant_preserved` | Depositing beyond the total is rejected and does not corrupt state |
+
+Run with:
+
+```sh
+cargo test -p escrow proptest
+# More cases:
+PROPTEST_CASES=1024 cargo test -p escrow proptest
+```
+
+Failing seeds are auto-saved to `proptest-regressions/proptest.txt` and replayed on every subsequent run.
+
+### `contracts/escrow/src/test/accounting_invariants.rs` — Deterministic invariant tests
+
+Sixteen deterministic tests cover concrete sequences:
+
+- Happy-path: single deposit, full deposit, per-milestone release, incremental deposits then releases
+- Cancel sequences: no deposit, partial deposit, partial release then cancel
+- Adversarial: double release, release without funds, over-deposit, out-of-range milestone index, zero deposit, negative deposit
+- Multi-contract isolation: two independent contracts do not interfere
+- `ExactTotal` mode: wrong amount rejected, second deposit rejected
+
+### Security properties verified
+
+- `available_balance >= 0` at all times — no negative balance possible
+- `total_deposited == released_amount + refunded_amount + available_balance` — conservation holds
+- Adversarial operations (double release, over-deposit) produce documented errors, not invariant violations
+- State is unchanged after a rejected operation
+- Multiple contracts are fully isolated from each other
