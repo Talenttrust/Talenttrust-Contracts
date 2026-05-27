@@ -1,7 +1,6 @@
 use super::{
     assert_contract_error, complete_contract, create_contract, default_milestones,
-    generated_participants, register_client, total_milestone_amount, MILESTONE_ONE,
-    MILESTONE_TWO,
+    generated_participants, register_client, total_milestone_amount, MILESTONE_ONE, MILESTONE_TWO,
 };
 use crate::{ContractStatus, DataKey, EscrowError, ReadinessChecklist};
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -37,11 +36,7 @@ fn admin_written_on_initialize() {
     client.initialize(&admin);
 
     env.as_contract(&client.address, || {
-        let stored: Address = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Admin)
-            .unwrap();
+        let stored: Address = env.storage().persistent().get(&DataKey::Admin).unwrap();
         assert_eq!(stored, admin);
     });
 }
@@ -54,7 +49,10 @@ fn double_initialize_fails() {
     let admin = Address::generate(&env);
 
     client.initialize(&admin);
-    assert_contract_error(client.try_initialize(&admin), EscrowError::AlreadyInitialized);
+    assert_contract_error(
+        client.try_initialize(&admin),
+        EscrowError::AlreadyInitialized,
+    );
 }
 
 // ─── Paused ───────────────────────────────────────────────────────────────────
@@ -260,7 +258,10 @@ fn get_contract_fails_for_unknown_id() {
     env.mock_all_auths();
     let client = register_client(&env);
 
-    assert_contract_error(client.try_get_contract(&9999), EscrowError::ContractNotFound);
+    assert_contract_error(
+        client.try_get_contract(&9999),
+        EscrowError::ContractNotFound,
+    );
 }
 
 // ─── MilestoneReleased ────────────────────────────────────────────────────────
