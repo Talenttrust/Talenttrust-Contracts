@@ -1,218 +1,502 @@
-use super::{default_milestones, generated_participants, register_client};
-use crate::{ContractStatus, DataKey, EscrowError, EscrowRecord, MetaKey, StorageVersion, V1Key};
-use soroban_sdk::{symbol_short, Address, Env};
+use super::{
+    assert_contract_error, complete_contract, create_contract, default_milestones,
+    generated_participants, register_client, total_milestone_amount, MILESTONE_ONE,
+    MILESTONE_TWO,
+};
+use crate::{ContractStatus, DataKey, EscrowError, ReadinessChecklist};
+use soroban_sdk::{testutils::Address as _, Address, Env};
+
+// ─── Initialized / Admin ──────────────────────────────────────────────────────
 
 #[test]
-fn test_storage_version_defaults_to_v1() {
-    let env = Env::default();
-    let client = register_client(&env);
-
-    let version = client.get_storage_version();
-    assert_eq!(version, 1);
-}
-
-#[test]
-fn test_migrate_storage_to_current_version_is_noop() {
-    let env = Env::default();
-    let client = register_client(&env);
-
-    assert!(client.migrate_storage(&1));
-    assert_eq!(client.get_storage_version(), 1);
-}
-
-#[test]
-fn test_migrate_storage_rejects_unknown_target() {
-    let env = Env::default();
-    let client = register_client(&env);
-
-    let result = client.try_migrate_storage(&2);
-    assert_eq!(result, Err(Ok(EscrowError::UnsupportedMigrationTarget)));
-}
-
-#[test]
-fn test_storage_layout_plan_namespaces() {
-    let env = Env::default();
-    let client = register_client(&env);
-
-    let plan = client.storage_layout_plan();
-    assert_eq!(plan.version, 1);
-    assert_eq!(plan.meta_namespace, symbol_short!("meta_v1"));
-    assert_eq!(plan.contracts_namespace, symbol_short!("escrow_v1"));
-    assert_eq!(plan.reputation_namespace, symbol_short!("rep_v1"));
-}
-
-#[test]
-fn test_migration_noop_preserves_stored_contract_data() {
+fn initialized_written_on_initialize() {
     let env = Env::default();
     env.mock_all_auths();
-
     let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
+    let admin = Address::generate(&env);
 
-    let contract_id =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-    assert!(client.migrate_storage(&1));
+    assert!(client.initialize(&admin));
 
-    let record = client.get_contract(&contract_id);
-    assert_eq!(record.status, ContractStatus::Created);
-    assert_eq!(record.milestone_count, 3);
-    assert_eq!(record.client, client_addr);
-    assert_eq!(record.freelancer, freelancer_addr);
-}
-
-#[test]
-fn test_migration_is_idempotent() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
-
-    // Create a contract
-    let contract_id =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-
-    // Run migration multiple times
-    assert!(client.migrate_storage(&1));
-    assert!(client.migrate_storage(&1));
-    assert!(client.migrate_storage(&1));
-
-    // Verify data integrity after multiple migrations
-    let record = client.get_contract(&contract_id);
-    assert_eq!(record.status, ContractStatus::Created);
-    assert_eq!(record.milestone_count, 3);
-    assert_eq!(client.get_storage_version(), 1);
-}
-
-#[test]
-fn test_migration_preserves_multiple_contracts() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
-
-    // Create multiple contracts
-    let contract_id_1 =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-    let contract_id_2 =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-    let contract_id_3 =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-
-    // Run migration
-    assert!(client.migrate_storage(&1));
-
-    // Verify all contracts are intact
-    let record_1 = client.get_contract(&contract_id_1);
-    let record_2 = client.get_contract(&contract_id_2);
-    let record_3 = client.get_contract(&contract_id_3);
-
-    assert_eq!(record_1.status, ContractStatus::Created);
-    assert_eq!(record_2.status, ContractStatus::Created);
-    assert_eq!(record_3.status, ContractStatus::Created);
-}
-
-#[test]
-fn test_migration_preserves_funded_contract_state() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
-
-    // Create and fund a contract
-    let contract_id =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
-    
-    let total_amount = 1000_i128 + 2000_i128 + 3000_i128;
-    client.deposit_funds(&contract_id, &total_amount);
-
-    // Run migration
-    assert!(client.migrate_storage(&1));
-
-    // Verify funded state is preserved
-    let record = client.get_contract(&contract_id);
-    assert_eq!(record.status, ContractStatus::Funded);
-    assert_eq!(record.funded_amount, total_amount);
-    assert_eq!(record.released_amount, 0);
-}
-
-#[test]
-fn test_migration_validates_layout_before_execution() {
-    let env = Env::default();
-    let client = register_client(&env);
-
-    // Migration should succeed because layout is valid
-    assert!(client.migrate_storage(&1));
-    
-    // Verify version is still correct
-    assert_eq!(client.get_storage_version(), 1);
-}
-
-#[test]
-fn test_storage_version_initialized_on_first_access() {
-    let env = Env::default();
-    let contract_id = env.register_contract(None, crate::Escrow);
-    let client = crate::EscrowClient::new(&env, &contract_id);
-
-    // First access should initialize version
-    let version = client.get_storage_version();
-    assert_eq!(version, 1);
-
-    // Verify it's persisted
-    env.as_contract(&contract_id, || {
-        let storage = env.storage().persistent();
-        let version_key = DataKey::Meta(MetaKey::LayoutVersion);
-        let stored_version: u32 = storage.get(&version_key).unwrap();
-        assert_eq!(stored_version, StorageVersion::V1 as u32);
+    env.as_contract(&client.address, || {
+        let v: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Initialized)
+            .unwrap();
+        assert!(v);
     });
 }
 
 #[test]
-fn test_migration_rejects_unsupported_versions() {
+fn admin_written_on_initialize() {
     let env = Env::default();
+    env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
 
-    // Test various unsupported version numbers
-    assert_eq!(
-        client.try_migrate_storage(&0),
-        Err(Ok(EscrowError::UnsupportedMigrationTarget))
-    );
-    assert_eq!(
-        client.try_migrate_storage(&2),
-        Err(Ok(EscrowError::UnsupportedMigrationTarget))
-    );
-    assert_eq!(
-        client.try_migrate_storage(&999),
-        Err(Ok(EscrowError::UnsupportedMigrationTarget))
+    client.initialize(&admin);
+
+    env.as_contract(&client.address, || {
+        let stored: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap();
+        assert_eq!(stored, admin);
+    });
+}
+
+#[test]
+fn double_initialize_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin);
+    assert_contract_error(client.try_initialize(&admin), EscrowError::AlreadyInitialized);
+}
+
+// ─── Paused ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn paused_written_by_pause_and_cleared_by_unpause() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    client.pause();
+    env.as_contract(&client.address, || {
+        let v: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        assert!(v);
+    });
+
+    client.unpause();
+    env.as_contract(&client.address, || {
+        let v: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        assert!(!v);
+    });
+}
+
+#[test]
+fn paused_blocks_create_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    client.pause();
+
+    let (c, f) = generated_participants(&env);
+    assert_contract_error(
+        client.try_create_contract(
+            &c,
+            &f,
+            &default_milestones(&env),
+            &crate::types::DepositMode::ExactTotal,
+        ),
+        EscrowError::ContractPaused,
     );
 }
 
 #[test]
-fn test_contract_operations_work_after_migration() {
+fn paused_blocks_deposit_funds() {
     let env = Env::default();
     env.mock_all_auths();
-
     let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
 
-    // Create contract before migration
-    let contract_id_1 =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
+    let (_, _, id) = create_contract(&env, &client);
+    client.pause();
 
-    // Run migration
-    assert!(client.migrate_storage(&1));
+    assert_contract_error(
+        client.try_deposit_funds(&id, &total_milestone_amount()),
+        EscrowError::ContractPaused,
+    );
+}
 
-    // Create contract after migration
-    let contract_id_2 =
-        client.create_contract(&client_addr, &freelancer_addr, &default_milestones(&env));
+#[test]
+fn paused_blocks_release_milestone() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
 
-    // Both contracts should work
-    let record_1 = client.get_contract(&contract_id_1);
-    let record_2 = client.get_contract(&contract_id_2);
+    let (_, _, id) = create_contract(&env, &client);
+    client.deposit_funds(&id, &total_milestone_amount());
+    client.pause();
 
-    assert_eq!(record_1.status, ContractStatus::Created);
-    assert_eq!(record_2.status, ContractStatus::Created);
-    assert_ne!(contract_id_1, contract_id_2);
+    assert_contract_error(
+        client.try_release_milestone(&id, &0),
+        EscrowError::ContractPaused,
+    );
+}
+
+#[test]
+fn paused_blocks_cancel_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let (c, _, id) = create_contract(&env, &client);
+    client.pause();
+
+    assert_contract_error(
+        client.try_cancel_contract(&id, &c),
+        EscrowError::ContractPaused,
+    );
+}
+
+#[test]
+fn read_only_queries_not_blocked_by_pause() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let (_, _, id) = create_contract(&env, &client);
+    client.pause();
+
+    let record = client.get_contract(&id);
+    assert_eq!(record.status, ContractStatus::Created);
+    assert!(client.is_paused());
+}
+
+// ─── Emergency ────────────────────────────────────────────────────────────────
+
+#[test]
+fn emergency_written_by_activate_and_cleared_by_resolve() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    client.activate_emergency_pause();
+    env.as_contract(&client.address, || {
+        let v: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Emergency)
+            .unwrap_or(false);
+        assert!(v);
+    });
+
+    client.resolve_emergency();
+    env.as_contract(&client.address, || {
+        let v: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Emergency)
+            .unwrap_or(false);
+        assert!(!v);
+    });
+}
+
+#[test]
+fn unpause_blocked_while_emergency_active() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    client.activate_emergency_pause();
+    assert_contract_error(client.try_unpause(), EscrowError::EmergencyActive);
+}
+
+// ─── Contract / NextContractId ────────────────────────────────────────────────
+
+#[test]
+fn contract_written_on_create_and_readable() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (c, f) = generated_participants(&env);
+
+    let id = client.create_contract(
+        &c,
+        &f,
+        &default_milestones(&env),
+        &crate::types::DepositMode::ExactTotal,
+    );
+
+    let record = client.get_contract(&id);
+    assert_eq!(record.client, c);
+    assert_eq!(record.freelancer, f);
+    assert_eq!(record.status, ContractStatus::Created);
+    assert_eq!(record.total_deposited, 0);
+}
+
+#[test]
+fn next_contract_id_increments_per_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (_, _, id1) = create_contract(&env, &client);
+    let (_, _, id2) = create_contract(&env, &client);
+    assert_eq!(id2, id1 + 1);
+}
+
+#[test]
+fn get_contract_fails_for_unknown_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    assert_contract_error(client.try_get_contract(&9999), EscrowError::ContractNotFound);
+}
+
+// ─── MilestoneReleased ────────────────────────────────────────────────────────
+
+#[test]
+fn milestone_released_written_on_release() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (_, _, id) = create_contract(&env, &client);
+    client.deposit_funds(&id, &total_milestone_amount());
+    client.release_milestone(&id, &0);
+
+    env.as_contract(&client.address, || {
+        let v: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MilestoneReleased(id, 0))
+            .unwrap_or(false);
+        assert!(v);
+        let v1: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MilestoneReleased(id, 1))
+            .unwrap_or(false);
+        assert!(!v1);
+    });
+}
+
+#[test]
+fn double_release_same_milestone_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (_, _, id) = create_contract(&env, &client);
+    client.deposit_funds(&id, &total_milestone_amount());
+    client.release_milestone(&id, &0);
+
+    assert_contract_error(
+        client.try_release_milestone(&id, &0),
+        EscrowError::AlreadyReleased,
+    );
+}
+
+#[test]
+fn release_out_of_bounds_milestone_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (_, _, id) = create_contract(&env, &client);
+    client.deposit_funds(&id, &total_milestone_amount());
+
+    assert_contract_error(
+        client.try_release_milestone(&id, &99),
+        EscrowError::InvalidMilestone,
+    );
+}
+
+// ─── ReputationIssued / Reputation / PendingReputationCredits ─────────────────
+
+#[test]
+fn reputation_issued_written_and_reputation_updated() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (c, f, id) = complete_contract(&env, &client);
+    client.issue_reputation(&id, &c, &f, &5);
+
+    env.as_contract(&client.address, || {
+        let issued: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ReputationIssued(id))
+            .unwrap_or(false);
+        assert!(issued);
+    });
+
+    let rep = client.get_reputation(&f).unwrap();
+    assert_eq!(rep.completed_contracts, 1);
+    assert_eq!(rep.total_rating, 5);
+    assert_eq!(rep.last_rating, 5);
+}
+
+#[test]
+fn double_issue_reputation_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (c, f, id) = complete_contract(&env, &client);
+    client.issue_reputation(&id, &c, &f, &4);
+
+    assert_contract_error(
+        client.try_issue_reputation(&id, &c, &f, &4),
+        EscrowError::ReputationAlreadyIssued,
+    );
+}
+
+#[test]
+fn pending_reputation_credits_incremented_on_completion() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (_, f, _) = complete_contract(&env, &client);
+    assert_eq!(client.get_pending_reputation_credits(&f), 1);
+}
+
+#[test]
+fn pending_reputation_credits_decremented_on_issue() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (c, f, id) = complete_contract(&env, &client);
+    assert_eq!(client.get_pending_reputation_credits(&f), 1);
+
+    client.issue_reputation(&id, &c, &f, &3);
+    assert_eq!(client.get_pending_reputation_credits(&f), 0);
+}
+
+#[test]
+fn reputation_not_issuable_before_completion() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (c, f) = generated_participants(&env);
+    let id = client.create_contract(
+        &c,
+        &f,
+        &default_milestones(&env),
+        &crate::types::DepositMode::ExactTotal,
+    );
+
+    assert_contract_error(
+        client.try_issue_reputation(&id, &c, &f, &5),
+        EscrowError::NotCompleted,
+    );
+}
+
+#[test]
+fn reputation_requires_client_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (c, f, id) = complete_contract(&env, &client);
+    let stranger = Address::generate(&env);
+
+    assert_contract_error(
+        client.try_issue_reputation(&id, &stranger, &f, &5),
+        EscrowError::UnauthorizedRole,
+    );
+}
+
+// ─── ReadinessChecklist ───────────────────────────────────────────────────────
+
+#[test]
+fn readiness_checklist_initialized_flag_set_by_initialize() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin);
+
+    env.as_contract(&client.address, || {
+        let checklist: ReadinessChecklist = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ReadinessChecklist)
+            .unwrap();
+        assert!(checklist.initialized);
+        assert!(!checklist.governed_params_set);
+    });
+}
+
+#[test]
+fn readiness_checklist_emergency_flag_set_by_activate() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    client.activate_emergency_pause();
+
+    env.as_contract(&client.address, || {
+        let checklist: ReadinessChecklist = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ReadinessChecklist)
+            .unwrap();
+        assert!(checklist.emergency_controls_enabled);
+    });
+}
+
+// ─── Accounting invariant ─────────────────────────────────────────────────────
+
+#[test]
+fn released_amount_tracks_milestone_amounts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (_, _, id) = create_contract(&env, &client);
+    client.deposit_funds(&id, &total_milestone_amount());
+
+    client.release_milestone(&id, &0);
+    let r = client.get_contract(&id);
+    assert_eq!(r.released_amount, MILESTONE_ONE);
+
+    client.release_milestone(&id, &1);
+    let r = client.get_contract(&id);
+    assert_eq!(r.released_amount, MILESTONE_ONE + MILESTONE_TWO);
+
+    client.release_milestone(&id, &2);
+    let r = client.get_contract(&id);
+    assert_eq!(r.released_amount, total_milestone_amount());
+    assert_eq!(r.status, ContractStatus::Completed);
+}
+
+#[test]
+fn deposit_exceeding_total_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (_, _, id) = create_contract(&env, &client);
+    assert_contract_error(
+        client.try_deposit_funds(&id, &(total_milestone_amount() + 1)),
+        EscrowError::ExactDepositRequired,
+    );
 }

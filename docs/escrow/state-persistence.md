@@ -1,76 +1,63 @@
-# Escrow State Persistence
+# Storage Layout Reference — TalentTrust Escrow Contract
 
-This document maps the escrow contract's persisted storage to the lifecycle invariants reviewers should verify.
+This document provides a canonical specification of the `DataKey` enum variants used for managing contract state inside `contracts/escrow`. It dictates how variables are stored within Soroban's state isolation layout, including data types, storage permanence, and lifecycle metrics.
 
-For transient keys (pending approvals, pending migrations) and their TTL / expiration policy, see [storage-ttl.md](./storage-ttl.md).
+## Storage Map Specification
 
-## Storage Keys
+| DataKey Variant | Stored Value Type | Storage Class | TTL Policy | Access Hierarchy | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `Initialized` | `bool` | Persistent | Instance-bound | Read / Write | **Active** |
+| `Admin` | `Address` | Persistent | Instance-bound | Read / Write | **Active** |
+| `Paused` | `bool` | Persistent | Instance-bound | Read / Write | **Active** |
+| `Emergency` | `bool` | Persistent | Instance-bound | Read / Write | **Active** |
+| `NextContractId` | `u32` | Persistent | Instance-bound | Read / Write | **Active** |
+| `ReadinessChecklist`| `ReadinessChecklist` | Persistent | Instance-bound | Read / Write | **Active** |
+| `Contract(u32)` | `EscrowContract` | Persistent | Extended on access| Entrypoint API | **Active** |
+| `MilestoneReleased(u32, u32)` | `bool` | Persistent | Extended on access| Entrypoint API | **Active** |
+| `ReleasedAmount(u32)`| `i128` | Persistent | Extended on access| Entrypoint API | **Active** |
+| `PendingReputation(Address)` | `u32` | Persistent | Extended on access| Entrypoint API | **Active** |
+| `ReputationIssued(u32)`| `bool` | Persistent | Extended on access| Entrypoint API | **Active** |
+| `MilestoneApprovals` | `Map<u32, bool>` | Temporary | Ephemeral | Unused | ⚠️ *Declared-But-Unused* |
+| `PendingClientMigration` | `Address` | Temporary | Ephemeral | Unused | ⚠️ *Declared-But-Unused* |
+| `ProtocolFeeBps` | `u32` | Persistent | Instance-bound | Unused | ⚠️ *Declared-But-Unused* |
+| `AccumulatedProtocolFees` | `i128` | Persistent | Instance-bound | Unused | ⚠️ *Declared-But-Unused* |
 
-| Key | Value | Purpose |
-| --- | --- | --- |
-| `PauseAdmin` | `Address` | authority for pause and emergency controls |
-| `Paused` | `bool` | fail-closed switch for mutating escrow flows |
-| `EmergencyPaused` | `bool` | blocks standard `unpause` until explicit recovery |
-| `NextContractId` | `u32` | monotonically increasing escrow identifier counter |
-| `Contract(id)` | `EscrowContractData` | full persisted lifecycle and participant record |
-| `Reputation(address)` | `ReputationRecord` | aggregate ratings for a freelancer |
-| `PendingReputationCredits(address)` | `u32` | count of completed contracts still eligible to issue a rating |
-| `GovernanceAdmin` | `Address` | current protocol parameter admin |
-| `PendingGovernanceAdmin` | `Address` | proposed next governance admin |
-| `ProtocolParameters` | `ProtocolParameters` | live validation bounds for creation and rating |
+---
 
-## Escrow Record Fields
+## State & Lifecycle Constraints
 
-`EscrowContractData` persists:
+### 1. Active Infrastructure Keys
+* **`Initialized` / `Admin` / `Paused` / `Emergency`**
+    * **Description:** Operational management variables that orchestrate contract lock states and multi-tier access pathways.
+    * **Storage Lifespan:** Handled under default `Persistent` storage rules. They share instance lifecycles to guarantee contract configuration properties remain intact as long as the instance exists.
 
-- `client`
-- `freelancer`
-- `milestones`
-- `milestone_count`
-- `total_amount`
-- `funded_amount`
-- `released_amount`
-- `released_milestones`
-- `status`
-- `reputation_issued`
-- `created_at`
-- `updated_at`
+### 2. Operational Escrow Data
+* **`Contract(u32)` / `MilestoneReleased(u32, u32)` / `ReleasedAmount(u32)`**
+    * **Description:** Tracks active engagement funds, distribution records, and execution checkpoints for specific active escrows.
+    * **Storage Lifespan:** `Persistent`. Every mutation or validation via state entrypoints invokes automated extensions specified in `ttl.rs` to secure data preservation during extended payment cycles.
 
-## Persistence Invariants
+### 3. Reputation Auditing States
+* **`PendingReputation(Address)` / `ReputationIssued(u32)`**
+    * **Description:** Bookkeeping indices capturing un-issued tokens and completion certificates for network participants.
+    * **Storage Lifespan:** `Persistent`. Preserved explicitly to guarantee deterministic chronological processing when users harvest pending system values.
 
-Creation invariants:
+---
 
-- `milestone_count == milestones.len()`
-- `total_amount == sum(milestones.amount)`
-- `funded_amount == 0`
-- `released_amount == 0`
-- `released_milestones == 0`
-- `status == Created`
-- `reputation_issued == false`
+## Declared-But-Unused Storage Keys
 
-Funding invariants:
+The following keys exist within the `DataKey` definition block but do not possess operational access pathways in the current execution loop. 
 
-- `0 < funded_amount <= total_amount`
-- status becomes `Funded` after the first successful deposit
+### `MilestoneApprovals`
+* **Intended Type:** `Map<u32, bool>`
+* **Target Lifecycle:** `Temporary`
+* **Tracking Issue Reference:** *[Issue #104: Implementation of Ephemeral Multi-Sig Milestone Sign-Offs]*
 
-Release invariants:
+### `PendingClientMigration`
+* **Intended Type:** `Address`
+* **Target Lifecycle:** `Temporary`
+* **Tracking Issue Reference:** *[Issue #112: Upgradable Client Context and Contract Migration Protocol]*
 
-- each milestone changes from unreleased to released once
-- `released_amount` increases by the released milestone amount
-- `released_milestones` increases by one per successful release
-- `released_amount <= funded_amount`
-- final release transitions `status` to `Completed`
-
-Reputation invariants:
-
-- completed contracts mint one pending reputation credit for the recorded freelancer
-- `issue_reputation` consumes exactly one pending credit
-- `reputation_issued` is irreversible
-
-## Reviewer Checklist
-
-1. Confirm invalid participant or milestone metadata cannot be persisted.
-2. Confirm overfunding is rejected before storage writes.
-3. Confirm milestone double release is rejected.
-4. Confirm completed contracts can issue reputation once.
-5. Confirm pause and emergency flags block every mutating payment path.
+### `ProtocolFeeBps` / `AccumulatedProtocolFees`
+* **Intended Type:** `u32` / `i128`
+* **Target Lifecycle:** `Persistent`
+* **Tracking Issue Reference:** *[Issue #125: Protocol-Wide Revenue Extraction and Fee Distributor Framework]*
