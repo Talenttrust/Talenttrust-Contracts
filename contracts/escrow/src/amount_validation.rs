@@ -6,12 +6,15 @@
 use soroban_sdk::contracterror;
 
 /// Maximum number of decimal places for stroop precision (7 decimal places for Stellar)
+#[allow(dead_code)] // available for callers; not used internally
 pub const STROOP_PRECISION: u8 = 7;
 
 /// Maximum individual amount allowed per operation to prevent overflow
+#[allow(dead_code)] // available for callers; not used internally
 pub const MAX_SINGLE_AMOUNT_STROOPS: i128 = 1_000_000_0000000; // 1M tokens
 
 /// Minimum positive amount (1 stroop)
+#[allow(dead_code)] // available for callers; not used internally
 pub const MIN_POSITIVE_AMOUNT: i128 = 1;
 
 #[contracterror]
@@ -37,6 +40,7 @@ pub enum AmountValidationError {
 ///
 /// # Returns
 /// `Ok(())` if valid, `Err(AmountValidationError)` if invalid
+#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_single_amount(amount: i128) -> Result<(), AmountValidationError> {
     // Check positivity
     if amount <= MIN_POSITIVE_AMOUNT - 1 {
@@ -62,6 +66,7 @@ pub fn validate_single_amount(amount: i128) -> Result<(), AmountValidationError>
 ///
 /// # Returns
 /// `Ok(total)` with sum of all amounts if valid, `Err(AmountValidationError)` if invalid
+#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_amount_array(amounts: &[i128]) -> Result<i128, AmountValidationError> {
     let mut total: i128 = 0;
 
@@ -88,6 +93,7 @@ pub fn validate_amount_array(amounts: &[i128]) -> Result<i128, AmountValidationE
 ///
 /// # Returns
 /// `Ok(())` if valid, `Err(AmountValidationError)` if invalid
+#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_contract_total(
     total_amount: i128,
     max_contract_total: i128,
@@ -106,6 +112,7 @@ pub fn validate_contract_total(
 ///
 /// # Returns
 /// `Ok(total)` with sum of all milestones if valid, `Err(AmountValidationError)` if invalid
+#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_milestone_amounts(
     milestone_amounts: &[i128],
     max_contract_total: i128,
@@ -128,6 +135,7 @@ pub fn validate_milestone_amounts(
 ///
 /// # Returns
 /// `Ok(())` if valid, `Err(AmountValidationError)` if invalid
+#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_deposit_amount(
     deposit_amount: i128,
     current_deposited: i128,

@@ -1,7 +1,4 @@
 #![no_std]
-#![allow(dead_code)]
-#![allow(unused_imports)]
-#![allow(unused_variables)]
 #![allow(clippy::derivable_impls)]
 #![allow(clippy::manual_range_contains)]
 #![allow(clippy::assertions_on_constants)]
@@ -140,6 +137,7 @@ impl Escrow {
     }
 
     /// Panics with `UnauthorizedRole` if `caller` is not the stored admin.
+    #[allow(dead_code)] // retained for future admin-gated operations
     fn require_admin(env: &Env, caller: &Address) {
         let admin: Address = env
             .storage()
@@ -178,7 +176,7 @@ impl Escrow {
     /// Validate the core accounting invariant:
     ///   total_deposited == released_amount + refunded_amount + available_balance
     /// Panics with `AccountingInvariantViolated` if the invariant is broken.
-    fn check_accounting_invariant(env: &Env, contract: &EscrowContractData, contract_id: u32) {
+    fn check_accounting_invariant(env: &Env, contract: &EscrowContractData, _contract_id: u32) {
         let available_balance =
             contract.total_deposited - contract.released_amount - contract.refunded_amount;
         if available_balance < 0 {
@@ -720,10 +718,9 @@ impl Escrow {
 }
 
 #[cfg(test)]
-mod simple_amount_test;
-
-#[cfg(test)]
 mod proptest;
+#[cfg(test)]
+mod simple_amount_test;
 
 #[cfg(test)]
 mod test;
