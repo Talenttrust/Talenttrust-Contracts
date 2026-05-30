@@ -1,54 +1,92 @@
-use soroban_sdk::{contracterror, contracttype, Address, String};
+use soroban_sdk::{contracterror, contracttype, Address, String, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
     // Admin / pause / emergency
     Initialized,
+    Admin,
+    Paused,
+    Emergency,
+    // Contract storage
     Contract(u32),
     NextContractId,
-    /// Stores milestone approval flags (contract_id, milestone_index) -> MilestoneApprovals
-    /// Stored in temporary storage with TTL for expiry grace period
+    MilestoneReleased(u32, u32),
     MilestoneApprovals(u32, u32),
+    // Reputation
+    ReputationIssued(u32),
+    PendingReputationCredits(Address),
+    Reputation(Address),
+    // Client migration
+    PendingClientMigration(u32),
+    // Protocol / governance
+    ProtocolFeeBps,
+    AccumulatedProtocolFees,
+    ReadinessChecklist,
 }
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
-pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    IndexOutOfBounds = 3,
-    AlreadyReleased = 4,
-    InvalidStatusTransition = 5,
-    EmptyRefundRequest = 6,
-    DuplicateMilestoneInRefund = 7,
-    AlreadyRefunded = 8,
-    InsufficientFunds = 9,
-    ContractNotFound = 10,
-    UnauthorizedRole = 11,
-    MissingArbiter = 12,
-    InvalidArbiter = 13,
-    InvalidParticipants = 14,
-    AmountMustBePositive = 15,
-    InvalidState = 16,
-    MilestoneAlreadyReleased = 17,
-    AlreadyApproved = 18,
-    ApprovalExpired = 19,
-    InsufficientApprovals = 20,
-    FreelancerMismatch = 21,
-    InvalidRating = 22,
-    ReputationAlreadyIssued = 23,
+pub enum EscrowError {
+    InvalidParticipant = 1,
+    EmptyMilestones = 2,
+    InvalidMilestoneAmount = 3,
+    InvalidDepositAmount = 4,
+    InvalidMilestone = 5,
+    UnauthorizedRole = 6,
+    InvalidStatusTransition = 7,
+    AlreadyCancelled = 8,
+    ContractNotFound = 9,
+    MilestonesAlreadyReleased = 10,
+    TooManyMilestones = 11,
+    NotCompleted = 12,
+    InvalidRating = 13,
+    DuplicateRating = 14,
+    AlreadyFinalized = 15,
+    NotReadyForFinalization = 16,
+    AlreadyReleased = 17,
+    InsufficientFunds = 18,
+    SelfRating = 19,
+    CommentTooLong = 20,
+    EmptyComment = 21,
+    AmountMustBePositive = 22,
+    FundingExceedsRequired = 23,
+    InvalidState = 24,
+    InsufficientEscrowBalance = 25,
+    MilestoneNotFound = 26,
+    AlreadyApproved = 27,
+    ReputationAlreadyIssued = 28,
+    // Pause / emergency controls
+    ContractPaused = 29,
+    EmergencyActive = 30,
+    NotInitialized = 31,
+    AlreadyInitialized = 32,
+    // Additional errors referenced in tests
+    FreelancerMismatch = 33,
+    EmptyRefundRequest = 34,
+    DuplicateMilestoneInRefund = 35,
+    PotentialOverflow = 36,
+    NonPositiveAmount = 37,
+    AmountExceedsMaximum = 38,
+    InvalidStroopPrecision = 39,
+    ExceedsContractMaximum = 40,
+    ExactDepositRequired = 41,
+    DepositWouldExceedTotal = 42,
+    AccountingInvariantViolated = 43,
 }
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContractStatus {
     Created = 0,
-    Funded = 1,
-    Completed = 2,
-    Disputed = 3,
-    Refunded = 4,
+    Accepted = 1,
+    Funded = 2,
+    Completed = 3,
+    Disputed = 4,
+    Cancelled = 5,
+    Refunded = 6,
+    PartiallyFunded = 7,
 }
 
 #[contracttype]
@@ -82,13 +120,6 @@ impl Default for ReadinessChecklist {
             emergency_controls_enabled: false,
         }
     }
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GovernedParameters {
-    pub protocol_fee_bps: u32,
-    pub max_escrow_total_stroops: i128,
 }
 
 // ─── Indexer summary types ────────────────────────────────────────────────────
@@ -126,41 +157,4 @@ pub struct ContractSummary {
 pub enum DepositMode {
     ExactTotal = 0,
     Incremental = 1,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct Contract {
-    pub client: soroban_sdk::Address,
-    pub freelancer: soroban_sdk::Address,
-    pub arbiter: Option<soroban_sdk::Address>,
-    pub status: ContractStatus,
-    pub funded_amount: i128,
-    pub released_amount: i128,
-    pub refunded_amount: i128,
-    pub release_authorization: ReleaseAuthorization,
-}
-
-/// Defines who can approve milestone releases
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ReleaseAuthorization {
-    /// Only client can approve
-    ClientOnly = 0,
-    /// Either client or arbiter can approve
-    ClientAndArbiter = 1,
-    /// Only arbiter can approve
-    ArbiterOnly = 2,
-    /// Both client and freelancer must approve
-    MultiSig = 3,
-}
-
-/// Tracks approval status for a milestone
-/// Stored in temporary storage with TTL for expiry grace period
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MilestoneApprovals {
-    pub client_approved: bool,
-    pub freelancer_approved: bool,
-    pub arbiter_approved: bool,
 }

@@ -1,5 +1,5 @@
 use super::{complete_contract, create_contract, register_client};
-use crate::EscrowError;
+use crate::{DataKey, EscrowContractData, EscrowError};
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]
@@ -61,6 +61,34 @@ fn issue_reputation_rejects_duplicate_issuance() {
     assert!(client.issue_reputation(&contract_id, &client_addr, &freelancer_addr, &5));
     let result = client.try_issue_reputation(&contract_id, &client_addr, &freelancer_addr, &4);
     super::assert_contract_error(result, EscrowError::ReputationAlreadyIssued);
+}
+
+#[test]
+fn issue_reputation_rejects_self_rating_when_client_equals_freelancer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
+
+    env.as_contract(&client.address, || {
+        let key = DataKey::Contract(contract_id);
+        let mut contract: EscrowContractData = env.storage().persistent().get(&key).unwrap();
+        contract.freelancer = client_addr.clone();
+        env.storage().persistent().set(&key, &contract);
+    });
+
+    let result = client.try_issue_reputation(&contract_id, &client_addr, &client_addr, &5);
+    super::assert_contract_error(result, EscrowError::SelfRating);
+}
+
+#[test]
+fn issue_reputation_succeeds_for_distinct_client_and_freelancer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
+
+    assert!(client.issue_reputation(&contract_id, &client_addr, &freelancer_addr, &5));
 }
 
 #[test]
