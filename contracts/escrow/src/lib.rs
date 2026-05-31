@@ -26,6 +26,7 @@
 mod types;
 mod ttl;
 mod approvals;
+mod protocol_fees;
 
 pub use types::{Contract, ContractStatus, DataKey, Error, Milestone, MilestoneApprovals, ReleaseAuthorization};
 
@@ -63,6 +64,27 @@ impl Escrow {
     /// Hello-world style function for testing and CI.
     pub fn hello(_env: Env, to: Symbol) -> Symbol {
         to
+    }
+
+    /// Initializes the contract with an admin address.
+    pub fn initialize(env: Env, admin: Address) {
+        if env.storage().persistent().get::<_, bool>(&DataKey::Initialized).unwrap_or(false) {
+            env.panic_with_error(Error::AlreadyInitialized);
+        }
+        admin.require_auth();
+        env.storage().persistent().set(&DataKey::Admin, &admin);
+        env.storage().persistent().set(&DataKey::Initialized, &true);
+    }
+
+    /// Sets the protocol fee in basis points.
+    pub fn set_protocol_fee_bps(env: Env, admin: Address, bps: u32) {
+        protocol_fees::require_admin(&env, &admin);
+        let clamped_bps = if bps > protocol_fees::MAX_PROTOCOL_FEE_BPS {
+            protocol_fees::MAX_PROTOCOL_FEE_BPS
+        } else {
+            bps
+        };
+        env.storage().persistent().set(&DataKey::ProtocolFeeBps, &clamped_bps);
     }
 
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
@@ -404,9 +426,16 @@ impl Escrow {
             env.panic_with_error(Error::InsufficientFunds);
         }
 
+        let milestone_amount = milestone.amount;
+        let fee_bps = protocol_fees::get_protocol_fee_bps(&env);
+        let fee = protocol_fees::calculate_protocol_fee(milestone_amount, fee_bps);
+        let _net = milestone_amount - fee;
+
+        protocol_fees::add_to_accumulated_fees(&env, fee);
+
         milestone.released = true;
         milestones.set(milestone_index, milestone);
-        contract.released_amount += milestone.amount;
+        contract.released_amount += milestone_amount;
 
         // Clear approvals after successful release
         approvals::clear_approvals(&env, contract_id, milestone_index);

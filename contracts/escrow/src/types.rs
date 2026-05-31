@@ -10,6 +10,12 @@ pub enum DataKey {
     /// Stores milestone approval flags (contract_id, milestone_index) -> MilestoneApprovals
     /// Stored in temporary storage with TTL for expiry grace period
     MilestoneApprovals(u32, u32),
+    /// Protocol fee in basis points (1 bps = 0.01%)
+    ProtocolFeeBps,
+    /// Accumulated protocol fees in stroops
+    AccumulatedProtocolFees,
+    /// Admin address for privileged operations
+    Admin,
 }
 
 #[contracterror]

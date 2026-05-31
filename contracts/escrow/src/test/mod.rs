@@ -4,13 +4,14 @@ use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
 use crate::{Escrow, EscrowClient, EscrowError};
 
-// ─── Submodules ───────────────────────────────────────────────────────────────
+// ─── Submodules ────────────────────────────────────────────────────────────────
 
 mod admin_auth_helper;
 mod dispute;
 mod emergency_controls;
 mod lifecycle;
 mod pause_controls;
+mod protocol_fees;
 mod ttl_tests;
 
 // ─── Shared constants ─────────────────────────────────────────────────────────

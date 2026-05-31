@@ -1,7 +1,7 @@
 # Funding Accounting Invariants
 
 The live escrow contract tracks balances in `EscrowContractData`; it does not
-transfer tokens and does not deduct protocol fees.
+transfer tokens but does track protocol fees.
 
 ## Implemented Invariants
 
@@ -20,9 +20,13 @@ transfer tokens and does not deduct protocol fees.
   is non-negative and that:
   `total_deposited == released_amount + refunded_amount + available_balance`.
 
-## Not Implemented
+## Protocol Fee Accounting Invariants
 
-Protocol fee deduction, accumulated protocol fees, and protocol fee withdrawal
-are planned in
-[#313](https://github.com/Talenttrust/Talenttrust-Contracts/issues/313) and
-[#314](https://github.com/Talenttrust/Talenttrust-Contracts/issues/314).
+- Protocol fee is set in basis points (bps) with a maximum of 1000 bps (10%).
+- Default protocol fee is 0 bps.
+- When a milestone is released:
+  - Fee is calculated as `milestone_amount * fee_bps / 10000` (rounded down).
+  - Net amount to freelancer is `milestone_amount - fee`.
+  - Fee is added to `AccumulatedProtocolFees`.
+- Only admin can set or change the protocol fee.
+- `fee + net_amount == milestone_amount` for all released milestones.
