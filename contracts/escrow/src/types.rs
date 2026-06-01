@@ -5,6 +5,10 @@ use soroban_sdk::{contracterror, contracttype, Address, String};
 pub enum DataKey {
     // Admin / pause / emergency
     Initialized,
+    Admin,
+    PendingAdmin,
+    ProtocolFeeBps,
+    AccumulatedProtocolFees,
     Contract(u32),
     NextContractId,
     /// Stores milestone approval flags (contract_id, milestone_index) -> MilestoneApprovals
@@ -39,6 +43,7 @@ pub enum Error {
     FreelancerMismatch = 21,
     InvalidRating = 22,
     ReputationAlreadyIssued = 23,
+    InvalidFeeBps = 24,
 }
 
 #[contracttype]
