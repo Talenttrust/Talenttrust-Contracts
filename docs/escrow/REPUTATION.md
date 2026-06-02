@@ -6,10 +6,10 @@ The Escrow contract issues reputation credentials (ratings) to freelancers after
 
 1. **Client authorization:** Only the contract client may call `issue_reputation`. Unauthorized callers fail with `UnauthorizedRole`.
 2. **Freelancer match:** The supplied freelancer address must match the contract's stored freelancer. Mismatches fail with `FreelancerMismatch`.
-3. **Contract completion gating:** Reputation can only be issued after the contract is `Completed`. Non-completed contracts fail with `NotCompleted`.
-4. **Rating bounds:** Ratings must be between `1` and `5` inclusive. Values outside this range fail with `InvalidRating`.
-5. **Duplicate issuance protection:** Reputation may only be issued once per contract. Subsequent attempts fail with `ReputationAlreadyIssued`.
-6. **Self-rating guard:** If the contract client and freelancer are the same address, reputation issuance fails with `SelfRating` (defense-in-depth even if create-time check is bypassed).
+3. **Self-rating prevention:** If `contract.client == contract.freelancer`, issuance fails with `SelfRating`. This guards against degenerate contracts (for example after client migration) and complements create-time `InvalidParticipant`.
+4. **Contract completion gating:** Reputation can only be issued after the contract is `Completed`. Non-completed contracts fail with `NotCompleted`.
+5. **Rating bounds:** Ratings must be between `1` and `5` inclusive. Values outside this range fail with `InvalidRating`.
+6. **Duplicate issuance protection:** Reputation may only be issued once per contract. Subsequent attempts fail with `ReputationAlreadyIssued`.
 
 ## Reputation Aggregation
 
@@ -27,10 +27,10 @@ The escrow test suite now includes dedicated coverage for the `issue_reputation`
 
 - unauthorized caller
 - freelancer mismatch
+- self-rating when client equals freelancer (`SelfRating`)
 - non-completed contract
 - invalid rating bounds
 - duplicate issuance
-- self-rating guard
 - verified reputation aggregation and pending credit decrement on success
 
 ## Average Rating Accessor
@@ -44,6 +44,7 @@ The contract exposes `get_average_rating(freelancer) -> Option<i128>` as a read-
 ## Security Assumptions
 
 - **Access Control:** `issue_reputation` requires client authentication.
+- **Self-rating invariant:** A single principal cannot both issue and receive reputation on the same contract (`SelfRating` when `client == freelancer`).
 - **Contract Completion:** Only `Completed` contracts are eligible for reputation issuance.
 - **Duplicate issuance guard:** Repeat issuance is blocked by a stored `ReputationIssued` flag.
 - **Aggregate consistency:** Reputation totals and pending credits are updated atomically.

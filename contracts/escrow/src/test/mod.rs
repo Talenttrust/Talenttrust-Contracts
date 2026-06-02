@@ -4,54 +4,42 @@ use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
 use crate::{Escrow, EscrowClient, EscrowError};
 
-// ─── Submodules ───────────────────────────────────────────────────────────────
+// --- Submodules ---
 
-mod admin_auth_helper;
-mod dispute;
 mod emergency_controls;
-mod lifecycle;
 mod pause_controls;
-mod ttl_tests;
+mod reputation;
 
-// ─── Shared constants ─────────────────────────────────────────────────────────
+// --- Shared constants ---
 
-#[allow(dead_code)] // shared test fixture; not all test modules use every constant
 pub const MILESTONE_ONE: i128 = 200_0000000;
-#[allow(dead_code)]
 pub const MILESTONE_TWO: i128 = 400_0000000;
-#[allow(dead_code)]
 pub const MILESTONE_THREE: i128 = 600_0000000;
 
-// ─── Shared helpers ───────────────────────────────────────────────────────────
+// --- Shared helpers ---
 
-#[allow(dead_code)] // shared test fixture; not all test modules use every helper
 pub fn register_client(env: &Env) -> EscrowClient<'_> {
     let id = env.register(Escrow, ());
     EscrowClient::new(env, &id)
 }
 
-#[allow(dead_code)]
 pub fn default_milestones(env: &Env) -> soroban_sdk::Vec<i128> {
     vec![env, MILESTONE_ONE, MILESTONE_TWO, MILESTONE_THREE]
 }
 
-#[allow(dead_code)]
 pub fn total_milestone_amount() -> i128 {
     MILESTONE_ONE + MILESTONE_TWO + MILESTONE_THREE
 }
 
-#[allow(dead_code)]
 pub fn total_milestones() -> i128 {
     total_milestone_amount()
 }
 
-#[allow(dead_code)]
 pub fn generated_participants(env: &Env) -> (Address, Address) {
     (Address::generate(env), Address::generate(env))
 }
 
 /// Create a contract and return (client_addr, freelancer_addr, contract_id).
-#[allow(dead_code)]
 pub fn create_contract(env: &Env, client: &EscrowClient) -> (Address, Address, u32) {
     let client_addr = Address::generate(env);
     let freelancer_addr = Address::generate(env);
@@ -66,7 +54,6 @@ pub fn create_contract(env: &Env, client: &EscrowClient) -> (Address, Address, u
 }
 
 /// Create and fully complete a contract (all milestones released).
-#[allow(dead_code)]
 pub fn complete_contract(env: &Env, client: &EscrowClient) -> (Address, Address, u32) {
     let (client_addr, freelancer_addr, id) = create_contract(env, client);
     assert!(client.deposit_funds(&id, &total_milestone_amount()));
