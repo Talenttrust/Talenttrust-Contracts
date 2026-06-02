@@ -25,7 +25,7 @@ struct MeasuredResources {
 const CREATE_CONTRACT_BASELINE: ResourceBaseline = ResourceBaseline {
     max_instructions: 10_000_000,
     max_mem_bytes: 1_000_000,
-    max_read_entries: 5,   // +1 for NextContractId TTL extend, +1 for contract/milestone TTL extend
+    max_read_entries: 4,
     max_write_entries: 3,
     max_read_bytes: 4_096,
     max_write_bytes: 12_288,
@@ -35,7 +35,7 @@ const CREATE_CONTRACT_BASELINE: ResourceBaseline = ResourceBaseline {
 const DEPOSIT_FUNDS_BASELINE: ResourceBaseline = ResourceBaseline {
     max_instructions: 8_500_000,
     max_mem_bytes: 900_000,
-    max_read_entries: 4,   // +1 for TTL extend on contract and milestone reads
+    max_read_entries: 3,
     max_write_entries: 2,
     max_read_bytes: 4_096,
     max_write_bytes: 8_192,
@@ -45,7 +45,7 @@ const DEPOSIT_FUNDS_BASELINE: ResourceBaseline = ResourceBaseline {
 const RELEASE_MILESTONE_BASELINE: ResourceBaseline = ResourceBaseline {
     max_instructions: 10_000_000,
     max_mem_bytes: 1_000_000,
-    max_read_entries: 5,   // +1 for TTL extend on contract and milestone reads/writes
+    max_read_entries: 4,
     max_write_entries: 3,
     max_read_bytes: 4_096,
     max_write_bytes: 14_336,

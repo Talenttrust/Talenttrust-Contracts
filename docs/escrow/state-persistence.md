@@ -41,9 +41,7 @@ Protocol fee implementation is tracked in
     * **Description:** Bookkeeping indices capturing un-issued tokens and completion certificates for network participants.
     * **Storage Lifespan:** `Persistent`. Preserved explicitly to guarantee deterministic chronological processing when users harvest pending system values.
 
-- Contract ids are monotonically assigned from `NextContractId` (default `1`).
-  `create_contract` rejects an occupied `Contract(id)` slot (`ContractIdCollision`)
-  and refuses to advance the counter past `u32::MAX` (`ContractIdOverflow`).
+- Contract ids are monotonically assigned from `NextContractId`.
 - Milestone amounts and participant addresses are immutable after creation.
 - `total_deposited`, `released_amount`, and `refunded_amount` are checked after
   balance-changing operations.

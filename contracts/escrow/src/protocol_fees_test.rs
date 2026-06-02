@@ -94,7 +94,7 @@ fn test_unauthorized_withdrawal() {
 }
 
 #[test]
-#[should_panic(expected = "HostError: Error(Contract, #24)")] // InsufficientAccumulatedFees
+#[should_panic(expected = "HostError: Error(Contract, #13)")] // InsufficientAccumulatedFees
 fn test_over_withdrawal() {
     let env = Env::default();
     env.mock_all_auths();

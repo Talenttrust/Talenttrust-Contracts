@@ -1,112 +1,71 @@
-/// TTL (Time To Live) constants for temporary storage
-///
-/// These constants define the lifetime of approval records in temporary storage.
-/// Expired approvals are automatically evicted and treated as absent.
-/// Number of ledgers an approval remains valid before expiring
-/// At ~5 seconds per ledger, this is approximately 7 days
-pub const PENDING_APPROVAL_TTL_LEDGERS: u32 = 120_960;
+//! Deterministic TTL / expiration policy for transient storage.
+//!
+//! All TTL values are denominated in ledgers (Soroban-native, ~5s per ledger
+//! on Stellar mainnet). Pending approvals and pending migrations are stored
+//! in `env.storage().temporary()`; Soroban auto-evicts entries whose TTL has
+//! elapsed, so `read_if_live` returns `None` for both "never set" and
+//! "expired".
 
-/// Threshold at which to bump the TTL for an approval
-/// Set to 50% of TTL to ensure approvals don't expire unexpectedly
-pub const PENDING_APPROVAL_BUMP_THRESHOLD: u32 = 60_480;
+use soroban_sdk::{Env, IntoVal, TryFromVal, Val};
 
-/// Minimum TTL for approval records (1 day worth of ledgers)
+pub const LEDGERS_PER_DAY: u32 = 17_280;
+
+pub const PENDING_APPROVAL_TTL_LEDGERS: u32 = LEDGERS_PER_DAY * 7;
+pub const PENDING_APPROVAL_BUMP_THRESHOLD: u32 = LEDGERS_PER_DAY;
+
+pub const PENDING_MIGRATION_TTL_LEDGERS: u32 = LEDGERS_PER_DAY * 21;
+pub const PENDING_MIGRATION_BUMP_THRESHOLD: u32 = LEDGERS_PER_DAY * 3;
+
 #[allow(dead_code)]
-pub const MIN_APPROVAL_TTL: u32 = 17_280;
-
-// ============================================================================
-// PERSISTENT STORAGE TTL (for contracts, milestones, reputation, fees)
-// ============================================================================
-
-/// Maximum TTL for persistent entries (approximately 1 year)
-/// At ~5 seconds per ledger, this is 365 days
-/// This ensures long-running contracts remain accessible
-pub const PERSISTENT_MAX_TTL_LEDGERS: u32 = 6_307_200;
-
-/// Threshold at which to bump persistent entry TTL
-/// Set to 180 days to ensure contracts are extended well before expiry
-/// Any read/write within 180 days of expiry will extend to full year
-pub const PERSISTENT_BUMP_THRESHOLD: u32 = 3_110_400;
-
-/// Minimum persistent TTL (30 days worth of ledgers)
-/// Used as a safety floor for critical contract data
-pub const MIN_PERSISTENT_TTL: u32 = 518_400;
-
-// ============================================================================
-// TTL EXTENSION HELPERS
-// ============================================================================
-
-/// Extends TTL for a persistent contract entry.
-/// 
-/// Call this on every read or write to DataKey::Contract(id) to ensure
-/// active contracts never expire and lose fund-state.
-/// 
-/// # Arguments
-/// * `env` - The contract environment
-/// * `contract_id` - The contract ID
-/// 
-/// # Policy
-/// - Extends to PERSISTENT_MAX_TTL_LEDGERS (1 year)
-/// - Bumps when within PERSISTENT_BUMP_THRESHOLD (180 days) of expiry
-/// - Ensures any contract touched within its TTL window remains live
-/// 
-/// # Security
-/// - Prevents persistent-entry eviction for active escrows
-/// - Protects fund-state accounting from storage loss
-/// - Deterministic: same policy for all contract accesses
-pub fn extend_contract_ttl(env: &Env, contract_id: u32) {
-    let key = DataKey::Contract(contract_id);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_MAX_TTL_LEDGERS);
+pub fn compute_expiry(env: &Env, ttl_ledgers: u32) -> u32 {
+    env.ledger().sequence().saturating_add(ttl_ledgers)
 }
 
-/// Extends TTL for milestone data associated with a contract.
-/// 
-/// Call this whenever milestones are read or written to prevent
-/// milestone-state loss.
-/// 
-/// # Arguments
-/// * `env` - The contract environment
-/// * `contract_id` - The contract ID
-/// 
-/// # Policy
-/// - Same as contract TTL policy for consistency
-/// - Milestones and contract data have synchronized lifetimes
-pub fn extend_milestone_ttl(env: &Env, contract_id: u32) {
-    let milestone_key = Symbol::new(env, "milestones");
-    let key = (DataKey::Contract(contract_id), milestone_key);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_MAX_TTL_LEDGERS);
+#[allow(dead_code)]
+pub fn store_with_ttl<K, V>(env: &Env, key: &K, value: &V, ttl_ledgers: u32)
+where
+    K: IntoVal<Env, Val>,
+    V: IntoVal<Env, Val>,
+{
+    let storage = env.storage().temporary();
+    storage.set(key, value);
+    storage.extend_ttl(key, ttl_ledgers, ttl_ledgers);
 }
 
-/// Extends TTL for the NextContractId counter.
-/// 
-/// This counter must never be lost as it ensures unique contract IDs.
-/// 
-/// # Arguments
-/// * `env` - The contract environment
-pub fn extend_next_contract_id_ttl(env: &Env) {
-    let key = DataKey::NextContractId;
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_MAX_TTL_LEDGERS);
+#[allow(dead_code)]
+pub fn read_if_live<K, V>(env: &Env, key: &K) -> Option<V>
+where
+    K: IntoVal<Env, Val>,
+    V: TryFromVal<Env, Val>,
+{
+    env.storage().temporary().get(key)
 }
 
-/// Extends TTL for all persistent entries related to a contract.
-/// 
-/// Convenience function that extends TTL for both contract and milestone data.
-/// Use this when performing operations that touch multiple persistent entries.
-/// 
-/// # Arguments
-/// * `env` - The contract environment
-/// * `contract_id` - The contract ID
-/// 
-/// # Usage
-/// Call after any mutating operation (create, deposit, release, refund)
-/// to ensure all related persistent data remains live.
-pub fn extend_contract_and_milestones_ttl(env: &Env, contract_id: u32) {
-    extend_contract_ttl(env, contract_id);
-    extend_milestone_ttl(env, contract_id);
+#[allow(dead_code)]
+pub fn extend_if_below_threshold<K>(env: &Env, key: &K, threshold: u32, extend_to: u32) -> bool
+where
+    K: IntoVal<Env, Val>,
+{
+    let storage = env.storage().temporary();
+    if !storage.has(key) {
+        return false;
+    }
+    storage.extend_ttl(key, threshold, extend_to);
+    true
+}
+
+#[allow(dead_code)]
+pub fn remove_transient<K>(env: &Env, key: &K)
+where
+    K: IntoVal<Env, Val>,
+{
+    env.storage().temporary().remove(key);
+}
+
+#[allow(dead_code)]
+pub fn has_transient<K>(env: &Env, key: &K) -> bool
+where
+    K: IntoVal<Env, Val>,
+{
+    env.storage().temporary().has(key)
 }

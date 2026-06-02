@@ -17,7 +17,6 @@ use crate::{
     PENDING_MIGRATION_BUMP_THRESHOLD, PENDING_MIGRATION_TTL_LEDGERS,
 };
 
-pub(crate) fn new_env() -> Env {
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 /// Large enough that the contract instance never archives during any test.

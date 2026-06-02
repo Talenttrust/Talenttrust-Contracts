@@ -1,23 +1,21 @@
 use crate::ttl::{PENDING_APPROVAL_BUMP_THRESHOLD, PENDING_APPROVAL_TTL_LEDGERS};
-use crate::types::{
-    Contract, ContractStatus, DataKey, Error, Milestone, MilestoneApprovals, ReleaseAuthorization,
-};
+use crate::types::{Contract, ContractStatus, DataKey, Error, MilestoneApprovals, Milestone, ReleaseAuthorization};
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
 /// Approves a milestone for release by the caller.
-///
+/// 
 /// Records the approval in temporary storage with TTL expiry.
 /// The approval will automatically expire after PENDING_APPROVAL_TTL_LEDGERS.
-///
+/// 
 /// # Arguments
 /// * `env` - The contract environment
 /// * `contract_id` - The contract ID
 /// * `milestone_index` - The index of the milestone to approve
 /// * `caller` - The address of the caller (must be client, freelancer, or arbiter)
-///
+/// 
 /// # Returns
 /// `true` if approval was recorded successfully
-///
+/// 
 /// # Errors
 /// * `ContractNotFound` - If contract doesn't exist
 /// * `InvalidState` - If contract is not in Funded state
@@ -25,7 +23,7 @@ use soroban_sdk::{Address, Env, Symbol, Vec};
 /// * `MilestoneAlreadyReleased` - If milestone was already released
 /// * `UnauthorizedRole` - If caller is not authorized to approve
 /// * `AlreadyApproved` - If caller has already approved this milestone
-///
+/// 
 /// # Security
 /// - Caller must be authenticated via require_auth()
 /// - Only authorized parties (client/freelancer/arbiter) can approve
@@ -47,9 +45,6 @@ pub fn approve_milestone(
         .get(&DataKey::Contract(contract_id))
         .ok_or(Error::ContractNotFound)?;
 
-    // Extend TTL on contract read
-    ttl::extend_contract_ttl(env, contract_id);
-
     // Verify contract is in Funded state
     if contract.status != ContractStatus::Funded {
         return Err(Error::InvalidState);
@@ -62,9 +57,6 @@ pub fn approve_milestone(
         .persistent()
         .get(&(DataKey::Contract(contract_id), milestone_key.clone()))
         .ok_or(Error::ContractNotFound)?;
-
-    // Extend TTL on milestone read
-    ttl::extend_milestone_ttl(env, contract_id);
 
     // Validate milestone index
     if milestone_index >= milestones.len() {
@@ -81,7 +73,7 @@ pub fn approve_milestone(
     // Determine caller role and check authorization
     let is_client = caller == &contract.client;
     let is_freelancer = caller == &contract.freelancer;
-    let is_arbiter = contract.arbiter.as_ref() == Some(caller);
+    let is_arbiter = contract.arbiter.as_ref().map_or(false, |a| caller == a);
 
     // Verify caller is a valid participant
     if !is_client && !is_freelancer && !is_arbiter {
@@ -114,15 +106,15 @@ pub fn approve_milestone(
 
     // Load or create approval record
     let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
-    let mut approvals: MilestoneApprovals =
-        env.storage()
-            .temporary()
-            .get(&approval_key)
-            .unwrap_or(MilestoneApprovals {
-                client_approved: false,
-                freelancer_approved: false,
-                arbiter_approved: false,
-            });
+    let mut approvals: MilestoneApprovals = env
+        .storage()
+        .temporary()
+        .get(&approval_key)
+        .unwrap_or(MilestoneApprovals {
+            client_approved: false,
+            freelancer_approved: false,
+            arbiter_approved: false,
+        });
 
     // Check for duplicate approval and update
     if is_client {
@@ -143,32 +135,32 @@ pub fn approve_milestone(
     }
 
     // Store approval with TTL
-    env.storage().temporary().set(&approval_key, &approvals);
-
-    env.storage().temporary().extend_ttl(
-        &approval_key,
-        PENDING_APPROVAL_BUMP_THRESHOLD,
-        PENDING_APPROVAL_TTL_LEDGERS,
-    );
+    env.storage()
+        .temporary()
+        .set(&approval_key, &approvals);
+    
+    env.storage()
+        .temporary()
+        .extend_ttl(&approval_key, PENDING_APPROVAL_BUMP_THRESHOLD, PENDING_APPROVAL_TTL_LEDGERS);
 
     Ok(true)
 }
 
 /// Checks if a milestone has sufficient approvals for release.
-///
+/// 
 /// Expired approvals (TTL elapsed) are treated as absent and return None.
-///
+/// 
 /// # Arguments
 /// * `env` - The contract environment
 /// * `contract` - The contract data
 /// * `contract_id` - The contract ID
 /// * `milestone_index` - The milestone index
-///
+/// 
 /// # Returns
 /// * `Ok(true)` - If sufficient approvals exist and are valid
 /// * `Err(InsufficientApprovals)` - If approvals are missing or insufficient
 /// * `Err(ApprovalExpired)` - If approvals existed but have expired
-///
+/// 
 /// # Security
 /// - Fail-closed: missing or expired approvals prevent release
 /// - TTL expiry is enforced by Soroban's temporary storage
@@ -179,10 +171,13 @@ pub fn check_approvals(
     milestone_index: u32,
 ) -> Result<bool, Error> {
     let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
-
+    
     // Try to load approvals from temporary storage
     // If TTL has expired, this will return None
-    let approvals: Option<MilestoneApprovals> = env.storage().temporary().get(&approval_key);
+    let approvals: Option<MilestoneApprovals> = env
+        .storage()
+        .temporary()
+        .get(&approval_key);
 
     // If no approvals exist (or they expired), fail
     let approvals = approvals.ok_or(Error::InsufficientApprovals)?;
@@ -207,9 +202,9 @@ pub fn check_approvals(
 }
 
 /// Clears approval records for a milestone after successful release.
-///
+/// 
 /// This prevents approval reuse and cleans up temporary storage.
-///
+/// 
 /// # Arguments
 /// * `env` - The contract environment
 /// * `contract_id` - The contract ID
@@ -222,135 +217,12 @@ pub fn clear_approvals(env: &Env, contract_id: u32, milestone_index: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Escrow;
-    use soroban_sdk::{testutils::Address as _, Address, Env};
-
-    const CONTRACT_ID: u32 = 1;
-
-    fn seed_funded_contract(
-        env: &Env,
-        escrow: &Address,
-        release_authorization: ReleaseAuthorization,
-    ) -> (Address, Address, Contract) {
-        let client = Address::generate(env);
-        let freelancer = Address::generate(env);
-        let contract = Contract {
-            client: client.clone(),
-            freelancer: freelancer.clone(),
-            arbiter: None,
-            status: ContractStatus::Funded,
-            funded_amount: 1000,
-            released_amount: 0,
-            refunded_amount: 0,
-            release_authorization,
-        };
-        let milestones = Vec::from_array(
-            env,
-            [Milestone {
-                amount: 1000,
-                funded_amount: 0,
-                released: false,
-                refunded: false,
-                work_evidence: None,
-                refunded_amount: 0,
-            }],
-        );
-        let milestone_key = Symbol::new(&env, "milestones");
-        env.storage().persistent().set(
-            &(DataKey::Contract(contract_id), milestone_key),
-            &milestones,
-        );
-
-        env.as_contract(escrow, || {
-            env.storage()
-                .persistent()
-                .set(&DataKey::Contract(CONTRACT_ID), &contract);
-            env.storage().persistent().set(
-                &(DataKey::Contract(CONTRACT_ID), milestone_key),
-                &milestones,
-            );
-        });
-
-        (client, freelancer, contract)
-    }
+    use soroban_sdk::{testutils::Address as _, Env};
 
     #[test]
     fn test_approve_milestone_client_only() {
         let env = Env::default();
         env.mock_all_auths();
-        let escrow = env.register(Escrow, ());
-        let (client, _, contract) =
-            seed_funded_contract(&env, &escrow, ReleaseAuthorization::ClientOnly);
-
-        env.as_contract(&escrow, || {
-            assert!(approve_milestone(&env, CONTRACT_ID, 0, &client).is_ok());
-            assert!(check_approvals(&env, &contract, CONTRACT_ID, 0).is_ok());
-        });
-    }
-
-    #[test]
-    fn test_approve_milestone_multisig() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let escrow = env.register(Escrow, ());
-        let (client, freelancer, contract) =
-            seed_funded_contract(&env, &escrow, ReleaseAuthorization::MultiSig);
-
-        let client = Address::generate(&env);
-        let freelancer = Address::generate(&env);
-
-        let contract = Contract {
-            client: client.clone(),
-            freelancer: freelancer.clone(),
-            arbiter: None,
-            status: ContractStatus::Funded,
-            funded_amount: 1000,
-            released_amount: 0,
-            refunded_amount: 0,
-            release_authorization: ReleaseAuthorization::MultiSig,
-        };
-
-        let contract_id = 1u32;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Contract(contract_id), &contract);
-
-        let milestones = Vec::from_array(
-            &env,
-            [Milestone {
-                amount: 1000,
-                released: false,
-                refunded: false,
-                work_evidence: None,
-            }],
-        );
-        let milestone_key = Symbol::new(&env, "milestones");
-        env.storage().persistent().set(
-            &(DataKey::Contract(contract_id), milestone_key),
-            &milestones,
-        );
-
-        // Only client approves - insufficient
-        let result = approve_milestone(&env, contract_id, 0, &client);
-        assert!(result.is_ok());
-
-        let check = check_approvals(&env, &contract, contract_id, 0);
-        assert_eq!(check, Err(Error::InsufficientApprovals));
-
-        // Freelancer also approves - now sufficient
-        let result = approve_milestone(&env, contract_id, 0, &freelancer);
-        assert!(result.is_ok());
-
-        let check = check_approvals(&env, &contract, contract_id, 0);
-        assert!(check.is_ok());
-    }
-
-    #[test]
-    fn test_duplicate_approval_rejected() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let escrow = env.register(Escrow, ());
-        let (client, _, _) = seed_funded_contract(&env, &escrow, ReleaseAuthorization::ClientOnly);
 
         let client = Address::generate(&env);
         let freelancer = Address::generate(&env);
@@ -381,10 +253,109 @@ mod tests {
             }],
         );
         let milestone_key = Symbol::new(&env, "milestones");
-        env.storage().persistent().set(
-            &(DataKey::Contract(contract_id), milestone_key),
-            &milestones,
+        env.storage()
+            .persistent()
+            .set(&(DataKey::Contract(contract_id), milestone_key), &milestones);
+
+        // Client approves
+        let result = approve_milestone(&env, contract_id, 0, &client);
+        assert!(result.is_ok());
+
+        // Check approvals
+        let check = check_approvals(&env, &contract, contract_id, 0);
+        assert!(check.is_ok());
+    }
+
+    #[test]
+    fn test_approve_milestone_multisig() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let client = Address::generate(&env);
+        let freelancer = Address::generate(&env);
+
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter: None,
+            status: ContractStatus::Funded,
+            funded_amount: 1000,
+            released_amount: 0,
+            refunded_amount: 0,
+            release_authorization: ReleaseAuthorization::MultiSig,
+        };
+
+        let contract_id = 1u32;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), &contract);
+
+        let milestones = Vec::from_array(
+            &env,
+            [Milestone {
+                amount: 1000,
+                released: false,
+                refunded: false,
+                work_evidence: None,
+            }],
         );
+        let milestone_key = Symbol::new(&env, "milestones");
+        env.storage()
+            .persistent()
+            .set(&(DataKey::Contract(contract_id), milestone_key), &milestones);
+
+        // Only client approves - insufficient
+        let result = approve_milestone(&env, contract_id, 0, &client);
+        assert!(result.is_ok());
+
+        let check = check_approvals(&env, &contract, contract_id, 0);
+        assert_eq!(check, Err(Error::InsufficientApprovals));
+
+        // Freelancer also approves - now sufficient
+        let result = approve_milestone(&env, contract_id, 0, &freelancer);
+        assert!(result.is_ok());
+
+        let check = check_approvals(&env, &contract, contract_id, 0);
+        assert!(check.is_ok());
+    }
+
+    #[test]
+    fn test_duplicate_approval_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let client = Address::generate(&env);
+        let freelancer = Address::generate(&env);
+
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter: None,
+            status: ContractStatus::Funded,
+            funded_amount: 1000,
+            released_amount: 0,
+            refunded_amount: 0,
+            release_authorization: ReleaseAuthorization::ClientOnly,
+        };
+
+        let contract_id = 1u32;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), &contract);
+
+        let milestones = Vec::from_array(
+            &env,
+            [Milestone {
+                amount: 1000,
+                released: false,
+                refunded: false,
+                work_evidence: None,
+            }],
+        );
+        let milestone_key = Symbol::new(&env, "milestones");
+        env.storage()
+            .persistent()
+            .set(&(DataKey::Contract(contract_id), milestone_key), &milestones);
 
         // First approval succeeds
         let result = approve_milestone(&env, contract_id, 0, &client);

@@ -1,176 +1,68 @@
-# Escrow Security Notes (Escrow Error Catalog Companion)
+# Escrow Security Notes
 
 This document reflects the escrow API currently implemented in
-`contracts/escrow/src/lib.rs` and the error codes defined in
-`contracts/escrow/src/types.rs` (`pub enum Error`, codes **1..=23**).
+`contracts/escrow/src/lib.rs`.
 
-This file is **not** a duplicate of `ERROR_CATALOG.md`. It focuses on:
-- Security assumptions (auth, overflow, fail-closed state machine, storage TTL, fee accounting)
-- Public entrypoint documentation (NatSpec/rustdoc-style) *as a guide*
-- Cross-links from entrypoints → error codes
+## Implemented Controls
 
----
+- `initialize(admin)` is single-use and requires `admin.require_auth()`.
+- Pause and emergency controls require the stored admin's authorization.
+- Mutating lifecycle calls fail while paused or in emergency mode.
+- `create_contract` requires client authorization, rejects identical
+  client/freelancer addresses, rejects empty or non-positive milestones, caps
+  milestone count, and caps total escrow value.
+- `deposit_funds` rejects non-positive amounts, repeat exact-total deposits,
+  exact-total mismatches, and incremental overfunding.
+- `release_milestone` rejects missing contracts, invalid milestone indexes,
+  duplicate release, paused/emergency state, and insufficient available balance.
+- `issue_reputation` requires the stored client as caller, matching freelancer,
+  completed status, rating in `1..=5`, and no prior reputation issuance for the
+  contract.
+- `cancel_contract` requires client or freelancer authorization and rejects
+  completed or already-cancelled contracts.
+- `finalize_contract` requires client, freelancer, or assigned arbiter
+  authorization, is allowed only from `Completed` or `Disputed`, and locks
+  future contract-specific mutations with `AlreadyFinalized`.
+- Aggregate amount math uses checked helpers where totals are accumulated.
+- Balance-changing operations verify the core accounting invariant:
+  `total_deposited == released_amount + refunded_amount + available_balance`.
+- Finalization summaries use checked arithmetic and persistent storage. They do
+  not expire through TTL and do not create, deduct, or withdraw protocol fees.
 
-## Public Entrypoints (Doc Guide)
+## Known Live Gaps
 
-> This section is documentation only. It does **not** change code.  
-> Keep it aligned with the signatures in `contracts/escrow/src/lib.rs`.
+- `release_milestone` does not authenticate a caller. Integrators must not claim
+  client-only, arbiter-only, or approval-based release authorization until that
+  entrypoint is implemented.
+- The contract records escrow accounting only. Token custody, token transfers,
+  and atomic asset movement are outside `lib.rs` and must be handled by a
+  separate audited integration.
+- Admin transfer, protocol fees, refunds, approval expiry, and storage migration
+  are not implemented public entrypoints.
+- `ReadinessChecklist.governed_params_set` exists, but no live governance
+  parameter entrypoint sets it to `true`.
 
-### `initialize(admin: Address) -> bool`
-**Auth**: `admin.require_auth()`  
-**Errors**:
-- `AlreadyInitialized` (1): initialization already performed
+## Planned Security Work
 
-**Security**:
-- Single-use admin bootstrapping.
+- Two-step admin transfer:
+  [#318](https://github.com/Talenttrust/Talenttrust-Contracts/issues/318)
+- Protocol fee accounting and withdrawal:
+  [#313](https://github.com/Talenttrust/Talenttrust-Contracts/issues/313),
+  [#314](https://github.com/Talenttrust/Talenttrust-Contracts/issues/314)
+- Immutable finalization:
+  [#320](https://github.com/Talenttrust/Talenttrust-Contracts/issues/320)
+- Governed parameter setter/readiness wiring:
+  [#323](https://github.com/Talenttrust/Talenttrust-Contracts/issues/323)
+- Structured deposit and fee events:
+  [#336](https://github.com/Talenttrust/Talenttrust-Contracts/issues/336)
+- Canonical storage-key reference:
+  [#342](https://github.com/Talenttrust/Talenttrust-Contracts/issues/342)
 
-### `create_contract(client, freelancer, arbiter, milestones, release_authorization) -> u32`
-**Auth**: `client.require_auth()`  
-**Errors**:
-- `InvalidParticipants` (14): `client == freelancer`
-- `MissingArbiter` (12): arbiter required but `None`
-- `InvalidArbiter` (13): arbiter equals client/freelancer
-- `AmountMustBePositive` (15) or contract-specific milestone validation: any milestone amount `<= 0`
+## Reviewer Checklist
 
-**Security**:
-- Validates participants and configuration before any persistent write (fail-closed).
-
-### `deposit_funds(contract_id, caller, amount) -> bool`
-**Auth**: `caller.require_auth()`; must equal stored client  
-**Errors**:
-- `AmountMustBePositive` (15): `amount <= 0`
-- `ContractNotFound` (10): contract missing
-- `UnauthorizedRole` (11): caller not client
-- `InvalidState` (16) / `InvalidStatusTransition` (5): wrong status (e.g. not Created) or paused
-
-**Security**:
-- Role gating + fail-closed amount checks.
-- Balance invariant maintained by checks in downstream operations.
-
-### `approve_milestone_release(contract_id, caller, milestone_index) -> bool`
-**Auth**: `caller.require_auth()` (expected; enforced by approvals module patterns)  
-**Errors** (via approvals module):
-- `ContractNotFound` (10): contract missing
-- `InvalidState` (16) / `InvalidStatusTransition` (5): not in correct lifecycle state
-- `IndexOutOfBounds` (3): invalid milestone index
-- `MilestoneAlreadyReleased` (17): milestone already released
-- `UnauthorizedRole` (11): caller not permitted to approve
-- `AlreadyApproved` (18): caller already approved
-
-**Security**:
-- Uses temporary storage approvals with TTL (see TTL section).
-
-### `release_milestone(contract_id, caller, milestone_index) -> bool`
-**Auth**: `caller.require_auth()` and role checks for `ReleaseAuthorization`  
-**Errors**:
-- `ContractNotFound` (10)
-- `InvalidState` (16): not Funded / paused/emergency
-- `UnauthorizedRole` (11): caller not allowed by authorization mode
-- `IndexOutOfBounds` (3)
-- `AlreadyReleased` (4) / `MilestoneAlreadyReleased` (17)
-- `AlreadyRefunded` (8)
-- `ApprovalExpired` (19) / `InsufficientApprovals` (20): approval gating
-- `InsufficientFunds` (9)
-
-**Security**:
-- Fail-closed ordering: checks before writes.
-- Clears approvals after release (prevents replay).
-
-### `refund_unreleased_milestones(contract_id, milestone_indices) -> i128`
-**Auth**: stored client must authorize  
-**Errors**:
-- `EmptyRefundRequest` (6)
-- `DuplicateMilestoneInRefund` (7)
-- `ContractNotFound` (10)
-- `IndexOutOfBounds` (3)
-- `AlreadyReleased` (4)
-- `AlreadyRefunded` (8)
-- `InsufficientFunds` (9)
-
-**Security**:
-- All indices validated before any mutation (atomic all-or-nothing refund).
-- Balance invariant enforced by available-balance check.
-
-### Read-only helpers
-- `get_contract`: `ContractNotFound` (10)
-- `get_milestones`: `ContractNotFound` (10)
-- `get_refundable_balance`: `ContractNotFound` (10)
-- `get_milestone_approvals`: returns `Option`, no error (approval may be evicted by TTL)
-
----
-
-## Security Assumptions & Validation Notes
-
-### Authorization (Auth)
-- All role-sensitive entrypoints must call `require_auth()` on the correct address.
-- Errors involved:
-  - `UnauthorizedRole` (11)
-  - `NotInitialized` (2) (if initialization gating exists across entrypoints)
-
-### Overflow / Arithmetic Safety
-- Amount totals and deltas must be computed safely.
-- Errors involved:
-  - `InsufficientFunds` (9)
-  - `AmountMustBePositive` (15)
-
-**Invariant** (core accounting):
-```
-available_balance = funded_amount - released_amount - refunded_amount
-available_balance >= 0
-```
-
-### Fail-closed State Machine
-- Operations must reject before state mutation if any guard fails.
-- Errors involved:
-  - `InvalidState` (16)
-  - `InvalidStatusTransition` (5)
-  - `AlreadyReleased` (4)
-  - `AlreadyRefunded` (8)
-
-### Storage TTL (Approvals)
-Approvals are stored under:
-- `DataKey::MilestoneApprovals(contract_id, milestone_index)`
-- In **temporary storage** with TTL.
-
-Errors involved:
-- `ApprovalExpired` (19): approval missing/evicted
-- `AlreadyApproved` (18): duplicate approvals
-- `InsufficientApprovals` (20): not enough approvals
-
-### Fee Accounting (Planned)
-The enum includes `GovernedParameters` but public fee entrypoints may not exist yet.
-If/when fees are implemented, they should introduce:
-- Explicit rounding rules (floor/ceil)
-- Tests for fee rounding edge cases
-- Ledger-event emission for fee accrual/withdrawal
-
----
-
-## Reserved / Not Currently Reachable Error Codes
-
-Some errors may be defined but not reachable depending on the current set of entrypoints:
-- `FreelancerMismatch` (21)
-- `InvalidRating` (22)
-- `ReputationAlreadyIssued` (23)
-
-When these are implemented (e.g., reputation issuance), update:
-- `ERROR_CATALOG.md` to mark them Live
-- Add tests in `contracts/escrow/src/test/security.rs`
-
----
-
-## Reviewer Checklist (Security)
-
-1. Verify auth checks are present and correct for each role-gated entrypoint.
-2. Verify pause/emergency (if implemented) blocks every mutating call.
-3. Verify duplicate release/refund paths fail closed.
-4. Verify approval TTL eviction results in `ApprovalExpired` and blocks release.
-5. Verify accounting invariant holds after every mutation.
-6. Ensure integrators do not treat reserved codes as live behavior.
-
----
-
-## References
-
-- Error enum: `contracts/escrow/src/types.rs` (`pub enum Error`, `#[repr(u32)]`)
-- Full catalog: [`ERROR_CATALOG.md`](./ERROR_CATALOG.md)
+1. Verify no integration guide treats planned entrypoints as live API.
+2. Verify pause/emergency blocks every mutating lifecycle call.
+3. Verify duplicate release, duplicate reputation issuance, overfunding, and
+   invalid amount paths fail closed.
+4. Verify off-chain token transfer integrations are atomic or idempotent with
+   respect to escrow state changes.

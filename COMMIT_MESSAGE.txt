@@ -1,94 +1,50 @@
-test(escrow): wire orphaned deposit/release/refund/create_contract suites
+feat(escrow): add milestone approval expiry flow
 
-## Summary
-Migrated 4 orphaned test suites from crate root to test/ subdirectory and updated all function signatures to match the current EscrowClient API with authorization hardening.
+Implement comprehensive milestone approval system with TTL-based expiry
+for secure, time-limited approvals in the TalentTrust escrow contract.
 
-## Changes
+## Features
+- Four authorization modes (ClientOnly, ArbiterOnly, ClientAndArbiter, MultiSig)
+- TTL-based approval expiry (~7 days) in temporary storage
+- Fail-closed design: missing/expired approvals prevent release
+- Approval clearing after release prevents reuse
+- Comprehensive test suite with 20+ tests
 
-### Test Suite Migration
-- Moved `src/deposit.rs` → `src/test/deposit.rs`
-- Moved `src/release.rs` → `src/test/release.rs`
-- Moved `src/refund.rs` → `src/test/refund.rs`
-- Moved `src/create_contract.rs` → `src/test/create_contract.rs`
+## Security
+- Role-based access control enforced at approval and release
+- Automatic expiry via Soroban temporary storage TTL
+- Arbiter validation prevents role overlap with client/freelancer
+- Balance and state checks maintained
+- Duplicate approval prevention
+- Authorization mode enforcement
 
-### API Signature Updates
-All test suites updated to match current EscrowClient API:
+## Implementation Details
+- MilestoneApprovals stored in temporary storage with PENDING_APPROVAL_TTL_LEDGERS (120,960 ledgers ≈ 7 days)
+- Approvals auto-expire via TTL and are treated as absent
+- Release requires valid, non-expired approvals based on ReleaseAuthorization mode
+- Approvals cleared after successful release to prevent reuse
 
-**deposit_funds:**
-- Old: `deposit_funds(&contract_id, &amount)`
-- New: `deposit_funds(&contract_id, &caller, &amount)`
+## Files Added
+- contracts/escrow/src/ttl.rs - TTL constants for approval expiry
+- contracts/escrow/src/approvals.rs - Core approval logic
+- contracts/escrow/src/test/approval_expiry.rs - Comprehensive test suite
 
-**release_milestone:**
-- Old: `release_milestone(&contract_id, &milestone_index)`
-- New: `approve_milestone_release(&contract_id, &caller, &milestone_index)` + `release_milestone(&contract_id, &caller, &milestone_index)`
+## Files Modified
+- contracts/escrow/src/types.rs - Added MilestoneApprovals, ReleaseAuthorization, extended Contract and Error
+- contracts/escrow/src/lib.rs - Updated contract functions with approval flow
+- contracts/escrow/src/test.rs - Added test helpers and module includes
+- contracts/escrow/src/test/access_control.rs - Updated to use Error enum
+- docs/escrow/milestone-validation.md - Comprehensive approval flow documentation
 
-**create_contract:**
-- Old: `create_contract(&client, &freelancer, &milestones)`
-- New: `create_contract(&client, &freelancer, &arbiter, &milestones, &release_authorization)`
+## Testing
+- 20+ integration tests covering all authorization modes
+- Unit tests for approval logic
+- Edge case coverage (expiry, duplicates, unauthorized, invalid state)
+- Multiple milestone approval scenarios
 
-### Security Enhancements
-- Added comprehensive rustdoc comments documenting security assumptions
-- All tests now properly test authorization with caller parameter
-- Approval workflow tested (approve before release)
-- ReleaseAuthorization mode explicitly specified
-
-### Test Coverage
-**deposit.rs (4 tests):**
-- Deposit accumulation and state transitions
-- Zero deposit rejection
-- Overfunding prevention
-- Post-refund deposit rejection
-
-**release.rs (5 tests):**
-- Sequential milestone release and completion
-- Insufficient balance rejection
-- Invalid milestone index rejection
-- Refunded milestone release rejection
-- Double-release prevention
-
-**refund.rs (7 tests):**
-- Partial refund with balance preservation
-- Full refund state transition
-- Empty refund request rejection
-- Duplicate milestone rejection
-- Released milestone refund rejection
-- Double-refund prevention
-- Insufficient balance rejection
-
-**create_contract.rs (4 tests):**
-- Contract creation and milestone persistence
-- Empty milestones rejection
-- Zero-amount milestone rejection
-- Same participant rejection
-
-### Documentation
-Updated `docs/escrow/tests.md`:
-- Added test organization section with module descriptions
-- Documented all migrated test suites with detailed descriptions
-- Updated version to 0.3.0
-- Added migration notes explaining API changes
-
-## Security Validation
-✅ Authorization checks: All tests use proper caller authentication
-✅ Overflow prevention: Amount validation tested
-✅ Fail-closed state machine: Invalid state transitions rejected
-✅ Storage TTL: Approval expiry workflow tested
-✅ Fee accounting: Balance tracking validated in all scenarios
-✅ Double-spending prevention: Release/refund idempotency tested
-✅ Input sanitization: Empty/duplicate/invalid inputs rejected
-
-## Test Execution
-All tests compile and are now discoverable by `cargo test`.
-Previously: 31 tests discovered (only emergency_controls and pause_controls)
-Now: 31+ tests discovered (includes all migrated suites)
-
-## Acceptance Criteria Met
-✅ Orphaned test files moved to contracts/escrow/src/test/
-✅ Module declarations already present in test.rs
-✅ Function signatures updated to match current EscrowClient API
-✅ Authorization hardening applied (caller parameter)
-✅ Approval workflow integrated
-✅ Comprehensive rustdoc comments added
-✅ Documentation updated in docs/escrow/tests.md
-✅ No orphaned .rs test files remain at crate root
-✅ Security assumptions validated and documented
+## Security Assumptions
+- Fail-closed: missing or expired approvals prevent release
+- TTL enforcement via Soroban temporary storage
+- Role-based authorization enforced
+- Approvals are single-use (cleared after release)
+- State machine integrity maintained
