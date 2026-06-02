@@ -64,6 +64,30 @@ fn issue_reputation_rejects_duplicate_issuance() {
 }
 
 #[test]
+fn issue_reputation_rejects_self_rating() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
+
+    // Manually set contract.client == contract.freelancer in storage
+    env.as_contract(&client.address, || {
+        let mut contract: crate::EscrowContractData = env
+            .storage()
+            .persistent()
+            .get(&crate::DataKey::Contract(contract_id))
+            .unwrap();
+        contract.freelancer = client_addr.clone();
+        env.storage()
+            .persistent()
+            .set(&crate::DataKey::Contract(contract_id), &contract);
+    });
+
+    let result = client.try_issue_reputation(&contract_id, &client_addr, &client_addr, &5);
+    super::assert_contract_error(result, EscrowError::SelfRating);
+}
+
+#[test]
 fn issue_reputation_updates_reputation_record_and_pending_credits() {
     let env = Env::default();
     env.mock_all_auths();
