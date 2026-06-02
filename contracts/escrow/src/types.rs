@@ -1,12 +1,19 @@
-use soroban_sdk::{contracterror, contracttype, Address, String};
+use soroban_sdk::{contracterror, contracttype, Address, String, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
-    // Admin / pause / emergency
+    // Admin / governance / protocol parameters
     Initialized,
+    Admin,
+    PendingAdmin,
+    ProtocolFeeBps,
+    AccumulatedProtocolFees,
     Contract(u32),
     NextContractId,
+    MilestoneReleased(u32, u32),
+    Finalization(u32),
+    // Approvals (temporary storage with TTL)
     /// Stores milestone approval flags (contract_id, milestone_index) -> MilestoneApprovals
     /// Stored in temporary storage with TTL for expiry grace period
     MilestoneApprovals(u32, u32),
@@ -39,6 +46,7 @@ pub enum Error {
     FreelancerMismatch = 21,
     InvalidRating = 22,
     ReputationAlreadyIssued = 23,
+    InvalidFeeBps = 24,
 }
 
 #[contracttype]
@@ -52,10 +60,9 @@ pub enum ContractStatus {
 }
 
 #[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Milestone {
     pub amount: i128,
-    pub funded_amount: i128,
     pub released: bool,
     pub refunded: bool,
     pub work_evidence: Option<String>,
@@ -93,6 +100,7 @@ pub struct GovernedParameters {
 
 // ─── Indexer summary types ────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub const CONTRACT_SUMMARY_SCHEMA_VERSION: u32 = 1;
 
 #[contracttype]

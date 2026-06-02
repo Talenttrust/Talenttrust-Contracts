@@ -49,6 +49,7 @@ Operational controls:
 - `resolve_emergency() -> bool`
 - `is_emergency() -> bool`
 - `get_mainnet_readiness_info() -> MainnetReadinessInfo`
+- `withdraw_protocol_fees(admin, recipient) -> bool`
 
 ## Function Semantics
 
@@ -142,8 +143,7 @@ Implemented event topics:
 - `("finalized", contract_id)`
 
 The deterministic v1 lifecycle event schema previously described for
-`approve`, `refund`, `finalize`, `withdraw`, and protocol-fee events is not
-implemented in `lib.rs`.
+- `approve`, `refund`, and `finalize` event schemas are not fully implemented in `lib.rs`.
 
 ## Planned Features
 
@@ -151,8 +151,6 @@ implemented in `lib.rs`.
   [#318](https://github.com/Talenttrust/Talenttrust-Contracts/issues/318)
 - Protocol fee deduction:
   [#313](https://github.com/Talenttrust/Talenttrust-Contracts/issues/313)
-- Protocol fee withdrawal:
-  [#314](https://github.com/Talenttrust/Talenttrust-Contracts/issues/314)
 - Governed parameter setter/readiness wiring:
   [#323](https://github.com/Talenttrust/Talenttrust-Contracts/issues/323)
 - Structured deposit and fee events:
@@ -166,6 +164,7 @@ implemented in `lib.rs`.
 
 - Mutating lifecycle operations fail while paused or in emergency.
 - Admin controls require the stored admin's authentication after initialization.
+- Protocol fee withdrawal is rejected while paused or in emergency state.
 - Amount math uses checked helpers for aggregate totals.
 - Release accounting is state-only; actual token custody and transfer logic are
   outside the current contract surface.

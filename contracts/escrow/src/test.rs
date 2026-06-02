@@ -1,9 +1,26 @@
 #![cfg(test)]
 
+mod cancel_contract;
+mod dispute;
 use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env, Vec};
 
 use crate::{Contract, ContractStatus, Escrow, EscrowClient, Milestone, ReleaseAuthorization};
 
+use crate::{ContractStatus, Escrow, EscrowClient};
+
+mod performance;
+
+fn register_client(env: &Env) -> EscrowClient {
+    let id = env.register(Escrow, ());
+    EscrowClient::new(env, &id)
+}
+
+fn create_contract(env: &Env, client: &EscrowClient) -> (Address, Address, u32) {
+    let client_addr = Address::generate(env);
+    let freelancer_addr = Address::generate(env);
+    let milestones = vec![env, 200_0000000_i128, 400_0000000_i128, 600_0000000_i128];
+    let contract_id = client.create_contract(&client_addr, &freelancer_addr, &None, &milestones);
+    (client_addr, freelancer_addr, contract_id)
 // Test helper functions
 pub fn setup() -> (Env, Address, Address) {
     let env = Env::default();
@@ -29,6 +46,39 @@ pub fn register_client(env: &Env) -> EscrowClient {
     EscrowClient::new(env, &contract_id)
 }
 
+#[test]
+fn test_deposit_funds() {
+    let env = new_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    // Create a contract first
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128, 600_0000000_i128];
+    let id = client.create_contract(&client_addr, &freelancer_addr, &None, &milestones);
+
+    // Now deposit
+    let result = client.deposit_funds(&id, &1_000_0000000, &client_addr);
+    assert!(result);
+}
+
+#[test]
+fn test_release_milestone() {
+    let env = new_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    // Create and fund a contract first
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128, 600_0000000_i128];
+    let id = client.create_contract(&client_addr, &freelancer_addr, &None, &milestones);
+    client.deposit_funds(&id, &1_000_0000000, &client_addr);
+
+    // Now release milestone
+    let result = client.release_milestone(&id, &0, &client_addr);
+    assert!(result);
 pub fn generated_participants(env: &Env) -> (Address, Address, Address) {
     let client_addr = Address::generate(env);
     let freelancer_addr = Address::generate(env);
@@ -65,6 +115,10 @@ pub fn create_default_contract(
     )
 }
 
+    let contract_id = client.create_contract(&client_addr, &freelancer_addr, &None, &milestones);
+    assert!(client.deposit_funds(&contract_id, &1_000_0000000, &client_addr)); // Deposit: 1000
+    assert!(client.release_milestone(&contract_id, &0, &client_addr)); // Release: 200
+    assert!(client.finalize_contract(&contract_id, &client_addr));
 pub fn assert_contract_state(
     contract: Contract,
     expected_status: ContractStatus,
@@ -95,6 +149,16 @@ fn test_hello() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128];
+
+    let contract_id = client.create_contract(&client_addr, &freelancer_addr, &None, &milestones);
+    assert!(client.deposit_funds(&contract_id, &1_000_0000000, &client_addr));
+    assert!(client.release_milestone(&contract_id, &0, &client_addr));
+
+    // Try to withdraw without finalization
+    client.withdraw_leftover(&contract_id, &client_addr);
     let result = client.hello(&symbol_short!("World"));
     assert_eq!(result, symbol_short!("World"));
 }
@@ -108,6 +172,13 @@ fn test_create_contract() {
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
+    let unauthorized_addr = Address::generate(&env);
+    let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128];
+
+    let contract_id = client.create_contract(&client_addr, &freelancer_addr, &None, &milestones);
+    assert!(client.deposit_funds(&contract_id, &1_000_0000000, &client_addr));
+    assert!(client.release_milestone(&contract_id, &0, &client_addr));
+    assert!(client.finalize_contract(&contract_id, &client_addr));
     let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128, 600_0000000_i128];
 
     let id = client.create_contract(
@@ -121,6 +192,21 @@ fn test_create_contract() {
 }
 
 #[test]
+#[should_panic]
+fn test_withdraw_leftover_no_funds() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128]; // Total: 600
+
+    let contract_id = client.create_contract(&client_addr, &freelancer_addr, &None, &milestones);
+    assert!(client.deposit_funds(&contract_id, &600_0000000, &client_addr)); // Deposit exactly 600
+    assert!(client.release_milestone(&contract_id, &0, &client_addr)); // Release: 200
+    assert!(client.release_milestone(&contract_id, &1, &client_addr)); // Release: 400
+    assert!(client.finalize_contract(&contract_id, &client_addr));
 fn test_deposit_funds() {
     let (env, client_addr, freelancer_addr) = setup();
     let client = create_client(&env);
@@ -131,6 +217,23 @@ fn test_deposit_funds() {
 }
 
 #[test]
+#[should_panic]
+fn test_withdraw_leftover_double_withdraw() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128];
+
+    let contract_id = client.create_contract(&client_addr, &freelancer_addr, &None, &milestones);
+    assert!(client.deposit_funds(&contract_id, &1_000_0000000, &client_addr));
+    assert!(client.release_milestone(&contract_id, &0, &client_addr));
+    assert!(client.finalize_contract(&contract_id, &client_addr));
+
+    // First withdrawal should succeed
+    let _withdrawn = client.withdraw_leftover(&contract_id, &client_addr);
 fn test_release_milestone() {
     let (env, client_addr, freelancer_addr) = setup();
     let client = create_client(&env);

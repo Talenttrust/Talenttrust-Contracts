@@ -14,7 +14,7 @@ const DOCS_CONTRACT: &str = include_str!("../../../../docs/escrow/contract.md");
 const CONTRACT_README: &str = include_str!("../../README.md");
 const ROOT_README: &str = include_str!("../../../../README.md");
 
-const IMPLEMENTED_ENTRYPOINTS: [&str; 19] = [
+const IMPLEMENTED_ENTRYPOINTS: [&str; 20] = [
     "initialize",
     "get_admin",
     "pause",
@@ -34,9 +34,10 @@ const IMPLEMENTED_ENTRYPOINTS: [&str; 19] = [
     "get_finalization_record",
     "get_reputation",
     "get_pending_reputation_credits",
+    "withdraw_protocol_fees",
 ];
 
-const PLANNED_ENTRYPOINTS: [&str; 14] = [
+const PLANNED_ENTRYPOINTS: [&str; 13] = [
     "withdraw_leftover",
     "refund_unreleased_milestones",
     "dispute_contract",
@@ -49,7 +50,6 @@ const PLANNED_ENTRYPOINTS: [&str; 14] = [
     "accept_governance_admin",
     "get_governance_admin",
     "get_pending_governance_admin",
-    "withdraw_protocol_fees",
     "migrate_state",
 ];
 
@@ -57,7 +57,7 @@ const PLANNED_ENTRYPOINTS: [&str; 14] = [
 fn implemented_entrypoint_list_matches_lib_rs_public_surface() {
     let mut public_count = 0;
 
-    for source in [LIB_RS, FINALIZE_RS] {
+    for source in [LIB_RS, FINALIZE_RS, include_str!("../protocol_fees.rs")] {
         for line in source.lines() {
             let trimmed = line.trim_start();
             if trimmed.starts_with("pub fn ") {

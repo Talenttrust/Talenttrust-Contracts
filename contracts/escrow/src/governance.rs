@@ -1,4 +1,4 @@
-use crate::{DataKey, EscrowError};
+use crate::{DataKey, Error as EscrowError};
 use soroban_sdk::{symbol_short, Address, Env, Symbol};
 
 /// Governance-related privileged operations and audit events.
@@ -15,6 +15,7 @@ impl super::Escrow {
     /// Requirements:
     /// - Contract must be initialized.
     /// - Caller must be the stored admin.
+    /// - New bps must be <= 1000 (10%).
     pub fn set_protocol_fee_bps(env: Env, new_bps: u32) -> bool {
         // require initialized
         if !env
@@ -32,6 +33,10 @@ impl super::Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
         admin.require_auth();
+
+        if new_bps > 1000 {
+            env.panic_with_error(EscrowError::InvalidFeeBps);
+        }
 
         let old_bps: u32 = env
             .storage()
