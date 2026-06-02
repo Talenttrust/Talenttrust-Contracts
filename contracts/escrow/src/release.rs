@@ -9,11 +9,11 @@ use crate::ContractStatus;
 fn releases_funded_milestones_and_completes_when_all_are_released() {
     let (env, client_addr, freelancer_addr) = setup();
     let client = create_client(&env);
-    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr, &None);
+    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr);
 
-    assert!(client.deposit_funds(&contract_id, &1_200_0000000_i128));
+    assert!(client.deposit_funds(&contract_id, &client_addr, &1_200_0000000_i128));
 
-    assert!(client.release_milestone(&contract_id, &0, &client_addr));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0));
     let contract = client.get_contract(&contract_id);
     assert_contract_state(
         contract,
@@ -28,8 +28,8 @@ fn releases_funded_milestones_and_completes_when_all_are_released() {
         1_000_0000000_i128
     );
 
-    assert!(client.release_milestone(&contract_id, &1, &client_addr));
-    assert!(client.release_milestone(&contract_id, &2, &client_addr));
+    assert!(client.release_milestone(&contract_id, &client_addr, &1));
+    assert!(client.release_milestone(&contract_id, &client_addr, &2));
 
     let contract = client.get_contract(&contract_id);
     assert_contract_state(
@@ -47,10 +47,10 @@ fn releases_funded_milestones_and_completes_when_all_are_released() {
 fn rejects_release_without_sufficient_balance() {
     let (env, client_addr, freelancer_addr) = setup();
     let client = create_client(&env);
-    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr, &None);
+    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr);
 
-    assert!(client.deposit_funds(&contract_id, &100_0000000_i128));
-    client.release_milestone(&contract_id, &0, &client_addr);
+    assert!(client.deposit_funds(&contract_id, &client_addr, &100_0000000_i128));
+    client.release_milestone(&contract_id, &client_addr, &0);
 }
 
 #[test]
@@ -58,10 +58,10 @@ fn rejects_release_without_sufficient_balance() {
 fn rejects_release_of_invalid_milestone() {
     let (env, client_addr, freelancer_addr) = setup();
     let client = create_client(&env);
-    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr, &None);
+    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr);
 
-    assert!(client.deposit_funds(&contract_id, &1_200_0000000_i128));
-    client.release_milestone(&contract_id, &3, &client_addr);
+    assert!(client.deposit_funds(&contract_id, &client_addr, &1_200_0000000_i128));
+    client.release_milestone(&contract_id, &client_addr, &3);
 }
 
 #[test]
@@ -69,13 +69,13 @@ fn rejects_release_of_invalid_milestone() {
 fn rejects_releasing_refunded_milestone() {
     let (env, client_addr, freelancer_addr) = setup();
     let client = create_client(&env);
-    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr, &None);
+    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr);
 
-    assert!(client.deposit_funds(&contract_id, &1_200_0000000_i128));
+    assert!(client.deposit_funds(&contract_id, &client_addr, &1_200_0000000_i128));
     let refund_ids = vec![&env, 1_u32];
     client.refund_unreleased_milestones(&contract_id, &refund_ids);
 
-    client.release_milestone(&contract_id, &1, &client_addr);
+    client.release_milestone(&contract_id, &client_addr, &1);
 }
 
 #[test]
@@ -83,10 +83,10 @@ fn rejects_releasing_refunded_milestone() {
 fn rejects_releasing_same_milestone_twice() {
     let (env, client_addr, freelancer_addr) = setup();
     let client = create_client(&env);
-    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr, &None);
+    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr);
 
-    assert!(client.deposit_funds(&contract_id, &1_200_0000000_i128));
-    assert!(client.release_milestone(&contract_id, &0, &client_addr));
+    assert!(client.deposit_funds(&contract_id, &client_addr, &1_200_0000000_i128));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0));
 
-    client.release_milestone(&contract_id, &0, &client_addr);
+    client.release_milestone(&contract_id, &client_addr, &0);
 }
