@@ -17,6 +17,8 @@ impl Escrow {
     ///
     /// # Errors (panics)
     ///
+    /// * `ContractPaused` - if the contract is paused while not in emergency mode.
+    /// * `EmergencyActive` - if the contract is in an active emergency pause.
     /// * `AmountMustBePositive` - if `amount <= 0`.
     /// * `ContractNotFound` - if `contract_id` was never allocated.
     /// * `InvalidState` - if the contract is in any status other than
@@ -52,6 +54,13 @@ impl Escrow {
     ///   reveal the existence of a valid funded slot beyond the public read
     ///   path.
     pub fn deposit_funds(env: Env, contract_id: u32, caller: Address, amount: i128) -> bool {
+        // 0. Pause/emergency gate: refuses any deposit while the contract is
+        //    paused or in an active emergency. Surfaced as `ContractPaused`
+        //    when only the `Paused` flag is set, and `EmergencyActive` when
+        //    the `Emergency` flag is set. Runs BEFORE any state read, auth,
+        //    or balance change so funds cannot move while paused.
+        Self::require_not_paused(&env);
+
         // 1. Positivity check first; preserves the original `AmountMustBePositive` surface.
         if amount <= 0 {
             env.panic_with_error(Error::AmountMustBePositive);

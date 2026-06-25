@@ -20,6 +20,8 @@ impl Escrow {
     /// The unique contract ID
     ///
     /// # Errors
+    /// * `ContractPaused` - If the contract is paused while not in emergency mode
+    /// * `EmergencyActive` - If the contract is in an active emergency pause
     /// * `InvalidParticipants` - If client and freelancer are the same address
     /// * `EmptyMilestones` - If no milestones are provided
     /// * `InvalidMilestoneAmount` - If any milestone amount is <= 0
@@ -27,6 +29,10 @@ impl Escrow {
     /// * `InvalidArbiter` - If arbiter is same as client or freelancer
     /// * `ContractIdOverflow` - If the next id would exceed `u32::MAX`
     /// * `ContractIdCollision` - If the allocated id slot is already occupied
+    ///
+    /// # Security
+    /// * Pause/emergency gate runs BEFORE any other state read or auth so
+    ///   funds cannot be re-allocated while the contract is paused.
     pub fn create_contract(
         env: Env,
         client: Address,
@@ -35,6 +41,13 @@ impl Escrow {
         milestones: Vec<i128>,
         release_authorization: ReleaseAuthorization,
     ) -> u32 {
+        // Pause/emergency gate: refuse new contract creation while the
+        // contract-level pause switch is active or emergency mode is on.
+        // Mismatched between state read/write and pause-gate invocation will
+        // be caught by tests/test/pause_controls.rs and the test/contracts-
+        // facing CI checks.
+        Self::require_not_paused(&env);
+
         client.require_auth();
 
         if client == freelancer {
@@ -69,8 +82,6 @@ impl Escrow {
         let id = next_contract_id(&env);
 
         ttl::extend_next_contract_id_ttl(&env);
-
-        let id = next_contract_id(&env);
 
         let freelancer_addr = freelancer.clone();
         let contract = Contract {

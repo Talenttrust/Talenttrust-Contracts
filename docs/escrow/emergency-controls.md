@@ -32,16 +32,23 @@ can clear both flags together.
 
 ## Blocked Operations
 
-When `Paused` is `true`, the following entrypoints panic with `ContractPaused`:
+When `Paused` is `true` or `Emergency` is `true`, the following entrypoints panic
+with `ContractPaused` (or `EmergencyActive` when only the `Emergency` flag is
+set):
 
 - `create_contract`
 - `deposit_funds`
 - `release_milestone`
+- `refund_unreleased_milestones`
 - `issue_reputation`
 - `cancel_contract`
 
 Read-only queries (`get_contract`, `get_reputation`, `get_pending_reputation_credits`,
 `is_paused`, `is_emergency`, `get_admin`, `get_mainnet_readiness_info`) are never blocked.
+
+Approval bookkeeping (`approve_milestone_release`) is also mutation-adjacent;
+once the broader approval-entry hardening issue lands, that entrypoint will be
+added to this matrix.
 
 ## Events
 
