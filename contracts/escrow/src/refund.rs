@@ -50,6 +50,21 @@ impl Escrow {
 
         Self::require_not_finalized(&env, contract_id);
 
+        // Reject terminal states with a distinct error for auditability.
+        if contract.status == ContractStatus::Cancelled
+            || contract.status == ContractStatus::Refunded
+        {
+            env.panic_with_error(Error::ContractCancelled);
+        }
+
+        // Only allow refunds while the contract is still active.
+        if contract.status != ContractStatus::Created
+            && contract.status != ContractStatus::Funded
+            && contract.status != ContractStatus::Disputed
+        {
+            env.panic_with_error(Error::InvalidState);
+        }
+
         contract.client.require_auth();
 
         let milestone_key = Symbol::new(&env, "milestones");

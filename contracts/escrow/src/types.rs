@@ -111,6 +111,10 @@ pub enum Error {
     ContractIdOverflow = 28,
     EmptyComment = 29,
     CommentTooLong = 30,
+    /// Returned when a value-moving operation is attempted on a contract in a
+    /// terminal state (`Cancelled` or `Refunded`). Distinct from `InvalidState`
+    /// so auditors can identify terminal-state violations without ambiguity.
+    ContractCancelled = 31,
 }
 
 /// Contract lifecycle states

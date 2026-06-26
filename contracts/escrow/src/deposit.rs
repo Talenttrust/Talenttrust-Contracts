@@ -35,6 +35,14 @@ pub fn deposit_funds_impl(env: &Env, contract_id: u32, caller: Address, amount: 
     }
     caller.require_auth();
 
+    // Reject terminal states explicitly before the Created-only check so
+    // auditors get a distinct error rather than a generic InvalidState.
+    if contract.status == ContractStatus::Cancelled
+        || contract.status == ContractStatus::Refunded
+    {
+        env.panic_with_error(Error::ContractCancelled);
+    }
+
     if contract.status != ContractStatus::Created {
         env.panic_with_error(Error::InvalidState);
     }

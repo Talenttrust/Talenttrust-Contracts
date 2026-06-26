@@ -33,6 +33,13 @@ impl Escrow {
         Self::require_not_paused(&env);
         Self::require_not_finalized(&env, contract_id);
 
+        // Reject terminal states with a distinct error before the Funded-only check.
+        if contract.status == ContractStatus::Cancelled
+            || contract.status == ContractStatus::Refunded
+        {
+            env.panic_with_error(Error::ContractCancelled);
+        }
+
         if contract.status != ContractStatus::Funded {
             env.panic_with_error(Error::InvalidState);
         }

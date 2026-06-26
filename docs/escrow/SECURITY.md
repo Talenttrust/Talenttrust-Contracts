@@ -64,3 +64,32 @@ This document reflects the escrow API currently implemented in `contracts/escrow
 
 This prevents a client from requesting refunds against a cancelled, completed,
 or already-finalized contract.
+
+## Terminal-State Matrix
+
+Once a contract reaches a terminal state it must permanently reject all
+value-moving operations. The table below documents the allowed and rejected
+combinations:
+
+| Operation                      | Created | PartiallyFunded | Funded | Completed | Disputed | Cancelled | Refunded |
+| ------------------------------ | ------- | --------------- | ------ | --------- | -------- | --------- | -------- |
+| `deposit_funds`                | ✅      | ✅              | ❌ `InvalidState` | ❌ `InvalidState` | ❌ `InvalidState` | ❌ `ContractCancelled` | ❌ `ContractCancelled` |
+| `release_milestone`            | ❌ `InvalidState` | ❌ `InvalidState` | ✅ | ❌ `InvalidState` | ❌ `InvalidState` | ❌ `ContractCancelled` | ❌ `ContractCancelled` |
+| `refund_unreleased_milestones` | ✅      | ✅              | ✅     | ❌ `InvalidState` | ✅       | ❌ `ContractCancelled` | ❌ `ContractCancelled` |
+| `cancel_contract`              | ✅      | ✅              | ✅     | ❌ `InvalidState` | ❌ `InvalidState` | ❌ `InvalidState` | ❌ `InvalidState` |
+| `propose_client_migration`     | ✅      | ✅              | ✅     | ❌ `InvalidStatusTransition` | ❌ `InvalidStatusTransition` | ❌ `InvalidStatusTransition` | ❌ `InvalidStatusTransition` |
+| `accept_client_migration`      | ✅      | ✅              | ✅     | ❌ `InvalidStatusTransition` | ❌ `InvalidStatusTransition` | ❌ `InvalidStatusTransition` | ❌ `InvalidStatusTransition` |
+
+### Error codes
+
+| Error | Code | Meaning |
+| ----- | ---- | ------- |
+| `ContractCancelled` | 31 | Operation rejected because the contract is in a terminal state (`Cancelled` or `Refunded`). Distinct from `InvalidState` (code 16) to let auditors identify terminal-state violations without ambiguity. |
+
+### Invariant
+
+`Cancelled` and `Refunded` are hard terminal states. No value-moving
+entrypoint (`deposit_funds`, `release_milestone`,
+`refund_unreleased_milestones`) may proceed once the contract is in either
+state. The guard fires _before_ any balance or milestone reads, so a failed
+or replayed transaction cannot alter accounting.
