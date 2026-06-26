@@ -44,14 +44,7 @@ impl Escrow {
 
         contract.funded_amount += amount;
 
-        let milestone_key = Symbol::new(&env, "milestones");
-        let milestones: Vec<Milestone> = env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
-            .unwrap();
-
-        ttl::extend_milestone_ttl(&env, contract_id);
+        let milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
 
         let total_amount: i128 = milestones.iter().map(|m| m.amount).sum();
 

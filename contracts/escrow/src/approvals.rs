@@ -1,4 +1,4 @@
-use crate::ttl::{PENDING_APPROVAL_BUMP_THRESHOLD, PENDING_APPROVAL_TTL_LEDGERS};
+use crate::ttl::{self, PENDING_APPROVAL_BUMP_THRESHOLD, PENDING_APPROVAL_TTL_LEDGERS};
 use crate::types::{
     Contract, ContractStatus, DataKey, Error, Milestone, MilestoneApprovals, ReleaseAuthorization,
 };
@@ -54,12 +54,7 @@ pub fn approve_milestone(
     }
 
     // Load milestones
-    let milestone_key = Symbol::new(env, "milestones");
-    let milestones: Vec<Milestone> = env
-        .storage()
-        .persistent()
-        .get(&(DataKey::Contract(contract_id), milestone_key.clone()))
-        .ok_or(Error::ContractNotFound)?;
+    let milestones: Vec<Milestone> = ttl::load_milestones(env, contract_id);
 
     // Validate milestone index
     if milestone_index >= milestones.len() {

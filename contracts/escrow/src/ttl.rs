@@ -6,8 +6,8 @@
 //! elapsed, so `read_if_live` returns `None` for both "never set" and
 //! "expired".
 
-use crate::DataKey;
-use soroban_sdk::{Env, IntoVal, Symbol, TryFromVal, Val};
+use crate::{DataKey, types::Milestone};
+use soroban_sdk::{Env, IntoVal, Symbol, TryFromVal, Val, Vec};
 
 pub const LEDGERS_PER_DAY: u32 = 17_280;
 
@@ -100,6 +100,35 @@ pub fn extend_milestone_ttl(env: &Env, contract_id: u32) {
     let milestone_key = Symbol::new(env, "milestones");
     env.storage().persistent().extend_ttl(
         &(DataKey::Contract(contract_id), milestone_key),
+        PERSISTENT_BUMP_THRESHOLD,
+        PERSISTENT_TTL_LEDGERS,
+    );
+}
+
+/// Returns the canonical storage key for milestones of a given contract.
+pub fn milestone_storage_key(env: &Env, contract_id: u32) -> (DataKey, Symbol) {
+    let milestone_symbol = Symbol::new(env, "milestones");
+    (DataKey::Contract(contract_id), milestone_symbol)
+}
+
+/// Loads milestones from persistent storage and extends their TTL.
+pub fn load_milestones(env: &Env, contract_id: u32) -> Vec<Milestone> {
+    let key = milestone_storage_key(env, contract_id);
+    let milestones = env.storage().persistent().get(&key).unwrap();
+    env.storage().persistent().extend_ttl(
+        &key,
+        PERSISTENT_BUMP_THRESHOLD,
+        PERSISTENT_TTL_LEDGERS,
+    );
+    milestones
+}
+
+/// Stores milestones to persistent storage and extends their TTL.
+pub fn store_milestones(env: &Env, contract_id: u32, milestones: &Vec<Milestone>) {
+    let key = milestone_storage_key(env, contract_id);
+    env.storage().persistent().set(&key, milestones);
+    env.storage().persistent().extend_ttl(
+        &key,
         PERSISTENT_BUMP_THRESHOLD,
         PERSISTENT_TTL_LEDGERS,
     );

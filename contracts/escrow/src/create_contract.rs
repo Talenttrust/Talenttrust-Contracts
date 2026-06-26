@@ -96,10 +96,7 @@ impl Escrow {
                 refunded_amount: 0,
             });
         }
-        let milestone_key = Symbol::new(&env, "milestones");
-        env.storage()
-            .persistent()
-            .set(&(DataKey::Contract(id), milestone_key), &milestone_vec);
+        ttl::store_milestones(&env, id, &milestone_vec);
 
         Self::bump_next_contract_id(&env, id);
 
