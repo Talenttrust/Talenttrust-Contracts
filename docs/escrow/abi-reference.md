@@ -31,6 +31,15 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: None
 - Errors: None
 
+### get_bounds
+
+- Signature: `get_bounds(env: Env) -> ContractBounds`
+- Kind: Read-only
+- Auth: None
+- Semantics: Returns the protocol-wide hard-coded bounds (max milestones, max single milestone amount, max total escrow amount, max fee bps) enforced by `create_contract` and other validation paths. These are compile-time constants — the return value never changes between calls on the same contract binary. Off-chain indexers and client applications should query this endpoint to discover the current limits without relying on hard-coded constants. The returned `ContractBounds` struct contains only limit fields — no per-contract participant or accounting data — so its schema version tracks the limits API only and is decoupled from the `ContractSummary` schema.
+- Events: None
+- Errors: None
+
 ### get_mainnet_readiness_info
 
 - Signature: `get_mainnet_readiness_info(env: Env) -> ReadinessChecklist`
