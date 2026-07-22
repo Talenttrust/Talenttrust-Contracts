@@ -31,6 +31,27 @@ pub struct ContractSummary {
     pub milestones: Vec<MilestoneSummary>,
 }
 
+/// Protocol-wide bounds for contract validation.
+///
+/// This type carries the hard-coded limits used by `create_contract` and other
+/// validation paths. It is returned by `get_bounds()` for off-chain indexers
+/// and client applications.
+///
+/// Dedicated struct for protocol bounds prevents coupling the limits ABI to the
+/// per-contract summary schema version.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ContractBounds {
+    /// Maximum number of milestones per contract.
+    pub max_milestones: u32,
+    /// Maximum amount allowed for a single milestone (in stroops).
+    pub max_single_milestone_stroops: i128,
+    /// Maximum total escrow amount for a single contract (in stroops).
+    pub max_total_escrow_stroops: i128,
+    /// Maximum protocol fee in basis points (10_000 = 100%).
+    pub max_fee_bps: u32,
+}
+
 // ── Core contract state ──────────────────────────────────────────────────────
 
 // ─── Storage keys ──────────────────────────────────────────────────────────────
