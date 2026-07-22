@@ -48,6 +48,7 @@ Read-only queries:
 - `get_mainnet_readiness_info() -> MainnetReadinessInfo`
 - `get_protocol_fee_bps() -> u32`
 - `get_accumulated_protocol_fees() -> i128`
+- `get_bounds() -> ContractBounds` *(returns the compile-time protocol bounds: max milestones, max single milestone amount, max total escrow amount, max fee bps; see [`ContractBounds`](../../contracts/escrow/src/types.rs))*
 
 ### Read-only getter semantics
 
@@ -95,6 +96,25 @@ Per-getter details:
 
 These properties are locked in by tests under
 `contracts/escrow/src/test/persistence.rs` (issue #475).
+
+### ContractBounds vs ContractSummary
+
+`get_bounds()` and `get_contract_summary()` both return structured read results
+but serve different purposes and must not be conflated:
+
+| Type | Returned by | Contains | Changes with |
+| --- | --- | --- | --- |
+| `ContractBounds` | `get_bounds()` | Protocol-wide compile-time limits (max milestones, max amount, max fee bps) | Binary update |
+| `ContractSummary` | `get_contract_summary()` | Per-contract state snapshot (participants, status, amounts, milestones) | Each mutating call |
+
+`ContractBounds` has no participant addresses, no accounting fields, and no
+milestones vector. Its `schema_version` tracks the limits ABI only.
+`ContractSummary` is the per-contract snapshot used by `get_contract_summary`
+and embedded in `FinalizationRecord`; its schema version tracks per-contract
+data.
+
+Indexers discovering limits should call `get_bounds()`. Indexers snapshotting
+contract state should call `get_contract_summary()`.
 
 Operational controls:
 
