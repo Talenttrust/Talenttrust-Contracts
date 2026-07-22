@@ -31,6 +31,7 @@ The supported deployed interface is documented in the [Escrow ABI reference](doc
 | `finalize_contract`        | **Implemented** | Freezes contract mutable updates                                                                  |
 | `cancel_contract`          | **Implemented** | Early termination contract transitions                                                            |
 | `issue_reputation`         | **Implemented** | Milestone rating metrics for completed contracts                                                  |
+| `get_bounds`               | **Implemented** | Read protocol compile-time limits (max milestones, amounts, fee bps) via `ContractBounds` type   |
 | Emergency Circuit Breakers | **Implemented** | Public administrative pause and emergency flags                                                   |
 | Protocol Fee Accumulation  | **Implemented** | Logic built directly into milestone releases                                                      |
 | Protocol Fee Withdrawal    | **Planned**     | Entrypoints tracked in [#314](https://github.com/Talenttrust/Talenttrust-Contracts/issues/314)    |
