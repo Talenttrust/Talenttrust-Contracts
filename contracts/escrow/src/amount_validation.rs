@@ -120,13 +120,53 @@ pub fn validate_milestone_amounts(
 
 /// Validates deposit amount against remaining contract capacity
 ///
+/// This function is critical for preventing stuck or overfunded escrows. It validates:
+/// 1. The deposit amount itself is positive and within bounds
+/// 2. Adding the deposit to current_deposited won't overflow
+/// 3. The resulting total won't exceed the contract's maximum capacity
+///
+/// # Decision Boundaries
+///
+/// This function operates at three critical boundaries:
+/// - **Exactly-remaining**: `deposit + current == max_total` → Success
+/// - **One stroop short**: `deposit + current == max_total - 1` → Success
+/// - **One stroop over**: `deposit + current == max_total + 1` → Failure (`InvalidMilestoneAmount`)
+///
 /// # Arguments
-/// * `deposit_amount` - Amount to deposit (in stroops)
+/// * `deposit_amount` - Amount to deposit (in stroops, must be positive)
 /// * `current_deposited` - Current total deposited amount (in stroops)
 /// * `max_contract_total` - Maximum allowed per contract (in stroops)
 ///
 /// # Returns
-/// `Ok(())` if valid, `Err(AmountValidationError)` if invalid
+/// * `Ok(())` - Deposit is valid and won't exceed capacity
+/// * `Err(EscrowError::AmountMustBePositive)` - Deposit amount is ≤ 0
+/// * `Err(EscrowError::InvalidMilestoneAmount)` - Deposit would exceed capacity or single amount is too large
+/// * `Err(EscrowError::PotentialOverflow)` - Adding deposit to current would overflow i128
+///
+/// # Examples
+///
+/// ```ignore
+/// // Valid: deposit exactly fills remaining capacity
+/// assert!(validate_deposit_amount(500, 500, 1000).is_ok());
+///
+/// // Invalid: deposit exceeds remaining by 1 stroop
+/// assert_eq!(
+///     validate_deposit_amount(501, 500, 1000),
+///     Err(EscrowError::InvalidMilestoneAmount)
+/// );
+///
+/// // Invalid: contract already fully funded
+/// assert_eq!(
+///     validate_deposit_amount(1, 1000, 1000),
+///     Err(EscrowError::InvalidMilestoneAmount)
+/// );
+/// ```
+///
+/// # Security
+///
+/// - Uses checked arithmetic to prevent integer overflow panics
+/// - Rejects any deposit when contract is already fully funded
+/// - Validates deposit amount bounds before checking capacity
 #[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_deposit_amount(
     deposit_amount: i128,
@@ -276,13 +316,85 @@ mod tests {
 
     #[test]
     fn test_validate_deposit_amount() {
-        let max_contract_total = 1_000_000_0000000;
-        assert!(validate_deposit_amount(100_0000000, 0, max_contract_total).is_ok());
-        assert!(validate_deposit_amount(100_0000000, 500_0000000, max_contract_total).is_ok());
-        assert_eq!(
-            validate_deposit_amount(600_000_0000000, 500_000_0000000, max_contract_total),
-            Err(crate::EscrowError::InvalidMilestoneAmount)
-        );
+        struct TestCase {
+            name: &'static str,
+            deposit_amount: i128,
+            current_deposited: i128,
+            max_contract_total: i128,
+            expected: Result<(), crate::EscrowError>,
+        }
+
+        let test_cases = [
+            TestCase {
+                name: "zero deposit amount should fail with AmountMustBePositive",
+                deposit_amount: 0,
+                current_deposited: 0,
+                max_contract_total: 1000,
+                expected: Err(crate::EscrowError::AmountMustBePositive),
+            },
+            TestCase {
+                name: "negative deposit amount should fail with AmountMustBePositive",
+                deposit_amount: -1,
+                current_deposited: 0,
+                max_contract_total: 1000,
+                expected: Err(crate::EscrowError::AmountMustBePositive),
+            },
+            TestCase {
+                name: "one stroop under remaining capacity should succeed",
+                deposit_amount: 499,
+                current_deposited: 500,
+                max_contract_total: 1000,
+                expected: Ok(()),
+            },
+            TestCase {
+                name: "exactly remaining capacity should succeed",
+                deposit_amount: 500,
+                current_deposited: 500,
+                max_contract_total: 1000,
+                expected: Ok(()),
+            },
+            TestCase {
+                name: "one stroop over remaining capacity should fail with InvalidMilestoneAmount",
+                deposit_amount: 501,
+                current_deposited: 500,
+                max_contract_total: 1000,
+                expected: Err(crate::EscrowError::InvalidMilestoneAmount),
+            },
+            TestCase {
+                name: "already fully funded contract should reject any further deposit",
+                deposit_amount: 1,
+                current_deposited: 1000,
+                max_contract_total: 1000,
+                expected: Err(crate::EscrowError::InvalidMilestoneAmount),
+            },
+            TestCase {
+                name: "deposit exceeding max single amount bound should fail",
+                deposit_amount: MAX_SINGLE_AMOUNT_STROOPS + 1,
+                current_deposited: 0,
+                max_contract_total: MAX_SINGLE_AMOUNT_STROOPS * 2,
+                expected: Err(crate::EscrowError::InvalidMilestoneAmount),
+            },
+            TestCase {
+                name: "potential i128 overflow in addition should fail",
+                deposit_amount: 1,
+                current_deposited: i128::MAX,
+                max_contract_total: i128::MAX,
+                expected: Err(crate::EscrowError::PotentialOverflow),
+            },
+        ];
+
+        for tc in test_cases {
+            let result = validate_deposit_amount(
+                tc.deposit_amount,
+                tc.current_deposited,
+                tc.max_contract_total,
+            );
+            assert_eq!(
+                result, tc.expected,
+                "Test case '{}' failed. Expected: {:?}, Got: {:?}",
+                tc.name, tc.expected, result
+            );
+        }
     }
 
     #[test]

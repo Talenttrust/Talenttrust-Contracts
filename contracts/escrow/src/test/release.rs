@@ -30,5 +30,8 @@ fn release_rejects_an_already_released_milestone() {
         escrow.try_release_milestone(&fixture.escrow_id, &fixture.client, &0),
         EscrowError::AlreadyReleased,
     );
-    assert_eq!(escrow.get_contract(&fixture.escrow_id).released_amount, MILESTONE_ONE);
+    assert_eq!(
+        escrow.get_contract(&fixture.escrow_id).released_amount,
+        MILESTONE_ONE
+    );
 }

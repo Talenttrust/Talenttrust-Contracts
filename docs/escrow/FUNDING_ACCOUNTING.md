@@ -20,6 +20,19 @@ transfer tokens and does not deduct protocol fees.
   is non-negative and that:
   `total_deposited == released_amount + refunded_amount + available_balance`.
 
+### Deposit Validation and Decision Boundaries
+
+Deposit amount validation is performed via `validate_deposit_amount` which ensures:
+1. The deposit amount itself is strictly positive (`> 0`) and doesn't exceed the single transaction maximum (`MAX_SINGLE_AMOUNT_STROOPS`).
+2. The deposit does not overflow the `i128` integer capacity when added to the current funded amount.
+3. The resulting total deposit amount does not exceed the contract's total maximum capacity.
+
+The decision boundaries for deposits are validated as follows:
+- **Exactly-remaining**: If the deposit matches the remaining capacity exactly (`deposit + current == max_total`), it is accepted.
+- **One stroop short**: If the deposit leaves exactly one stroop remaining (`deposit + current == max_total - 1`), it is accepted.
+- **One stroop over**: If the deposit exceeds the remaining capacity by even one stroop (`deposit + current == max_total + 1`), it is rejected with `EscrowError::InvalidMilestoneAmount`.
+- **Already fully funded**: If the contract is already fully funded (`current == max_total`), any further deposit is rejected with `EscrowError::InvalidMilestoneAmount`.
+
 ## Not Implemented
 
 Protocol fee deduction, accumulated protocol fees, and protocol fee withdrawal

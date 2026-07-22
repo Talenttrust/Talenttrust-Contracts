@@ -16,7 +16,7 @@
 
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
-use crate::{Escrow, EscrowClient};
+use crate::{Escrow, EscrowClient, ReleaseAuthorization};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,13 @@ fn rejects_client_equals_freelancer() {
     let client = register_client(&env);
     let same_party = Address::generate(&env);
 
-    client.create_contract(&same_party, &same_party, &None, &default_milestones(&env));
+    client.create_contract(
+        &same_party,
+        &same_party,
+        &None,
+        &default_milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
+    );
 }
 
 /// Accepts distinct client and freelancer.
@@ -52,7 +58,13 @@ fn accepts_distinct_client_and_freelancer() {
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
 
-    let id = client.create_contract(&client_addr, &freelancer_addr, &None, &default_milestones(&env));
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &default_milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
+    );
     assert!(id > 0);
 
     let contract = client.get_contract(&id);
@@ -78,6 +90,7 @@ fn rejects_arbiter_equals_client() {
         &freelancer_addr,
         &Some(client_addr.clone()),
         &default_milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
     );
 }
 
@@ -96,6 +109,7 @@ fn rejects_arbiter_equals_freelancer() {
         &freelancer_addr,
         &Some(freelancer_addr.clone()),
         &default_milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
     );
 }
 
@@ -114,6 +128,7 @@ fn accepts_distinct_arbiter() {
         &freelancer_addr,
         &Some(arbiter_addr.clone()),
         &default_milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
     );
     assert!(id > 0);
 
@@ -139,6 +154,7 @@ fn accepts_none_arbiter() {
         &freelancer_addr,
         &None,
         &default_milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
     );
     assert!(id > 0);
 
@@ -160,7 +176,13 @@ fn validation_is_fail_closed_no_partial_state() {
 
     // Attempt to create contract with client == freelancer.
     // This should panic before any storage writes.
-    client.create_contract(&same_party, &same_party, &None, &default_milestones(&env));
+    client.create_contract(
+        &same_party,
+        &same_party,
+        &None,
+        &default_milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
+    );
 }
 
 // ─── Multiple Distinct Contracts ──────────────────────────────────────────────
@@ -178,7 +200,13 @@ fn multiple_contracts_with_different_participants() {
     let diana = Address::generate(&env);
 
     // Contract 1: alice (client) + bob (freelancer), no arbiter
-    let id1 = client.create_contract(&alice, &bob, &None, &default_milestones(&env));
+    let id1 = client.create_contract(
+        &alice,
+        &bob,
+        &None,
+        &default_milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
+    );
     assert_eq!(id1, 0);
 
     // Contract 2: charlie (client) + diana (freelancer), alice as arbiter
@@ -187,6 +215,7 @@ fn multiple_contracts_with_different_participants() {
         &diana,
         &Some(alice.clone()),
         &default_milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
     );
     assert_eq!(id2, 1);
 
@@ -220,7 +249,13 @@ fn three_way_distinct_addresses() {
     assert_ne!(addr2, addr3);
     assert_ne!(addr1, addr3);
 
-    let id = client.create_contract(&addr1, &addr2, &Some(addr3.clone()), &default_milestones(&env));
+    let id = client.create_contract(
+        &addr1,
+        &addr2,
+        &Some(addr3.clone()),
+        &default_milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
+    );
     assert!(id > 0);
 
     let contract = client.get_contract(&id);
@@ -246,5 +281,6 @@ fn rejects_partial_arbiter_overlap() {
         &freelancer_addr,
         &Some(client_addr.clone()),
         &default_milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
     );
 }

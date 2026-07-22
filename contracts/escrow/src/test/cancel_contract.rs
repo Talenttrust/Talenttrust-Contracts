@@ -7,9 +7,7 @@ use soroban_sdk::{
     vec, Address, Env, Symbol, TryFromVal,
 };
 
-use crate::{
-    ContractStatus, Error, Escrow, EscrowClient, ReleaseAuthorization,
-};
+use crate::{ContractStatus, Error, Escrow, EscrowClient, ReleaseAuthorization};
 
 fn register_client(env: &Env) -> EscrowClient<'_> {
     let id = env.register(Escrow, ());
@@ -93,8 +91,14 @@ fn cancel_funded_contract_refunds_the_remaining_balance_to_the_client() {
     let contract = client.get_contract(&contract_id);
     assert_eq!(contract.status, ContractStatus::Cancelled);
     assert_eq!(contract.refunded_amount, 600_i128);
-    assert_eq!(token_client.balance(&client_addr), client_balance_before + 600_i128);
-    assert_eq!(token_client.balance(&escrow_addr), escrow_balance_before - 600_i128);
+    assert_eq!(
+        token_client.balance(&client_addr),
+        client_balance_before + 600_i128
+    );
+    assert_eq!(
+        token_client.balance(&escrow_addr),
+        escrow_balance_before - 600_i128
+    );
 }
 
 /// Cancelling one funded contract preserves SAC custody for other active
@@ -121,7 +125,10 @@ fn cancel_refund_leaves_other_contract_funds_in_escrow() {
 
     assert!(client.cancel_contract(&first_contract_id, &client_addr));
 
-    assert_eq!(token_client.balance(&client_addr), client_balance_before + 600_i128);
+    assert_eq!(
+        token_client.balance(&client_addr),
+        client_balance_before + 600_i128
+    );
     assert_eq!(
         token_client.balance(&escrow_addr),
         client.get_refundable_balance(&second_contract_id),
@@ -141,7 +148,10 @@ fn cancel_rejects_unauthorized_caller() {
         Error::UnauthorizedRole,
     );
 
-    assert_eq!(client.get_contract(&contract_id).status, ContractStatus::Created);
+    assert_eq!(
+        client.get_contract(&contract_id).status,
+        ContractStatus::Created
+    );
     assert_eq!(client.get_contract(&contract_id).client, client_addr);
 }
 
@@ -201,7 +211,9 @@ fn cancel_emits_cancelled_event() {
     let events = env.events().all();
     assert!(events.iter().any(|event| {
         event.1.len() > 0
-            && Symbol::try_from_val(&env, &event.1.get(0).unwrap()).ok().as_ref()
+            && Symbol::try_from_val(&env, &event.1.get(0).unwrap())
+                .ok()
+                .as_ref()
                 == Some(&cancelled_topic)
     }));
 }

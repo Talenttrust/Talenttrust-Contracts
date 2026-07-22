@@ -68,6 +68,9 @@ use soroban_sdk::{
 pub use amount_validation::accumulate_amounts;
 pub use amount_validation::safe_add_amounts;
 pub use amount_validation::safe_subtract_amounts;
+pub use amount_validation::validate_deposit_amount;
+pub use amount_validation::validate_milestone_amounts;
+pub use amount_validation::validate_single_amount;
 pub use dispute::final_status_after_resolution;
 pub use dispute::resolution_payouts;
 pub use migration::PendingClientMigration;
