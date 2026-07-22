@@ -71,7 +71,7 @@ stellar network ls         # "testnet" should appear
 | 1 | *(build only)* | Produce `escrow.wasm` |
 | 2 | *(deploy only)* | Publish the WASM, capture the contract id |
 | 3 | `initialize(admin)` | One-time admin bootstrap |
-| 4 | `set_settlement_token(admin, token)` | Bind the Stellar Asset Contract used for custody |
+| 4 | `bind_settlement_token(admin, token)` | Bind the Stellar Asset Contract used for custody (`set_settlement_token` is a deprecated delegate) |
 | 5 | `create_contract(client, freelancer, arbiter?, milestones, release_authorization)` | Allocate a fresh escrow id |
 | 6 | `deposit_funds(contract_id, caller, amount)` | Move SAC balance from client to escrow |
 | 7 | `approve_milestone_release(contract_id, caller, milestone_index)` | Record an approval (per `ReleaseAuthorization`) |
@@ -179,7 +179,7 @@ stellar contract invoke \
   --id "$ESCROW_ID" \
   --source carol \
   --network testnet \
-  -- set_settlement_token \
+  -- bind_settlement_token \
   --admin carol \
   --token "$SAC_ID"
 ```
@@ -191,12 +191,8 @@ stellar contract invoke \
 - `admin.require_auth()` enforces that the operational admin signs this call.
 - The function performs `require_initialized` first, so calling it before
   `initialize` panics with `NotInitialized`.
-- The escrow contract only ever reads from `DataKey::SettlementToken` for
-  the SAC `transfer` path. Treat the first binding as **operationally**
-  single-use: a second `set_settlement_token` against the same contract does
-  not return a SCVal error but silently overwrites the bound token, which
-  would redirect all subsequent custody to the new SAC. Production
-  deployments should bind once and never call this entrypoint again.
+- Single-use write-once binding: a second binding attempt via `bind_settlement_token`
+  or deprecated delegate `set_settlement_token` panics with `SettlementTokenAlreadyBound`.
 - The escrow contract will only ever move funds through the bound SAC
   address held in `DataKey::SettlementToken`.
 
@@ -663,7 +659,7 @@ below maps the most common user-facing failures to actionable remediation.
 ## Security notes for integrators
 
 1. **Never sign on behalf of an admin address you do not control.** Every
-   admin-side call (`initialize`, `set_settlement_token`, `set_protocol_fee_bps`,
+   admin-side call (`initialize`, `bind_settlement_token` / `set_settlement_token`, `set_protocol_fee_bps`,
    `pause`, `unpause`, `activate_emergency_pause`, `resolve_emergency`,
    `withdraw_protocol_fees`) requires `admin.require_auth()`. Integrators
    must integrate with the admin's signing environment — never embed a
@@ -729,7 +725,7 @@ index.
 | Step | Entrypoint | NatSpec source |
 | --- | --- | --- |
 | 3 | `initialize` | `/// Initializes the escrow contract with the operational admin. ...` |
-| 4 | `set_settlement_token` | `/// Set the settlement token for the escrow contract. ...` |
+| 4 | `bind_settlement_token` | `/// Bind the single Stellar Asset Contract (SAC) token this escrow instance will custody. ...` |
 | 5 | `create_contract` | `/// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.` |
 | 6 | `deposit_funds` | `/// Deposits funds into the contract. Transitions to Funded status when fully funded.` |
 | 7 | `approve_milestone_release` | `/// Approves a milestone for release.` |

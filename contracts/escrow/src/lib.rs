@@ -308,10 +308,21 @@ impl Escrow {
         true
     }
 
-    /// Alias retained for callers that used the historical API name.
+    /// Deprecated thin delegate for [`bind_settlement_token`](Self::bind_settlement_token).
     ///
-    /// Behaves identically to `bind_settlement_token`. New code should prefer
-    /// `bind_settlement_token`.
+    /// Retained for backward compatibility with external callers that used the historical API name.
+    /// Delegates directly to [`bind_settlement_token`](Self::bind_settlement_token) and inherits
+    /// every security guard (`SettlementTokenAlreadyBound`, admin auth check, SAC interface probe,
+    /// self/admin validation) and event emission.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `admin` - The admin address (must match stored admin)
+    /// * `token` - The SAC token address
+    ///
+    /// # Deprecated
+    /// Use [`bind_settlement_token`](Self::bind_settlement_token) instead.
+    #[deprecated(note = "Use bind_settlement_token instead.")]
     pub fn set_settlement_token(env: Env, admin: Address, token: Address) -> bool {
         Self::bind_settlement_token(env, admin, token)
     }

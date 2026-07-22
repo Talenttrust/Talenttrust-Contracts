@@ -13,14 +13,14 @@ All funds deposited are held directly in the contract address, and payouts (rele
 ## Token Flow Lifecycle
 
 ### 1. Initialization & Configuration
-- **Admin Setup**: The contract administrator configures the settlement token address using `set_settlement_token(token: Address)`.
+- **Admin Setup**: The contract administrator configures the settlement token address using `bind_settlement_token(admin: Address, token: Address)` (or deprecated delegate `set_settlement_token`).
 - **Key Storage**: The token contract address is stored under the `DataKey::SettlementToken` persistent storage key with extended TTL.
 
 ```mermaid
 sequenceDiagram
     participant Admin
     participant EscrowContract
-    Admin->>EscrowContract: set_settlement_token(token_addr)
+    Admin->>EscrowContract: bind_settlement_token(admin, token_addr)
     Note over EscrowContract: Persisted under DataKey::SettlementToken
 ```
 

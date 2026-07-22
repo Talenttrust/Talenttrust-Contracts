@@ -154,6 +154,73 @@ fn bind_settlement_token_rejects_double_bind() {
 }
 
 #[test]
+#[allow(deprecated)]
+fn second_bind_attempt_fails_regardless_of_entrypoint() {
+    // 1. bind_settlement_token followed by set_settlement_token
+    {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let client = register_client(&env);
+        let admin = client.get_admin().unwrap();
+        let sac1 = env.register_stellar_asset_contract(admin.clone());
+        let sac2 = env.register_stellar_asset_contract(admin.clone());
+
+        client.bind_settlement_token(&admin, &sac1);
+        assert_contract_error(
+            client.try_set_settlement_token(&admin, &sac2),
+            EscrowError::SettlementTokenAlreadyBound,
+        );
+    }
+
+    // 2. set_settlement_token followed by bind_settlement_token
+    {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let client = register_client(&env);
+        let admin = client.get_admin().unwrap();
+        let sac1 = env.register_stellar_asset_contract(admin.clone());
+        let sac2 = env.register_stellar_asset_contract(admin.clone());
+
+        client.set_settlement_token(&admin, &sac1);
+        assert_contract_error(
+            client.try_bind_settlement_token(&admin, &sac2),
+            EscrowError::SettlementTokenAlreadyBound,
+        );
+    }
+
+    // 3. set_settlement_token followed by set_settlement_token
+    {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let client = register_client(&env);
+        let admin = client.get_admin().unwrap();
+        let sac1 = env.register_stellar_asset_contract(admin.clone());
+        let sac2 = env.register_stellar_asset_contract(admin.clone());
+
+        client.set_settlement_token(&admin, &sac1);
+        assert_contract_error(
+            client.try_set_settlement_token(&admin, &sac2),
+            EscrowError::SettlementTokenAlreadyBound,
+        );
+    }
+}
+
+#[test]
+#[allow(deprecated)]
+fn set_settlement_token_delegate_inherits_all_guards_and_events() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let client = register_client(&env);
+    let admin = client.get_admin().unwrap();
+    let sac = env.register_stellar_asset_contract(admin.clone());
+
+    // set_settlement_token delegates to bind_settlement_token and successfully binds
+    assert!(client.set_settlement_token(&admin, &sac));
+    assert_eq!(client.get_settlement_token(), Some(sac));
+    assert!(has_settlement_token_bound_event(&env));
+}
+
+#[test]
 fn bind_settlement_token_rejects_uninit() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
