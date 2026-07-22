@@ -76,10 +76,10 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // `DisputeResolution` and `DisputeSplit` are defined once in `types.rs` and
 // re-exported here; `dispute.rs` uses them via `crate::DisputeResolution`.
 pub use types::{
-    Contract, ContractStatus, ContractSummary, DataKey, DepositMode, DisputeResolution,
-    DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals, MilestoneSummary,
-    PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, SplitAmounts,
-    CONTRACT_SUMMARY_SCHEMA_VERSION,
+    Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode,
+    DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
+    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
+    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -388,21 +388,31 @@ impl Escrow {
         env.storage().persistent().get(&DataKey::Admin)
     }
 
-    /// Returns the current hard-coded bounds used by validation paths.
-    pub fn get_bounds(env: Env) -> ContractSummary {
-        ContractSummary {
-            schema_version: CONTRACT_SUMMARY_SCHEMA_VERSION,
-            client: env.current_contract_address(),
-            freelancer: env.current_contract_address(),
-            arbiter: None,
-            status: ContractStatus::Created,
-            reputation_issued: false,
-            total_amount: MAX_TOTAL_ESCROW_STROOPS,
-            funded_amount: MAX_MILESTONES as i128,
-            released_amount: 0,
-            refundable_balance: 0,
-            released_milestone_count: 0,
-            milestones: Vec::new(&env),
+    /// Returns the protocol-wide hard-coded bounds used by validation paths.
+    ///
+    /// Callers and off-chain indexers should query this endpoint to discover
+    /// the limits enforced by `create_contract` without relying on hard-coded
+    /// constants:
+    ///
+    /// - `max_milestones`: maximum number of milestones per contract.
+    /// - `max_single_milestone_stroops`: maximum amount for any single milestone.
+    /// - `max_total_escrow_stroops`: maximum sum of all milestone amounts.
+    /// - `max_fee_bps`: protocol fee ceiling in basis points (10 000 = 100 %).
+    ///
+    /// These are compile-time constants — the return value never changes
+    /// between calls on the same contract binary. The function is read-only
+    /// and requires no authorization.
+    ///
+    /// # Returns
+    /// A [`ContractBounds`] value containing only limit fields. Unlike
+    /// [`get_contract_summary`], this type carries no per-contract participant
+    /// or accounting data and its schema version tracks the limits API only.
+    pub fn get_bounds(_env: Env) -> ContractBounds {
+        ContractBounds {
+            max_milestones: MAX_MILESTONES,
+            max_single_milestone_stroops: MAX_SINGLE_AMOUNT_STROOPS,
+            max_total_escrow_stroops: MAX_TOTAL_ESCROW_STROOPS,
+            max_fee_bps: 10_000,
         }
     }
 
