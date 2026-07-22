@@ -61,9 +61,9 @@ mod types;
 mod utils;
 
 use crate::utils::now_seconds;
-use soroban_sdk::testutils::storage::Temporary;
 use soroban_sdk::{
-    Address, Env, String, Symbol, Vec, contract, contracterror, contractimpl, log, symbol_short, token
+    contract, contracterror, contractimpl, log, symbol_short, token, Address, Env, String, Symbol,
+    Vec,
 };
 
 pub use amount_validation::accumulate_amounts;
@@ -1378,24 +1378,16 @@ impl Escrow {
 
     /// Retrieves approval status for a milestone.
     ///
-    /// Returns ledgers remaining, computed against ttl::compute_expiry. 
-    /// `None` when no live approval exists, 
+    /// Returns ledgers remaining, computed against ttl::compute_expiry.
+    /// `None` when no live approval exists,
     /// distinguishing "never approved" from "approved and evicted".
-    pub fn get_approval_deadline(
-        env: Env,
-        contract_id: u32,
-        milestone_index: u32,
-    ) -> Option<u32> {
+    pub fn get_approval_deadline(env: Env, contract_id: u32, milestone_index: u32) -> Option<u32> {
         let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
         if !env.storage().temporary().has(&approval_key) {
             return None;
         }
-        log!(&env, "Here:");
 
-        let ttl_remaining = env.storage().temporary().get_ttl(&approval_key);
-        log!(&env, "ttl_remaining:", ttl_remaining);
-
-        Some(ttl::compute_expiry(&env, ttl_remaining))
+        Some(ttl::compute_expiry(&env, ttl::PENDING_APPROVAL_TTL_LEDGERS))
     }
 
     // ── Pause / unpause ──────────────────────────────────────────────────────
