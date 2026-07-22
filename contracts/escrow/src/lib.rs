@@ -1378,21 +1378,9 @@ impl Escrow {
 
     /// Retrieves approval status for a milestone.
     ///
-    /// Returns `None` when no approval record exists or when the TTL has
-    /// elapsed. Treat `None` and an all-`false` struct identically — neither
-    /// unblocks `release_milestone`.
-    ///
-    /// On a successful read, this entrypoint renews the temporary approval
-    /// record's TTL using `PENDING_APPROVAL_BUMP_THRESHOLD` /
-    /// `PENDING_APPROVAL_TTL_LEDGERS`, consistent with the approval write path.
-    /// Missing or expired entries still return `None` without writing.
-    ///
-    /// # Cost Semantics
-    /// This is a storage-touching read of temporary state, not a zero-cost pure
-    /// getter. Integrators that poll approval state should account for the host
-    /// storage access and TTL bump behavior.
-    ///
-    /// See `get_approval_deadline` and `docs/escrow/authorization.md`.
+    /// Returns ledgers remaining, computed against ttl::compute_expiry. 
+    /// `None` when no live approval exists, 
+    /// distinguishing "never approved" from "approved and evicted".
     pub fn get_approval_deadline(
         env: Env,
         contract_id: u32,
