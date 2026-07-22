@@ -61,8 +61,9 @@ mod types;
 mod utils;
 
 use crate::utils::now_seconds;
+use soroban_sdk::testutils::storage::Temporary;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, symbol_short, token, Address, Env, String, Symbol, Vec,
+    Address, Env, String, Symbol, Vec, contract, contracterror, contractimpl, log, symbol_short, token
 };
 
 pub use amount_validation::accumulate_amounts;
@@ -1373,6 +1374,40 @@ impl Escrow {
             );
         }
         approvals
+    }
+
+    /// Retrieves approval status for a milestone.
+    ///
+    /// Returns `None` when no approval record exists or when the TTL has
+    /// elapsed. Treat `None` and an all-`false` struct identically — neither
+    /// unblocks `release_milestone`.
+    ///
+    /// On a successful read, this entrypoint renews the temporary approval
+    /// record's TTL using `PENDING_APPROVAL_BUMP_THRESHOLD` /
+    /// `PENDING_APPROVAL_TTL_LEDGERS`, consistent with the approval write path.
+    /// Missing or expired entries still return `None` without writing.
+    ///
+    /// # Cost Semantics
+    /// This is a storage-touching read of temporary state, not a zero-cost pure
+    /// getter. Integrators that poll approval state should account for the host
+    /// storage access and TTL bump behavior.
+    ///
+    /// See `get_approval_deadline` and `docs/escrow/authorization.md`.
+    pub fn get_approval_deadline(
+        env: Env,
+        contract_id: u32,
+        milestone_index: u32,
+    ) -> Option<u32> {
+        let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
+        if !env.storage().temporary().has(&approval_key) {
+            return None;
+        }
+        log!(&env, "Here:");
+
+        let ttl_remaining = env.storage().temporary().get_ttl(&approval_key);
+        log!(&env, "ttl_remaining:", ttl_remaining);
+
+        Some(ttl::compute_expiry(&env, ttl_remaining))
     }
 
     // ── Pause / unpause ──────────────────────────────────────────────────────

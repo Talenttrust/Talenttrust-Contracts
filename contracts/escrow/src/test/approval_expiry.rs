@@ -4,8 +4,7 @@
 //! Tests each ReleaseAuthorization mode and edge cases around expiry boundaries.
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
-    vec, Address, Env,
+    Address, Env, log, testutils::{Address as _, Ledger as _}, vec
 };
 
 use crate::{Error, Escrow, EscrowClient, ReleaseAuthorization};
@@ -664,4 +663,159 @@ fn test_approval_ttl_independent_per_milestone() {
 
     let result_0 = client.try_release_milestone(&contract_id, &client_addr, &0);
     super::assert_contract_error(result_0, Error::InsufficientApprovals);
+}
+
+fn funded_no_approvals(
+    env: &Env,
+    client: &EscrowClient<'_>,
+    client_addr: &Address,
+    freelancer_addr: &Address,
+    auth: &ReleaseAuthorization,
+    arbiter: Option<&Address>,
+) -> u32 {
+    let arbiter_owned = arbiter.cloned();
+    let id = client.create_contract(
+        client_addr,
+        freelancer_addr,
+        &arbiter_owned,
+        &milestones(env),
+        auth,
+    );
+    // Inject Funded status and funded_amount directly so approve_milestone_release
+    // passes the status check without requiring a bound SAC token.
+    let escrow_addr = client.address.clone();
+    env.as_contract(&escrow_addr, || {
+        let key = crate::DataKey::Contract(id);
+        let mut c: crate::Contract = env.storage().persistent().get(&key).unwrap();
+        c.status = crate::ContractStatus::Funded;
+        c.funded_amount = total();
+        env.storage().persistent().set(&key, &c);
+    });
+    id
+}
+
+
+#[test]
+fn test_deadline_none_before_any_approval() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
+
+    );
+
+    let deadline = client.get_approval_deadline(&id, &0u32);
+    assert!(deadline.is_none(),
+            "expected None before any approval, got {deadline:?}");
+}
+
+#[test]
+fn test_deadline_some_after_first_approval() {
+   let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::MultiSig,
+        None,
+    );
+
+
+    client.approve_milestone_release(&id, &client_addr, &0u32);
+
+    let deadline = client.get_approval_deadline(&id, &0u32);
+    assert!(deadline.is_some(),"expected Some after first approval, got None");
+
+    // Deadline should be roughly current sequence + PENDING_APPROVAL_TTL_LEDGERS
+    let expected = env.ledger().sequence() + PENDING_APPROVAL_TTL_LEDGERS;
+    assert_eq!(deadline.unwrap(), expected);
+}
+
+#[test]
+fn test_deadline_does_not_extend_ttl() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::MultiSig,
+        None,
+    );
+
+
+    client.approve_milestone_release(&id, &client_addr, &0u32);
+
+    let deadline_first  = client.get_approval_deadline(&id, &0u32);
+    let deadline_second = client.get_approval_deadline(&id, &0u32);
+
+    // Pure view — repeated calls must return identical remaining ledgers
+    assert_eq!(deadline_first, deadline_second, "get_approval_deadline must not mutate TTL between calls");
+}
+
+#[test]
+fn test_deadline_none_for_unknown_milestone() {
+   let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::MultiSig,
+        None,
+    );
+
+
+    client.approve_milestone_release(&id, &client_addr, &0u32);
+
+    let deadline = client.get_approval_deadline(&id, &999u32);
+    assert!(deadline.is_none());
+}
+
+#[test]
+fn test_deadline_independent_per_milestone() {
+   let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::MultiSig,
+        None,
+    );
+
+
+    client.approve_milestone_release(&id, &client_addr, &0u32);
+    client.approve_milestone_release(&id, &client_addr, &1u32);
+
+    let deadline = client.get_approval_deadline(&id, &0u32);
+    assert!(deadline.is_some(),"expected Some after first approval, got None");
+
+    // Deadline should be roughly current sequence + PENDING_APPROVAL_TTL_LEDGERS
+    let expected = env.ledger().sequence() + PENDING_APPROVAL_TTL_LEDGERS;
+    assert_eq!(deadline.unwrap(), expected);
 }
