@@ -201,7 +201,7 @@ fn cancel_rejects_completed_contract() {
 }
 
 #[test]
-fn cancel_emits_cancelled_event() {
+fn cancel_emits_cancelled_event_with_correct_payload() {
     let env = Env::default();
     let (client, client_addr, _, contract_id) = setup_cancel_context(&env);
 
@@ -209,11 +209,34 @@ fn cancel_emits_cancelled_event() {
 
     let cancelled_topic = symbol_short!("cancelled");
     let events = env.events().all();
-    assert!(events.iter().any(|event| {
-        event.1.len() > 0
+
+    // Verify the event exists with the correct topic and payload.
+    // Payload: (caller: Address, previous_status: ContractStatus, timestamp: u64)
+    let found = events.iter().any(|event| {
+        let topics_ok = event.1.len() >= 2
             && Symbol::try_from_val(&env, &event.1.get(0).unwrap())
                 .ok()
                 .as_ref()
                 == Some(&cancelled_topic)
-    }));
+            && event.1.get(1).ok() == Some(soroban_sdk::Val::from_u32(contract_id));
+
+        if !topics_ok {
+            return false;
+        }
+
+        // event.2 is the data Val wrapping the tuple (caller, previous_status, timestamp).
+        // In Soroban tuples are stored as ScVec, so we can convert to Vec<Val> for inspection.
+        let data: soroban_sdk::Vec<soroban_sdk::Val> =
+            soroban_sdk::TryFromVal::try_from_val(&env, &event.2).unwrap_or_else(|_| {
+                soroban_sdk::Vec::new(&env)
+            });
+        data.len() == 3
+            && data.get(0).unwrap() == soroban_sdk::Val::from(client_addr.clone())
+            // previous_status should be Created (discriminant 0)
+            && data.get(1).unwrap() == soroban_sdk::Val::from_u32(ContractStatus::Created as u32)
+    });
+    assert!(
+        found,
+        "Expected cancelled event with (caller, Created, timestamp) data payload"
+    );
 }

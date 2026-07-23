@@ -1609,7 +1609,10 @@ impl Escrow {
             env.panic_with_error(Error::AlreadyCancelled);
         }
 
-        if contract.status != ContractStatus::Created && contract.status != ContractStatus::Funded {
+        if contract.status != ContractStatus::Created
+            && contract.status != ContractStatus::Funded
+            && contract.status != ContractStatus::PartiallyFunded
+        {
             env.panic_with_error(EscrowError::InvalidStatusTransition);
         }
 
@@ -1631,6 +1634,12 @@ impl Escrow {
             );
         }
 
+        /// `previous_status` — captured before the status mutation so the
+        /// cancelled event can report the state the contract was in at the
+        /// moment of cancellation, giving indexers the full lifecycle context
+        /// without querying historical storage.
+        let previous_status = contract.status;
+
         contract.refunded_amount = contract
             .refunded_amount
             .checked_add(refund_amount)
@@ -1642,9 +1651,16 @@ impl Escrow {
             .set(&DataKey::Contract(contract_id), &contract);
         ttl::extend_contract_ttl(&env, contract_id);
 
+        /// Emit cancelled event keyed by (Symbol "cancelled", contract_id)
+        /// with payload (caller, previous_status, timestamp) so indexers can
+        /// observe cancellations consistently with create_contract and finalize
+        /// without polling or diffing storage.
+        ///
+        /// The event only fires after the state write succeeds — a panicked
+        /// cancel publishes nothing, preserving fail-closed observability.
         env.events().publish(
             (symbol_short!("cancelled"), contract_id),
-            (client, refund_amount, env.ledger().timestamp()),
+            (client, previous_status, env.ledger().timestamp()),
         );
 
         true

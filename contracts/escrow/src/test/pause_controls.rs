@@ -10,8 +10,13 @@
 //! the plain pause() / unpause() path. The pause check runs before require_auth,
 //! so a paused contract rejects uniformly regardless of caller.
 
-use crate::{Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization};
-use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
+use crate::{ContractStatus, Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization};
+use soroban_sdk::{
+    symbol_short,
+    testutils::{Address as _, Events as _},
+    token::StellarAssetClient,
+    vec, Address, Env, String, Symbol, TryFromVal,
+};
 
 // --- helpers ---
 
@@ -235,6 +240,130 @@ fn unpause_restores_cancel_contract() {
     client.unpause();
 
     client.cancel_contract(&id, &client_addr);
+}
+
+/// Assert that cancel_contract emits a ("cancelled", contract_id) event
+/// with the correct (caller, previous_status, timestamp) payload after
+/// cancelling a contract in Created status.
+#[test]
+fn cancel_contract_emits_cancelled_event_with_previous_status() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    assert!(client.initialize(&admin));
+
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(token_admin);
+    client.set_settlement_token(&admin, &token);
+
+    let client_addr = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer,
+        &None,
+        &vec![&env, 100_i128],
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    assert!(client.cancel_contract(&id, &client_addr));
+
+    let cancelled_topic = symbol_short!("cancelled");
+    let events = env.events().all();
+
+    // Verify the cancelled event exists with the correct topic and data payload.
+    // Payload: (caller, previous_status, timestamp)
+    let has_event = events.iter().any(|event| {
+        let topics_ok = event.1.len() >= 2
+            && Symbol::try_from_val(&env, &event.1.get(0).unwrap())
+                .ok()
+                .as_ref()
+                == Some(&cancelled_topic)
+            && event.1.get(1).ok() == Some(soroban_sdk::Val::from_u32(id));
+
+        if !topics_ok {
+            return false;
+        }
+
+        // event.2 wraps the tuple (caller, previous_status, timestamp) as ScVec.
+        let data: soroban_sdk::Vec<soroban_sdk::Val> =
+            soroban_sdk::TryFromVal::try_from_val(&env, &event.2).unwrap_or_else(|_| {
+                soroban_sdk::Vec::new(&env)
+            });
+        data.len() == 3
+            && data.get(0).unwrap() == soroban_sdk::Val::from(client_addr.clone())
+            && data.get(1).unwrap() == soroban_sdk::Val::from_u32(ContractStatus::Created as u32)
+    });
+    assert!(
+        has_event,
+        "Expected cancelled event with (caller, Created, timestamp)"
+    );
+}
+
+/// Assert that cancelling a PartiallyFunded contract emits the cancelled event
+/// with previous_status = PartiallyFunded.
+#[test]
+fn cancel_partially_funded_emits_event_with_partially_funded_status() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    assert!(client.initialize(&admin));
+
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(token_admin);
+    client.set_settlement_token(&admin, &token);
+
+    let client_addr = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let milestones = vec![&env, 100_i128, 200_i128];
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer,
+        &None,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    // Partial deposit to put the contract in PartiallyFunded state.
+    // Total milestones = 300, deposit only 100.
+    let sac = StellarAssetClient::new(&env, &token);
+    sac.mint(&client_addr, &10_000_0000000_i128);
+    assert!(client.deposit_funds(&id, &client_addr, &100_i128));
+    assert_eq!(client.get_contract(&id).status, ContractStatus::PartiallyFunded);
+
+    assert!(client.cancel_contract(&id, &client_addr));
+
+    let cancelled_topic = symbol_short!("cancelled");
+    let events = env.events().all();
+
+    let has_event = events.iter().any(|event| {
+        let topics_ok = event.1.len() >= 2
+            && Symbol::try_from_val(&env, &event.1.get(0).unwrap())
+                .ok()
+                .as_ref()
+                == Some(&cancelled_topic)
+            && event.1.get(1).ok() == Some(soroban_sdk::Val::from_u32(id));
+
+        if !topics_ok {
+            return false;
+        }
+
+        let data: soroban_sdk::Vec<soroban_sdk::Val> =
+            soroban_sdk::TryFromVal::try_from_val(&env, &event.2).unwrap_or_else(|_| {
+                soroban_sdk::Vec::new(&env)
+            });
+        data.len() == 3
+            && data.get(0).unwrap() == soroban_sdk::Val::from(client_addr.clone())
+            && data.get(1).unwrap() == soroban_sdk::Val::from_u32(ContractStatus::PartiallyFunded as u32)
+    });
+    assert!(
+        has_event,
+        "Expected cancelled event with (caller, PartiallyFunded, timestamp)"
+    );
 }
 
 // --- issue_reputation ---
