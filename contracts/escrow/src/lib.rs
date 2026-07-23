@@ -711,7 +711,7 @@ impl Escrow {
         // Verify contract is in Funded state before release (deposit transitions
         // Created → Funded when fully funded, so release must accept Funded).
         if contract.status != ContractStatus::Funded {
-            env.panic_with_error(Error::InvalidState);
+            env.panic_with_error(EscrowError::InvalidState);
         }
 
         // Check caller is authorized for this release authorization mode
@@ -742,13 +742,8 @@ impl Escrow {
             }
         }
 
-        let mut milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
-
-        if milestone_index >= milestones.len() {
-            env.panic_with_error(Error::IndexOutOfBounds);
-        }
-
-        let mut milestone = milestones.get(milestone_index).unwrap().clone();
+        let milestone = Self::require_milestone(&env, contract_id, milestone_index)
+            .unwrap_or_else(|e| env.panic_with_error(e));
 
         if milestone.released {
             env.panic_with_error(Error::MilestoneAlreadyReleased);
@@ -762,29 +757,8 @@ impl Escrow {
         approvals::check_approvals(&env, &contract, contract_id, milestone_index)
             .unwrap_or_else(|e| env.panic_with_error(e));
 
-        let milestone_key = Symbol::new(&env, "milestones");
-        let mut milestones: Vec<Milestone> = env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key.clone()))
-            .unwrap();
-
-        // Extend TTL on milestone read
-        ttl::extend_milestone_ttl(&env, contract_id);
-
-        if milestone_index >= milestones.len() {
-            env.panic_with_error(Error::IndexOutOfBounds);
-        }
-
+        let mut milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
         let mut milestone = milestones.get(milestone_index).unwrap().clone();
-
-        if milestone.released {
-            env.panic_with_error(Error::MilestoneAlreadyReleased);
-        }
-
-        if milestone.refunded {
-            env.panic_with_error(Error::AlreadyRefunded);
-        }
 
         // Check contract-level funding (per-milestone funded_amount is set after
         // release, so we check the aggregate contract balance here).
@@ -879,7 +853,6 @@ impl Escrow {
         // Check if all milestones are released or refunded; if so, complete.
         let all_released = milestones.iter().all(|m| m.released || m.refunded);
         if all_released {
-            let old_status = contract.status.clone();
             contract.status = ContractStatus::Completed;
             Self::grant_pending_reputation_credit(&env, &contract.freelancer);
         }
@@ -955,30 +928,10 @@ impl Escrow {
     /// Uses `now_seconds(&env)` which is the single source of truth for ledger time.
     /// Time cannot be manipulated by contract callers.
     pub fn is_milestone_overdue(env: Env, contract_id: u32, milestone_index: u32) -> bool {
-        let contract: Contract = match env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-        {
-            Some(c) => c,
-            None => return false, // Contract not found, not overdue
+        let milestone = match Self::require_milestone(&env, contract_id, milestone_index) {
+            Ok(m) => m,
+            Err(_) => return false,
         };
-
-        let milestone_key = Symbol::new(&env, "milestones");
-        let milestones: Vec<Milestone> = match env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
-        {
-            Some(m) => m,
-            None => return false, // No milestones, not overdue
-        };
-
-        if milestone_index >= milestones.len() {
-            return false; // Index out of bounds, not overdue
-        }
-
-        let milestone = milestones.get(milestone_index).unwrap();
 
         // Return false if already released
         if milestone.released {
@@ -1064,11 +1017,8 @@ impl Escrow {
 
         // Validate all milestones first
         for idx in milestone_indices.iter() {
-            if idx >= milestones.len() {
-                env.panic_with_error(Error::IndexOutOfBounds);
-            }
-
-            let milestone = milestones.get(idx).unwrap();
+            let milestone = Self::require_milestone(&env, contract_id, idx)
+                .unwrap_or_else(|e| env.panic_with_error(e));
 
             // SECURITY: Check if milestone is already released
             if milestone.released {
@@ -1081,7 +1031,7 @@ impl Escrow {
             }
 
             // SECURITY: Check timeout refund conditions - milestone must be overdue if deadline is set
-            if let Some(deadline) = milestone.deadline {
+            if milestone.deadline.is_some() {
                 // Milestone has a deadline - check if it's overdue
                 if !Self::is_milestone_overdue(env.clone(), contract_id, idx) {
                     // Deadline set but milestone not yet overdue
@@ -1347,14 +1297,12 @@ impl Escrow {
     /// Extends the milestones vector TTL on a successful read, consistent with
     /// `get_milestones`. Auth-free and otherwise non-mutating.
     pub fn get_milestone(env: Env, contract_id: u32, milestone_index: u32) -> Option<Milestone> {
-        let milestone_key = Symbol::new(&env, "milestones");
-        let milestones: Vec<Milestone> = env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
-        ttl::extend_milestone_ttl(&env, contract_id);
-        milestones.get(milestone_index)
+        match Self::require_milestone(&env, contract_id, milestone_index) {
+            Ok(m) => Some(m),
+            Err(Error::IndexOutOfBounds) => None,
+            Err(Error::ContractNotFound) => env.panic_with_error(EscrowError::ContractNotFound),
+            Err(e) => env.panic_with_error(e),
+        }
     }
 
     /// Returns funded minus released minus refunded for `contract_id`.
@@ -1885,20 +1833,11 @@ impl Escrow {
             env.panic_with_error(Error::EvidenceTooLong);
         }
 
-        let milestone_key = Symbol::new(&env, "milestones");
-        let mut milestones: Vec<Milestone> = env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key.clone()))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
-
-        ttl::extend_milestone_ttl(&env, contract_id);
-
-        if milestone_index >= milestones.len() {
-            env.panic_with_error(Error::IndexOutOfBounds);
-        }
-
-        let mut milestone = milestones.get(milestone_index).unwrap();
+        let mut milestone = Self::require_milestone(&env, contract_id, milestone_index)
+            .unwrap_or_else(|e| match e {
+                Error::ContractNotFound => env.panic_with_error(EscrowError::ContractNotFound),
+                _ => env.panic_with_error(e),
+            });
 
         if milestone.released {
             env.panic_with_error(Error::MilestoneAlreadyReleased);
@@ -1908,6 +1847,7 @@ impl Escrow {
         }
 
         milestone.work_evidence = Some(evidence.clone());
+        let mut milestones = ttl::load_milestones(&env, contract_id);
         milestones.set(milestone_index, milestone);
 
         ttl::store_milestones(&env, contract_id, &milestones);
@@ -1945,20 +1885,11 @@ impl Escrow {
     /// Extends the milestones vector's persistent TTL on read,
     /// consistent with `get_milestones`.
     pub fn get_work_evidence(env: Env, contract_id: u32, milestone_index: u32) -> Option<String> {
-        let milestone_key = Symbol::new(&env, "milestones");
-        let milestones: Vec<Milestone> = env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
-
-        ttl::extend_milestone_ttl(&env, contract_id);
-
-        if milestone_index >= milestones.len() {
-            return None;
+        match Self::require_milestone(&env, contract_id, milestone_index) {
+            Ok(m) => m.work_evidence,
+            Err(Error::IndexOutOfBounds) => None,
+            Err(e) => env.panic_with_error(e),
         }
-
-        milestones.get(milestone_index).unwrap().work_evidence
     }
 
     // -----------------------------------------------------------------------
@@ -2128,6 +2059,34 @@ impl Escrow {
     }
 
     // ── Internal guards ──────────────────────────────────────────────────────
+
+    /// Internal helper to load and validate a milestone by contract ID and index.
+    ///
+    /// Extends milestone persistent TTL on read.
+    ///
+    /// # Returns
+    /// * `Ok(Milestone)` - If contract exists and `milestone_index` is in bounds
+    /// * `Err(Error::ContractNotFound)` - If contract ID does not exist in storage
+    /// * `Err(Error::IndexOutOfBounds)` - If `milestone_index` is out of bounds
+    pub(crate) fn require_milestone(
+        env: &Env,
+        contract_id: u32,
+        milestone_index: u32,
+    ) -> Result<Milestone, Error> {
+        let milestones: Vec<Milestone> = env
+            .storage()
+            .persistent()
+            .get(&ttl::milestone_storage_key(env, contract_id))
+            .ok_or(Error::ContractNotFound)?;
+
+        ttl::extend_milestone_ttl(env, contract_id);
+
+        if milestone_index >= milestones.len() {
+            return Err(Error::IndexOutOfBounds);
+        }
+
+        Ok(milestones.get(milestone_index).unwrap())
+    }
 
     /// Panics with `NotInitialized` unless `initialize` has been called.
     pub(crate) fn require_initialized(env: &Env) {
