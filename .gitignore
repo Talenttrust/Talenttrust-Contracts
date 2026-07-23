@@ -19,3 +19,8 @@ lcov.info
 # Transient PR drafting artifacts
 PR_DESCRIPTION.md
 PULL_REQUEST.md
+
+# workspace files
+AGENTS.md
+agents.mmd
+.config/opencode/
