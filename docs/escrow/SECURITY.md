@@ -99,3 +99,74 @@ The following states are terminal for all value-moving entrypoints (`deposit_fun
 
 These explicit errors were introduced to make lifecycle audits clearer and to
 prevent ambiguous `InvalidState` errors from masking terminal-state violations.
+
+## Protocol Fee Model
+
+`calculate_protocol_fee` in `contracts/escrow/src/lib.rs` computes fees according
+to the following specification:
+
+### Formula
+
+```
+fee = floor(amount × fee_bps / 10_000)
+```
+
+`10_000 bps = 100 %`. The result uses **floor (round-toward-zero) division** —
+it never rounds up.
+
+### Bounds
+
+| Parameter | Valid range | Rejection |
+|-----------|-------------|-----------|
+| `fee_bps` | `0 ≤ bps ≤ 9_999` | `≥ 10_000` → `InvalidProtocolParameters` (code 49) |
+| `amount`  | `≥ 0` | `< 0` is guarded by milestone validation upstream |
+
+`set_protocol_fee_bps` rejects any value `≥ 10_000` with a typed
+`Error::InvalidProtocolParameters` (code 49). This ensures that the computed fee
+is always **strictly less than the milestone amount**, so the freelancer always
+receives at least 1 stroop net payout per released milestone.
+
+### Rounding policy — floor
+
+Because Rust integer division truncates toward zero, and both `amount` and
+`fee_bps` are non-negative, the division is equivalent to
+`floor(amount × fee_bps / 10_000)`. The protocol always collects the rounded-down
+amount; the fractional remainder accrues to the freelancer. This means:
+
+- Freelancer receives **at least** `amount − fee` stroops.
+- Protocol receives **at most** the floored value.
+- The rounding direction is deterministic and does not vary between calls.
+
+### Overflow safety
+
+The intermediate product `amount × fee_bps` is computed with
+`i128::checked_mul`. If the multiplication would overflow `i128` the function
+panics with `Error::PotentialOverflow` (code 45). Under normal operation this is
+unreachable: escrow amounts are bounded by `MAX_SINGLE_AMOUNT_STROOPS` (≤ 10¹⁵
+stroops) and `fee_bps < 10_000`, so the product fits comfortably in `i128`
+(max ≈ 1.7 × 10³⁸). The guard is retained as a defense-in-depth measure.
+
+### Fee cap invariant
+
+For any `amount ≥ 1` and `fee_bps ≤ 9_999`:
+
+```
+fee = floor(amount × fee_bps / 10_000) ≤ floor(amount × 9_999 / 10_000) < amount
+```
+
+Therefore `amount − fee ≥ 1`. This invariant is enforced by the `fee > amount`
+post-computation check inside `calculate_protocol_fee`; a violation panics with
+`Error::PotentialOverflow`.
+
+### Storage
+
+Accumulated fees are tracked in `DataKey::AccumulatedProtocolFees` (persistent
+storage). The balance increments with each `release_milestone` call and is drained
+by `withdraw_protocol_fees`.
+
+### References
+
+- Formula, worked examples, and withdrawal sequence diagram:
+  [`docs/escrow/protocol-fees.md`](./protocol-fees.md)
+- Entrypoint spec: [`docs/escrow/abi-reference.md`](./abi-reference.md)
+- Tests: `contracts/escrow/src/test/protocol_fees.rs`

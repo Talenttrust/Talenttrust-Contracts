@@ -20,6 +20,7 @@ mod input_sanitization_identities;
 mod mainnet_readiness;
 mod pause_controls;
 mod persistence;
+mod protocol_fees;
 mod refund;
 mod release;
 mod release_authorization;

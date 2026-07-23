@@ -2096,35 +2096,95 @@ impl Escrow {
 
     /// Computes the protocol fee for a given `amount` at `fee_bps` basis points.
     ///
-    /// Uses integer **floor division**: `fee = amount * fee_bps / 10_000`.
-    /// The result always rounds down — it never rounds up — so the freelancer
-    /// receives at least `amount - fee` stroops and the protocol receives at most
-    /// the floored value.  Callers must ensure `fee <= amount` holds; this is
-    /// guaranteed for any `fee_bps` in `[0, 10_000]` and a non-negative `amount`.
+    /// ## Formula
     ///
-    /// # Basis-point unit
-    /// `10_000 bps = 100%`. The maximum configurable rate is `10_000`. A rate of
-    /// `0` is the default and disables fee collection entirely.
+    /// ```text
+    /// fee = floor(amount × fee_bps / 10_000)
+    /// ```
+    ///
+    /// ## Rounding policy — floor (round-toward-zero)
+    ///
+    /// Integer division in Rust truncates toward zero, which for non-negative
+    /// `amount` and `fee_bps` is equivalent to floor rounding.  The result
+    /// always rounds **down**; it never rounds up.  Concretely:
+    ///
+    /// * `calculate_protocol_fee(1_001, 250)` → `25` (floor of 25.025)
+    /// * `calculate_protocol_fee(9, 1_000)` → `0`  (floor of 0.9)
+    ///
+    /// ## Fee cap guarantee
+    ///
+    /// Because `set_protocol_fee_bps` enforces `fee_bps < 10_000`, the
+    /// computed fee is **strictly less than `amount`** for any positive `amount`.
+    /// Even at the maximum permitted rate of `9_999 bps`, the fee is at most
+    /// `floor(amount × 9_999 / 10_000) < amount`, so the net payout
+    /// `amount − fee` is always ≥ `1` stroop for `amount ≥ 1`.
+    ///
+    /// ## Basis-point unit
+    ///
+    /// `10_000 bps = 100 %`. The maximum **settable** rate (see
+    /// [`set_protocol_fee_bps`](Self::set_protocol_fee_bps)) is `9_999 bps`
+    /// (`99.99 %`). A rate of `0` is the default and disables fee collection
+    /// entirely.
     ///
     /// See [`docs/escrow/protocol-fees.md`](../../../docs/escrow/protocol-fees.md) for
-    /// the full formula, rounding rules, worked numeric examples, and the sequence
-    /// diagram from release through treasury withdrawal.
+    /// the full formula, rounding rules, worked numeric examples, and the
+    /// sequence diagram from release through treasury withdrawal.
     ///
-    /// # Short-circuit
+    /// ## Short-circuit
+    ///
     /// Returns `0` immediately when `fee_bps == 0`, skipping the multiplication.
     ///
-    /// # Panics
-    /// Panics with `PotentialOverflow` (error code 28) if `amount * fee_bps`
-    /// overflows `i128`.  Callers should keep `amount` well below `i128::MAX /
-    /// fee_bps` to avoid this guard.
+    /// ## Overflow safety
+    ///
+    /// The intermediate product `amount × fee_bps` is computed with
+    /// [`i128::checked_mul`].  If the multiplication would overflow `i128` the
+    /// function panics with [`Error::PotentialOverflow`] (code `45`).  Under
+    /// normal operation this guard is never reached because `amount` is bounded
+    /// by `MAX_SINGLE_AMOUNT_STROOPS` (`≤ 10^15`) and `fee_bps < 10_000`, so
+    /// the product is at most `~10^19`, which fits comfortably in `i128`
+    /// (max `~1.7 × 10^38`).
+    ///
+    /// ## Arguments
+    ///
+    /// * `env`     – The Soroban execution environment (used for panic-with-error).
+    /// * `amount`  – Gross milestone amount in stroops; must be non-negative.
+    /// * `fee_bps` – Protocol fee rate in basis points; must be `< 10_000`.
+    ///
+    /// ## Returns
+    ///
+    /// The floored protocol fee in stroops; always `≤ amount`.
+    ///
+    /// ## Errors / panics
+    ///
+    /// * [`Error::PotentialOverflow`] (code `45`) — `amount × fee_bps` overflows
+    ///   `i128`.
     pub fn calculate_protocol_fee(env: &Env, amount: i128, fee_bps: u32) -> i128 {
         if fee_bps == 0 {
             return 0;
         }
+
+        // Overflow-safe intermediate product.  For amounts bounded by
+        // MAX_SINGLE_AMOUNT_STROOPS (≤ 10^15) and fee_bps < 10_000, the product
+        // fits easily in i128 (max ~1.7×10^38).  The guard is retained as a
+        // defense-in-depth measure against future callers that bypass the normal
+        // validation path.
         let product = amount
             .checked_mul(fee_bps as i128)
             .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-        product / 10_000
+
+        // Floor division: Rust integer division truncates toward zero, which for
+        // non-negative operands is identical to floor-toward-negative-infinity.
+        // The result is always ≤ amount because fee_bps < 10_000.
+        let fee = product / 10_000;
+
+        // Invariant: fee must never exceed the gross amount.
+        // Under normal operation (fee_bps < 10_000, amount ≥ 0) this always
+        // holds.  The check is a last-resort safety net that should never fire.
+        if fee > amount {
+            env.panic_with_error(Error::PotentialOverflow);
+        }
+
+        fee
     }
 
     // ── Internal guards ──────────────────────────────────────────────────────
