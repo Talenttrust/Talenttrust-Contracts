@@ -477,6 +477,86 @@ fn test_client_and_arbiter_approval_expires_after_ttl() {
 }
 
 #[test]
+fn test_arbiter_only_approval_valid_at_exactly_ttl_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones(&env),
+        &ReleaseAuthorization::ArbiterOnly,
+    );
+    assert!(client.deposit_funds(&contract_id, &client_addr, &total()));
+    assert!(client.approve_milestone_release(&contract_id, &arbiter_addr, &0));
+
+    advance_ledger(&env, &escrow_id, PENDING_APPROVAL_TTL_LEDGERS);
+
+    let approvals = client.get_milestone_approvals(&contract_id, &0);
+    assert!(
+        approvals.is_some(),
+        "arbiter approval should survive at exact TTL boundary"
+    );
+
+    advance_ledger(&env, &escrow_id, 1);
+
+    let approvals_expired = client.get_milestone_approvals(&contract_id, &0);
+    assert!(
+        approvals_expired.is_none(),
+        "arbiter approval expires one ledger past TTL"
+    );
+}
+
+#[test]
+fn test_client_and_arbiter_approval_valid_at_exactly_ttl_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones(&env),
+        &ReleaseAuthorization::ClientAndArbiter,
+    );
+    assert!(client.deposit_funds(&contract_id, &client_addr, &total()));
+    assert!(client.approve_milestone_release(&contract_id, &arbiter_addr, &0));
+
+    advance_ledger(&env, &escrow_id, PENDING_APPROVAL_TTL_LEDGERS);
+
+    let approvals = client.get_milestone_approvals(&contract_id, &0);
+    assert!(
+        approvals.is_some(),
+        "arbiter approval should survive at exact TTL boundary in ClientAndArbiter mode"
+    );
+
+    advance_ledger(&env, &escrow_id, 1);
+
+    let approvals_expired = client.get_milestone_approvals(&contract_id, &0);
+    assert!(
+        approvals_expired.is_none(),
+        "arbiter approval expires one ledger past TTL in ClientAndArbiter mode"
+    );
+}
+
+#[test]
 fn test_multisig_one_approval_expires_before_second_arrives() {
     let env = Env::default();
     env.mock_all_auths();

@@ -688,6 +688,67 @@ fn raise_dispute_after_settle_is_rejected() {
     );
 }
 
+/// The assigned arbiter cannot resolve a dispute when the contract is not in
+/// `Disputed` state; the status guard must fire first and return
+/// `InvalidStatusTransition`.
+#[test]
+fn resolve_dispute_by_arbiter_when_not_disputed_is_rejected() {
+    let env = make_env();
+    let client = make_client(&env);
+    let milestones = vec![&env, 100_i128];
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr),
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    assert!(client.deposit_funds(&contract_id, &client_addr, &100_i128));
+    assert_eq!(
+        client.get_contract(&contract_id).status,
+        ContractStatus::Funded
+    );
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        Error::InvalidStatusTransition,
+    );
+}
+
+/// Raising a dispute on a contract that is already `Disputed` is rejected with
+/// `InvalidState`. The first successful raise must emit the `dispute opened`
+/// event; the second attempt must fail without changing state.
+#[test]
+fn raise_dispute_when_already_disputed_is_rejected() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (client_addr, _, _, contract_id) = funded_contract_with_arbiter(&env, &client);
+
+    assert!(client.raise_dispute(&contract_id, &client_addr));
+    assert_eq!(
+        client.get_contract(&contract_id).status,
+        ContractStatus::Disputed
+    );
+
+    let events = env.events().all();
+    assert!(
+        events.iter().any(|event| event.0 == symbol_short!("dispute")),
+        "expected dispute opened event after first raise"
+    );
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&contract_id, &client_addr),
+        Error::InvalidState,
+    );
+    assert_eq!(
+        client.get_contract(&contract_id).status,
+        ContractStatus::Disputed
+    );
+}
+
 /// Resolving a dispute moves funds: FullPayout sets released_amount and marks
 /// Completed; FullRefund sets refunded_amount and marks Refunded. Verify that
 /// the accounting is correct after each resolution type.
