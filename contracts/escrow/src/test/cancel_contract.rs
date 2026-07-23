@@ -4,7 +4,7 @@ use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events as _},
     token::{Client as TokenClient, StellarAssetClient},
-    vec, Address, Env, Symbol,
+    vec, Address, Env, Symbol, TryFromVal,
 };
 
 use crate::{ContractStatus, Error, Escrow, EscrowClient, ReleaseAuthorization};

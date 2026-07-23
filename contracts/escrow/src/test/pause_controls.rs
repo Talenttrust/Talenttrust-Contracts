@@ -15,7 +15,7 @@ use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events as _},
     token::StellarAssetClient,
-    vec, Address, Env, String, Symbol,
+    vec, Address, Env, String, Symbol, TryFromVal,
 };
 
 // --- helpers ---
