@@ -406,7 +406,7 @@ fn resolve_full_refund_conserves_and_marks_refunded() {
 #[test]
 fn resolve_full_payout_conserves_and_marks_completed() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, _) = make_client(&env);
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
     let arbiter_addr = Address::generate(&env);
@@ -437,7 +437,7 @@ fn resolve_full_payout_conserves_and_marks_completed() {
 #[test]
 fn resolve_partial_refund_conserves_70_30_split() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, _) = make_client(&env);
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
     let arbiter_addr = Address::generate(&env);
@@ -466,7 +466,7 @@ fn resolve_partial_refund_conserves_70_30_split() {
 #[test]
 fn resolve_split_conserves_custom_amounts() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, _) = make_client(&env);
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
     let arbiter_addr = Address::generate(&env);
