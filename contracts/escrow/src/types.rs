@@ -323,6 +323,45 @@ pub struct Reputation {
     pub last_rating: i128,
 }
 
+/// A read-only, combined view of a freelancer's reputation state.
+///
+/// Aggregates all reputation-related fields into a single O(1) read so callers
+/// do not need to assemble the picture from multiple storage keys.
+///
+/// When no reputation record has been written yet every numeric field is `0`
+/// and `average_rating_bps` is `0` (rather than panicking or returning `None`).
+///
+/// # Fields
+/// * `completed_contracts`  — total contracts for which reputation was issued
+/// * `total_rating`         — sum of all ratings (1–5 per contract)
+/// * `last_rating`          — most-recent rating value, or `0` if none
+/// * `average_rating_bps`   — `total_rating × 10_000 / completed_contracts`,
+///                            or `0` when `completed_contracts == 0`
+/// * `pending_credits`      — contracts completed but not yet rated
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReputationView {
+    pub completed_contracts: i128,
+    pub total_rating: i128,
+    pub last_rating: i128,
+    /// Average rating scaled to basis points (×10 000).
+    /// `0` when `completed_contracts == 0`.
+    pub average_rating_bps: i128,
+    pub pending_credits: i128,
+}
+
+impl Default for ReputationView {
+    fn default() -> Self {
+        ReputationView {
+            completed_contracts: 0,
+            total_rating: 0,
+            last_rating: 0,
+            average_rating_bps: 0,
+            pending_credits: 0,
+        }
+    }
+}
+
 // ── Dispute Resolution ───────────────────────────────────────────────────────
 
 #[contracttype]

@@ -83,7 +83,7 @@ pub use types::{
     Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode,
     DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
     MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    ReputationView, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -1779,6 +1779,59 @@ impl Escrow {
         env.storage()
             .persistent()
             .get(&DataKey::Reputation(address))
+    }
+
+    /// Returns a combined, read-only view of the reputation state for `address`.
+    ///
+    /// This is an O(1) read — it reuses stored values and never recomputes or
+    /// mutates storage. When no reputation record has been written yet, every
+    /// field defaults to `0` rather than panicking.
+    ///
+    /// # Fields
+    /// * `completed_contracts`  — total contracts for which reputation was issued
+    /// * `total_rating`         — sum of all individual ratings (1–5 per contract)
+    /// * `last_rating`          — most-recent rating value, or `0` if none
+    /// * `average_rating_bps`   — `total_rating × 10_000 / completed_contracts`,
+    ///                            or `0` when no contracts have been rated
+    /// * `pending_credits`      — completed contracts not yet rated
+    ///
+    /// # Example
+    /// ```text
+    /// // 2 completed contracts rated 4 and 5 → average = 4.5 → 45_000 bps
+    /// let view = get_reputation_view(env, freelancer);
+    /// assert_eq!(view.average_rating_bps, 45_000);
+    /// ```
+    pub fn get_reputation_view(env: Env, address: Address) -> types::ReputationView {
+        const SCALE: i128 = 10_000;
+
+        let rep: types::Reputation = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Reputation(address.clone()))
+            .unwrap_or_default();
+
+        let pending_credits: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingReputationCredits(address))
+            .unwrap_or(0);
+
+        let average_rating_bps = if rep.completed_contracts > 0 {
+            rep.total_rating
+                .checked_mul(SCALE)
+                .and_then(|scaled| scaled.checked_div(rep.completed_contracts))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        types::ReputationView {
+            completed_contracts: rep.completed_contracts,
+            total_rating: rep.total_rating,
+            last_rating: rep.last_rating,
+            average_rating_bps,
+            pending_credits,
+        }
     }
 
     /// Returns the freelancer's average rating scaled to basis points (×10 000),

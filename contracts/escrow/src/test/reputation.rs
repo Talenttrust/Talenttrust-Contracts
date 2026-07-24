@@ -328,3 +328,247 @@ fn get_average_rating_fractional_average_is_preserved() {
     // total_rating=3, completed_contracts=2 → 3 * 10_000 / 2 = 15_000
     assert_eq!(client.get_average_rating(&freelancer_addr), Some(15_000));
 }
+
+// ---------------------------------------------------------------------------
+// get_reputation_view tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn get_reputation_view_returns_all_zero_defaults_for_unknown_address() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let unknown = Address::generate(&env);
+
+    let view = client.get_reputation_view(&unknown);
+    assert_eq!(view.completed_contracts, 0);
+    assert_eq!(view.total_rating, 0);
+    assert_eq!(view.last_rating, 0);
+    assert_eq!(view.average_rating_bps, 0);
+    assert_eq!(view.pending_credits, 0);
+}
+
+#[test]
+fn get_reputation_view_pending_credits_before_rating() {
+    // After completing a contract but before issuing reputation,
+    // pending_credits should be 1 and rated fields should be 0.
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let freelancer = Address::generate(&env);
+    let client_addr = Address::generate(&env);
+
+    complete_contract_for(&env, &client, &client_addr, &freelancer);
+
+    let view = client.get_reputation_view(&freelancer);
+    assert_eq!(view.completed_contracts, 0);
+    assert_eq!(view.total_rating, 0);
+    assert_eq!(view.last_rating, 0);
+    assert_eq!(view.average_rating_bps, 0);
+    assert_eq!(view.pending_credits, 1);
+}
+
+#[test]
+fn get_reputation_view_after_single_rating() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
+
+    client.issue_reputation(&contract_id, &client_addr, &5, &valid_comment(&env));
+
+    let view = client.get_reputation_view(&freelancer_addr);
+    assert_eq!(view.completed_contracts, 1);
+    assert_eq!(view.total_rating, 5);
+    assert_eq!(view.last_rating, 5);
+    // 5 * 10_000 / 1 = 50_000
+    assert_eq!(view.average_rating_bps, 50_000);
+    assert_eq!(view.pending_credits, 0);
+}
+
+#[test]
+fn get_reputation_view_average_bps_matches_get_average_rating() {
+    // Ensure the embedded average in the view is consistent with the
+    // standalone get_average_rating function.
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
+
+    client.issue_reputation(&contract_id, &client_addr, &4, &valid_comment(&env));
+
+    let view = client.get_reputation_view(&freelancer_addr);
+    let standalone = client.get_average_rating(&freelancer_addr);
+    assert_eq!(Some(view.average_rating_bps), standalone);
+}
+
+#[test]
+fn get_reputation_view_after_multiple_ratings() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let freelancer = Address::generate(&env);
+    let c1 = Address::generate(&env);
+    let c2 = Address::generate(&env);
+    let c3 = Address::generate(&env);
+
+    let id1 = complete_contract_for(&env, &client, &c1, &freelancer);
+    let id2 = complete_contract_for(&env, &client, &c2, &freelancer);
+    let id3 = complete_contract_for(&env, &client, &c3, &freelancer);
+
+    client.issue_reputation(&id1, &c1, &3, &valid_comment(&env));
+    client.issue_reputation(&id2, &c2, &4, &valid_comment(&env));
+    client.issue_reputation(&id3, &c3, &5, &valid_comment(&env));
+
+    let view = client.get_reputation_view(&freelancer);
+    assert_eq!(view.completed_contracts, 3);
+    assert_eq!(view.total_rating, 12);
+    assert_eq!(view.last_rating, 5);
+    // 12 * 10_000 / 3 = 40_000
+    assert_eq!(view.average_rating_bps, 40_000);
+    assert_eq!(view.pending_credits, 0);
+}
+
+#[test]
+fn get_reputation_view_pending_credits_count_multiple_unrated_contracts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let freelancer = Address::generate(&env);
+    let c1 = Address::generate(&env);
+    let c2 = Address::generate(&env);
+    let c3 = Address::generate(&env);
+
+    complete_contract_for(&env, &client, &c1, &freelancer);
+    complete_contract_for(&env, &client, &c2, &freelancer);
+    complete_contract_for(&env, &client, &c3, &freelancer);
+
+    let view = client.get_reputation_view(&freelancer);
+    assert_eq!(view.completed_contracts, 0);
+    assert_eq!(view.average_rating_bps, 0);
+    assert_eq!(view.pending_credits, 3);
+}
+
+#[test]
+fn get_reputation_view_fractional_average_preserved_in_bps() {
+    // Ratings 1 and 2 → average 1.5 → 15_000 bps
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let freelancer = Address::generate(&env);
+    let c1 = Address::generate(&env);
+    let c2 = Address::generate(&env);
+
+    let id1 = complete_contract_for(&env, &client, &c1, &freelancer);
+    let id2 = complete_contract_for(&env, &client, &c2, &freelancer);
+
+    client.issue_reputation(&id1, &c1, &1, &valid_comment(&env));
+    client.issue_reputation(&id2, &c2, &2, &valid_comment(&env));
+
+    let view = client.get_reputation_view(&freelancer);
+    assert_eq!(view.average_rating_bps, 15_000);
+}
+
+#[test]
+fn get_reputation_view_minimum_rating_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
+
+    client.issue_reputation(&contract_id, &client_addr, &1, &valid_comment(&env));
+
+    let view = client.get_reputation_view(&freelancer_addr);
+    assert_eq!(view.last_rating, 1);
+    assert_eq!(view.average_rating_bps, 10_000);
+}
+
+#[test]
+fn get_reputation_view_maximum_rating_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
+
+    client.issue_reputation(&contract_id, &client_addr, &5, &valid_comment(&env));
+
+    let view = client.get_reputation_view(&freelancer_addr);
+    assert_eq!(view.last_rating, 5);
+    assert_eq!(view.average_rating_bps, 50_000);
+}
+
+#[test]
+fn get_reputation_view_is_read_only_does_not_mutate_state() {
+    // Calling get_reputation_view twice should return identical results.
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
+
+    client.issue_reputation(&contract_id, &client_addr, &4, &valid_comment(&env));
+
+    let view1 = client.get_reputation_view(&freelancer_addr);
+    let view2 = client.get_reputation_view(&freelancer_addr);
+    assert_eq!(view1, view2);
+}
+
+#[test]
+fn get_reputation_view_mixed_rated_and_pending() {
+    // 2 rated + 1 pending → pending_credits == 1, completed_contracts == 2
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let freelancer = Address::generate(&env);
+    let c1 = Address::generate(&env);
+    let c2 = Address::generate(&env);
+    let c3 = Address::generate(&env);
+
+    let id1 = complete_contract_for(&env, &client, &c1, &freelancer);
+    let id2 = complete_contract_for(&env, &client, &c2, &freelancer);
+    complete_contract_for(&env, &client, &c3, &freelancer); // unrated
+
+    client.issue_reputation(&id1, &c1, &5, &valid_comment(&env));
+    client.issue_reputation(&id2, &c2, &3, &valid_comment(&env));
+
+    let view = client.get_reputation_view(&freelancer);
+    assert_eq!(view.completed_contracts, 2);
+    assert_eq!(view.total_rating, 8);
+    assert_eq!(view.last_rating, 3);
+    // 8 * 10_000 / 2 = 40_000
+    assert_eq!(view.average_rating_bps, 40_000);
+    assert_eq!(view.pending_credits, 1);
+}
+
+#[test]
+fn get_reputation_view_distinct_addresses_are_independent() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let freelancer_a = Address::generate(&env);
+    let freelancer_b = Address::generate(&env);
+    let c1 = Address::generate(&env);
+    let c2 = Address::generate(&env);
+
+    let id1 = complete_contract_for(&env, &client, &c1, &freelancer_a);
+    let id2 = complete_contract_for(&env, &client, &c2, &freelancer_b);
+
+    client.issue_reputation(&id1, &c1, &5, &valid_comment(&env));
+    // freelancer_b has a pending credit but no rating
+
+    let view_a = client.get_reputation_view(&freelancer_a);
+    let view_b = client.get_reputation_view(&freelancer_b);
+
+    assert_eq!(view_a.completed_contracts, 1);
+    assert_eq!(view_a.average_rating_bps, 50_000);
+    assert_eq!(view_a.pending_credits, 0);
+
+    assert_eq!(view_b.completed_contracts, 0);
+    assert_eq!(view_b.average_rating_bps, 0);
+    assert_eq!(view_b.pending_credits, 1);
+    let _ = id2;
+}
