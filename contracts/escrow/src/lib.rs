@@ -580,6 +580,16 @@ impl Escrow {
         Self::get_pending_client_migration_impl(&env, contract_id)
     }
 
+    /// Cancel a live pending client migration.
+    ///
+    /// Canonical public entrypoint; delegates to `cancel_client_migration_impl`.
+    /// The current client must authorize the call and a live pending migration must exist.
+    /// Removes the pending migration entry and emits a `client_migration_cancelled` event.
+    pub fn cancel_client_migration(env: Env, contract_id: u32, current_client: Address) -> bool {
+        Self::require_not_paused(&env);
+        Self::cancel_client_migration_impl(&env, contract_id, current_client)
+    }
+
     /// Approves a milestone for release.
     ///
     /// Records the caller's approval in temporary storage with a TTL of

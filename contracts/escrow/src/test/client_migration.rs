@@ -574,3 +574,337 @@ fn pending_migration_expiry_matches_ttl_constant() {
         "requested_at_ledger must equal the ledger at proposal time"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test 11 – cancel_client_migration clears pending proposal
+// ---------------------------------------------------------------------------
+
+/// A successful cancellation by the current client must:
+///   1. Remove the `PendingClientMigration` record from temporary storage.
+///   2. Emit a `client_migration_cancelled` event.
+///   3. Allow a new proposal to be made immediately after cancellation.
+#[test]
+fn cancel_client_migration_clears_pending_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // Set max_entry_ttl high enough for the migration proposal.
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+    let new_client = Address::generate(&env);
+
+    // Propose a migration
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+    assert!(client.has_pending_client_migration(&id));
+
+    // Cancel the migration
+    assert!(client.cancel_client_migration(&id, &client_addr));
+
+    // Verify cancellation event was emitted
+    assert!(
+        has_event_with_topic(&env, &Symbol::new(&env, "client_migration_cancelled")),
+        "client_migration_cancelled event not found"
+    );
+
+    // Pending record must be cleared
+    assert!(
+        !client.has_pending_client_migration(&id),
+        "pending migration must be cleared after cancellation"
+    );
+
+    // A new proposal can now be made immediately
+    let new_client2 = Address::generate(&env);
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client2));
+    assert!(client.has_pending_client_migration(&id));
+
+    // Verify the new proposal has the correct proposed client
+    let pending: PendingClientMigration = client.get_pending_client_migration(&id);
+    assert_eq!(pending.proposed_client, new_client2);
+}
+
+// ---------------------------------------------------------------------------
+// Test 12 – cancel without pending migration fails with InvalidState
+// ---------------------------------------------------------------------------
+
+/// Attempting to cancel when no pending migration exists must fail with
+/// `InvalidState`.
+#[test]
+fn cancel_without_pending_migration_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+
+    // No proposal has been made, so cancel must fail
+    assert_contract_error(
+        client.try_cancel_client_migration(&id, &client_addr),
+        EscrowError::InvalidState,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 13 – only current client can cancel
+// ---------------------------------------------------------------------------
+
+/// Only the contract's current client may cancel a pending migration.
+/// Freelancer, proposed client, and third parties must be rejected with
+/// `UnauthorizedRole`.
+#[test]
+fn only_current_client_can_cancel_migration() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let (client_addr, freelancer_addr, id) = create_contract(&env, &client);
+    let new_client = Address::generate(&env);
+    let attacker = Address::generate(&env);
+
+    // Propose a migration
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+
+    // Freelancer cannot cancel
+    assert_contract_error(
+        client.try_cancel_client_migration(&id, &freelancer_addr),
+        EscrowError::UnauthorizedRole,
+    );
+
+    // Proposed client cannot cancel
+    assert_contract_error(
+        client.try_cancel_client_migration(&id, &new_client),
+        EscrowError::UnauthorizedRole,
+    );
+
+    // Random attacker cannot cancel
+    assert_contract_error(
+        client.try_cancel_client_migration(&id, &attacker),
+        EscrowError::UnauthorizedRole,
+    );
+
+    // Only the current client can cancel
+    assert!(client.cancel_client_migration(&id, &client_addr));
+}
+
+// ---------------------------------------------------------------------------
+// Test 14 – cancel then propose different client succeeds
+// ---------------------------------------------------------------------------
+
+/// After cancelling a migration, the client should be able to propose a
+/// different new client address.
+#[test]
+fn cancel_then_propose_different_client_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+    let wrong_client = Address::generate(&env);
+    let correct_client = Address::generate(&env);
+
+    // Propose the wrong client
+    assert!(client.propose_client_migration(&id, &client_addr, &wrong_client));
+
+    // Cancel the migration
+    assert!(client.cancel_client_migration(&id, &client_addr));
+
+    // Propose the correct client
+    assert!(client.propose_client_migration(&id, &client_addr, &correct_client));
+
+    // Verify the new proposal
+    let pending: PendingClientMigration = client.get_pending_client_migration(&id);
+    assert_eq!(pending.proposed_client, correct_client);
+}
+
+// ---------------------------------------------------------------------------
+// Test 15 – cancel after migration accepted fails
+// ---------------------------------------------------------------------------
+
+/// Once a migration has been accepted and the pending record cleared,
+/// attempting to cancel must fail with `InvalidState`.
+#[test]
+fn cancel_after_acceptance_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+    let new_client = Address::generate(&env);
+
+    // Propose and accept migration
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+    assert!(client.accept_client_migration(&id, &new_client));
+
+    // Attempting to cancel with the old client address must fail
+    assert_contract_error(
+        client.try_cancel_client_migration(&id, &client_addr),
+        EscrowError::InvalidState,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 16 – cancel on finalized contract fails
+// ---------------------------------------------------------------------------
+
+/// Attempting to cancel a migration on a finalized contract must fail.
+#[test]
+fn cancel_on_finalized_contract_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+    let new_client = Address::generate(&env);
+
+    // Propose a migration
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+
+    // Finalize the contract (inject Completed status then finalize)
+    let escrow_addr = client.address.clone();
+    set_escrow_status(&env, &escrow_addr, id, ContractStatus::Completed);
+    client.finalize_contract(&id, &client_addr);
+
+    // Attempting to cancel must fail
+    assert_contract_error(
+        client.try_cancel_client_migration(&id, &client_addr),
+        EscrowError::AlreadyFinalized,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 17 – double cancel fails
+// ---------------------------------------------------------------------------
+
+/// After a successful cancellation, attempting to cancel again must fail
+/// with `InvalidState` because no pending migration exists.
+#[test]
+fn double_cancel_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+    let new_client = Address::generate(&env);
+
+    // Propose and cancel
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+    assert!(client.cancel_client_migration(&id, &client_addr));
+
+    // Second cancel must fail
+    assert_contract_error(
+        client.try_cancel_client_migration(&id, &client_addr),
+        EscrowError::InvalidState,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 18 – cancel respects pause gate
+// ---------------------------------------------------------------------------
+
+/// When the contract is paused, attempting to cancel a migration must fail
+/// with `ContractPaused`.
+#[test]
+fn cancel_respects_pause_gate() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+    let new_client = Address::generate(&env);
+
+    // Propose a migration
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+
+    // Pause the contract
+    let admin = client.get_admin().unwrap();
+    client.set_paused(&admin, &true);
+
+    // Attempting to cancel must fail with ContractPaused
+    assert_contract_error(
+        client.try_cancel_client_migration(&id, &client_addr),
+        EscrowError::ContractPaused,
+    );
+}

@@ -49,30 +49,28 @@ enum DataKey {
 
 ### Public Methods
 
-1. **request_client_migration(env, contract_id, proposed_client) -> bool**
+1. **propose_client_migration(env, contract_id, current_client, new_client) -> bool**
    - Propose migration to new address
    - Requires current client authorization
    - Emits `client_migration_proposed` event
 
-2. **confirm_client_migration(env, contract_id) -> bool**
-   - Confirm migration by proposed client
+2. **accept_client_migration(env, contract_id, new_client) -> bool**
+   - Accept migration by proposed client
    - Requires proposed client authorization
-   - Emits `client_migration_confirmed` event
+   - Updates contract client address atomically
+   - Emits `client_migration_accepted` event
 
-3. **finalize_client_migration(env, contract_id) -> bool**
-   - Finalize migration (atomic update)
-   - Updates contract client address
-   - Emits `client_migration_finalized` event
-
-4. **cancel_client_migration(env, contract_id) -> bool**
+3. **cancel_client_migration(env, contract_id, current_client) -> bool**
    - Cancel pending migration
    - Requires current client authorization
+   - Removes pending migration entry
    - Emits `client_migration_cancelled` event
 
-5. **get_pending_client_migration(env, contract_id) -> PendingClientMigration**
+4. **get_pending_client_migration(env, contract_id) -> PendingClientMigration**
    - Get pending migration information
+   - Panics with `InvalidState` if no pending migration exists
 
-6. **has_pending_client_migration(env, contract_id) -> bool**
+5. **has_pending_client_migration(env, contract_id) -> bool**
    - Check if migration is pending
 
 ### Status Restrictions
@@ -95,24 +93,23 @@ Migration proposals expire after `PENDING_MIGRATION_TTL_LEDGERS` (defined in ttl
 
 All migration operations emit events with the following structure:
 - `client_migration_proposed`: (contract_id, current_client, proposed_client, timestamp)
-- `client_migration_confirmed`: (contract_id, current_client, proposed_client, timestamp)
-- `client_migration_finalized`: (contract_id, current_client, proposed_client, timestamp)
-- `client_migration_cancelled`: (contract_id, current_client, proposed_client, timestamp)
+- `client_migration_accepted`: (contract_id, old_client, new_client, timestamp)
+- `client_migration_cancelled`: (contract_id, current_client, timestamp)
 
-## Security Considerations
+### Security Considerations
 
 ### Authorization Model
 - **Proposal**: Only current client can initiate migration
-- **Confirmation**: Only proposed client can accept migration
+- **Acceptance**: Only proposed client can accept migration
 - **Cancellation**: Only current client can cancel migration
-- **Finalization**: No authorization required (public but requires confirmation)
 
 ### Attack Vectors Mitigated
 1. **Unauthorized Takeover**: Requires both current and proposed client authorization
-2. **Stale Proposals**: TTL-based expiration prevents indefinite pending migrations
-3. **Race Conditions**: Atomic finalization prevents partial state updates
+2. **Stale Proposals**: TTL-based expiration prevents indefinite pending migrations; alternatively, current client can cancel immediately
+3. **Race Conditions**: Atomic acceptance prevents partial state updates
 4. **Status Abuse**: Migration restricted to appropriate contract states
-5. **Duplicate Migrations**: Only one pending migration allowed per contract
+5. **Duplicate Migrations**: Only one pending migration allowed per contract (cancel previous to propose new one)
+6. **Wrong Address Proposals**: Current client can cancel and re-propose if wrong address was proposed
 
 ### Audit Trail
 All migration operations emit events providing:
@@ -152,21 +149,30 @@ The implementation includes comprehensive tests covering:
 
 ```rust
 // 1. Current client proposes migration
-client.request_client_migration(contract_id, new_client_address);
+client.propose_client_migration(contract_id, current_client_address, new_client_address);
 
 // 2. Check pending migration
 let pending = client.get_pending_client_migration(contract_id);
-assert!(!pending.proposed_client_confirmed);
+assert_eq!(pending.proposed_client, new_client_address);
 
-// 3. Proposed client confirms migration
-client.confirm_client_migration(contract_id);
+// 3. Option A: Proposed client accepts migration (atomic update)
+client.accept_client_migration(contract_id, new_client_address);
 
-// 4. Finalize migration (atomic update)
-client.finalize_client_migration(contract_id);
-
-// 5. Verify migration completed
+// Verify migration completed
 let contract = client.get_contract(contract_id);
 assert_eq!(contract.client, new_client_address);
+
+// --- OR ---
+
+// 3. Option B: Current client realizes wrong address and cancels
+client.cancel_client_migration(contract_id, current_client_address);
+
+// 4. Propose the correct address
+let correct_client = Address::generate(&env);
+client.propose_client_migration(contract_id, current_client_address, correct_client);
+
+// 5. Correct client accepts
+client.accept_client_migration(contract_id, correct_client);
 ```
 
 ## Error Handling

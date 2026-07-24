@@ -126,10 +126,62 @@ impl Escrow {
 
     /// Cancel a live pending client migration.
     ///
-    /// The current client must authorize the call, be the contract's client, and a live pending migration must exist.
-    /// The pending migration entry is removed and a `client_migration_cancelled` event is emitted.
-    pub fn cancel_client_migration(env: Env, contract_id: u32, current_client: Address) -> bool {
-        Self::require_not_paused(&env);
+    /// Allows the current client to revoke a previously proposed migration immediately,
+    /// rather than waiting for the 21-day `PENDING_MIGRATION_TTL_LEDGERS` to expire.
+    /// This is useful when the client realizes they proposed the wrong address or
+    /// changed their mind about the migration.
+    ///
+    /// # Requirements
+    /// - The current client must authorize the call with `require_auth()`.
+    /// - The caller must be the contract's current client.
+    /// - A live pending migration must exist (not expired).
+    /// - The contract must not be paused.
+    /// - The contract must not be finalized.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `contract_id` - The unique identifier of the contract.
+    /// * `current_client` - The address of the current client (must match contract.client).
+    ///
+    /// # Returns
+    /// `true` on successful cancellation.
+    ///
+    /// # Errors
+    /// * `ContractPaused` - If the contract is paused.
+    /// * `ContractNotFound` - If the contract doesn't exist.
+    /// * `AlreadyFinalized` - If the contract has been finalized.
+    /// * `UnauthorizedRole` - If the caller is not the contract's current client.
+    /// * `InvalidState` - If no live pending migration exists.
+    ///
+    /// # Events
+    /// Emits a `client_migration_cancelled` event with:
+    /// - Topics: `(Symbol "client_migration_cancelled", contract_id: u32)`
+    /// - Data: `(current_client: Address, timestamp: u64)`
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Client proposes wrong address
+    /// escrow.propose_client_migration(&env, 1, &client, &wrong_address);
+    ///
+    /// // Client realizes mistake and cancels
+    /// escrow.cancel_client_migration(&env, 1, &client);
+    ///
+    /// // Client proposes correct address
+    /// escrow.propose_client_migration(&env, 1, &client, &correct_address);
+    /// ```
+    ///
+    /// # Security
+    /// - Only the current client can cancel a migration (checked by comparing
+    ///   `current_client` against `contract.client`).
+    /// - Cancellation removes the pending migration entry immediately via
+    ///   `remove_transient`, allowing a new proposal to be made.
+    /// - Respects the pause gate to prevent mutations while the contract is frozen.
+    /// - Respects the finalization guard to prevent mutations after contract closure.
+    pub(crate) fn cancel_client_migration_impl(
+        env: &Env,
+        contract_id: u32,
+        current_client: Address,
+    ) -> bool {
         current_client.require_auth();
 
         let contract = Self::load_contract(&env, contract_id);
