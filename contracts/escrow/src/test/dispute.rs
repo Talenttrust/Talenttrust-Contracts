@@ -816,11 +816,896 @@ fn resolve_after_finalize_is_rejected() {
     let client = make_client(&env);
     let (client_addr, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
 
-    // Finalize the disputed contract.
     assert!(client.finalize_contract(&contract_id, &client_addr));
 
     super::assert_contract_error(
         client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
         Error::AlreadyFinalized,
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  RAISE_DISPUTE — FULL BOUNDARY AND REJECTION MATRIX
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Guard 1: NotInitialized ──────────────────────────────────────────────────
+
+#[test]
+fn raise_dispute_rejects_when_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let escrow_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow_id);
+    let caller = Address::generate(&env);
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&0_u32, &caller),
+        Error::NotInitialized,
+    );
+}
+
+// ── Guard 2: Pause / Emergency rails ─────────────────────────────────────────
+
+#[test]
+fn raise_dispute_rejects_when_paused() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (client_addr, _, arbiter_addr, contract_id) = funded_contract_with_arbiter(&env, &client);
+
+    client.pause();
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&contract_id, &client_addr),
+        Error::ContractPaused,
+    );
+    assert_eq!(
+        client.get_contract(&contract_id).status,
+        ContractStatus::Funded
+    );
+}
+
+#[test]
+fn raise_dispute_rejects_when_emergency_active() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (client_addr, _, arbiter_addr, contract_id) = funded_contract_with_arbiter(&env, &client);
+
+    client.activate_emergency_pause();
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&contract_id, &client_addr),
+        Error::EmergencyActive,
+    );
+    assert_eq!(
+        client.get_contract(&contract_id).status,
+        ContractStatus::Funded
+    );
+}
+
+// ── Guard 3: ContractNotFound ────────────────────────────────────────────────
+
+#[test]
+fn raise_dispute_rejects_unknown_contract_id() {
+    let env = make_env();
+    let client = make_client(&env);
+    let caller = Address::generate(&env);
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&999_u32, &caller),
+        Error::ContractNotFound,
+    );
+}
+
+// ── Guard 4: AlreadyFinalized ────────────────────────────────────────────────
+
+fn set_finalized(env: &Env, escrow_addr: &Address, contract_id: u32) {
+    use crate::types::DataKey;
+    env.as_contract(escrow_addr, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Finalization(contract_id), &true);
+    });
+}
+
+#[test]
+fn raise_dispute_rejects_when_finalized() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (client_addr, _, _, contract_id) = funded_contract_with_arbiter(&env, &client);
+
+    set_finalized(&env, &escrow, contract_id);
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&contract_id, &client_addr),
+        Error::AlreadyFinalized,
+    );
+}
+
+// ── Guard 5: UnauthorizedRole (not client nor freelancer) ────────────────────
+
+#[test]
+fn raise_dispute_rejects_arbiter_as_caller() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = funded_contract_with_arbiter(&env, &client);
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&contract_id, &arbiter_addr),
+        Error::UnauthorizedRole,
+    );
+    assert_eq!(
+        client.get_contract(&contract_id).status,
+        ContractStatus::Funded
+    );
+}
+
+#[test]
+fn raise_dispute_rejects_random_stranger_caller() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, _, contract_id) = funded_contract_with_arbiter(&env, &client);
+    let stranger = Address::generate(&env);
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&contract_id, &stranger),
+        Error::UnauthorizedRole,
+    );
+}
+
+// ── Guard 6: ArbiterRequired ─────────────────────────────────────────────────
+// (covered by raise_dispute_without_arbiter_is_rejected, retained for matrix)
+
+// ── Guard 7: InvalidState for every non-disputable status ────────────────────
+
+fn force_status(env: &Env, escrow_addr: &Address, contract_id: u32, status: ContractStatus) {
+    use crate::types::DataKey;
+    env.as_contract(escrow_addr, || {
+        let key = DataKey::Contract(contract_id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.status = status;
+        env.storage().persistent().set(&key, &contract);
+    });
+}
+
+#[test]
+fn raise_dispute_rejects_created_status() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let milestones = vec![&env, 100_i128];
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr),
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&contract_id, &client_addr),
+        Error::InvalidState,
+    );
+}
+
+#[test]
+fn raise_dispute_rejects_accepted_status() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (client_addr, _, arbiter_addr, contract_id) = funded_contract_with_arbiter(&env, &client);
+
+    force_status(&env, &escrow, contract_id, ContractStatus::Accepted);
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&contract_id, &client_addr),
+        Error::InvalidState,
+    );
+}
+
+#[test]
+fn raise_dispute_rejects_cancelled_status() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (client_addr, _, _, contract_id) = funded_contract_with_arbiter(&env, &client);
+
+    force_status(&env, &escrow, contract_id, ContractStatus::Cancelled);
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&contract_id, &client_addr),
+        Error::InvalidState,
+    );
+}
+
+#[test]
+fn raise_dispute_accepts_partially_funded_status() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let milestones = vec![&env, 50_i128, 50_i128];
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr),
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    client.deposit_funds(&contract_id, &client_addr, &50_i128);
+    assert_eq!(
+        client.get_contract(&contract_id).status,
+        ContractStatus::PartiallyFunded
+    );
+
+    assert!(client.raise_dispute(&contract_id, &client_addr));
+    assert_eq!(
+        client.get_contract(&contract_id).status,
+        ContractStatus::Disputed
+    );
+}
+
+// ── Event emission: exact topic pair + payload ───────────────────────────────
+
+fn has_dispute_event_exact(env: &Env, sub_topic: &str, expected_id: u32) -> bool {
+    use soroban_sdk::{Symbol, TryFromVal};
+    let sub = Symbol::new(env, sub_topic);
+    env.events().all().iter().any(|event| {
+        let topics = &event.1;
+        if topics.len() < 2 {
+            return false;
+        }
+        let t0 = Symbol::try_from_val(env, &topics.get(0).unwrap()).ok();
+        let t1 = Symbol::try_from_val(env, &topics.get(1).unwrap()).ok();
+        if t0.as_ref() != Some(&symbol_short!("dispute")) || t1.as_ref() != Some(&sub) {
+            return false;
+        }
+        let data = &event.2;
+        if data.len() < 2 {
+            return false;
+        }
+        let got_id: Option<u32> = data.get(0).and_then(|v| v.try_into_val(env).ok());
+        got_id == Some(expected_id)
+    })
+}
+
+#[test]
+fn raise_dispute_emits_dispute_opened_event_with_correct_payload() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (client_addr, _, _, contract_id) = funded_contract_with_arbiter(&env, &client);
+
+    assert!(client.raise_dispute(&contract_id, &client_addr));
+
+    assert!(
+        has_dispute_event_exact(&env, "opened", contract_id),
+        "expected (dispute, opened) event with matching contract_id"
+    );
+}
+
+#[test]
+fn raise_dispute_rejection_does_not_emit_event() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = funded_contract_with_arbiter(&env, &client);
+
+    super::assert_contract_error(
+        client.try_raise_dispute(&contract_id, &arbiter_addr),
+        Error::UnauthorizedRole,
+    );
+
+    let dispute_topic = symbol_short!("dispute");
+    let any_dispute = env.events().all().iter().any(|event| {
+        let topics = &event.1;
+        !topics.is_empty()
+            && soroban_sdk::Symbol::try_from_val(&env, &topics.get(0).unwrap())
+                .ok()
+                .as_ref()
+                == Some(&dispute_topic)
+    });
+    assert!(!any_dispute, "rejected raise must not publish any dispute event");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  RESOLVE_DISPUTE — FULL BOUNDARY AND REJECTION MATRIX
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Guard 1: NotInitialized ──────────────────────────────────────────────────
+
+#[test]
+fn resolve_dispute_rejects_when_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let escrow_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow_id);
+    let arbiter = Address::generate(&env);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&0_u32, &arbiter, &DisputeResolution::FullRefund),
+        Error::NotInitialized,
+    );
+}
+
+// ── Guard 2: Pause / Emergency rails ─────────────────────────────────────────
+
+#[test]
+fn resolve_dispute_rejects_when_paused() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    client.pause();
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        Error::ContractPaused,
+    );
+}
+
+#[test]
+fn resolve_dispute_rejects_when_emergency_active() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    client.activate_emergency_pause();
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        Error::EmergencyActive,
+    );
+}
+
+// ── Guard 3: ContractNotFound ────────────────────────────────────────────────
+
+#[test]
+fn resolve_dispute_rejects_unknown_contract_id() {
+    let env = make_env();
+    let client = make_client(&env);
+    let arbiter = Address::generate(&env);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&999_u32, &arbiter, &DisputeResolution::FullRefund),
+        Error::ContractNotFound,
+    );
+}
+
+// ── Guard 4: AlreadyFinalized ────────────────────────────────────────────────
+
+#[test]
+fn resolve_dispute_rejects_when_finalized() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    set_finalized(&env, &escrow, contract_id);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        Error::AlreadyFinalized,
+    );
+}
+
+// ── Guard 5: InvalidStatusTransition for every non-Disputed status ───────────
+
+#[test]
+fn resolve_dispute_rejects_created_status() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let milestones = vec![&env, 100_i128];
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        Error::InvalidStatusTransition,
+    );
+}
+
+#[test]
+fn resolve_dispute_rejects_accepted_status() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    force_status(&env, &escrow, contract_id, ContractStatus::Accepted);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        Error::InvalidStatusTransition,
+    );
+}
+
+#[test]
+fn resolve_dispute_rejects_funded_status() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (_, _, arbiter_addr, contract_id) = funded_contract_with_arbiter(&env, &client);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        Error::InvalidStatusTransition,
+    );
+}
+
+#[test]
+fn resolve_dispute_rejects_partially_funded_status() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let milestones = vec![&env, 50_i128, 50_i128];
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    client.deposit_funds(&contract_id, &client_addr, &50_i128);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        Error::InvalidStatusTransition,
+    );
+}
+
+#[test]
+fn resolve_dispute_rejects_completed_status() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    force_status(&env, &escrow, contract_id, ContractStatus::Completed);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        Error::InvalidStatusTransition,
+    );
+}
+
+#[test]
+fn resolve_dispute_rejects_cancelled_status() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    force_status(&env, &escrow, contract_id, ContractStatus::Cancelled);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        Error::InvalidStatusTransition,
+    );
+}
+
+#[test]
+fn resolve_dispute_rejects_refunded_status() {
+    let env = make_env();
+    let escrow = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    force_status(&env, &escrow, contract_id, ContractStatus::Refunded);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        Error::InvalidStatusTransition,
+    );
+}
+
+// ── Guard 6: UnauthorizedRole (caller is not the assigned arbiter) ──────────
+
+#[test]
+fn resolve_dispute_rejects_client_caller() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (client_addr, _, _, contract_id) = disputed_contract(&env, &client);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &client_addr, &DisputeResolution::FullRefund),
+        Error::UnauthorizedRole,
+    );
+}
+
+#[test]
+fn resolve_dispute_rejects_freelancer_caller() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, freelancer_addr, _, contract_id) = disputed_contract(&env, &client);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &freelancer_addr, &DisputeResolution::FullRefund),
+        Error::UnauthorizedRole,
+    );
+}
+
+#[test]
+fn resolve_dispute_rejects_stranger_caller() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, _, contract_id) = disputed_contract(&env, &client);
+    let stranger = Address::generate(&env);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &stranger, &DisputeResolution::FullRefund),
+        Error::UnauthorizedRole,
+    );
+}
+
+#[test]
+fn resolve_dispute_rejects_different_arbiter_address() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, _, contract_id) = disputed_contract(&env, &client);
+    let other_arbiter = Address::generate(&env);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &other_arbiter, &DisputeResolution::FullRefund),
+        Error::UnauthorizedRole,
+    );
+}
+
+// ── Event emission: resolved event with exact code ───────────────────────────
+
+fn has_resolved_event_with_code(env: &Env, expected_id: u32, expected_code: u32) -> bool {
+    use soroban_sdk::{Symbol, TryFromVal};
+    let sub = Symbol::new(env, "resolved");
+    env.events().all().iter().any(|event| {
+        let topics = &event.1;
+        if topics.len() < 2 {
+            return false;
+        }
+        let t0 = Symbol::try_from_val(env, &topics.get(0).unwrap()).ok();
+        let t1 = Symbol::try_from_val(env, &topics.get(1).unwrap()).ok();
+        if t0.as_ref() != Some(&symbol_short!("dispute")) || t1.as_ref() != Some(&sub) {
+            return false;
+        }
+        let data = &event.2;
+        if data.len() < 2 {
+            return false;
+        }
+        let got_id: Option<u32> = data.get(0).and_then(|v| v.try_into_val(env).ok());
+        let got_code: Option<u32> = data.get(1).and_then(|v| v.try_into_val(env).ok());
+        got_id == Some(expected_id) && got_code == Some(expected_code)
+    })
+}
+
+#[test]
+fn resolve_dispute_emits_resolved_event_full_refund_code_0() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    assert!(client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund));
+    assert!(
+        has_resolved_event_with_code(&env, contract_id, 0),
+        "expected resolved event with code 0 (FullRefund)"
+    );
+}
+
+#[test]
+fn resolve_dispute_emits_resolved_event_partial_refund_code_1() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    assert!(client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::PartialRefund));
+    assert!(
+        has_resolved_event_with_code(&env, contract_id, 1),
+        "expected resolved event with code 1 (PartialRefund)"
+    );
+}
+
+#[test]
+fn resolve_dispute_emits_resolved_event_full_payout_code_2() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    assert!(client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullPayout));
+    assert!(
+        has_resolved_event_with_code(&env, contract_id, 2),
+        "expected resolved event with code 2 (FullPayout)"
+    );
+}
+
+#[test]
+fn resolve_dispute_emits_resolved_event_split_code_3() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+    let split = DisputeSplit {
+        client_amount: 40,
+        freelancer_amount: 60,
+    };
+
+    assert!(client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::Split(split)));
+    assert!(
+        has_resolved_event_with_code(&env, contract_id, 3),
+        "expected resolved event with code 3 (Split)"
+    );
+}
+
+#[test]
+fn resolve_dispute_rejection_does_not_emit_event() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (client_addr, _, _, contract_id) = disputed_contract(&env, &client);
+
+    super::assert_contract_error(
+        client.try_resolve_dispute(&contract_id, &client_addr, &DisputeResolution::FullRefund),
+        Error::UnauthorizedRole,
+    );
+
+    let resolved_topic = soroban_sdk::Symbol::new(&env, "resolved");
+    let any_resolved = env.events().all().iter().any(|event| {
+        let topics = &event.1;
+        topics.len() >= 2
+            && soroban_sdk::Symbol::try_from_val(&env, &topics.get(1).unwrap())
+                .ok()
+                .as_ref()
+                == Some(&resolved_topic)
+    });
+    assert!(!any_resolved, "rejected resolve must not publish resolved event");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SPLIT RESOLUTION — EXACT ARITHMETIC BOUNDARIES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Exactly-at-boundary cases: accept ────────────────────────────────────────
+
+#[test]
+fn split_accepts_boundary_client_equals_available_freelancer_zero() {
+    let env = make_env();
+    let contract = payout_contract(&env, 100, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 100,
+        freelancer_amount: 0,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Ok((100, 0))
+    );
+}
+
+#[test]
+fn split_accepts_boundary_client_zero_freelancer_equals_available() {
+    let env = make_env();
+    let contract = payout_contract(&env, 100, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 0,
+        freelancer_amount: 100,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Ok((0, 100))
+    );
+}
+
+#[test]
+fn split_accepts_boundary_minimal_available_one_stroop() {
+    let env = make_env();
+    let contract = payout_contract(&env, 1, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 1,
+        freelancer_amount: 0,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Ok((1, 0))
+    );
+    let split = DisputeSplit {
+        client_amount: 0,
+        freelancer_amount: 1,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Ok((0, 1))
+    );
+}
+
+#[test]
+fn split_accepts_degenerate_zero_available_both_legs_zero() {
+    let env = make_env();
+    let contract = payout_contract(&env, 0, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 0,
+        freelancer_amount: 0,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Ok((0, 0))
+    );
+}
+
+// ── One-over-boundary cases: reject with InvalidDisputeSplit ─────────────────
+
+#[test]
+fn split_rejects_client_one_over_available() {
+    let env = make_env();
+    let contract = payout_contract(&env, 100, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 101,
+        freelancer_amount: 0,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Err(Error::InvalidDisputeSplit)
+    );
+}
+
+#[test]
+fn split_rejects_freelancer_one_over_available() {
+    let env = make_env();
+    let contract = payout_contract(&env, 100, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 0,
+        freelancer_amount: 101,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Err(Error::InvalidDisputeSplit)
+    );
+}
+
+#[test]
+fn split_rejects_each_leg_at_available_sum_double_available() {
+    let env = make_env();
+    let contract = payout_contract(&env, 100, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 100,
+        freelancer_amount: 100,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Err(Error::InvalidDisputeSplit)
+    );
+}
+
+#[test]
+fn split_rejects_sum_one_under_available() {
+    let env = make_env();
+    let contract = payout_contract(&env, 100, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 50,
+        freelancer_amount: 49,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Err(Error::InvalidDisputeSplit)
+    );
+}
+
+#[test]
+fn split_rejects_sum_one_over_available() {
+    let env = make_env();
+    let contract = payout_contract(&env, 100, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 50,
+        freelancer_amount: 51,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Err(Error::InvalidDisputeSplit)
+    );
+}
+
+// ── PartialRefund boundaries at extreme amounts ──────────────────────────────
+
+#[test]
+fn partial_refund_zero_available_returns_zero_zero() {
+    let env = make_env();
+    let contract = payout_contract(&env, 0, 0, 0);
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::PartialRefund),
+        Ok((0, 0))
+    );
+}
+
+#[test]
+fn full_refund_zero_available_returns_zero_zero() {
+    let env = make_env();
+    let contract = payout_contract(&env, 0, 0, 0);
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::FullRefund),
+        Ok((0, 0))
+    );
+}
+
+#[test]
+fn full_payout_zero_available_returns_zero_zero() {
+    let env = make_env();
+    let contract = payout_contract(&env, 0, 0, 0);
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::FullPayout),
+        Ok((0, 0))
+    );
+}
+
+#[test]
+fn split_rejects_negative_one_client_even_if_sum_matches() {
+    let env = make_env();
+    let contract = payout_contract(&env, 100, 0, 0);
+    let split = DisputeSplit {
+        client_amount: -1,
+        freelancer_amount: 101,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Err(Error::InvalidDisputeSplit)
+    );
+}
+
+#[test]
+fn split_rejects_negative_one_freelancer_even_if_sum_matches() {
+    let env = make_env();
+    let contract = payout_contract(&env, 100, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 101,
+        freelancer_amount: -1,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Err(Error::InvalidDisputeSplit)
     );
 }
