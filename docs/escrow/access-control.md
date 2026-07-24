@@ -69,6 +69,36 @@ code. `load_and_auth_admin` supersedes it.
 
 ---
 
+## `submit_work_evidence` Security Gates (issue #745)
+
+`submit_work_evidence(contract_id, caller, milestone_index, evidence)` enforces
+the following gates **in order**:
+
+| Gate | Error emitted | Description |
+|---|---|---|
+| `require_initialized` | `NotInitialized` | Contract must have been initialized. |
+| `require_not_paused` | `ContractPaused` / `EmergencyActive` | Rejects calls while paused or under emergency. |
+| `caller.require_auth()` | Auth failure | Soroban auth engine must record caller authorization. |
+| Freelancer identity check | `UnauthorizedRole` | `caller` must equal the stored `contract.freelancer`; client, arbiter, and third parties are all rejected. |
+| Contract status check | `InvalidState` | Contract must be `Funded` or `PartiallyFunded`. Rejects `Created`, `Accepted`, `Cancelled`, `Disputed`, `Completed`, and `Refunded` states. |
+| Empty evidence check | `EvidenceEmpty` | Evidence string must have length > 0. |
+| Length bound | `EvidenceTooLong` | Evidence string must not exceed 256 bytes. |
+| `require_not_finalized` | `AlreadyFinalized` | Rejects evidence on a finalized contract. |
+| Milestone bounds | `IndexOutOfBounds` | `milestone_index` must be within the stored milestone vector. |
+| Released flag | `MilestoneAlreadyReleased` | Milestone must not have been paid out. |
+| Refunded flag | `AlreadyRefunded` | Milestone must not have been individually refunded. |
+
+### Rationale
+
+`work_evidence` in a `Milestone` is the on-chain audit trail for the
+deliverable that justified a payment. Permitting post-release or post-refund
+mutations would silently overwrite the record of an already-settled payment,
+making it impossible to reconstruct the evidence that was reviewed at the time
+of release. All gates are fail-closed: any condition that would corrupt the
+audit trail causes the transaction to revert.
+
+---
+
 ## Current Release Caveat
 
 `release_milestone(contract_id, milestone_index)` does not authenticate a

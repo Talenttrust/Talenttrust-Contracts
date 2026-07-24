@@ -8,6 +8,7 @@ use crate::{
 };
 
 // --- Submodules ---
+mod access_control;
 mod approval_expiry;
 mod cancel_contract;
 mod client_migration;

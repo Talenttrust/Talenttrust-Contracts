@@ -334,10 +334,10 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 
 - Signature: `submit_work_evidence(env: Env, contract_id: u32, caller: Address, milestone_index: u32, evidence: String) -> bool`
 - Kind: Mutating
-- Auth: `caller.require_auth()`
-- Semantics: Stores evidence for an unreleased milestone. Evidence is capped to 256 bytes.
-- Events: `("evidence", contract_id)`
-- Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `AlreadyFinalized`, `UnauthorizedRole`, `InvalidState`, `IndexOutOfBounds`, `MilestoneAlreadyReleased`, `AlreadyRefunded`, `EvidenceTooLong`
+- Auth: `caller.require_auth()` — `caller` must equal the stored freelancer
+- Semantics: Stores deliverable evidence for an unreleased milestone. The caller must be the contract's freelancer; client, arbiter, and third parties are rejected. The contract must be `Funded` or `PartiallyFunded`. Evidence must be non-empty and at most 256 bytes. The milestone must not have been released or refunded. The call is blocked when the contract is paused, under emergency, or finalized.
+- Events: `("evidence", contract_id)` → `(milestone_index, freelancer, timestamp)`
+- Errors: `NotInitialized`, `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `AlreadyFinalized`, `UnauthorizedRole`, `InvalidState`, `EvidenceEmpty`, `EvidenceTooLong`, `IndexOutOfBounds`, `MilestoneAlreadyReleased`, `AlreadyRefunded`
 
 ### get_work_evidence
 

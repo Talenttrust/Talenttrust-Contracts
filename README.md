@@ -28,6 +28,7 @@ The supported deployed interface is documented in the [Escrow ABI reference](doc
 | `create_contract`          | **Implemented** | Core initialization and state persistence                                                         |
 | `deposit_funds`            | **Implemented** | Escrow fund collection tracking                                                                   |
 | `release_milestone`        | **Implemented** | Authenticated milestone payouts via `caller.require_auth()`                                       |
+| `submit_work_evidence`     | **Implemented** | Freelancer-only deliverable evidence gated to pre-release milestone states ([#745](https://github.com/Talenttrust/Talenttrust-Contracts/issues/745)) |
 | `finalize_contract`        | **Implemented** | Freezes contract mutable updates                                                                  |
 | `cancel_contract`          | **Implemented** | Early termination contract transitions                                                            |
 | `issue_reputation`         | **Implemented** | Milestone rating metrics for completed contracts                                                  |
