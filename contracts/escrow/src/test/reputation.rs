@@ -1,7 +1,7 @@
 use super::{complete_contract, create_contract, register_client};
 use crate::{Contract, ContractStatus, DataKey, EscrowError, ReleaseAuthorization};
 use soroban_sdk::testutils::{Address as _, Events};
-use soroban_sdk::{vec, Address, Env, String, Symbol, TryFromVal};
+use soroban_sdk::{symbol_short, vec, Address, Env, String, Symbol, TryFromVal};
 fn valid_comment(env: &Env) -> String {
     String::from_str(env, "Great job!")
 }
