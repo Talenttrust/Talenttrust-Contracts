@@ -1757,6 +1757,21 @@ impl Escrow {
             ttl::PERSISTENT_TTL_LEDGERS,
         );
 
+        // Emit reputation issuance event
+        env.events().publish(
+            (symbol_short!("rep_issued"), contract_id),
+            (
+                contract.client.clone(),
+                contract.freelancer.clone(),
+                rating,
+                rep.completed_contracts,
+                rep.total_rating,
+                rep.last_rating,
+                caller.clone(),
+                env.ledger().timestamp(),
+            ),
+        );
+
         true
     }
 

@@ -1,6 +1,7 @@
 use super::{complete_contract, create_contract, register_client};
 use crate::{Contract, ContractStatus, DataKey, EscrowError, ReleaseAuthorization};
-use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
+use soroban_sdk::testutils::{Address as _, Events};
+use soroban_sdk::{vec, Address, Env, String, Symbol, TryFromVal};
 fn valid_comment(env: &Env) -> String {
     String::from_str(env, "Great job!")
 }
@@ -233,6 +234,31 @@ fn issue_reputation_updates_reputation_record_and_pending_credits() {
     assert_eq!(reputation.total_rating, 5);
     assert_eq!(reputation.last_rating, 5);
     assert_eq!(client.get_pending_reputation_credits(&freelancer_addr), 0);
+}
+
+#[test]
+fn issue_reputation_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
+
+    // Issue reputation
+    let rating = 5u32;
+    assert!(client.issue_reputation(&contract_id, &client_addr, &rating, &valid_comment(&env)));
+
+    // Check events
+    let events = env.events().all();
+
+    let rep_topic = symbol_short!("rep_issued");
+    let filtered_events = events.iter().filter(|event| {
+        event.1.len() > 0
+            && Symbol::try_from_val(&env, &event.1.get(0).unwrap())
+                .ok()
+                .as_ref()
+                == Some(&rep_topic)
+    });
+    assert_eq!(filtered_events.count(), 1);
 }
 
 // ---------------------------------------------------------------------------
