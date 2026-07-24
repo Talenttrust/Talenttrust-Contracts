@@ -193,6 +193,10 @@ pub enum Error {
     SettlementTokenNotConfigured = 52,
     /// The milestone deadline has not yet passed.
     MilestoneNotOverdue = 53,
+    /// The release indices vector is empty.
+    EmptyReleaseIndices = 54,
+    /// Duplicate milestone indices specified in the release request.
+    DuplicateMilestoneInRelease = 55,
 }
 
 /// Contract lifecycle states

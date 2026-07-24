@@ -238,6 +238,34 @@ pending reputation credit is added for the freelancer.
 contracts awaiting client-issued reputation for a freelancer. `issue_reputation`
 consumes one pending credit and records the rating.
 
+#### Batch Milestone Release
+```rust
+escrow.release_milestones(&contract_id, &caller, &vec![&env, 0u32, 1u32, 2u32]);
+```
+
+`release_milestones` releases multiple milestones **atomically** in a single
+transaction.  The entire batch is validated before any mutation or token
+transfer — if any index is invalid (duplicate, out-of-bounds,
+already-released, already-refunded, insufficient approvals) the call fails
+with no side effects.
+
+Validation order (all-or-nothing preflight):
+1. Non-empty index vector (`EmptyReleaseIndices`)
+2. No duplicate indices (`DuplicateMilestoneInRelease`)
+3. Contract exists, not finalized, in `Funded` state
+4. Caller authorized per `ReleaseAuthorization` mode
+5. Every index is in-bounds, unreleased, unrefunded, and has valid approvals
+6. Aggregate gross amount does not exceed the available balance
+
+On success the aggregate net payout (gross − protocol fees) is transferred to
+the freelancer in a single `SAC::transfer`, then each milestone is marked
+released, its approval record is cleared, and protocol fees are accumulated.
+When the batch makes all milestones terminal the contract transitions to
+`Completed` and a reputation credit is granted.
+
+The `("b_rls", contract_id)` event carries the released milestone indices,
+total gross amount, total protocol fee, and new released amount.
+
 ### Release Authorization Mode / Caller Matrix
 
 The `ReleaseAuthorization` field set at contract creation controls which
@@ -323,7 +351,8 @@ to the contract's accounting counters is paired with the matching SAC
 |---|---|---|---|
 | Token binding (admin, single-use) | `bind_settlement_token(sac)` | `—` | `DataKey::SettlementToken = sac` |
 | Funding | `deposit_funds(id, client, amount)` | `transfer(client, escrow, amount)` | `contract.funded_amount += amount` |
-| Release | `release_milestone(id, caller, idx)` | `transfer(escrow, freelancer, milestone.amount - fee)` | `milestone.released = true`, `contract.released_amount += milestone.amount`, `DataKey::AccumulatedProtocolFees += fee` |
+| Release (single) | `release_milestone(id, caller, idx)` | `transfer(escrow, freelancer, milestone.amount - fee)` | `milestone.released = true`, `contract.released_amount += milestone.amount`, `DataKey::AccumulatedProtocolFees += fee` |
+| Release (batch) | `release_milestones(id, caller, indices)` | `transfer(escrow, freelancer, total_gross − total_fee)` | each `milestone.released = true`, `contract.released_amount += total_net`, fees accumulated |
 | Refund | `refund_unreleased_milestones(id, indices)` | `transfer(escrow, client, sum)` | `milestone.refunded = true`, `contract.refunded_amount += sum` |
 
 The pause/emergency gate, fail-closed validation, and TTL bumps from the
@@ -450,6 +479,7 @@ Implemented events:
 - `("created", contract_id)` on contract creation
 - `("deposited", contract_id)` on deposit (with payload `(caller, amount, funded_amount, total, settlement_token)`)
 - `("released", contract_id, milestone_index)` on release (with payload `(freelancer, payout, fee, settlement_token)`)
+- `("b_rls", contract_id)` on batch release (with payload `(milestone_indices, total_gross, total_fee, new_released_amount, caller, timestamp)`)
 - `("rep_issd", contract_id)` on reputation issuance
 - `("cancelled", contract_id)` on cancellation
 - `("finalized", contract_id)` on finalization
@@ -523,6 +553,7 @@ was funded) or leave funds permanently locked.
 
 - `deposit_funds` increases `funded_amount`, so balance increases.
 - `release_milestone` increases `released_amount` by the milestone amount, so balance decreases.
+- `release_milestones` increases `released_amount` by the aggregate net payout, so balance decreases by the total gross amount.
 - `refund_unreleased_milestones` increases `refunded_amount` by the sum of the refunded milestones, so balance decreases.
 - No other entrypoint mutates these three fields.
 

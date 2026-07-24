@@ -171,6 +171,10 @@ pub enum EscrowError {
     EmptyComment = 42,
     /// Reputation feedback comment exceeded the 200-character maximum.
     CommentTooLong = 43,
+    /// The release indices vector is empty.
+    EmptyReleaseIndices = 44,
+    /// Duplicate milestone indices specified in the release request.
+    DuplicateMilestoneInRelease = 45,
 }
 
 impl Escrow {
@@ -921,6 +925,257 @@ impl Escrow {
         /// Topics : `(symbol_short!("ctrct_cmp"), contract_id: u32)`
         /// Data   : `(caller: Address, timestamp: u64)`
         if all_released {
+            env.events().publish(
+                (symbol_short!("ctrct_cmp"), contract_id),
+                (caller, env.ledger().timestamp()),
+            );
+        }
+
+        true
+    }
+
+    /// Releases multiple milestones atomically in a single transaction.
+    ///
+    /// Validates every index (bounds, duplicates, already-released/refunded
+    /// state, sufficient balance, valid approvals) **before** any mutation,
+    /// then transfers the aggregate net payout (gross − protocol fees) to the
+    /// freelancer in one SAC transfer.  Approvals are cleared for each released
+    /// milestone.  When all milestones become terminal the contract transitions
+    /// to `Completed` and a reputation credit is granted.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `contract_id` - The contract ID
+    /// * `caller` - The address of the caller (must be authorized)
+    /// * `milestone_indices` - Non-empty vector of milestone indices to release
+    ///
+    /// # Returns
+    /// `true` if all milestones were released successfully
+    ///
+    /// # Errors
+    /// * `EmptyReleaseIndices` - If `milestone_indices` is empty
+    /// * `DuplicateMilestoneInRelease` - If the same index appears more than once
+    /// * `ContractNotFound` - If contract doesn't exist
+    /// * `InvalidState` - If contract is not in `Funded` state
+    /// * `UnauthorizedRole` - If caller is not authorized per release mode
+    /// * `IndexOutOfBounds` - If any index is out of bounds
+    /// * `MilestoneAlreadyReleased` - If any milestone was already released
+    /// * `AlreadyRefunded` - If any milestone was already refunded
+    /// * `InsufficientApprovals` - If required approvals are missing for any index
+    /// * `InsufficientFunds` - If aggregate balance is insufficient
+    /// * `SettlementTokenNotConfigured` - If no token has been bound
+    ///
+    /// # Security
+    /// All-or-nothing semantics: the entire batch is validated before any state
+    /// mutation or token transfer.  A single invalid index causes the whole
+    /// call to fail without side effects.
+    ///
+    /// # Events
+    /// Emits `("b_rls", contract_id)` with payload
+    /// `(milestone_indices, total_gross, total_fee, new_released_amount, caller, timestamp)`.
+    ///
+    /// Additionally emits `("ctrct_cmp", contract_id)` when the batch causes all
+    /// milestones to be terminal.
+    pub fn release_milestones(
+        env: Env,
+        contract_id: u32,
+        caller: Address,
+        milestone_indices: Vec<u32>,
+    ) -> bool {
+        Self::require_not_paused(&env);
+        caller.require_auth();
+
+        // Validate non-empty
+        if milestone_indices.is_empty() {
+            env.panic_with_error(EscrowError::EmptyReleaseIndices);
+        }
+
+        // Check for duplicates
+        for i in 0..milestone_indices.len() {
+            for j in (i + 1)..milestone_indices.len() {
+                if milestone_indices.get(i).unwrap() == milestone_indices.get(j).unwrap() {
+                    env.panic_with_error(EscrowError::DuplicateMilestoneInRelease);
+                }
+            }
+        }
+
+        let mut contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+
+        ttl::extend_contract_ttl(&env, contract_id);
+        Self::require_not_finalized(&env, contract_id);
+
+        if contract.status != ContractStatus::Funded {
+            env.panic_with_error(Error::InvalidState);
+        }
+
+        // Check caller authorization (same rules as single release)
+        let is_client = caller == contract.client;
+        let is_freelancer = caller == contract.freelancer;
+        let is_arbiter = contract.arbiter.as_ref() == Some(&caller);
+
+        match contract.release_authorization {
+            ReleaseAuthorization::ClientOnly => {
+                if !is_client {
+                    env.panic_with_error(EscrowError::UnauthorizedRole);
+                }
+            }
+            ReleaseAuthorization::ArbiterOnly => {
+                if !is_arbiter {
+                    env.panic_with_error(EscrowError::UnauthorizedRole);
+                }
+            }
+            ReleaseAuthorization::ClientAndArbiter => {
+                if !is_client && !is_arbiter {
+                    env.panic_with_error(EscrowError::UnauthorizedRole);
+                }
+            }
+            ReleaseAuthorization::MultiSig => {
+                if !is_client && !is_freelancer {
+                    env.panic_with_error(EscrowError::UnauthorizedRole);
+                }
+            }
+        }
+
+        let mut milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
+
+        // ── Pre-flight validation: all indices validated before any mutation ──
+        let mut total_gross_amount: i128 = 0;
+        for idx in milestone_indices.iter() {
+            if idx >= milestones.len() {
+                env.panic_with_error(Error::IndexOutOfBounds);
+            }
+            let milestone = milestones.get(idx).unwrap();
+            if milestone.released {
+                env.panic_with_error(Error::MilestoneAlreadyReleased);
+            }
+            if milestone.refunded {
+                env.panic_with_error(EscrowError::AlreadyRefunded);
+            }
+
+            // Check approvals for each index
+            approvals::check_approvals(&env, &contract, contract_id, idx)
+                .unwrap_or_else(|e| env.panic_with_error(e));
+
+            total_gross_amount = total_gross_amount
+                .checked_add(milestone.amount)
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+        }
+
+        // Check aggregate balance (accounting for already-accrued fees)
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+        let available_balance = contract.funded_amount
+            - contract.released_amount
+            - contract.refunded_amount
+            - accumulated_fees;
+        if available_balance < total_gross_amount {
+            env.panic_with_error(EscrowError::InsufficientFunds);
+        }
+
+        // Compute protocol fee rate once
+        let fee_bps = if Self::is_initialized(&env) {
+            Self::read_protocol_fee_bps(&env)
+        } else {
+            0
+        };
+
+        // Calculate aggregate net payout and total protocol fee
+        let mut total_net_amount: i128 = 0;
+        let mut total_protocol_fee: i128 = 0;
+        let mut batch_gross_amounts = Vec::new(&env);
+        for idx in milestone_indices.iter() {
+            let milestone = milestones.get(idx).unwrap();
+            let gross = milestone.amount;
+            let fee = if fee_bps > 0 {
+                Self::calculate_protocol_fee(&env, gross, fee_bps)
+            } else {
+                0
+            };
+            let net = gross - fee;
+            total_net_amount = total_net_amount
+                .checked_add(net)
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+            total_protocol_fee = total_protocol_fee
+                .checked_add(fee)
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+            batch_gross_amounts.push_back(gross);
+        }
+
+        // Transfer aggregate net payout to the freelancer
+        let token = Self::read_settlement_token(&env)
+            .unwrap_or_else(|| env.panic_with_error(Error::SettlementTokenNotConfigured));
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &contract.freelancer,
+            &total_net_amount,
+        );
+
+        // ── Apply mutations ──────────────────────────────────────────────────
+        for idx in milestone_indices.iter() {
+            let mut milestone = milestones.get(idx).unwrap();
+            let gross = milestone.amount;
+            milestone.released = true;
+            milestone.funded_amount = gross;
+            milestones.set(idx, milestone);
+
+            // Clear approvals for this milestone
+            approvals::clear_approvals(&env, contract_id, idx);
+        }
+
+        contract.released_amount = contract
+            .released_amount
+            .checked_add(total_net_amount)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+
+        if total_protocol_fee > 0 {
+            env.storage().persistent().set(
+                &DataKey::AccumulatedProtocolFees,
+                &(accumulated_fees + total_protocol_fee),
+            );
+        }
+
+        // Accounting invariant check
+        let new_accumulated = accumulated_fees + total_protocol_fee;
+        let invariant_sum = contract.released_amount + contract.refunded_amount + new_accumulated;
+        if invariant_sum > contract.funded_amount {
+            env.panic_with_error(EscrowError::AccountingInvariantViolated);
+        }
+
+        // Transition to Completed when all milestones are terminal
+        let all_terminal = milestones.iter().all(|m| m.released || m.refunded);
+        if all_terminal {
+            contract.status = ContractStatus::Completed;
+            Self::grant_pending_reputation_credit(&env, &contract.freelancer);
+        }
+
+        ttl::store_milestones(&env, contract_id, &milestones);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), &contract);
+        ttl::extend_contract_ttl(&env, contract_id);
+
+        // ── Events ───────────────────────────────────────────────────────────
+        env.events().publish(
+            (symbol_short!("b_rls"), contract_id),
+            (
+                milestone_indices,
+                total_gross_amount,
+                total_protocol_fee,
+                contract.released_amount,
+                caller.clone(),
+                env.ledger().timestamp(),
+            ),
+        );
+
+        if all_terminal {
             env.events().publish(
                 (symbol_short!("ctrct_cmp"), contract_id),
                 (caller, env.ledger().timestamp()),
