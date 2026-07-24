@@ -2,7 +2,7 @@
 
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
-use crate::{Escrow, EscrowClient, EscrowError, MAX_MILESTONES, MAX_TOTAL_ESCROW_STROOPS};
+use crate::{Escrow, EscrowClient, EscrowError, MAX_MILESTONES, MAX_TOTAL_ESCROW_STROOPS, MAX_SINGLE_AMOUNT_STROOPS};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -182,4 +182,121 @@ fn create_contract_still_accepts_original_three_milestone_example() {
     let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128, 600_0000000_i128];
     let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
     assert_eq!(id, 0);
+}
+
+// ─── Additional boundary tests ──────────────────────────────────────────────
+
+#[test]
+fn create_contract_rejects_zero_milestone_amount() {
+    let (env, contract_id, client_addr, freelancer_addr) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    // Zero amount should be rejected
+    let milestones = vec![&env, 0_i128];
+    let result = client.try_create_contract(&client_addr, &freelancer_addr, &milestones);
+    match result {
+        Err(Ok(EscrowError::AmountMustBePositive)) => {}
+        other => panic!("expected AmountMustBePositive for zero amount, got {:?}", other),
+    }
+}
+
+#[test]
+fn create_contract_rejects_negative_milestone_amount() {
+    let (env, contract_id, client_addr, freelancer_addr) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    // Negative amount should be rejected
+    let milestones = vec![&env, -100_i128];
+    let result = client.try_create_contract(&client_addr, &freelancer_addr, &milestones);
+    match result {
+        Err(Ok(EscrowError::AmountMustBePositive)) => {}
+        other => panic!("expected AmountMustBePositive for negative amount, got {:?}", other),
+    }
+}
+
+#[test]
+fn create_contract_rejects_amount_exceeding_single_max() {
+    let (env, contract_id, client_addr, freelancer_addr) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    // Amount just above MAX_SINGLE_AMOUNT_STROOPS
+    let milestones = vec![&env, MAX_SINGLE_AMOUNT_STROOPS + 1];
+    let result = client.try_create_contract(&client_addr, &freelancer_addr, &milestones);
+    match result {
+        Err(Ok(EscrowError::InvalidMilestoneAmount)) => {}
+        other => panic!("expected InvalidMilestoneAmount for amount > MAX_SINGLE, got {:?}", other),
+    }
+}
+
+#[test]
+fn create_contract_accepts_amount_exactly_at_single_max() {
+    let (env, contract_id, client_addr, freelancer_addr) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    // Amount exactly at MAX_SINGLE_AMOUNT_STROOPS should succeed
+    let milestones = vec![&env, MAX_SINGLE_AMOUNT_STROOPS];
+    let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
+    assert!(id >= 0);
+}
+
+#[test]
+fn create_contract_rejects_empty_milestones() {
+    let (env, contract_id, client_addr, freelancer_addr) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    // Empty milestones vector should be rejected
+    let milestones = vec![&env];
+    let result = client.try_create_contract(&client_addr, &freelancer_addr, &milestones);
+    assert!(result.is_err(), "expected error for empty milestones");
+}
+
+#[test]
+fn create_contract_rejects_mixed_valid_and_zero_amounts() {
+    let (env, contract_id, client_addr, freelancer_addr) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    // Mix of valid and zero amounts
+    let milestones = vec![&env, 100_i128, 0_i128, 200_i128];
+    let result = client.try_create_contract(&client_addr, &freelancer_addr, &milestones);
+    match result {
+        Err(Ok(EscrowError::AmountMustBePositive)) => {}
+        other => panic!("expected AmountMustBePositive for mixed zero amount, got {:?}", other),
+    }
+}
+
+#[test]
+fn create_contract_rejects_mixed_valid_and_negative_amounts() {
+    let (env, contract_id, client_addr, freelancer_addr) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    // Mix of valid and negative amounts
+    let milestones = vec![&env, 100_i128, -50_i128, 200_i128];
+    let result = client.try_create_contract(&client_addr, &freelancer_addr, &milestones);
+    match result {
+        Err(Ok(EscrowError::AmountMustBePositive)) => {}
+        other => panic!("expected AmountMustBePositive for mixed negative amount, got {:?}", other),
+    }
+}
+
+#[test]
+fn create_contract_accepts_minimum_positive_amount() {
+    let (env, contract_id, client_addr, freelancer_addr) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    // Minimum positive amount (1 stroop)
+    let milestones = vec![&env, 1_i128];
+    let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
+    assert!(id >= 0);
+}
+
+#[test]
+fn create_contract_accepts_multiple_minimum_amounts() {
+    let (env, contract_id, client_addr, freelancer_addr) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    // Multiple minimum amounts
+    let milestones = vec![&env, 1_i128, 1_i128, 1_i128];
+    let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
+    assert!(id >= 0);
+}
+
+#[test]
+fn create_contract_boundary_exactly_one_below_total_cap() {
+    let (env, contract_id, client_addr, freelancer_addr) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    // Total exactly one below cap
+    let milestones = vec![&env, MAX_TOTAL_ESCROW_STROOPS - 1];
+    let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
+    assert!(id >= 0);
 }
