@@ -193,6 +193,10 @@ pub enum Error {
     SettlementTokenNotConfigured = 52,
     /// The milestone deadline has not yet passed.
     MilestoneNotOverdue = 53,
+    /// The work evidence string is empty.
+    EvidenceEmpty = 54,
+    /// No pending reputation credit is available for this contract (contract must complete before reputation can be issued).
+    NoPendingCredit = 55,
 }
 
 /// Contract lifecycle states
