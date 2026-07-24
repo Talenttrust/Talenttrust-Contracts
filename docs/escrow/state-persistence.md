@@ -49,13 +49,13 @@ Protocol fee implementation is tracked in
 
 `summarize_contract` (called by `finalize_contract`) derives
 `released_milestone_count` by iterating that same vector and counting
-`ms.released == true`. There is **no** separate `DataKey::MilestoneReleased`
-key — that variant was removed in fix [#416] because it was never written,
-causing `released_milestone_count` to always report zero in finalization
-summaries.
+`ms.released == true`. 
 
-Read and write path are now identical: the milestone vector is the sole
-authority for released state.
+**Storage Compatibility Note:** A deprecated placeholder variant
+`_MilestoneReleasedPlaceholder(u32, u32)` is retained in the `DataKey` enum to
+preserve discriminant numbering for on-chain storage compatibility. This variant
+is never written or read; it exists purely to maintain the byte layout of
+persisted keys for contracts deployed with earlier versions of the code.
 
 ### 3. Reputation Auditing States
 * **`PendingReputation(Address)` / `ReputationIssued(u32)`**

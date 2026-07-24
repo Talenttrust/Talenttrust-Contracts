@@ -79,7 +79,11 @@ pub enum DataKey {
     // Contract storage
     Contract(u32),
     NextContractId,
-    MilestoneReleased(u32, u32),
+    /// DEPRECATED: Was never written or read. Kept as placeholder to preserve discriminant numbering
+    /// for storage compatibility. Milestone release state is tracked solely via Milestone.released
+    /// in the milestones vector stored under (DataKey::Contract(id), "milestones").
+    #[deprecated(since = "0.1.0", note = "Use Milestone.released in the milestones vector instead")]
+    _MilestoneReleasedPlaceholder(u32, u32),
     MilestoneApprovals(u32, u32),
     // Reputation
     ReputationIssued(u32),
