@@ -13,6 +13,7 @@ mod cancel_contract;
 mod client_migration;
 mod create_contract_bounds;
 mod deposit;
+mod deposit_events;
 mod dispute;
 mod emergency_controls;
 mod input_sanitization_amounts;
