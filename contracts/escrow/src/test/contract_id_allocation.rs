@@ -525,9 +525,9 @@ fn indexer_iteration_pattern_with_contract_exists_and_next_id() {
 
     // Only ids 1, 2, 3 should be found; id 4 is a gap.
     assert_eq!(found.len(), 3);
-    assert_eq!(found.get(0), Some(&1));
-    assert_eq!(found.get(1), Some(&2));
-    assert_eq!(found.get(2), Some(&3));
+    assert_eq!(found.get(0), Some(1_u32));
+    assert_eq!(found.get(1), Some(2_u32));
+    assert_eq!(found.get(2), Some(3_u32));
 }
 
 /// `contract_exists` is a read-only probe and must not extend the contract TTL.

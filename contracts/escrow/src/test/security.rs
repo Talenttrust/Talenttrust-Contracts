@@ -31,7 +31,7 @@ fn create_rejects_empty_milestone_list() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
+    let (client_addr, freelancer_addr, _) = generated_participants(&env);
     let empty = Vec::<i128>::new(&env);
 
     let result = client.try_create_contract(
@@ -49,7 +49,7 @@ fn create_rejects_non_positive_milestone_amount() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
+    let (client_addr, freelancer_addr, _) = generated_participants(&env);
     let milestones = vec![&env, 100_i128, 0_i128];
 
     let result = client.try_create_contract(
@@ -67,7 +67,7 @@ fn create_rejects_non_positive_milestone_amount() {
 fn create_requires_client_authorization() {
     let env = Env::default();
     let client = register_client(&env);
-    let (client_addr, freelancer_addr) = generated_participants(&env);
+    let (client_addr, freelancer_addr, _) = generated_participants(&env);
 
     let _ = client.create_contract(
         &client_addr,

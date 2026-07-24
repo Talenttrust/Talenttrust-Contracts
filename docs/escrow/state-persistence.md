@@ -69,16 +69,19 @@ unique, gap-free ids.  The allocation path in
 `contracts/escrow/src/create_contract.rs` upholds the following invariants:
 
 1. **Single allocation per create.** `next_contract_id` is called exactly once
-   per `create_contract` invocation.  The first call reads the counter and
-   checks the target slot; there is no second call that could shadow the first
-   or trigger a double collision check.
+   per `create_contract` invocation.  The call reads the counter and checks the
+   target slot for occupancy; there is no second call that could shadow the
+   first or trigger a duplicate collision check.
 
-2. **Atomic counter advance.** `bump_next_contract_id` writes `id + 1` to
-   persistent storage only after the contract and milestone entries have been
-   persisted.  If the write fails, the counter is not advanced.
+2. **Atomic counter advance.** After the contract and milestone entries have
+   been persisted, `create_contract` increments the counter inline using
+   `id.checked_add(1)` and writes the result back to `DataKey::NextContractId`.
+   If the write fails the counter is not advanced.  There is no separate
+   `bump_next_contract_id` helper — the increment is performed directly in the
+   `create_contract` body.
 
-3. **Overflow protection.**  `bump_next_contract_id` uses `checked_add(1)`.
-   If the counter is already `u32::MAX`, the function panics with
+3. **Overflow protection.**  The inline `checked_add(1)` returns `None` when the
+   counter is already `u32::MAX`, at which point the contract panics with
    `Error::ContractIdOverflow` before writing anything.  The counter is left
    unchanged.
 

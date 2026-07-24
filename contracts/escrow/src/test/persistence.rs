@@ -1050,7 +1050,7 @@ fn read_getters_succeed_after_creating_contract_at_zero_index() {
         Error::ContractNotFound,
     );
 
-    let (c, f) = generated_participants(&env);
+    let (c, f, _) = generated_participants(&env);
     let id = client.create_contract(
         &c,
         &f,

@@ -96,7 +96,7 @@ fn paused_blocks_create_contract() {
     client.initialize(&admin);
     client.pause();
 
-    let (c, f) = generated_participants(&env);
+    let (c, f, _) = generated_participants(&env);
     assert_contract_error(
         client.try_create_contract(
             &c,
@@ -227,7 +227,7 @@ fn contract_written_on_create_and_readable() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-    let (c, f) = generated_participants(&env);
+    let (c, f, _) = generated_participants(&env);
 
     let id = client.create_contract(
         &c,
@@ -389,7 +389,7 @@ fn reputation_not_issuable_before_completion() {
     env.mock_all_auths();
     let client = register_client(&env);
 
-    let (c, f) = generated_participants(&env);
+    let (c, f, _) = generated_participants(&env);
     let id = client.create_contract(
         &c,
         &f,
