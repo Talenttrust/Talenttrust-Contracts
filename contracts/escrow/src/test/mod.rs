@@ -18,6 +18,7 @@ mod emergency_controls;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
 mod mainnet_readiness;
+mod milestone_boundaries;
 mod pause_controls;
 mod persistence;
 mod refund;
