@@ -1759,7 +1759,7 @@ impl Escrow {
 
         // Emit reputation issuance event
         env.events().publish(
-            (symbol_short!("rep_issued"), contract_id),
+            (symbol_short!("rep_iss"), contract_id),
             (
                 contract.client.clone(),
                 contract.freelancer.clone(),

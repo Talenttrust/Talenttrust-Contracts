@@ -250,7 +250,7 @@ fn issue_reputation_emits_event() {
     // Check events
     let events = env.events().all();
 
-    let rep_topic = symbol_short!("rep_issued");
+    let rep_topic = symbol_short!("rep_iss");
     let filtered_events = events.iter().filter(|event| {
         event.1.len() > 0
             && Symbol::try_from_val(&env, &event.1.get(0).unwrap())
