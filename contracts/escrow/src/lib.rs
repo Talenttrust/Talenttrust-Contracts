@@ -1632,29 +1632,61 @@ impl Escrow {
     // -----------------------------------------------------------------------
 
     /// Records a deliverable reference (e.g. IPFS CID or URL hash) for an
-    /// unreleased milestone.
+    /// unreleased milestone, gated to the contract's freelancer.
     ///
-    /// Only the contract's freelancer may call this. The contract must be in
-    /// `Funded` status and the target milestone must not yet be released or
-    /// refunded. Evidence may be overwritten before release.
+    /// Only the contract's **freelancer** may call this entrypoint; the client,
+    /// arbiter, and any third party are rejected with `UnauthorizedRole`. The
+    /// contract must be in exactly `Funded` status — `Created`, `Cancelled`,
+    /// `Disputed`, `Completed`, and `Refunded` contracts are all rejected with
+    /// `InvalidState`. Finalized contracts are rejected with `AlreadyFinalized`
+    /// before the state check. Evidence may be overwritten before the milestone
+    /// is released, but once a milestone is released or refunded the call panics
+    /// with `MilestoneAlreadyReleased` / `AlreadyRefunded` respectively.
+    ///
+    /// # Audit-trail integrity
+    ///
+    /// Submissions after a milestone has settled (released or refunded) would
+    /// silently rewrite the on-chain audit trail for an already-settled payment.
+    /// This function prevents that by checking every guard in the following order
+    /// before writing anything:
+    ///
+    /// 1. Contract must be initialized.
+    /// 2. Contract must not be paused or in emergency.
+    /// 3. Caller must authorize the call (`require_auth`).
+    /// 4. Contract must exist (`ContractNotFound`).
+    /// 5. Contract must not be finalized (`AlreadyFinalized`).
+    /// 6. Caller must be the stored freelancer (`UnauthorizedRole`).
+    /// 7. Contract status must be `Funded` (`InvalidState`).
+    /// 8. Evidence must be non-empty (`EmptyEvidence`).
+    /// 9. Evidence must not exceed 256 bytes (`EvidenceTooLong`).
+    /// 10. Milestone index must be in bounds (`IndexOutOfBounds`).
+    /// 11. Milestone must not be released (`MilestoneAlreadyReleased`).
+    /// 12. Milestone must not be refunded (`AlreadyRefunded`).
     ///
     /// # Arguments
-    /// * `contract_id` - The escrow contract to update
-    /// * `caller`      - Must equal the stored `freelancer`; requires auth
+    /// * `contract_id`     - The escrow contract to update
+    /// * `caller`          - Must equal the stored `freelancer`; requires auth
     /// * `milestone_index` - Zero-based index of the milestone
-    /// * `evidence`    - Deliverable reference; max 256 bytes
+    /// * `evidence`        - Non-empty deliverable reference (e.g. IPFS CID or URL hash); max 256 bytes
     ///
     /// # Errors
-    /// * `NotInitialized`     — `initialize` has not been called
-    /// * `ContractPaused` / `EmergencyActive` — pause/emergency gate
-    /// * `ContractNotFound`   — unknown `contract_id`
-    /// * `AlreadyFinalized`   — contract has been finalized
-    /// * `UnauthorizedRole`   — `caller` is not the freelancer
-    /// * `InvalidState`       — contract is not `Funded`
-    /// * `IndexOutOfBounds`   — `milestone_index` exceeds milestone count
+    /// * `NotInitialized`           — `initialize` has not been called
+    /// * `ContractPaused`           — pause or emergency controls are active
+    /// * `EmergencyActive`          — emergency pause is active
+    /// * `ContractNotFound`         — unknown `contract_id`
+    /// * `AlreadyFinalized`         — contract has been finalized
+    /// * `UnauthorizedRole`         — `caller` is not the freelancer
+    /// * `InvalidState`             — contract is not `Funded` (rejects `Created`,
+    ///                                `Cancelled`, `Disputed`, `Completed`, `Refunded`)
+    /// * `EmptyEvidence`            — evidence string is empty (zero bytes)
+    /// * `EvidenceTooLong`          — evidence string exceeds 256 bytes
+    /// * `IndexOutOfBounds`         — `milestone_index` exceeds milestone count
     /// * `MilestoneAlreadyReleased` — milestone is already released
-    /// * `AlreadyRefunded`    — milestone has been refunded
-    /// * `EvidenceTooLong`    — evidence string exceeds 256 bytes
+    /// * `AlreadyRefunded`          — milestone has been refunded
+    ///
+    /// # Events
+    /// On success, emits `(symbol_short!("evidence"), contract_id)` with payload
+    /// `(milestone_index: u32, freelancer: Address, timestamp: u64)`.
     pub fn submit_work_evidence(
         env: Env,
         contract_id: u32,
@@ -1662,8 +1694,8 @@ impl Escrow {
         milestone_index: u32,
         evidence: String,
     ) -> bool {
-        /// Gate: contract must have been initialized so pause and emergency rails
-        /// are always in scope before any state mutation can occur.
+        // Gate: contract must have been initialized so pause and emergency rails
+        // are always in scope before any state mutation can occur.
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
         caller.require_auth();
@@ -1677,15 +1709,26 @@ impl Escrow {
         ttl::extend_contract_ttl(&env, contract_id);
         Self::require_not_finalized(&env, contract_id);
 
+        // Only the contract's freelancer may submit evidence. The client, arbiter,
+        // and any third party are rejected to prevent audit-trail manipulation.
         if caller != contract.freelancer {
             env.panic_with_error(EscrowError::UnauthorizedRole);
         }
 
+        // Evidence is only valid while the contract is awaiting milestone release.
+        // Cancelled, Disputed, Completed, and Refunded contracts are all rejected
+        // to prevent rewriting the audit trail for already-settled payments.
         if contract.status != ContractStatus::Funded {
             env.panic_with_error(EscrowError::InvalidState);
         }
 
-        // Bound evidence to 256 bytes to prevent storage bloat.
+        // Reject empty evidence strings; a zero-length string is not a useful
+        // deliverable reference and is likely a client-side bug.
+        if evidence.len() == 0 {
+            env.panic_with_error(Error::EmptyEvidence);
+        }
+
+        // Bound evidence to 256 bytes to prevent unbounded storage growth.
         if evidence.len() > 256 {
             env.panic_with_error(Error::EvidenceTooLong);
         }
