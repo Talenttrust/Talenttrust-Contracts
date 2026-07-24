@@ -1,3 +1,4 @@
+use soroban_sdk::testutils::Ledger as _;
 use super::register_client;
 use soroban_sdk::testutils::{Address as _, Events};
 use soroban_sdk::{Address, Env, Symbol, TryFromVal};
@@ -5,6 +6,7 @@ use soroban_sdk::{Address, Env, Symbol, TryFromVal};
 #[test]
 fn admin_transfer_propose_and_accept_happy_path() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -26,6 +28,7 @@ fn admin_transfer_propose_and_accept_happy_path() {
 #[test]
 fn propose_self_as_admin_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -42,6 +45,7 @@ fn propose_self_as_admin_rejected() {
 #[test]
 fn propose_overwrites_pending_admin() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -67,6 +71,7 @@ fn propose_overwrites_pending_admin() {
 #[test]
 fn cancel_proposal_clears_pending_admin() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -87,6 +92,7 @@ fn cancel_proposal_clears_pending_admin() {
 #[test]
 fn cancel_without_proposal_fails() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -100,6 +106,7 @@ fn cancel_without_proposal_fails() {
 #[test]
 fn accept_after_cancel_fails() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -117,6 +124,7 @@ fn accept_after_cancel_fails() {
 #[test]
 fn propose_not_initialized_fails() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -128,6 +136,7 @@ fn propose_not_initialized_fails() {
 #[test]
 fn accept_not_initialized_fails() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -138,6 +147,7 @@ fn accept_not_initialized_fails() {
 #[test]
 fn cancel_not_initialized_fails() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -148,6 +158,7 @@ fn cancel_not_initialized_fails() {
 #[test]
 fn propose_then_cancel_then_new_propose_then_accept() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -183,6 +194,7 @@ fn propose_then_cancel_then_new_propose_then_accept() {
 #[test]
 fn cancel_emits_event() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -213,6 +225,7 @@ fn cancel_emits_event() {
 #[test]
 fn propose_emits_event() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 

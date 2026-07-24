@@ -17,6 +17,7 @@
 
 #![cfg(test)]
 
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{testutils::Address as _, vec, Address, Env, String, Vec};
 
 use crate::{
@@ -92,6 +93,7 @@ fn full_schedule(env: &Env, due: u64, title: &str, desc: &str) -> MilestoneSched
 #[test]
 fn valid_create_without_schedules() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -114,6 +116,7 @@ fn valid_create_without_schedules() {
 #[test]
 fn valid_create_with_partial_schedules() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -141,6 +144,7 @@ fn valid_create_with_partial_schedules() {
 #[test]
 fn valid_create_with_all_schedules_populated() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -175,6 +179,7 @@ fn valid_create_with_all_schedules_populated() {
 #[test]
 fn valid_updated_at_is_stamped_by_contract() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -207,6 +212,7 @@ fn valid_updated_at_is_stamped_by_contract() {
 #[test]
 fn valid_get_schedule_returns_none_for_missing_index() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -232,6 +238,7 @@ fn valid_get_schedule_returns_none_for_missing_index() {
 #[should_panic(expected = "invalid schedule metadata")]
 fn error_due_date_at_present_is_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -255,6 +262,7 @@ fn error_due_date_at_present_is_rejected() {
 #[should_panic(expected = "invalid schedule metadata")]
 fn error_due_date_in_past_is_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -278,6 +286,7 @@ fn error_due_date_in_past_is_rejected() {
 #[test]
 fn valid_due_date_max_u64_is_accepted() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -307,6 +316,7 @@ fn valid_due_date_max_u64_is_accepted() {
 #[should_panic(expected = "strictly increasing")]
 fn error_monotonic_equal_dates_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -331,6 +341,7 @@ fn error_monotonic_equal_dates_rejected() {
 #[should_panic(expected = "strictly increasing")]
 fn error_monotonic_decreasing_dates_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -357,6 +368,7 @@ fn error_monotonic_decreasing_dates_rejected() {
 #[test]
 fn valid_monotonic_skips_undated_milestones() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -391,6 +403,7 @@ fn valid_monotonic_skips_undated_milestones() {
 #[test]
 fn valid_title_at_max_length_accepted() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -423,6 +436,7 @@ fn valid_title_at_max_length_accepted() {
 #[should_panic(expected = "invalid schedule metadata")]
 fn error_title_exceeds_max_length_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -453,6 +467,7 @@ fn error_title_exceeds_max_length_rejected() {
 #[should_panic(expected = "invalid schedule metadata")]
 fn error_description_exceeds_max_length_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -486,6 +501,7 @@ fn error_description_exceeds_max_length_rejected() {
 #[test]
 fn set_schedule_client_can_update_before_release() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -513,6 +529,7 @@ fn set_schedule_client_can_update_before_release() {
 #[should_panic(expected = "immutable after milestone release")]
 fn error_immutable_set_schedule_after_release_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -540,6 +557,7 @@ fn error_immutable_set_schedule_after_release_rejected() {
 #[should_panic(expected = "strictly increasing")]
 fn error_set_schedule_violates_monotonicity_with_next() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -570,6 +588,7 @@ fn error_set_schedule_violates_monotonicity_with_next() {
 #[should_panic(expected = "milestone index out of range")]
 fn error_set_schedule_out_of_range_index_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -592,6 +611,7 @@ fn error_set_schedule_out_of_range_index_rejected() {
 #[should_panic(expected = "schedules length must match milestone_amounts length")]
 fn error_schedules_length_mismatch_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -619,6 +639,7 @@ fn error_schedules_length_mismatch_rejected() {
 #[test]
 fn integration_full_lifecycle_preserves_schedule_metadata() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -657,6 +678,7 @@ fn integration_full_lifecycle_preserves_schedule_metadata() {
 #[test]
 fn integration_schedule_isolation_across_contracts() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);
@@ -700,6 +722,7 @@ fn integration_schedule_isolation_across_contracts() {
 #[test]
 fn integration_set_schedule_does_not_disturb_other_milestones() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (c, f) = participants(&env);

@@ -9,6 +9,7 @@
 
 #![cfg(test)]
 
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{testutils::Address as _, Address, Env, Vec as SdkVec};
 
 use crate::{Escrow, EscrowClient, ReleaseAuthorization};
@@ -25,6 +26,7 @@ use crate::{Escrow, EscrowClient, ReleaseAuthorization};
 /// fee rate, asserting the invariant at every step.
 fn run_multi_release(amounts: &[i128], fee_bps: u32) {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
 
     let contract_id = env.register(Escrow, ());

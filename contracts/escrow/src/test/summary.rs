@@ -5,6 +5,7 @@
 
 #![cfg(test)]
 
+use soroban_sdk::testutils::Ledger as _;
 extern crate std;
 
 const LIB_RS: &str = include_str!("../lib.rs");
@@ -190,6 +191,7 @@ mod released_count_parity {
 
     fn setup() -> (Env, Address) {
         let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
         env.mock_all_auths();
         let addr = env.register(Escrow, ());
         (env, addr)

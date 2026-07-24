@@ -113,9 +113,11 @@ impl Escrow {
             env.panic_with_error(EscrowError::InvalidState);
         }
 
-        let key = Escrow::pending_migration_key(contract_id);
-        let pending: PendingClientMigration = read_if_live(&env, &key)
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::InvalidState));
+        contract.client = new_client.clone();
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), &contract);
+        remove_transient(&env, &key);
 
         env.events().publish(
             (Symbol::new(&env, "client_migration_accepted"), contract_id),

@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use soroban_sdk::testutils::Ledger as _;
 use super::register_client;
 use soroban_sdk::testutils::{Address as _, Events};
 use soroban_sdk::{Address, Env, Symbol, TryFromVal};
@@ -7,6 +8,7 @@ use soroban_sdk::{Address, Env, Symbol, TryFromVal};
 #[test]
 fn protocol_fee_bps_change_emits_event() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
 
     let client = register_client(&env);
@@ -36,6 +38,7 @@ fn protocol_fee_bps_change_emits_event() {
 #[test]
 fn admin_propose_and_accept_emit_events() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
 
     let client = register_client(&env);

@@ -4,6 +4,8 @@ use std::{fs, path::Path};
 fn abi_reference_document_lists_current_public_entrypoints() {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let doc_path = manifest_dir
+        .join("..")
+        .join("..")
         .join("docs")
         .join("escrow")
         .join("abi-reference.md");

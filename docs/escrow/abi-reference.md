@@ -127,7 +127,7 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Kind: Mutating
 - Auth: `caller.require_auth()`
 - Semantics: Stores a milestone approval record for the caller. The approval is temporary and expires according to the configured TTL.
-- Events: None (approval records are stored in temporary storage)
+- Events: `("ms_appr", contract_id)` with payload `(milestone_index, milestone_amount)`
 - Errors: `ContractNotFound`, `AlreadyFinalized`, `InvalidState`, `IndexOutOfBounds`, `AlreadyApproved`, `InsufficientApprovals`, `ApprovalExpired` (if the implementation surface uses it), `UnauthorizedRole`
 
 ### release_milestone

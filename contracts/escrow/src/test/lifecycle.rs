@@ -3,6 +3,7 @@ use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, vec, Address,
 
 fn setup() -> (Env, Address) {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
     (env, contract_id)

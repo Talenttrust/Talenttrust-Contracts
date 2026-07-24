@@ -10,6 +10,7 @@
 //! the plain pause() / unpause() path. The pause check runs before require_auth,
 //! so a paused contract rejects uniformly regardless of caller.
 
+use soroban_sdk::testutils::Ledger as _;
 use crate::{Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization};
 use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
 
@@ -17,6 +18,7 @@ use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
 
 fn setup_initialized() -> (Env, Address, Address) {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);

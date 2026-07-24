@@ -25,6 +25,7 @@
 
 #![cfg(test)]
 
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{testutils::Address as _, vec, Address, Env, Vec};
 
 use crate::{
@@ -37,6 +38,7 @@ use crate::{
 /// Returns `(env, contract_address)` with all auths mocked.
 fn setup() -> (Env, Address) {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
     (env, contract_id)
@@ -136,6 +138,7 @@ fn get_bounds_is_idempotent() {
 #[test]
 fn get_bounds_requires_no_auth_and_works_before_initialize() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     // Deliberately do NOT call mock_all_auths.
     let cid = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &cid);

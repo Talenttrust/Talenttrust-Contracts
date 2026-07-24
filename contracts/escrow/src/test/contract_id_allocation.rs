@@ -11,6 +11,7 @@
 //! 8. `get_next_contract_id` returns the allocation high-water mark.
 //! 9. Existence probes do not extend TTL (security invariant).
 
+use soroban_sdk::testutils::Ledger as _;
 use super::{default_milestones, generated_participants, register_client};
 use crate::{DataKey, Error, ReleaseAuthorization};
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -53,6 +54,7 @@ fn read_next_id(env: &Env, escrow_addr: &soroban_sdk::Address) -> u32 {
 #[test]
 fn first_contract_id_is_one() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let (client, freelancer, _) = generated_participants(&env);
@@ -73,6 +75,7 @@ fn first_contract_id_is_one() {
 #[test]
 fn ids_are_sequential_and_gap_free() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let milestones = default_milestones(&env);
@@ -100,6 +103,7 @@ fn ids_are_sequential_and_gap_free() {
 #[test]
 fn counter_advances_exactly_one_per_create() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let milestones = default_milestones(&env);
@@ -123,6 +127,7 @@ fn counter_advances_exactly_one_per_create() {
 #[test]
 fn all_ids_are_unique() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let milestones = default_milestones(&env);
@@ -156,6 +161,7 @@ fn all_ids_are_unique() {
 #[test]
 fn next_contract_id_overflow_at_u32_max() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let (client_addr, freelancer_addr, _) = generated_participants(&env);
@@ -185,6 +191,7 @@ fn next_contract_id_overflow_at_u32_max() {
 #[test]
 fn overflow_fires_only_at_u32_max_not_before() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let (client, freelancer, _) = generated_participants(&env);
@@ -230,6 +237,7 @@ fn overflow_fires_only_at_u32_max_not_before() {
 #[test]
 fn next_contract_id_rejects_occupied_slot() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let (client_addr, freelancer_addr, _) = generated_participants(&env);
@@ -269,6 +277,7 @@ fn next_contract_id_rejects_occupied_slot() {
 #[test]
 fn allocation_resumes_correctly_after_counter_is_repaired() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let (client, freelancer, _) = generated_participants(&env);
@@ -327,6 +336,7 @@ fn allocation_resumes_correctly_after_counter_is_repaired() {
 #[test]
 fn single_create_stores_exactly_one_contract() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let (client, freelancer, _) = generated_participants(&env);
@@ -372,6 +382,7 @@ fn single_create_stores_exactly_one_contract() {
 #[test]
 fn contract_exists_identifies_allocated_and_missing_ids() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let (client, freelancer, _) = generated_participants(&env);
@@ -419,6 +430,7 @@ fn contract_exists_identifies_allocated_and_missing_ids() {
 #[test]
 fn get_next_contract_id_returns_high_water_mark() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let (client, freelancer, _) = generated_participants(&env);
@@ -464,6 +476,7 @@ fn get_next_contract_id_returns_high_water_mark() {
 #[test]
 fn contract_exists_does_not_panic_on_missing_id() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let (client, freelancer, _) = generated_participants(&env);
@@ -489,6 +502,7 @@ fn contract_exists_does_not_panic_on_missing_id() {
 #[test]
 fn indexer_iteration_pattern_with_contract_exists_and_next_id() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let milestones = default_milestones(&env);
@@ -535,6 +549,7 @@ fn indexer_iteration_pattern_with_contract_exists_and_next_id() {
 #[test]
 fn contract_exists_does_not_extend_ttl() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let (client, freelancer, _) = generated_participants(&env);
@@ -580,6 +595,7 @@ fn contract_exists_does_not_extend_ttl() {
 #[test]
 fn get_next_contract_id_does_not_extend_ttl() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
     let (client, freelancer, _) = generated_participants(&env);

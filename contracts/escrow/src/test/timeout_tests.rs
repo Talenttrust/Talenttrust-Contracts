@@ -23,6 +23,7 @@
 
 #![cfg(test)]
 
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     Address, Env, Symbol, Vec as SorobanVec,
@@ -66,6 +67,7 @@ fn set_milestone_deadline_and_released(
 #[test]
 fn is_milestone_overdue_false_when_now_before_deadline() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (_client_addr, _, id) = create_contract(&env, &client);
@@ -83,6 +85,7 @@ fn is_milestone_overdue_false_when_now_before_deadline() {
 #[test]
 fn is_milestone_overdue_false_at_exact_deadline() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (_client_addr, _, id) = create_contract(&env, &client);
@@ -101,6 +104,7 @@ fn is_milestone_overdue_false_at_exact_deadline() {
 #[test]
 fn is_milestone_overdue_true_one_second_past_deadline() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (_client_addr, _, id) = create_contract(&env, &client);
@@ -120,6 +124,7 @@ fn is_milestone_overdue_true_one_second_past_deadline() {
 #[test]
 fn is_milestone_overdue_false_for_unknown_contract() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -133,6 +138,7 @@ fn is_milestone_overdue_false_for_unknown_contract() {
 #[test]
 fn is_milestone_overdue_false_for_out_of_bounds_index() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (_client_addr, _, id) = create_contract(&env, &client);
@@ -147,6 +153,7 @@ fn is_milestone_overdue_false_for_out_of_bounds_index() {
 #[test]
 fn is_milestone_overdue_false_for_already_released_milestone() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (_client_addr, _, id) = create_contract(&env, &client);
@@ -165,6 +172,7 @@ fn is_milestone_overdue_false_for_already_released_milestone() {
 #[test]
 fn is_milestone_overdue_false_when_deadline_is_none() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (_client_addr, _, id) = create_contract(&env, &client);

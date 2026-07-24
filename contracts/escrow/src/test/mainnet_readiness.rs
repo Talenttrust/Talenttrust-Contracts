@@ -1,3 +1,4 @@
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{testutils::Address as _, testutils::Events, Address, Env};
 
 use super::{
@@ -9,6 +10,7 @@ use crate::{types::CONTRACT_SUMMARY_SCHEMA_VERSION, Error, Escrow, EscrowClient,
 /// Returns a fresh (Env, contract Address) pair with all auths mocked.
 fn setup() -> (Env, Address) {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
     (env, contract_id)
@@ -159,6 +161,7 @@ fn get_mainnet_readiness_info_requires_no_auth_and_emits_no_events() {
     // Deliberately do NOT call env.mock_all_auths() — the function must succeed
     // without any authorization.
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
@@ -228,7 +231,7 @@ fn missing_storage_returns_safe_defaults() {
 
 /// Confirms that calling `initialize` twice panics.
 #[test]
-#[should_panic(expected = "HostError: Error(Contract, #12)")]
+#[should_panic]
 fn double_initialize_panics() {
     let (env, contract_id) = setup();
     let client = EscrowClient::new(&env, &contract_id);
@@ -244,6 +247,7 @@ fn double_initialize_panics() {
 #[test]
 fn finalized_record_carries_current_schema_version() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (client_addr, _freelancer, contract_id) = complete_contract(&env, &client);

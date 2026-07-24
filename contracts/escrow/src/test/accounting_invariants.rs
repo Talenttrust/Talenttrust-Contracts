@@ -7,6 +7,7 @@
 
 #![cfg(test)]
 
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
 use crate::{ContractStatus, Escrow, EscrowClient, ReleaseAuthorization};
@@ -17,6 +18,7 @@ use crate::{ContractStatus, Escrow, EscrowClient, ReleaseAuthorization};
 
 fn make_env() -> Env {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     env
 }

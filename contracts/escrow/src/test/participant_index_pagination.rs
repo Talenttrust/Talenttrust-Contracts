@@ -1,3 +1,4 @@
+use soroban_sdk::testutils::Ledger as _;
 use super::{default_milestones, generated_participants, register_client};
 
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -9,6 +10,7 @@ fn make_client_freelancer(env: &Env) -> (Address, Address) {
 #[test]
 fn participant_index_empty_returns_empty_page() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -25,6 +27,7 @@ fn participant_index_empty_returns_empty_page() {
 #[test]
 fn participant_index_client_and_freelancer_lists_are_correct_and_paginated() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow = register_client(&env);
 

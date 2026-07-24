@@ -1,11 +1,13 @@
 #![cfg(test)]
 
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{testutils::Address as _, Address, Env, vec};
 use crate::{Escrow, EscrowClient, DataKey, Error, ReleaseAuthorization};
 
 #[test]
 fn test_default_fees_are_zero() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
@@ -18,6 +20,7 @@ fn test_default_fees_are_zero() {
 #[test]
 fn test_get_protocol_fee_bps_returns_zero_when_uninitialized() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let contract_id = env.register_contract(None, Escrow);
     let client = EscrowClient::new(&env, &contract_id);
 
@@ -28,6 +31,7 @@ fn test_get_protocol_fee_bps_returns_zero_when_uninitialized() {
 #[test]
 fn test_get_accumulated_protocol_fees_returns_zero_when_uninitialized() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let contract_id = env.register_contract(None, Escrow);
     let client = EscrowClient::new(&env, &contract_id);
 
@@ -38,6 +42,7 @@ fn test_get_accumulated_protocol_fees_returns_zero_when_uninitialized() {
 #[test]
 fn test_get_protocol_fee_bps_after_configuration() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
@@ -59,6 +64,7 @@ fn test_get_protocol_fee_bps_after_configuration() {
 #[test]
 fn test_set_protocol_fee_bps_accepts_boundary_values() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
@@ -78,6 +84,7 @@ fn test_set_protocol_fee_bps_accepts_boundary_values() {
 #[test]
 fn test_set_protocol_fee_bps_rejects_values_above_100_percent() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
@@ -96,6 +103,7 @@ fn test_set_protocol_fee_bps_rejects_values_above_100_percent() {
 #[test]
 fn test_get_accumulated_protocol_fees_after_releases() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
@@ -141,6 +149,7 @@ fn test_get_accumulated_protocol_fees_after_releases() {
 #[test]
 fn test_no_fees_accumulated_when_rate_is_zero() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
@@ -173,6 +182,7 @@ fn test_no_fees_accumulated_when_rate_is_zero() {
 #[test]
 fn test_readers_bump_ttl_and_are_non_destructive() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
@@ -198,6 +208,7 @@ fn test_readers_bump_ttl_and_are_non_destructive() {
 #[test]
 fn test_readers_work_without_initialization() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let contract_id = env.register_contract(None, Escrow);
     let client = EscrowClient::new(&env, &contract_id);
 
@@ -217,6 +228,7 @@ fn test_readers_work_without_initialization() {
 #[test]
 fn test_fee_math_0_bps() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let fee = Escrow::calculate_protocol_fee(&env, 1000, 0);
     assert_eq!(fee, 0);
 }
@@ -234,6 +246,7 @@ fn create_token_contract(e: &Env, admin: &Address) -> Address {
 #[test]
 fn test_fee_accrual_and_withdrawal() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     
     let admin = Address::generate(&env);
@@ -293,6 +306,7 @@ fn test_fee_accrual_and_withdrawal() {
 #[should_panic(expected = "HostError: Error(Contract, #6)")] // UnauthorizedRole
 fn test_unauthorized_withdrawal() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     
     let admin = Address::generate(&env);
@@ -313,6 +327,7 @@ fn test_unauthorized_withdrawal() {
 #[should_panic(expected = "HostError: Error(Contract, #13)")] // InsufficientAccumulatedFees
 fn test_over_withdrawal() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     
     let admin = Address::generate(&env);
@@ -331,6 +346,7 @@ fn test_over_withdrawal() {
 #[test]
 fn test_fee_math_0_bps() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let fee = Escrow::calculate_protocol_fee(&env, 1000, 0);
     assert_eq!(fee, 0);
 }
@@ -338,6 +354,7 @@ fn test_fee_math_0_bps() {
 #[test]
 fn test_fee_math_normal_bps() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let fee = Escrow::calculate_protocol_fee(&env, 1000, 1000);
     assert_eq!(fee, 100);
 }
@@ -346,12 +363,14 @@ fn test_fee_math_normal_bps() {
 #[should_panic(expected = "HostError: Error(Contract, #25)")] // PotentialOverflow
 fn test_fee_math_overflow() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     Escrow::calculate_protocol_fee(&env, i128::MAX, 1000);
 }
 
 #[test]
 fn test_fee_math_tiny_amount() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     // 9 * 1000 = 9000. 9000 / 10000 = 0 (rounds to zero)
     let fee = Escrow::calculate_protocol_fee(&env, 9, 1000);
     assert_eq!(fee, 0);

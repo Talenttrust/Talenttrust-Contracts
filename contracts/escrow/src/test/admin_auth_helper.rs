@@ -7,6 +7,7 @@
 //! 2. Calling any entrypoint before `initialize` panics with `NotInitialized`.
 //! 3. A non-admin caller cannot authenticate (Soroban auth failure = panic).
 
+use soroban_sdk::testutils::Ledger as _;
 use crate::{Escrow, EscrowClient, EscrowError};
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
@@ -35,6 +36,7 @@ fn setup_uninitialized(env: &Env) -> EscrowClient<'_> {
 #[test]
 fn pause_before_initialize_panics_not_initialized() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let client = setup_uninitialized(&env);
     super::assert_contract_error(client.try_pause(), EscrowError::NotInitialized);
 }
@@ -42,6 +44,7 @@ fn pause_before_initialize_panics_not_initialized() {
 #[test]
 fn unpause_before_initialize_panics_not_initialized() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let client = setup_uninitialized(&env);
     super::assert_contract_error(client.try_unpause(), EscrowError::NotInitialized);
 }
@@ -49,6 +52,7 @@ fn unpause_before_initialize_panics_not_initialized() {
 #[test]
 fn activate_emergency_pause_before_initialize_panics_not_initialized() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let client = setup_uninitialized(&env);
     super::assert_contract_error(
         client.try_activate_emergency_pause(),
@@ -59,6 +63,7 @@ fn activate_emergency_pause_before_initialize_panics_not_initialized() {
 #[test]
 fn resolve_emergency_before_initialize_panics_not_initialized() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let client = setup_uninitialized(&env);
     super::assert_contract_error(client.try_resolve_emergency(), EscrowError::NotInitialized);
 }
@@ -70,6 +75,7 @@ fn resolve_emergency_before_initialize_panics_not_initialized() {
 #[test]
 fn pause_succeeds_with_admin_auth() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, _admin) = setup(&env);
     assert!(client.pause(), "pause must return true");
     assert!(client.is_paused(), "contract must be in paused state");
@@ -79,6 +85,7 @@ fn pause_succeeds_with_admin_auth() {
 #[test]
 fn unpause_succeeds_after_pause() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, _admin) = setup(&env);
     client.pause();
     assert!(client.unpause(), "unpause must return true");
@@ -89,6 +96,7 @@ fn unpause_succeeds_after_pause() {
 #[test]
 fn activate_emergency_pause_succeeds_with_admin_auth() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, _admin) = setup(&env);
     assert!(client.activate_emergency_pause());
     assert!(client.is_paused());
@@ -99,6 +107,7 @@ fn activate_emergency_pause_succeeds_with_admin_auth() {
 #[test]
 fn resolve_emergency_succeeds_with_admin_auth() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, _admin) = setup(&env);
     client.activate_emergency_pause();
     assert!(client.resolve_emergency());
@@ -121,6 +130,7 @@ fn resolve_emergency_succeeds_with_admin_auth() {
 #[test]
 fn emergency_round_trip_preserves_flag_consistency() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, _admin) = setup(&env);
 
     // Initial state
@@ -142,6 +152,7 @@ fn emergency_round_trip_preserves_flag_consistency() {
 #[test]
 fn pause_unpause_does_not_affect_emergency_flag() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, _admin) = setup(&env);
 
     client.pause();

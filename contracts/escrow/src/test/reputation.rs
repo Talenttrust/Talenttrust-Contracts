@@ -1,3 +1,4 @@
+use soroban_sdk::testutils::Ledger as _;
 use super::{complete_contract, create_contract, register_client};
 use crate::{Contract, ContractStatus, DataKey, EscrowError, ReleaseAuthorization};
 use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
@@ -36,6 +37,7 @@ fn complete_contract_for(
 #[test]
 fn pending_reputation_credits_accumulate_and_drain_across_completed_contracts() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let freelancer = Address::generate(&env);
@@ -115,6 +117,7 @@ fn pending_reputation_credits_accumulate_and_drain_across_completed_contracts() 
 #[test]
 fn issue_reputation_rejects_unauthorized_caller() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (_client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
@@ -127,6 +130,7 @@ fn issue_reputation_rejects_unauthorized_caller() {
 #[test]
 fn issue_reputation_rejects_non_completed_contract() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
@@ -138,6 +142,7 @@ fn issue_reputation_rejects_non_completed_contract() {
 #[test]
 fn issue_reputation_rejects_invalid_rating_bounds() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
@@ -154,6 +159,7 @@ fn issue_reputation_rejects_invalid_rating_bounds() {
 #[test]
 fn issue_reputation_rejects_empty_comment() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
@@ -166,6 +172,7 @@ fn issue_reputation_rejects_empty_comment() {
 #[test]
 fn issue_reputation_rejects_comment_too_long() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
@@ -179,6 +186,7 @@ fn issue_reputation_rejects_comment_too_long() {
 #[test]
 fn issue_reputation_rejects_duplicate_issuance() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
@@ -191,6 +199,7 @@ fn issue_reputation_rejects_duplicate_issuance() {
 #[test]
 fn issue_reputation_rejects_self_rating_when_client_equals_freelancer() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
@@ -209,6 +218,7 @@ fn issue_reputation_rejects_self_rating_when_client_equals_freelancer() {
 #[test]
 fn issue_reputation_succeeds_for_distinct_client_and_freelancer() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
@@ -219,6 +229,7 @@ fn issue_reputation_succeeds_for_distinct_client_and_freelancer() {
 #[test]
 fn issue_reputation_updates_reputation_record_and_pending_credits() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
@@ -242,6 +253,7 @@ fn issue_reputation_updates_reputation_record_and_pending_credits() {
 #[test]
 fn get_average_rating_returns_none_for_unknown_address() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let unknown = Address::generate(&env);
@@ -251,6 +263,7 @@ fn get_average_rating_returns_none_for_unknown_address() {
 #[test]
 fn get_average_rating_single_rating_returns_scaled_value() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
     let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
@@ -264,6 +277,7 @@ fn get_average_rating_single_rating_returns_scaled_value() {
 #[test]
 fn get_average_rating_multiple_ratings_returns_correct_scaled_average() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -298,6 +312,7 @@ fn get_average_rating_multiple_ratings_returns_correct_scaled_average() {
 #[test]
 fn get_average_rating_fractional_average_is_preserved() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 

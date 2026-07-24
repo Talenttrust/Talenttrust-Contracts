@@ -6,6 +6,7 @@
 //! `ADMIN_ROTATION_MIN_DELAY_LEDGERS` have elapsed since the matching
 //! `propose_governance_admin` call.
 
+use soroban_sdk::testutils::Ledger as _;
 use crate::{EscrowError, ADMIN_ROTATION_MIN_DELAY_LEDGERS};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _, LedgerInfo},
@@ -41,6 +42,7 @@ fn advance_ledgers(env: &Env, delta: u32) {
 #[test]
 fn accept_succeeds_after_min_delay_ledgers_elapse() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -67,6 +69,7 @@ fn accept_succeeds_after_min_delay_ledgers_elapse() {
 #[test]
 fn accept_rejected_immediately_after_proposal() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -88,6 +91,7 @@ fn accept_rejected_immediately_after_proposal() {
 #[test]
 fn accept_rejected_one_ledger_before_min_delay() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 

@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events as _},
@@ -19,7 +20,7 @@ fn generate_participants(env: &Env) -> (Address, Address) {
 }
 
 fn setup_cancel_context(env: &Env) -> (EscrowClient<'_>, Address, Address, u32) {
-    env.mock_all_auths();
+    env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(env);
     let (client_addr, freelancer_addr) = generate_participants(env);
     let admin = Address::generate(env);
@@ -52,6 +53,7 @@ fn escrow_address(env: &Env, client: &EscrowClient<'_>) -> Address {
 #[test]
 fn cancel_created_contract_marks_it_cancelled_without_refund() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, client_addr, _, contract_id) = setup_cancel_context(&env);
     let token_address = client.get_settlement_token().unwrap();
     let token_client = TokenClient::new(&env, &token_address);
@@ -73,6 +75,7 @@ fn cancel_created_contract_marks_it_cancelled_without_refund() {
 #[test]
 fn cancel_funded_contract_refunds_the_remaining_balance_to_the_client() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, client_addr, _, contract_id) = setup_cancel_context(&env);
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &600_i128));
@@ -106,6 +109,7 @@ fn cancel_funded_contract_refunds_the_remaining_balance_to_the_client() {
 #[test]
 fn cancel_refund_leaves_other_contract_funds_in_escrow() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, client_addr, freelancer_addr, first_contract_id) = setup_cancel_context(&env);
     let second_contract_id = client.create_contract(
         &client_addr,
@@ -140,6 +144,7 @@ fn cancel_refund_leaves_other_contract_funds_in_escrow() {
 #[test]
 fn cancel_rejects_unauthorized_caller() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, client_addr, _, contract_id) = setup_cancel_context(&env);
     let unauthorized = Address::generate(&env);
 
@@ -158,6 +163,7 @@ fn cancel_rejects_unauthorized_caller() {
 #[test]
 fn cancel_rejects_contract_after_a_release() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, client_addr, _, contract_id) = setup_cancel_context(&env);
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &600_i128));
@@ -173,6 +179,7 @@ fn cancel_rejects_contract_after_a_release() {
 #[test]
 fn double_cancel_rejects_with_already_cancelled() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, client_addr, _, contract_id) = setup_cancel_context(&env);
 
     assert!(client.cancel_contract(&contract_id, &client_addr));
@@ -186,6 +193,7 @@ fn double_cancel_rejects_with_already_cancelled() {
 #[test]
 fn cancel_rejects_completed_contract() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, client_addr, _, contract_id) = setup_cancel_context(&env);
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &600_i128));
@@ -203,6 +211,7 @@ fn cancel_rejects_completed_contract() {
 #[test]
 fn cancel_emits_cancelled_event() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, client_addr, _, contract_id) = setup_cancel_context(&env);
 
     assert!(client.cancel_contract(&contract_id, &client_addr));

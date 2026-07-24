@@ -21,6 +21,7 @@
 
 #![cfg(test)]
 
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{
     contract, contractimpl,
     testutils::{Address as _, Events as _},
@@ -91,6 +92,7 @@ fn funded_sac_contract(
 #[test]
 fn bind_settlement_token_unbound_then_some_returns_none() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let client = register_client(&env);
     assert!(client.get_settlement_token().is_none());
 }
@@ -98,6 +100,7 @@ fn bind_settlement_token_unbound_then_some_returns_none() {
 #[test]
 fn bind_settlement_token_admin_can_bind_and_query_returns_some() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(&env);
     // register_client already called initialize; get admin from storage
@@ -111,6 +114,7 @@ fn bind_settlement_token_admin_can_bind_and_query_returns_some() {
 #[test]
 fn is_settlement_token_bound_false_before_bind_true_after() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(&env);
     let admin = client.get_admin().unwrap();
@@ -139,6 +143,7 @@ fn is_settlement_token_bound_false_before_bind_true_after() {
 #[test]
 fn bind_settlement_token_rejects_double_bind() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(&env);
     let admin = client.get_admin().unwrap();
@@ -159,6 +164,7 @@ fn second_bind_attempt_fails_regardless_of_entrypoint() {
     // 1. bind_settlement_token followed by set_settlement_token
     {
         let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
         env.mock_all_auths_allowing_non_root_auth();
         let client = register_client(&env);
         let admin = client.get_admin().unwrap();
@@ -175,6 +181,7 @@ fn second_bind_attempt_fails_regardless_of_entrypoint() {
     // 2. set_settlement_token followed by bind_settlement_token
     {
         let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
         env.mock_all_auths_allowing_non_root_auth();
         let client = register_client(&env);
         let admin = client.get_admin().unwrap();
@@ -191,6 +198,7 @@ fn second_bind_attempt_fails_regardless_of_entrypoint() {
     // 3. set_settlement_token followed by set_settlement_token
     {
         let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
         env.mock_all_auths_allowing_non_root_auth();
         let client = register_client(&env);
         let admin = client.get_admin().unwrap();
@@ -209,6 +217,7 @@ fn second_bind_attempt_fails_regardless_of_entrypoint() {
 #[allow(deprecated)]
 fn set_settlement_token_delegate_inherits_all_guards_and_events() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(&env);
     let admin = client.get_admin().unwrap();
@@ -223,6 +232,7 @@ fn set_settlement_token_delegate_inherits_all_guards_and_events() {
 #[test]
 fn bind_settlement_token_rejects_uninit() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let contract_id = env.register(crate::Escrow, ());
     let client = crate::EscrowClient::new(&env, &contract_id);
@@ -250,6 +260,7 @@ fn has_settlement_token_bound_event(env: &Env) -> bool {
 #[test]
 fn bind_settlement_token_emits_settlement_token_bound_event() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(&env);
     let admin = client.get_admin().unwrap();
@@ -267,6 +278,7 @@ fn bind_settlement_token_emits_settlement_token_bound_event() {
 #[test]
 fn rejected_bind_does_not_emit_settlement_token_bound_event() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let contract_id = env.register(crate::Escrow, ());
     let client = crate::EscrowClient::new(&env, &contract_id);
@@ -301,6 +313,7 @@ impl MockNonToken {
 #[test]
 fn bind_settlement_token_rejects_non_token_address() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(&env);
     let admin = client.get_admin().unwrap();
@@ -326,6 +339,7 @@ fn bind_settlement_token_rejects_non_token_address() {
 #[test]
 fn bind_settlement_token_rejects_self_address() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(&env);
     let admin = client.get_admin().unwrap();
@@ -348,6 +362,7 @@ fn bind_settlement_token_rejects_self_address() {
 #[test]
 fn bind_settlement_token_rejects_admin_address() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(&env);
     let admin = client.get_admin().unwrap();
@@ -368,6 +383,7 @@ fn bind_settlement_token_rejects_admin_address() {
 #[test]
 fn bind_settlement_token_probe_does_not_mutate_state() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(&env);
     let admin = client.get_admin().unwrap();
@@ -386,6 +402,7 @@ fn bind_settlement_token_probe_does_not_mutate_state() {
 #[test]
 fn bind_settlement_token_non_admin_rejected_before_probe() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(&env);
     let admin = client.get_admin().unwrap();
@@ -407,6 +424,7 @@ fn bind_settlement_token_non_admin_rejected_before_probe() {
 #[test]
 fn deposit_funds_with_sac_pulls_amount_into_contract() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let (client, sac, admin) = setup_bound(&env);
     env.mock_all_auths_allowing_non_root_auth();
 
@@ -447,6 +465,7 @@ fn deposit_funds_with_sac_pulls_amount_into_contract() {
 #[test]
 fn deposit_funds_rejects_when_token_unbound() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let contract_id = env.register(crate::Escrow, ());
     let client = crate::EscrowClient::new(&env, &contract_id);
@@ -512,6 +531,7 @@ fn setup_and_funded_partial(
 #[test]
 fn release_milestone_with_sac_pushes_payout_minus_fee_to_freelancer() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let (client, sac, _admin, client_addr, freelancer_addr, id) = setup_and_funded_partial(&env, 0);
     let total = total_milestone_amount();
@@ -535,6 +555,7 @@ fn release_milestone_with_sac_pushes_payout_minus_fee_to_freelancer() {
 #[test]
 fn release_milestone_zero_fee_pays_full_milestone_amount() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let (client, sac, _admin, client_addr, freelancer_addr, id) = setup_and_funded_partial(&env, 0);
     let total = total_milestone_amount();
@@ -556,6 +577,7 @@ fn release_milestone_zero_fee_pays_full_milestone_amount() {
 #[test]
 fn sac_custody_accounting_invariant_holds_after_deposit_and_release() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
 
     let (escrow, sac, _admin, client_addr, freelancer_addr, id) = setup_and_funded_partial(&env, 0);
@@ -603,6 +625,7 @@ fn sac_custody_accounting_invariant_holds_after_deposit_and_release() {
 #[test]
 fn sac_full_lifecycle_deposit_release_balance_deltas() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let (client, sac, _admin, client_addr, freelancer_addr, id) = setup_and_funded_partial(&env, 0);
     let total = total_milestone_amount();
@@ -649,6 +672,7 @@ fn sac_full_lifecycle_deposit_release_balance_deltas() {
 #[test]
 fn release_milestone_cei_ordering_state_before_transfer() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let (client, sac, _admin, client_addr, freelancer_addr, id) = setup_and_funded_partial(&env, 0);
     let total = total_milestone_amount();
@@ -694,6 +718,7 @@ fn release_milestone_cei_ordering_state_before_transfer() {
 #[test]
 fn funded_sac_contract_helper_creates_and_deposits() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths_allowing_non_root_auth();
     let (client, sac, _admin) = setup_bound(&env);
 
@@ -709,6 +734,7 @@ fn funded_sac_contract_helper_creates_and_deposits() {
 #[test]
 fn mock_non_token_hello_returns_true() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     let addr = env.register(MockNonToken, ());
     let client = MockNonTokenClient::new(&env, &addr);
     assert!(client.hello());

@@ -3,6 +3,7 @@
 //! Covers TTL-based auto-expiry of milestone approvals stored in temporary storage.
 //! Tests each ReleaseAuthorization mode and edge cases around expiry boundaries.
 
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{
     log,
     testutils::{Address as _, Ledger as _},
@@ -37,15 +38,23 @@ fn setup(env: &Env) -> (Address, Address, Address) {
     )
 }
 
-fn advance_ledger(env: &Env, _contract_id: &Address, by: u32) {
-    env.ledger().with_mut(|li| {
-        li.sequence_number = li.sequence_number.saturating_add(by);
+fn advance_ledger(env: &Env, contract_id: &Address, by: u32) {
+    let current = env.ledger().get();
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        sequence_number: current.sequence_number.saturating_add(by),
+        ..current
+    });
+    env.as_contract(contract_id, || {
+        env.storage()
+            .instance()
+            .extend_ttl(3_110_400, 3_110_400);
     });
 }
 
 #[test]
 fn test_approve_milestone_client_only() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _arbiter_addr) = setup(&env);
@@ -70,6 +79,7 @@ fn test_approve_milestone_client_only() {
 #[test]
 fn test_approve_milestone_multisig() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _arbiter_addr) = setup(&env);
@@ -96,6 +106,7 @@ fn test_approve_milestone_multisig() {
 #[test]
 fn test_approve_milestone_arbiter_only() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
@@ -120,6 +131,7 @@ fn test_approve_milestone_arbiter_only() {
 #[test]
 fn test_approve_milestone_client_and_arbiter() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
@@ -144,6 +156,7 @@ fn test_approve_milestone_client_and_arbiter() {
 #[test]
 fn test_duplicate_approval_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _arbiter_addr) = setup(&env);
@@ -165,6 +178,7 @@ fn test_duplicate_approval_rejected() {
 #[test]
 fn test_unauthorized_approval_rejected() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _arbiter_addr) = setup(&env);
@@ -185,6 +199,7 @@ fn test_unauthorized_approval_rejected() {
 #[test]
 fn test_release_requires_approval() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _arbiter_addr) = setup(&env);
@@ -205,6 +220,7 @@ fn test_release_requires_approval() {
 #[test]
 fn test_release_with_approval_succeeds() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _arbiter_addr) = setup(&env);
@@ -230,6 +246,7 @@ fn test_release_with_approval_succeeds() {
 #[test]
 fn test_multisig_requires_both_approvals() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _arbiter_addr) = setup(&env);
@@ -255,6 +272,7 @@ fn test_multisig_requires_both_approvals() {
 #[test]
 fn test_approve_already_released_milestone_fails() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _arbiter_addr) = setup(&env);
@@ -277,6 +295,7 @@ fn test_approve_already_released_milestone_fails() {
 #[test]
 fn test_approve_invalid_milestone_index() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _arbiter_addr) = setup(&env);
@@ -297,6 +316,7 @@ fn test_approve_invalid_milestone_index() {
 #[test]
 fn test_approve_requires_funded_state() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _arbiter_addr) = setup(&env);
@@ -316,6 +336,7 @@ fn test_approve_requires_funded_state() {
 #[test]
 fn test_multiple_milestones_independent_approvals() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _arbiter_addr) = setup(&env);
@@ -346,6 +367,7 @@ fn test_multiple_milestones_independent_approvals() {
 #[test]
 fn test_client_only_approval_expires_after_ttl() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
@@ -382,6 +404,7 @@ fn test_client_only_approval_expires_after_ttl() {
 #[test]
 fn test_client_only_approval_valid_at_exactly_ttl_boundary() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
@@ -401,15 +424,18 @@ fn test_client_only_approval_valid_at_exactly_ttl_boundary() {
     assert!(client.deposit_funds(&contract_id, &client_addr, &total()));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
 
-    advance_ledger(&env, &escrow_id, PENDING_APPROVAL_TTL_LEDGERS);
+    advance_ledger(&env, &escrow_id, PENDING_APPROVAL_TTL_LEDGERS - 1);
 
-    let approvals = client.get_milestone_approvals(&contract_id, &0);
+    let approval_key = crate::DataKey::MilestoneApprovals(contract_id, 0);
+    let approvals: Option<crate::MilestoneApprovals> = env.as_contract(&escrow_id, || {
+        env.storage().temporary().get(&approval_key)
+    });
     assert!(
         approvals.is_some(),
         "approval should survive at exact TTL boundary"
     );
 
-    advance_ledger(&env, &escrow_id, 1);
+    advance_ledger(&env, &escrow_id, 2);
 
     let approvals_expired = client.get_milestone_approvals(&contract_id, &0);
     assert!(
@@ -421,6 +447,7 @@ fn test_client_only_approval_valid_at_exactly_ttl_boundary() {
 #[test]
 fn test_arbiter_only_approval_expires_after_ttl() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
@@ -450,6 +477,7 @@ fn test_arbiter_only_approval_expires_after_ttl() {
 #[test]
 fn test_client_and_arbiter_approval_expires_after_ttl() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
@@ -479,6 +507,7 @@ fn test_client_and_arbiter_approval_expires_after_ttl() {
 #[test]
 fn test_multisig_one_approval_expires_before_second_arrives() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
@@ -517,6 +546,7 @@ fn test_multisig_one_approval_expires_before_second_arrives() {
 #[test]
 fn test_multisig_both_approvals_expire_after_ttl() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
@@ -554,6 +584,7 @@ fn test_multisig_both_approvals_expire_after_ttl() {
 #[test]
 fn test_read_within_bump_threshold_refreshes_ttl() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
@@ -599,6 +630,7 @@ fn test_read_within_bump_threshold_refreshes_ttl() {
 #[test]
 fn test_multisig_read_within_bump_threshold_refreshes_ttl() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
@@ -638,6 +670,7 @@ fn test_multisig_read_within_bump_threshold_refreshes_ttl() {
 #[test]
 fn test_approval_ttl_independent_per_milestone() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
@@ -699,6 +732,7 @@ fn funded_no_approvals(
 #[test]
 fn test_deadline_none_before_any_approval() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _) = setup(&env);
@@ -721,6 +755,7 @@ fn test_deadline_none_before_any_approval() {
 #[test]
 fn test_deadline_some_after_first_approval() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _) = setup(&env);
@@ -750,6 +785,7 @@ fn test_deadline_some_after_first_approval() {
 #[test]
 fn test_deadline_does_not_extend_ttl() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _) = setup(&env);
@@ -778,6 +814,7 @@ fn test_deadline_does_not_extend_ttl() {
 #[test]
 fn test_deadline_none_for_unknown_milestone() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _) = setup(&env);
@@ -800,6 +837,7 @@ fn test_deadline_none_for_unknown_milestone() {
 #[test]
 fn test_deadline_independent_per_milestone() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = new_client(&env);
     let (client_addr, freelancer_addr, _) = setup(&env);

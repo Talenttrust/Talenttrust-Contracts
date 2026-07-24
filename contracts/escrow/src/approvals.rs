@@ -155,6 +155,11 @@ pub fn approve_milestone(
         PENDING_APPROVAL_TTL_LEDGERS,
     );
 
+    env.events().publish(
+        (soroban_sdk::symbol_short!("ms_appr"), contract_id),
+        (milestone_index, milestone.amount),
+    );
+
     Ok(true)
 }
 

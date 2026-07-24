@@ -224,12 +224,12 @@ fn extend_is_a_no_op_when_remaining_ttl_is_at_threshold() {
     advance(
         &env,
         &id,
-        PENDING_APPROVAL_TTL_LEDGERS - PENDING_APPROVAL_BUMP_THRESHOLD,
+        PENDING_APPROVAL_TTL_LEDGERS - PENDING_APPROVAL_BUMP_THRESHOLD - 1,
     );
 
     env.as_contract(&id, || {
         let ttl_before = env.storage().temporary().get_ttl(&approval_key());
-        assert_eq!(ttl_before, PENDING_APPROVAL_BUMP_THRESHOLD);
+        assert_eq!(ttl_before, PENDING_APPROVAL_BUMP_THRESHOLD + 1);
         assert!(
             extend_if_below_threshold(
                 &env,

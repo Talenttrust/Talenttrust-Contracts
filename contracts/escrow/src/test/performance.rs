@@ -1,3 +1,4 @@
+use soroban_sdk::testutils::Ledger as _;
 use super::{create_contract, register_client, total_milestone_amount};
 use soroban_sdk::Env;
 
@@ -159,6 +160,7 @@ fn assert_within_baseline(
 #[test]
 fn create_contract_resource_baseline() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -176,6 +178,7 @@ fn create_contract_resource_baseline() {
 #[test]
 fn deposit_funds_resource_baseline() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -194,6 +197,7 @@ fn deposit_funds_resource_baseline() {
 #[test]
 fn release_milestone_resource_baseline() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -213,6 +217,7 @@ fn release_milestone_resource_baseline() {
 #[test]
 fn refund_resource_baseline() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -227,6 +232,7 @@ fn refund_resource_baseline() {
 #[test]
 fn cancel_resource_baseline() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
@@ -240,6 +246,7 @@ fn cancel_resource_baseline() {
 #[test]
 fn dispute_resource_baseline() {
     let env = Env::default();
+    env.ledger().with_mut(|li| { li.max_entry_ttl = 3_110_400; li.min_persistent_entry_ttl = 3_110_400; });
     env.mock_all_auths();
     let client = register_client(&env);
 
