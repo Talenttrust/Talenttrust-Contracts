@@ -8,7 +8,6 @@
 //! storage.
 
 /// Maximum number of decimal places for stroop precision (7 decimal places for Stellar)
-#[allow(dead_code)] // available for callers; not used internally
 pub const STROOP_PRECISION: u8 = 7;
 
 /// Maximum individual amount allowed per operation to prevent overflow
@@ -57,7 +56,6 @@ pub fn validate_single_amount(amount: i128) -> Result<(), crate::EscrowError> {
 ///
 /// # Returns
 /// `Ok(total)` with sum of all amounts if valid, `Err(AmountValidationError)` if invalid
-#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_amount_array(amounts: &[i128]) -> Result<i128, crate::EscrowError> {
     let mut total: i128 = 0;
 
@@ -84,7 +82,6 @@ pub fn validate_amount_array(amounts: &[i128]) -> Result<i128, crate::EscrowErro
 ///
 /// # Returns
 /// `Ok(())` if valid, `Err(AmountValidationError)` if invalid
-#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_contract_total(
     total_amount: i128,
     max_contract_total: i128,
@@ -104,7 +101,6 @@ pub fn validate_contract_total(
 ///
 /// # Returns
 /// `Ok(total)` with sum of all milestones if valid, `Err(AmountValidationError)` if invalid
-#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_milestone_amounts(
     milestone_amounts: &[i128],
     max_contract_total: i128,
@@ -167,7 +163,6 @@ pub fn validate_milestone_amounts(
 /// - Uses checked arithmetic to prevent integer overflow panics
 /// - Rejects any deposit when contract is already fully funded
 /// - Validates deposit amount bounds before checking capacity
-#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_deposit_amount(
     deposit_amount: i128,
     current_deposited: i128,
