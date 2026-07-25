@@ -90,6 +90,8 @@ pub enum DataKey {
     Finalization(u32),
     // Settlement token
     SettlementToken,
+    // Configurable contracts limit
+    ContractsLimit,
 }
 
 /// Canonical contract error type for all entrypoint-facing errors.
@@ -193,7 +195,18 @@ pub enum Error {
     SettlementTokenNotConfigured = 52,
     /// The milestone deadline has not yet passed.
     MilestoneNotOverdue = 53,
+    /// The value is outside the allowed bounds for the contracts limit.
+    ContractsLimitExceeded = 54,
 }
+
+/// Minimum allowed value for the admin-configurable contracts limit.
+pub const MIN_CONTRACTS_LIMIT: u32 = 1;
+/// Maximum allowed value for the admin-configurable contracts limit.
+pub const MAX_CONTRACTS_LIMIT: u32 = u32::MAX;
+
+/// Default contracts limit when no admin override has been stored.
+/// Preserves the existing hard-coded behaviour (u32::MAX).
+pub const DEFAULT_CONTRACTS_LIMIT: u32 = u32::MAX;
 
 /// Contract lifecycle states
 #[contracttype]

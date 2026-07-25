@@ -429,6 +429,24 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: None
 - Errors: None
 
+### set_contracts_limit
+
+- Signature: `set_contracts_limit(env: Env, admin: Address, limit: u32) -> bool`
+- Kind: Mutating
+- Auth: stored admin
+- Semantics: Stores the admin-configurable contracts limit. `limit` must be between `MIN_CONTRACTS_LIMIT` (1) and `MAX_CONTRACTS_LIMIT` (`u32::MAX`). The default value is `DEFAULT_CONTRACTS_LIMIT` (`u32::MAX`), preserving the existing behaviour. When the limit is reached, `create_contract` panics with `ContractsLimitExceeded`.
+- Events: `(Symbol("contracts_limit"),)` → `(old_limit, new_limit, admin, timestamp)`
+- Errors: `NotInitialized`, `UnauthorizedRole`, `ContractsLimitExceeded`
+
+### get_contracts_limit
+
+- Signature: `get_contracts_limit(env: Env) -> u32`
+- Kind: Read-only
+- Auth: None
+- Semantics: Returns the currently configured contracts limit. If no limit has been set by an admin, returns `DEFAULT_CONTRACTS_LIMIT` (`u32::MAX`).
+- Events: None
+- Errors: None
+
 ## Error-code cross-reference
 
 The authoritative error enums are in [contracts/escrow/src/lib.rs](../../contracts/escrow/src/lib.rs) and [contracts/escrow/src/types.rs](../../contracts/escrow/src/types.rs). The ABI summary above uses the current live error names and maps them to the same contract-facing error values used by the runtime.

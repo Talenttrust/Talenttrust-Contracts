@@ -20,9 +20,9 @@
 //! | `ttl` | TTL constants plus helpers for temporary and persistent storage renewal. | Extends caller-provided keys, especially `Contract(id)`, `(Contract(id), "milestones")`, `NextContractId`, participant indexes, approvals, and migrations. |
 //! | `types` | Shared Soroban types, error enums, summaries, governance records, dispute records, and the canonical `DataKey` enum. | Declares storage key schema only; does not access storage itself. |
 //! | `utils` | Small deterministic helpers shared by entrypoints, currently ledger timestamp access. | None. |
-//! | `create_contract` | Contract creation, participant/milestone validation, ID allocation, and creation events. | `DataKey::Contract(id)`, `(DataKey::Contract(id), "milestones")`, `NextContractId`, and `GovernedParameters`. |
+//! | `create_contract` | Contract creation, participant/milestone validation, ID allocation, and creation events. | `DataKey::Contract(id)`, `(DataKey::Contract(id), "milestones")`, `NextContractId`, `ContractsLimit`, and `GovernedParameters`. |
 //! | `dispute` | Pure dispute payout arithmetic and final-status selection for dispute resolution. | None directly; root dispute entrypoints update `DataKey::Contract(contract_id)`. |
-//! | `governance` | Admin-controlled protocol fee, governed parameter, readiness, and admin-rotation entrypoints. | `DataKey::Admin`, `ProtocolFeeBps`, `PendingAdmin`, `GovernedParameters`, and `ReadinessChecklist`. |
+//! | `governance` | Admin-controlled protocol fee, governed parameter, contracts-limit, readiness, and admin-rotation entrypoints. | `DataKey::Admin`, `ProtocolFeeBps`, `ContractsLimit`, `PendingAdmin`, `GovernedParameters`, and `ReadinessChecklist`. |
 //!
 //! Generate this map with `cargo doc -p escrow --no-deps` and open
 //! `target/doc/escrow/index.html`.
@@ -83,7 +83,8 @@ pub use types::{
     Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode,
     DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
     MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, DEFAULT_CONTRACTS_LIMIT, MAX_CONTRACTS_LIMIT,
+    MIN_CONTRACTS_LIMIT,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -1244,6 +1245,24 @@ impl Escrow {
             .persistent()
             .get(&DataKey::NextContractId)
             .unwrap_or(1)
+    }
+
+    /// Returns the admin-configurable contracts limit.
+    ///
+    /// The limit caps the total number of contracts that can be created.
+    /// When no limit has been configured by an admin, returns
+    /// [`DEFAULT_CONTRACTS_LIMIT`] (`u32::MAX`), preserving the
+    /// existing behaviour.
+    ///
+    /// This is a read-only operation and requires no authorization.
+    ///
+    /// # Returns
+    /// The currently configured maximum number of contracts.
+    pub fn get_contracts_limit(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ContractsLimit)
+            .unwrap_or(DEFAULT_CONTRACTS_LIMIT)
     }
 
     /// Returns a structured summary of the contract and its milestones.
