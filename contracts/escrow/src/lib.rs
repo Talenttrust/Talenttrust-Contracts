@@ -82,14 +82,19 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 pub use types::{
     Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode,
     DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
-    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    MilestoneEntry, MilestoneSummary, PendingAdminProposal, ReadinessChecklist,
+    ReleaseAuthorization, Reputation, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
 pub const MAX_MILESTONES: u32 = 10;
 pub const MAX_SINGLE_AMOUNT_STROOPS: i128 = crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
+/// Upper bound on the `limit` parameter of paginated read views.
+///
+/// Keeps per-call storage reads bounded and prevents callers from requesting
+/// unbounded scans in a single invocation.
+pub const PAGE_CEILING: u32 = 50;
 
 #[contract]
 pub struct Escrow;
@@ -1355,6 +1360,97 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
         ttl::extend_milestone_ttl(&env, contract_id);
         milestones.get(milestone_index)
+    }
+
+    /// Returns a bounded, paginated view of a contract's milestones with
+    /// compact status codes.
+    ///
+    /// This is the read-only counterpart to [`get_milestones`](Self::get_milestones)
+    /// designed for UIs that need to enumerate milestones without fetching the
+    /// full vector. Each returned [`MilestoneEntry`] carries the zero-based
+    /// `index`, a compact `status` code, and the milestone `amount`.
+    ///
+    /// # Pagination contract
+    ///
+    /// - `start` is the zero-based index of the first milestone to return.
+    ///   An out-of-range `start` produces an empty page (never a panic).
+    /// - `limit` is clamped to `[0, PAGE_CEILING]` before use. The caller
+    ///   never receives more than `PAGE_CEILING` entries per call.
+    /// - Returns an empty `Vec` for an unknown or empty contract rather
+    ///   than panicking.
+    ///
+    /// # Status codes
+    ///
+    /// | Code | Meaning |
+    /// | --- | --- |
+    /// | `0` | Pending (neither released nor refunded) |
+    /// | `1` | Released |
+    /// | `2` | Refunded |
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `contract_id` - The escrow contract to query
+    /// * `start` - Zero-based index of the first milestone in the page
+    /// * `limit` - Maximum entries to return (clamped to `PAGE_CEILING`)
+    ///
+    /// # Returns
+    /// A [`Vec<MilestoneEntry>`] containing at most `min(limit, PAGE_CEILING)`
+    /// entries. Empty when the contract does not exist, has no milestones,
+    /// or `start` is beyond the last milestone.
+    ///
+    /// # Side effects
+    /// Extends the milestones vector TTL on a successful read, consistent
+    /// with `get_milestones`. Auth-free and otherwise non-mutating.
+    pub fn get_milestones_page(
+        env: Env,
+        contract_id: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<MilestoneEntry> {
+        let capped_limit = core::cmp::min(limit, PAGE_CEILING);
+
+        let milestone_key = Symbol::new(&env, "milestones");
+        let milestones: Vec<Milestone> = match env
+            .storage()
+            .persistent()
+            .get(&(DataKey::Contract(contract_id), milestone_key))
+        {
+            Some(m) => m,
+            None => return Vec::new(&env),
+        };
+
+        if milestones.is_empty() {
+            return Vec::new(&env);
+        }
+
+        ttl::extend_milestone_ttl(&env, contract_id);
+
+        let total = milestones.len();
+        if start >= total {
+            return Vec::new(&env);
+        }
+
+        let mut result = Vec::new(&env);
+        let mut count: u32 = 0;
+        let mut idx = start;
+        while idx < total && count < capped_limit {
+            let m = milestones.get(idx).unwrap();
+            let status: u32 = if m.released {
+                1
+            } else if m.refunded {
+                2
+            } else {
+                0
+            };
+            result.push_back(MilestoneEntry {
+                index: idx,
+                status,
+                amount: m.amount,
+            });
+            idx += 1;
+            count += 1;
+        }
+        result
     }
 
     /// Returns funded minus released minus refunded for `contract_id`.
