@@ -1,8 +1,8 @@
 #![cfg(test)]
 
-use super::{assert_contract_error, register_client};
+use super::{assert_contract_error};
 use crate::{DataKey, Error, Escrow, EscrowClient};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, testutils::Events, testutils::storage::Persistent, Address, Env, TryFromVal};
 
 fn setup_with_admin(env: &Env) -> (EscrowClient<'_>, Address) {
     env.mock_all_auths();
