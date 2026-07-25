@@ -204,7 +204,6 @@ fn get_contracts_limit_does_not_extend_ttl() {
         env.storage()
             .persistent()
             .get_ttl(&DataKey::ContractsLimit)
-            .unwrap()
     });
 
     let _ = client.get_contracts_limit();
@@ -213,7 +212,6 @@ fn get_contracts_limit_does_not_extend_ttl() {
         env.storage()
             .persistent()
             .get_ttl(&DataKey::ContractsLimit)
-            .unwrap()
     });
 
     assert_eq!(ttl_before, ttl_after, "get_contracts_limit must not extend TTL");
