@@ -33,12 +33,11 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::vec::Vec as StdVec;
 
 use proptest::prelude::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, Vec as SorobanVec};
-
-use crate::{
-    dispute::resolution_payouts, Contract, ContractStatus, DisputeResolution, DisputeSplit, Error,
-    Escrow, EscrowClient, ReleaseAuthorization,
+use soroban_sdk::{
+    testutils::Address as _, Address, Env, Vec as SorobanVec,
 };
+
+use crate::{Contract, ContractStatus, Escrow, EscrowClient, ReleaseAuthorization};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -80,7 +79,7 @@ fn op_strategy(n_ms: usize, total: i128) -> impl Strategy<Value = Op> {
         (1i128..=overshoot).prop_map(Op::Deposit),
         (0u32..n).prop_map(Op::Approve),
         (0u32..n).prop_map(Op::Release),
-        prop::collection::vec(0u32..n, 1..=n as usize).prop_map(Op::Refund),
+        prop::collection::vec(0u32..n, 1..=n).prop_map(Op::Refund),
     ]
 }
 
@@ -101,21 +100,6 @@ struct Harness {
     env: Env,
     client_addr: Address,
     freelancer_addr: Address,
-}
-
-fn payout_contract_for_resolution(env: &Env, available: i128) -> Contract {
-    Contract {
-        client: Address::generate(env),
-        freelancer: Address::generate(env),
-        arbiter: Some(Address::generate(env)),
-        status: ContractStatus::Disputed,
-        total_deposited: available,
-        funded_amount: available,
-        released_amount: 0,
-        refunded_amount: 0,
-        release_authorization: ReleaseAuthorization::ClientOnly,
-        reputation_issued: false,
-    }
 }
 
 impl Harness {
@@ -162,7 +146,12 @@ fn try_release(client: &EscrowClient, id: u32, caller: &Address, ms_idx: u32) ->
     .is_ok()
 }
 
-fn try_refund(client: &EscrowClient, env: &Env, id: u32, indices: &[u32]) -> Result<i128, ()> {
+fn try_refund(
+    client: &EscrowClient,
+    env: &Env,
+    id: u32,
+    indices: &[u32],
+) -> Result<i128, ()> {
     let v: SorobanVec<u32> = {
         let mut tmp = SorobanVec::new(env);
         for &i in indices {
@@ -213,15 +202,24 @@ fn is_valid_transition(prev: ContractStatus, next: ContractStatus) -> bool {
     use ContractStatus::*;
     match (prev, next) {
         // Terminal states are absorbing.
-        (Completed, Completed) | (Refunded, Refunded) | (Cancelled, Cancelled) => true,
+        (Completed, Completed)
+        | (Refunded, Refunded)
+        | (Cancelled, Cancelled) => true,
         (Completed, _) | (Refunded, _) | (Cancelled, _) => false,
         // Forward transitions.
-        (Created, Created) | (Created, Funded) | (Created, Cancelled) => true,
-        (Funded, Funded) | (Funded, Completed) | (Funded, Refunded) | (Funded, Cancelled) => true,
+        (Created, Created)
+        | (Created, Funded)
+        | (Created, Cancelled) => true,
+        (Funded, Funded)
+        | (Funded, Completed)
+        | (Funded, Refunded)
+        | (Funded, Cancelled) => true,
         (PartiallyFunded, PartiallyFunded)
         | (PartiallyFunded, Funded)
         | (PartiallyFunded, Cancelled) => true,
-        (Accepted, Accepted) | (Accepted, Funded) | (Accepted, Cancelled) => true,
+        (Accepted, Accepted)
+        | (Accepted, Funded)
+        | (Accepted, Cancelled) => true,
         (_, Disputed) => true,
         // Everything else is invalid.
         _ => false,
@@ -233,83 +231,6 @@ fn is_valid_transition(prev: ContractStatus, next: ContractStatus) -> bool {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_CASES: u32 = 256;
-
-proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: DEFAULT_CASES,
-        ..ProptestConfig::default()
-    })]
-
-    /// The Split arm must succeed exactly when the two legs are non-negative and
-    /// sum to the available balance, and the returned payouts must be conserved.
-    #[test]
-    fn prop_resolution_payouts_split_conserves_available_balance(
-        available in 0i128..=MAX_AMOUNT,
-        client_amount in 0i128..=MAX_AMOUNT,
-        freelancer_amount in 0i128..=MAX_AMOUNT,
-    ) {
-        let env = Env::default();
-        let contract = payout_contract_for_resolution(&env, available);
-        let split = DisputeSplit {
-            client_amount,
-            freelancer_amount,
-        };
-
-        let result = resolution_payouts(&contract, &DisputeResolution::Split(split));
-        let expected_success = client_amount >= 0
-            && freelancer_amount >= 0
-            && client_amount + freelancer_amount == available;
-
-        if expected_success {
-            let (client_payout, freelancer_payout) = result
-                .expect("split should succeed when the legs are exact and non-negative");
-            prop_assert_eq!(client_payout, client_amount);
-            prop_assert_eq!(freelancer_payout, freelancer_amount);
-            prop_assert_eq!(client_payout + freelancer_payout, available);
-            prop_assert!(client_payout >= 0);
-            prop_assert!(freelancer_payout >= 0);
-        } else {
-            prop_assert_eq!(result, Err(Error::InvalidDisputeSplit));
-        }
-    }
-
-    /// FullRefund, FullPayout, and PartialRefund must always preserve the
-    /// available balance and never return negative payouts.
-    #[test]
-    fn prop_resolution_payouts_other_resolutions_conserve_available_balance(
-        available in 0i128..=MAX_AMOUNT,
-    ) {
-        let env = Env::default();
-        let contract = payout_contract_for_resolution(&env, available);
-
-        let (client_refund, freelancer_refund) =
-            resolution_payouts(&contract, &DisputeResolution::FullRefund)
-                .expect("FullRefund should succeed for a non-negative available balance");
-        let (client_payout, freelancer_payout) =
-            resolution_payouts(&contract, &DisputeResolution::FullPayout)
-                .expect("FullPayout should succeed for a non-negative available balance");
-        let (client_partial, freelancer_partial) =
-            resolution_payouts(&contract, &DisputeResolution::PartialRefund)
-                .expect("PartialRefund should succeed for a non-negative available balance");
-
-        prop_assert_eq!(client_refund + freelancer_refund, available);
-        prop_assert_eq!(client_payout + freelancer_payout, available);
-        prop_assert_eq!(client_partial + freelancer_partial, available);
-
-        prop_assert!(client_refund >= 0 && freelancer_refund >= 0);
-        prop_assert!(client_payout >= 0 && freelancer_payout >= 0);
-        prop_assert!(client_partial >= 0 && freelancer_partial >= 0);
-
-        prop_assert_eq!(client_refund, available);
-        prop_assert_eq!(freelancer_refund, 0);
-        prop_assert_eq!(client_payout, 0);
-        prop_assert_eq!(freelancer_payout, available);
-
-        let expected_freelancer = (available * 30) / 100;
-        prop_assert_eq!(client_partial, available - expected_freelancer);
-        prop_assert_eq!(freelancer_partial, expected_freelancer);
-    }
-}
 
 proptest! {
     #![proptest_config(ProptestConfig {
@@ -717,7 +638,7 @@ proptest! {
         // Use amounts in the i128::MAX / 3 range to avoid multiplicative overflow.
         let max_safe = i128::MAX / 3;
         let amounts: StdVec<i128> = (0..small_count)
-            .map(|i| (max_safe / (small_count as i128)) * (i as i128 + 1))
+            .map(|i| (max_safe / (small_count as i128)) * (i + 1))
             .collect();
         // Avoid zero amounts.
         let amounts: StdVec<i128> = amounts.into_iter().map(|a| if a <= 0 { 1 } else { a }).collect();

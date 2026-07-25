@@ -3,7 +3,7 @@ use super::{
     generated_participants, register_client, total_milestone_amount, MILESTONE_ONE, MILESTONE_THREE,
     MILESTONE_TWO,
 };
-use crate::{ContractStatus, DataKey, Error, EscrowError, ReadinessChecklist, ReleaseAuthorization};
+use crate::{ContractStatus, DataKey, EscrowError, ReadinessChecklist, ReleaseAuthorization};
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 // ─── Initialized / Admin ──────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ fn paused_blocks_create_contract() {
     client.initialize(&admin);
     client.pause();
 
-    let (c, f, _) = generated_participants(&env);
+    let (c, f) = generated_participants(&env);
     assert_contract_error(
         client.try_create_contract(
             &c,
@@ -227,7 +227,7 @@ fn contract_written_on_create_and_readable() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-    let (c, f, _) = generated_participants(&env);
+    let (c, f) = generated_participants(&env);
 
     let id = client.create_contract(
         &c,
@@ -389,7 +389,7 @@ fn reputation_not_issuable_before_completion() {
     env.mock_all_auths();
     let client = register_client(&env);
 
-    let (c, f, _) = generated_participants(&env);
+    let (c, f) = generated_participants(&env);
     let id = client.create_contract(
         &c,
         &f,
@@ -405,7 +405,7 @@ fn reputation_not_issuable_before_completion() {
 }
 
 #[test]
-fn reputation_requires_party_caller() {
+fn reputation_requires_client_caller() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
@@ -415,7 +415,7 @@ fn reputation_requires_party_caller() {
 
     assert_contract_error(
         client.try_issue_reputation(&id, &stranger, &f, &5),
-        Error::PartyNotAuthorized,
+        EscrowError::UnauthorizedRole,
     );
 }
 

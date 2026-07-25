@@ -41,7 +41,6 @@ Then open `target/doc/escrow/index.html`.
 - `cancel_contract(contract_id, caller) -> bool`
 - `finalize_contract(contract_id, finalizer) -> bool`
 - `get_contract(contract_id) -> EscrowContractData`
-- `get_contract_participants(contract_id) -> ContractParticipants`
 - `get_finalization_record(contract_id) -> Option<FinalizationRecord>`
 - `get_reputation(freelancer) -> Option<ReputationRecord>`
 - `get_pending_reputation_credits(freelancer) -> u32`

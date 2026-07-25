@@ -668,7 +668,7 @@ fn double_release_is_rejected_and_amount_not_duplicated() {
 
     // Second release on the same milestone must fail with AlreadyReleased.
     let result = client.try_release_milestone(&id, &client_addr, &0);
-    assert_contract_error(result, EscrowError::AlreadyReleased);
+    assert_contract_error(result, Error::MilestoneAlreadyReleased);
 
     // released_amount must not be doubled.
     let contract = client.get_contract(&id);
@@ -746,7 +746,7 @@ fn rejects_double_release_and_completes_contract() {
     assert!(client.release_milestone(&contract_id, &client_addr, &0));
 
     let result = client.try_release_milestone(&contract_id, &client_addr, &0);
-    assert_contract_error(result, EscrowError::AlreadyReleased);
+    assert_contract_error(result, Error::MilestoneAlreadyReleased);
 
     assert!(client.release_milestone(&contract_id, &client_addr, &1));
     assert!(client.release_milestone(&contract_id, &client_addr, &2));

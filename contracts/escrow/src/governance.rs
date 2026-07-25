@@ -21,30 +21,14 @@ impl Escrow {
     /// Admin-gated: the stored admin (under [`DataKey::Admin`]) must authorize
     /// the call and the contract must be initialized.
     ///
-    /// ## Bounds
-    ///
-    /// `new_bps` must be strictly less than `10_000` (i.e. `0 ≤ new_bps ≤ 9_999`).
-    /// Values `≥ 10_000` are rejected with [`Error::InvalidProtocolParameters`]
-    /// because they would make the computed fee equal to or exceed the released
-    /// milestone amount, leaving the freelancer with zero or negative net payout.
-    ///
-    /// * `0 bps` — fee collection disabled (default).
-    /// * `1–9_999 bps` — fractional fee between 0.01 % and 99.99 %.
-    /// * `≥ 10_000 bps` — **rejected** with `InvalidProtocolParameters` (code 49).
-    ///
-    /// The fee takes effect immediately for the next `release_milestone` call.
+    /// `new_bps` must be `≤ 10_000` (100%). The fee takes effect immediately for
+    /// the next `release_milestone` call.
     ///
     /// See [`docs/escrow/protocol-fees.md`](../../../docs/escrow/protocol-fees.md) for
     /// the basis-point model, fee formula, accrual storage, and withdrawal flow.
     ///
-    /// ## Events
-    ///
-    /// `(Symbol("protocol_fee_bps"),)` → `(old_bps: u32, new_bps: u32, admin: Address, timestamp: u64)`
-    ///
-    /// ## Errors
-    ///
-    /// * [`Error::NotInitialized`] — `initialize` has not been called.
-    /// * [`Error::InvalidProtocolParameters`] (code 49) — `new_bps ≥ 10_000`.
+    /// # Events
+    /// `(Symbol("protocol_fee_bps"),)` → `(old_bps, new_bps, admin, timestamp)`
     pub fn set_protocol_fee_bps(env: Env, new_bps: u32) -> bool {
         Self::require_initialized(&env);
         let admin: Address = env
@@ -53,13 +37,6 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
         admin.require_auth();
-
-        // Reject fee rates >= 10_000 bps (100%).  A fee that equals or exceeds
-        // the milestone amount would leave the freelancer with zero or negative
-        // net payout — a critical invariant violation.
-        if new_bps >= 10_000 {
-            env.panic_with_error(Error::InvalidProtocolParameters);
-        }
 
         let old_bps: u32 = env
             .storage()
@@ -199,38 +176,6 @@ impl Escrow {
             (admin, pending.proposed, env.ledger().timestamp()),
         );
         true
-    }
-
-    // ── Two-step admin transfer – public wrappers ────────────────────────────
-    //
-    // The `*_impl` functions above are `pub(crate)` so the Soroban SDK's
-    // `#[contractimpl]` macro does not generate client invocations for them,
-    // matching the convention that any work that *could* live in the contract
-    // spec carries an `_impl` suffix and is module-internal.  Off-chain
-    // callers (existing tests, in particular `treasury_rotation_timelock.rs`,
-    // `governance_events.rs`, and the issue-#816 boundary suite) historically
-    // reference the unaugmented names (`propose_governance_admin`,
-    // `accept_governance_admin`, `cancel_governance_admin_proposal`); without
-    // these wrappers those tests do not compile.  The wrappers are pure
-    // delegates that preserve the impl's panic surface and event emission.
-
-    /// Public client-facing entry point for [`Self::propose_governance_admin_impl`].
-    ///
-    /// Accepts the same arguments and returns the same shape; the Soroban SDK
-    /// synthesises `client.propose_governance_admin(...)` and its
-    /// `try_propose_governance_admin(...)` variant from this signature.
-    pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
-        Self::propose_governance_admin_impl(&env, proposed)
-    }
-
-    /// Public client-facing entry point for [`Self::accept_governance_admin_impl`].
-    pub fn accept_governance_admin(env: Env) -> bool {
-        Self::accept_governance_admin_impl(&env)
-    }
-
-    /// Public client-facing entry point for [`Self::cancel_governance_admin_proposal_impl`].
-    pub fn cancel_governance_admin_proposal(env: Env) -> bool {
-        Self::cancel_governance_admin_proposal_impl(&env)
     }
 
     /// Internal: return the currently pending admin address, if any.

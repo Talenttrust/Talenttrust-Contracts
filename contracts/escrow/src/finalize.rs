@@ -45,12 +45,6 @@ impl Escrow {
         }
     }
 
-    pub(crate) fn require_finalizable_status(env: &Env, status: ContractStatus) {
-        if status != ContractStatus::Completed && status != ContractStatus::Disputed {
-            env.panic_with_error(EscrowError::InvalidStatusTransition);
-        }
-    }
-
     pub(crate) fn require_not_paused(env: &Env) {
         if env
             .storage()
@@ -67,6 +61,15 @@ impl Escrow {
             .unwrap_or(false)
         {
             env.panic_with_error(Error::EmergencyActive);
+        }
+    }
+
+    fn require_finalizer_role(env: &Env, contract: &Contract, finalizer: &Address) {
+        let is_client = *finalizer == contract.client;
+        let is_freelancer = *finalizer == contract.freelancer;
+        let is_arbiter = contract.arbiter.clone().is_some_and(|a| a == *finalizer);
+        if !is_client && !is_freelancer && !is_arbiter {
+            env.panic_with_error(Error::UnauthorizedRole);
         }
     }
 
@@ -112,9 +115,12 @@ impl Escrow {
             total_amount,
             funded_amount: contract.funded_amount,
             released_amount: contract.released_amount,
-            refundable_balance: contract.funded_amount
-                - contract.released_amount
-                - contract.refunded_amount,
+            refundable_balance: crate::checked_available_balance(
+                contract.funded_amount,
+                contract.released_amount,
+                contract.refunded_amount,
+            )
+            .unwrap_or_else(|e| env.panic_with_error(e)),
             released_milestone_count,
             milestones: milestone_summaries,
         }
@@ -140,9 +146,11 @@ pub fn finalize_contract_impl(env: &Env, contract_id: u32, finalizer: Address) -
 
     let contract = Escrow::load_contract_for_finalization(&env, contract_id);
     Escrow::require_not_finalized(&env, contract_id);
-    Escrow::require_party(&env, &contract, &finalizer);
+    Escrow::require_finalizer_role(&env, &contract, &finalizer);
 
-    Escrow::require_finalizable_status(&env, contract.status);
+    if contract.status != ContractStatus::Completed && contract.status != ContractStatus::Disputed {
+        env.panic_with_error(EscrowError::InvalidStatusTransition);
+    }
 
     let record = FinalizationRecord {
         finalizer: finalizer.clone(),

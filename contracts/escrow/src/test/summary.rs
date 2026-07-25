@@ -14,7 +14,7 @@ const DOCS_CONTRACT: &str = include_str!("../../../../docs/escrow/contract.md");
 const CONTRACT_README: &str = include_str!("../../README.md");
 const ROOT_README: &str = include_str!("../../../../README.md");
 
-const IMPLEMENTED_ENTRYPOINTS: [&str; 20] = [
+const IMPLEMENTED_ENTRYPOINTS: [&str; 19] = [
     "initialize",
     "get_admin",
     "pause",
@@ -31,7 +31,6 @@ const IMPLEMENTED_ENTRYPOINTS: [&str; 20] = [
     "cancel_contract",
     "finalize_contract",
     "get_contract",
-    "get_contract_participants",
     "get_finalization_record",
     "get_reputation",
     "get_pending_reputation_credits",

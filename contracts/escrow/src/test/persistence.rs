@@ -111,7 +111,7 @@ fn finalize_rejects_unauthorized_finalizer() {
 
     super::assert_contract_error(
         client.try_finalize_contract(&contract_id, &outsider),
-        Error::PartyNotAuthorized,
+        Error::UnauthorizedRole,
     );
     assert!(client.get_finalization_record(&contract_id).is_none());
 }
@@ -642,171 +642,9 @@ fn get_milestone_approvals_returns_some_after_recorded() {
     assert!(client.get_milestone_approvals(&contract_id, &1).is_none());
 }
 
-// ── get_contract_participants: not-found ──────────────────────────────────────
-
-/// `get_contract_participants` panics with `ContractNotFound` for unknown id.
-#[test]
-fn get_contract_participants_panics_for_unknown_id() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    assert_contract_error(
-        client.try_get_contract_participants(&999),
-        EscrowError::ContractNotFound,
-    );
-}
-
-/// `get_contract_participants` panics with `ContractNotFound` for the zero id.
-#[test]
-fn get_contract_participants_panics_for_zero_id() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    assert_contract_error(
-        client.try_get_contract_participants(&0),
-        EscrowError::ContractNotFound,
-    );
-}
-
-// ── get_contract_participants: success ──────────────────────────────────────
-
-/// `get_contract_participants` returns client, freelancer, and no arbiter for a
-/// contract created without an arbiter.
-#[test]
-fn get_contract_participants_returns_participants_without_arbiter() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &client);
-
-    let participants = client.get_contract_participants(&contract_id);
-    assert_eq!(participants.client, client_addr);
-    assert_eq!(participants.freelancer, freelancer_addr);
-    assert_eq!(participants.arbiter, None);
-}
-
-/// `get_contract_participants` returns client, freelancer, and arbiter for a
-/// contract created with an arbiter.
-#[test]
-fn get_contract_participants_returns_participants_with_arbiter() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-    let (client_addr, freelancer_addr, arbiter_addr, contract_id) =
-        create_contract_with_arbiter(&env, &client);
-
-    let participants = client.get_contract_participants(&contract_id);
-    assert_eq!(participants.client, client_addr);
-    assert_eq!(participants.freelancer, freelancer_addr);
-    assert_eq!(participants.arbiter, Some(arbiter_addr));
-}
-
-/// `get_contract_participants` observations are pure — repeated reads return
-/// identical values and do not mutate contract state.
-#[test]
-fn get_contract_participants_observations_are_pure() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &client);
-
-    let initial = client.get_contract_participants(&contract_id);
-    for _ in 0..16 {
-        let snapshot = client.get_contract_participants(&contract_id);
-        assert_eq!(snapshot, initial);
-    }
-    assert_eq!(initial.client, client_addr);
-    assert_eq!(initial.freelancer, freelancer_addr);
-    assert_eq!(initial.arbiter, None);
-}
-
-// ── get_contract_participants: TTL extension ───────────────────────────────
-
-/// `get_contract_participants` extends the persistent TTL of the contract entry.
-#[test]
-#[ignore]
-fn get_contract_participants_read_extends_persistent_ttl() {
-    let env = setup_ttl_env();
-    let client = register_client(&env);
-    let (_client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
-
-    let bump_threshold = ttl::PERSISTENT_BUMP_THRESHOLD as u32;
-    let extension = ttl::PERSISTENT_TTL_LEDGERS as u32;
-
-    let initial_ttl: u32 = env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .get_ttl(&crate::DataKey::Contract(contract_id))
-    });
-
-    // Advance ledger so the entry sits within `bump_threshold` of expiry.
-    env.ledger().with_mut(|li| {
-        li.sequence_number = li
-            .sequence_number
-            .saturating_add(initial_ttl.saturating_sub(bump_threshold) + 1);
-    });
-
-    let participants = client.get_contract_participants(&contract_id);
-    assert_eq!(participants.arbiter, None);
-
-    let ttl_after_read: u32 = env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .get_ttl(&crate::DataKey::Contract(contract_id))
-    });
-    assert!(
-        ttl_after_read >= bump_threshold,
-        "get_contract_participants must extend TTL to at least the bump threshold (got {})",
-        ttl_after_read
-    );
-
-    // Advance safely inside the bumped live window.
-    env.ledger().with_mut(|li| {
-        li.sequence_number = li.sequence_number.saturating_add(extension - 1);
-    });
-
-    let participants_after = client.get_contract_participants(&contract_id);
-    assert_eq!(participants_after.arbiter, None);
-}
-
-// ── Existing readers still work unchanged ───────────────────────────────────
-
-/// Existing readers (`get_contract`, `get_milestones`, `get_refundable_balance`)
-/// remain unaffected by the addition of `get_contract_participants`.
-#[test]
-fn existing_readers_unchanged() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
-    assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
-    assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
-
-    // get_contract still works
-    let c = client.get_contract(&contract_id);
-    assert_eq!(c.client, client_addr);
-    assert_eq!(c.funded_amount, total_milestone_amount());
-
-    // get_milestones still works
-    let ms = client.get_milestones(&contract_id);
-    assert_eq!(ms.len(), 3);
-
-    // get_refundable_balance still works
-    let bal = client.get_refundable_balance(&contract_id);
-    assert_eq!(bal, total_milestone_amount() - MILESTONE_ONE);
-
-    // New get_contract_participants works alongside existing readers
-    let p = client.get_contract_participants(&contract_id);
-    assert_eq!(p.client, client_addr);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // TTL-extension behavior on read
 // ─────────────────────────────────────────────────────────────────────────────
-
 //
 // Indirect TTL-on-read verification: bump the ledger sequence to within the
 // bump threshold of the original expiry, trigger the read, then advance past
@@ -1212,7 +1050,7 @@ fn read_getters_succeed_after_creating_contract_at_zero_index() {
         Error::ContractNotFound,
     );
 
-    let (c, f, _) = generated_participants(&env);
+    let (c, f) = generated_participants(&env);
     let id = client.create_contract(
         &c,
         &f,

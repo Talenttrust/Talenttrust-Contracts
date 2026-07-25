@@ -1,6 +1,5 @@
 use crate::{
-    accumulate_amounts, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError,
-    Milestone,
+    accumulate_amounts, ttl, Contract, ContractStatus, DataKey, Error, EscrowError, Milestone,
 };
 use soroban_sdk::{symbol_short, Address, Env, Symbol, Vec};
 
@@ -33,7 +32,9 @@ pub fn validate_deposit(
         .get(&DataKey::Contract(contract_id))
         .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
-    Escrow::require_party(env, &contract, caller);
+    if caller != &contract.client {
+        env.panic_with_error(Error::UnauthorizedRole);
+    }
 
     // Terminal-state guards: cancelled/refunded contracts must reject any
     // further value-moving operations such as deposits.
@@ -123,12 +124,12 @@ pub fn apply_validated_deposit(
 
     caller.require_auth();
 
-    let prev_total_deposited = contract.total_deposited;
     contract.funded_amount = new_funded_amount;
     contract.total_deposited = new_total_deposited;
 
     ttl::extend_milestone_ttl(&env, contract_id);
 
+    let old_status = contract.status;
     if contract.funded_amount == total_amount {
         contract.status = ContractStatus::Funded;
     } else {
@@ -141,17 +142,20 @@ pub fn apply_validated_deposit(
 
     ttl::extend_contract_ttl(&env, contract_id);
 
-    let deposit_amount = new_total_deposited - prev_total_deposited;
-
-    env.events().publish(
-        (symbol_short!("deposit"), contract_id),
-        (
-            caller,
-            deposit_amount,
-            contract.status,
-            env.ledger().timestamp(),
-        ),
-    );
+    // Emit a status-change event only when the status actually transitions.
+    if contract.status != old_status {
+        env.events().publish(
+            (symbol_short!("ctrct_st"), contract_id),
+            (
+                old_status as u32,
+                contract.status as u32,
+                contract.funded_amount,
+                contract.released_amount,
+                contract.refunded_amount,
+                env.ledger().timestamp(),
+            ),
+        );
+    }
 
     true
 }

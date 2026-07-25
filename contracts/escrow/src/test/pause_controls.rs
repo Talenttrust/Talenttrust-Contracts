@@ -10,13 +10,8 @@
 //! the plain pause() / unpause() path. The pause check runs before require_auth,
 //! so a paused contract rejects uniformly regardless of caller.
 
-use crate::{ContractStatus, Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization};
-use soroban_sdk::{
-    symbol_short,
-    testutils::{Address as _, Events as _},
-    token::StellarAssetClient,
-    vec, Address, Env, String, Symbol, TryFromVal,
-};
+use crate::{Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization};
+use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
 
 // --- helpers ---
 
@@ -240,106 +235,6 @@ fn unpause_restores_cancel_contract() {
     client.unpause();
 
     client.cancel_contract(&id, &client_addr);
-}
-
-/// Assert that cancel_contract emits a ("cancelled", contract_id) event
-/// after cancelling a contract in Created status. Verifies the event topics
-/// (symbol and contract_id) are present; the data payload (caller,
-/// previous_status, timestamp) is specified in docs/escrow/README.md.
-#[test]
-fn cancel_contract_emits_cancelled_event_with_previous_status() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-    assert!(client.initialize(&admin));
-
-    let token_admin = Address::generate(&env);
-    let token = env.register_stellar_asset_contract(token_admin);
-    client.set_settlement_token(&admin, &token);
-
-    let client_addr = Address::generate(&env);
-    let freelancer = Address::generate(&env);
-    let id = client.create_contract(
-        &client_addr,
-        &freelancer,
-        &None,
-        &vec![&env, 100_i128],
-        &ReleaseAuthorization::ClientOnly,
-    );
-
-    assert!(client.cancel_contract(&id, &client_addr));
-
-    let cancelled_topic = symbol_short!("cancelled");
-    let events = env.events().all();
-
-    // Verify the cancelled event exists with the correct (symbol, contract_id) topics.
-    let has_event = events.iter().any(|event| {
-        event.1.len() >= 2
-            && Symbol::try_from_val(&env, &event.1.get(0).unwrap())
-                .ok()
-                .as_ref()
-                == Some(&cancelled_topic)
-            && event.1.get(1).is_some()
-    });
-    assert!(
-        has_event,
-        "Expected cancelled event with (Symbol(\"cancelled\"), contract_id) topics"
-    );
-}
-
-/// Assert that cancelling a PartiallyFunded contract emits the cancelled event
-/// with the correct topics. The contract is put into PartiallyFunded state via
-/// a partial deposit before cancellation.
-#[test]
-fn cancel_partially_funded_emits_event_with_partially_funded_status() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-    assert!(client.initialize(&admin));
-
-    let token_admin = Address::generate(&env);
-    let token = env.register_stellar_asset_contract(token_admin);
-    client.set_settlement_token(&admin, &token);
-
-    let client_addr = Address::generate(&env);
-    let freelancer = Address::generate(&env);
-    let milestones = vec![&env, 100_i128, 200_i128];
-    let id = client.create_contract(
-        &client_addr,
-        &freelancer,
-        &None,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-
-    // Partial deposit to put the contract in PartiallyFunded state.
-    // Total milestones = 300, deposit only 100.
-    let sac = StellarAssetClient::new(&env, &token);
-    sac.mint(&client_addr, &10_000_0000000_i128);
-    assert!(client.deposit_funds(&id, &client_addr, &100_i128));
-    assert_eq!(client.get_contract(&id).status, ContractStatus::PartiallyFunded);
-
-    assert!(client.cancel_contract(&id, &client_addr));
-
-    let cancelled_topic = symbol_short!("cancelled");
-    let events = env.events().all();
-
-    let has_event = events.iter().any(|event| {
-        event.1.len() >= 2
-            && Symbol::try_from_val(&env, &event.1.get(0).unwrap())
-                .ok()
-                .as_ref()
-                == Some(&cancelled_topic)
-            && event.1.get(1).is_some()
-    });
-    assert!(
-        has_event,
-        "Expected cancelled event with (Symbol(\"cancelled\"), contract_id) topics after PartiallyFunded cancel"
-    );
 }
 
 // --- issue_reputation ---

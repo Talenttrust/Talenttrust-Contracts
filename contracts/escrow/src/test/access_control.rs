@@ -2,9 +2,8 @@ use super::{default_milestones, generated_participants, register_client, total_m
 use crate::{Error, ReleaseAuthorization};
 use soroban_sdk::{testutils::Address as _, Env};
 
-/// Freelancer is a recognized party and can deposit via require_party.
 #[test]
-fn test_freelancer_can_deposit_funds() {
+fn test_only_client_can_deposit_funds() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -20,7 +19,7 @@ fn test_freelancer_can_deposit_funds() {
     );
 
     let result = client.try_deposit_funds(&contract_id, &freelancer_addr, &total_milestones());
-    assert!(result.is_ok());
+    assert_eq!(result, Err(Ok(Error::UnauthorizedRole)));
 }
 
 #[test]
@@ -68,9 +67,8 @@ fn test_freelancer_cannot_release_milestone() {
     assert_eq!(result, Err(Ok(Error::UnauthorizedRole)));
 }
 
-/// Freelancer is a recognized party and can issue reputation via require_party.
 #[test]
-fn test_freelancer_can_issue_reputation() {
+fn test_only_client_can_issue_reputation() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -93,9 +91,8 @@ fn test_freelancer_can_issue_reputation() {
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &2));
     assert!(client.release_milestone(&contract_id, &client_addr, &2));
 
-    // freelancer is now a party – accepted by require_party.
     let result = client.try_issue_reputation(&contract_id, &freelancer_addr, &freelancer_addr, &5);
-    assert!(result.is_ok());
+    assert_eq!(result, Err(Ok(Error::UnauthorizedRole)));
 }
 
 #[test]
@@ -194,7 +191,7 @@ fn test_create_rejects_same_client_and_freelancer() {
         &default_milestones(&env),
         &ReleaseAuthorization::ClientOnly,
     );
-    assert_eq!(result, Err(Ok(EscrowError::InvalidParticipant)));
+    assert_eq!(result, Err(Ok(Error::InvalidParticipants)));
 }
 
 #[test]
@@ -293,7 +290,7 @@ fn test_approve_rejects_already_released_milestone() {
     assert!(client.release_milestone(&contract_id, &client_addr, &0));
 
     let result = client.try_approve_milestone_release(&contract_id, &client_addr, &0);
-    assert_eq!(result, Err(Ok(EscrowError::AlreadyReleased)));
+    assert_eq!(result, Err(Ok(Error::MilestoneAlreadyReleased)));
 }
 
 #[test]
@@ -376,7 +373,7 @@ fn test_release_rejects_already_released_milestone() {
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
     assert!(client.release_milestone(&contract_id, &client_addr, &0));
     let result = client.try_release_milestone(&contract_id, &client_addr, &0);
-    assert_eq!(result, Err(Ok(EscrowError::AlreadyReleased)));
+    assert_eq!(result, Err(Ok(Error::MilestoneAlreadyReleased)));
 }
 
 #[test]

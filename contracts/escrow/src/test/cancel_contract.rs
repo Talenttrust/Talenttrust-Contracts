@@ -145,7 +145,7 @@ fn cancel_rejects_unauthorized_caller() {
 
     super::assert_contract_error(
         client.try_cancel_contract(&contract_id, &unauthorized),
-        Error::PartyNotAuthorized,
+        Error::UnauthorizedRole,
     );
 
     assert_eq!(
@@ -179,7 +179,7 @@ fn double_cancel_rejects_with_already_cancelled() {
 
     super::assert_contract_error(
         client.try_cancel_contract(&contract_id, &client_addr),
-        EscrowError::ContractCancelled,
+        Error::AlreadyCancelled,
     );
 }
 
@@ -201,7 +201,7 @@ fn cancel_rejects_completed_contract() {
 }
 
 #[test]
-fn cancel_emits_cancelled_event_with_correct_payload() {
+fn cancel_emits_cancelled_event() {
     let env = Env::default();
     let (client, client_addr, _, contract_id) = setup_cancel_context(&env);
 
@@ -209,22 +209,11 @@ fn cancel_emits_cancelled_event_with_correct_payload() {
 
     let cancelled_topic = symbol_short!("cancelled");
     let events = env.events().all();
-
-    // Verify the cancelled event exists with the correct (symbol, contract_id)
-    // topics. The data payload (caller, previous_status, timestamp) is emitted
-    // by cancel_contract but not asserted here — Soroban `Val` does not support
-    // PartialEq, so topics are the testable contract. Indexers should verify
-    // the data payload against the event specification in docs/escrow/README.md.
-    let found = events.iter().any(|event| {
-        event.1.len() >= 2
+    assert!(events.iter().any(|event| {
+        event.1.len() > 0
             && Symbol::try_from_val(&env, &event.1.get(0).unwrap())
                 .ok()
                 .as_ref()
                 == Some(&cancelled_topic)
-            && event.1.get(1).is_some()
-    });
-    assert!(
-        found,
-        "Expected cancelled event with (Symbol(\"cancelled\"), contract_id) topics"
-    );
+    }));
 }

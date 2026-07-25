@@ -80,7 +80,7 @@ impl Escrow {
         let mut milestone = milestones.get(milestone_index).unwrap().clone();
 
         if milestone.released {
-            env.panic_with_error(EscrowError::AlreadyReleased);
+            env.panic_with_error(Error::MilestoneAlreadyReleased);
         }
 
         if milestone.refunded {
