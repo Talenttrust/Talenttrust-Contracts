@@ -171,6 +171,8 @@ pub enum EscrowError {
     EmptyComment = 42,
     /// Reputation feedback comment exceeded the 200-character maximum.
     CommentTooLong = 43,
+    /// The supplied contract ID is zero; valid IDs start at 1.
+    InvalidContractId = 44,
 }
 
 impl Escrow {
@@ -2141,6 +2143,17 @@ impl Escrow {
         }
     }
 
+    /// Rejects `contract_id` that is zero; valid escrow contract IDs start at 1.
+    ///
+    /// This is a lightweight pre-flight gate for arbiter entrypoints so that a
+    /// clearly invalid identifier is rejected with a typed `InvalidContractId`
+    /// error before any storage lookup, auth check, or token transfer.
+    pub(crate) fn require_valid_contract_id(env: &Env, contract_id: u32) {
+        if contract_id == 0 {
+            env.panic_with_error(EscrowError::InvalidContractId);
+        }
+    }
+
     fn is_initialized(env: &Env) -> bool {
         env.storage()
             .persistent()
@@ -2186,6 +2199,10 @@ impl Escrow {
         /// are always in scope before any state mutation can occur.
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
+
+        /// Reject contract_id = 0 with a typed error before any storage lookup.
+        Self::require_valid_contract_id(&env, contract_id);
+
         caller.require_auth();
 
         let mut contract: Contract = env
@@ -2270,6 +2287,22 @@ impl Escrow {
         /// are always in scope before any state mutation can occur.
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
+
+        /// Reject contract_id = 0 with a typed error before any storage lookup.
+        Self::require_valid_contract_id(&env, contract_id);
+
+        /// Reject Split amounts that exceed the protocol-wide total escrow cap.
+        /// This is defense-in-depth; the resolution_payouts helper enforces
+        /// per-contract `available` bounds, but individually huge amounts
+        /// (e.g. i128::MAX) must be caught early with a typed error.
+        if let DisputeResolution::Split(ref split) = resolution {
+            if split.client_amount > MAX_TOTAL_ESCROW_STROOPS
+                || split.freelancer_amount > MAX_TOTAL_ESCROW_STROOPS
+            {
+                env.panic_with_error(EscrowError::TotalCapExceeded);
+            }
+        }
+
         arbiter.require_auth();
 
         let mut contract: Contract = env

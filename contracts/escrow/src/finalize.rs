@@ -139,6 +139,10 @@ impl Escrow {
 /// - `InvalidStatusTransition` unless status is `Completed` or `Disputed`.
 pub fn finalize_contract_impl(env: &Env, contract_id: u32, finalizer: Address) -> bool {
     Escrow::require_not_paused(&env);
+
+    // Reject contract_id = 0 with a typed error before any storage lookup.
+    Escrow::require_valid_contract_id(&env, contract_id);
+
     finalizer.require_auth();
 
     let contract = Escrow::load_contract_for_finalization(&env, contract_id);
