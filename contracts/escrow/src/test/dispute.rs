@@ -1,4 +1,4 @@
-//! Dispute resolution payout arithmetic tests.
+//! Dispute resolution payout arithmetic and bounds validation tests.
 //!
 //! These tests verify the pure money-splitting logic in `resolution_payouts`:
 //!
@@ -6,6 +6,7 @@
 //!   - FullPayout: all available → freelancer (0, available)
 //!   - PartialRefund: 70/30 split with floor rounding on freelancer leg
 //!   - Split: custom split requiring sum == available, no negative amounts
+//!   - Bounds: Split amounts exceeding `MAX_SINGLE_AMOUNT_STROOPS` are rejected
 //!
 //! Conservation invariant: client_payout + freelancer_payout == available.
 //!
@@ -21,12 +22,13 @@
 //!   - Non-arbiter resolve is rejected
 //!   - Double-resolve is rejected
 //!   - Resolve-after-settle is rejected
+//!   - Split amounts beyond max bound are rejected
 
 #![cfg(test)]
 
 use crate::{
     Contract, ContractStatus, DisputeResolution, DisputeSplit, Error, Escrow, EscrowClient,
-    ReleaseAuthorization,
+    ReleaseAuthorization, MAX_SINGLE_AMOUNT_STROOPS,
 };
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
@@ -158,7 +160,7 @@ fn resolution_payouts_partial_refund_applies_floor_rounded_30_pct_to_freelancer(
 #[test]
 fn resolution_payouts_split_accepts_exact_conserving_amounts() {
     let env = make_env();
-    // Zero available → (0, 0)
+    // 40 + 60 = 100 = available
     assert_eq!(
         resolution_payouts(
             &payout_contract(&env, 100, 0, 0),
@@ -167,7 +169,7 @@ fn resolution_payouts_split_accepts_exact_conserving_amounts() {
                 freelancer_amount: 60,
             })
         ),
-        Ok((0, 0))
+        Ok((40, 60))
     );
     // One stroop → floor(1 * 30 / 100) = 0, client gets 1
     assert_eq!(
@@ -293,9 +295,104 @@ fn resolution_payouts_split_rejects_overflowing_sum() {
         client_amount: i128::MAX,
         freelancer_amount: 1,
     };
+    // Now caught by the MAX_SINGLE_AMOUNT_STROOPS bounds check before overflow check
     assert_eq!(
         resolution_payouts(&contract, &DisputeResolution::Split(split)),
-        Err(Error::PotentialOverflow)
+        Err(Error::InvalidDisputeSplit)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Bounds validation tests: DisputeSplit amounts
+// ---------------------------------------------------------------------------
+
+/// Split rejects a client_amount exceeding MAX_SINGLE_AMOUNT_STROOPS.
+#[test]
+fn resolution_payouts_split_rejects_client_amount_exceeding_max() {
+    let env = make_env();
+    let contract = payout_contract(&env, MAX_SINGLE_AMOUNT_STROOPS * 2, 0, 0);
+    let split = DisputeSplit {
+        client_amount: MAX_SINGLE_AMOUNT_STROOPS + 1,
+        freelancer_amount: 0,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Err(Error::InvalidDisputeSplit)
+    );
+}
+
+/// Split rejects a freelancer_amount exceeding MAX_SINGLE_AMOUNT_STROOPS.
+#[test]
+fn resolution_payouts_split_rejects_freelancer_amount_exceeding_max() {
+    let env = make_env();
+    let contract = payout_contract(&env, MAX_SINGLE_AMOUNT_STROOPS * 2, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 0,
+        freelancer_amount: MAX_SINGLE_AMOUNT_STROOPS + 1,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Err(Error::InvalidDisputeSplit)
+    );
+}
+
+/// Split accepts a client_amount exactly at MAX_SINGLE_AMOUNT_STROOPS boundary.
+#[test]
+fn resolution_payouts_split_accepts_client_amount_at_max_boundary() {
+    let env = make_env();
+    let contract = payout_contract(&env, MAX_SINGLE_AMOUNT_STROOPS, 0, 0);
+    let split = DisputeSplit {
+        client_amount: MAX_SINGLE_AMOUNT_STROOPS,
+        freelancer_amount: 0,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Ok((MAX_SINGLE_AMOUNT_STROOPS, 0))
+    );
+}
+
+/// Split accepts both amounts at boundary values.
+#[test]
+fn resolution_payouts_split_accepts_both_at_max_boundary() {
+    let env = make_env();
+    let contract = payout_contract(&env, MAX_SINGLE_AMOUNT_STROOPS * 2, 0, 0);
+    let split = DisputeSplit {
+        client_amount: MAX_SINGLE_AMOUNT_STROOPS,
+        freelancer_amount: MAX_SINGLE_AMOUNT_STROOPS,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Ok((MAX_SINGLE_AMOUNT_STROOPS, MAX_SINGLE_AMOUNT_STROOPS))
+    );
+}
+
+/// Split rejects the sum exceeding max when both amounts are just over half boundary.
+#[test]
+fn resolution_payouts_split_rejects_both_amounts_exceeding_max() {
+    let env = make_env();
+    let contract = payout_contract(&env, MAX_SINGLE_AMOUNT_STROOPS * 3, 0, 0);
+    let split = DisputeSplit {
+        client_amount: MAX_SINGLE_AMOUNT_STROOPS + 1,
+        freelancer_amount: MAX_SINGLE_AMOUNT_STROOPS + 1,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Err(Error::InvalidDisputeSplit)
+    );
+}
+
+/// Split accepts zero amounts (both legs zero is valid when available is zero).
+#[test]
+fn resolution_payouts_split_accepts_zero_amounts() {
+    let env = make_env();
+    let contract = payout_contract(&env, 0, 0, 0);
+    let split = DisputeSplit {
+        client_amount: 0,
+        freelancer_amount: 0,
+    };
+    assert_eq!(
+        resolution_payouts(&contract, &DisputeResolution::Split(split)),
+        Ok((0, 0))
     );
 }
 

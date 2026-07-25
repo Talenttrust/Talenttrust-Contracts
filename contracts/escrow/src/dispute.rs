@@ -10,7 +10,7 @@ use soroban_sdk::{contractimpl, symbol_short, Address, Env};
 
 use crate::{
     safe_add_amounts, Contract, ContractStatus, DataKey, DisputeResolution, DisputeSplit, Error,
-    Escrow, EscrowArgs, EscrowClient,
+    Escrow, EscrowArgs, EscrowClient, MAX_SINGLE_AMOUNT_STROOPS,
 };
 
 // ---------------------------------------------------------------------------
@@ -26,7 +26,11 @@ use crate::{
 /// # Errors
 /// - `AccountingInvariantViolated` if available would be negative (corrupted state)
 /// - `PotentialOverflow` if intermediate calculations overflow
-/// - `InvalidDisputeSplit` for Split variant with negative legs or non-conserving sum
+/// - `InvalidDisputeSplit` for Split variant with:
+///   - Negative legs
+///   - Any leg exceeding `MAX_SINGLE_AMOUNT_STROOPS`
+///   - Individual leg exceeding the available balance
+///   - Non-conserving sum (total != available)
 pub fn resolution_payouts(
     contract: &Contract,
     resolution: &DisputeResolution,
@@ -53,6 +57,12 @@ pub fn resolution_payouts(
         DisputeResolution::FullPayout => Ok((0, available)),
         DisputeResolution::Split(split) => {
             if split.client_amount < 0 || split.freelancer_amount < 0 {
+                return Err(Error::InvalidDisputeSplit);
+            }
+            // Bounds validation: reject split amounts that exceed the maximum single amount
+            if split.client_amount > MAX_SINGLE_AMOUNT_STROOPS
+                || split.freelancer_amount > MAX_SINGLE_AMOUNT_STROOPS
+            {
                 return Err(Error::InvalidDisputeSplit);
             }
             // Issue #572: Reject split resolution whose components are individually within but jointly exceed balance
