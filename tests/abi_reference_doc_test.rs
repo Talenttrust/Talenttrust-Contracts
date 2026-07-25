@@ -55,6 +55,7 @@ fn abi_reference_document_lists_current_public_entrypoints() {
         "set_governed_params",
         "get_governed_parameters",
     ];
+    
 
     for entrypoint in expected_entrypoints {
         assert!(
