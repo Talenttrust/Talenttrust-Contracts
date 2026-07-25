@@ -274,7 +274,7 @@ fn deposit_rejected_after_cancel() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &client);
+    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
 
     // Cancel immediately in Created state
     assert!(client.cancel_contract(&contract_id, &client_addr));
@@ -288,7 +288,7 @@ fn release_rejected_after_cancel() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &client);
+    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
 
     // Fully fund and then cancel
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
