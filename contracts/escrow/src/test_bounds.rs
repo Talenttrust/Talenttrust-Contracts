@@ -183,3 +183,35 @@ fn create_contract_still_accepts_original_three_milestone_example() {
     let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
     assert_eq!(id, 0);
 }
+
+#[test]
+fn authorization_entrypoints_reject_out_of_bounds_milestone_index() {
+    let (env, contract_id, client_addr, freelancer_addr) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    let milestones = vec![&env, 100_0000000_i128];
+    // In test_bounds, setup() doesn't wrap create_contract, we call it directly on client
+    // We pass only 3 args based on the existing tests in test_bounds.rs
+    let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
+
+    // approve_milestone_release
+    let approve_res = client.try_approve_milestone_release(&id, &client_addr, &MAX_MILESTONES);
+    match approve_res {
+        Err(Ok(EscrowError::IndexOutOfBounds)) => {}
+        other => panic!("expected IndexOutOfBounds for approve_milestone_release, got {:?}", other),
+    }
+
+    // get_milestone_approvals
+    let get_res = client.try_get_milestone_approvals(&id, &MAX_MILESTONES);
+    match get_res {
+        Err(Ok(EscrowError::IndexOutOfBounds)) => {}
+        other => panic!("expected IndexOutOfBounds for get_milestone_approvals, got {:?}", other),
+    }
+
+    // get_approval_deadline
+    let deadline_res = client.try_get_approval_deadline(&id, &MAX_MILESTONES);
+    match deadline_res {
+        Err(Ok(EscrowError::IndexOutOfBounds)) => {}
+        other => panic!("expected IndexOutOfBounds for get_approval_deadline, got {:?}", other),
+    }
+}
+

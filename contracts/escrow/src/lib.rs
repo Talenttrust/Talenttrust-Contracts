@@ -609,6 +609,9 @@ impl Escrow {
         caller: Address,
         milestone_index: u32,
     ) -> bool {
+        if milestone_index >= MAX_MILESTONES {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
         Self::require_not_paused(&env);
         Self::require_not_finalized(&env, contract_id);
         approvals::approve_milestone(&env, contract_id, milestone_index, &caller)
@@ -1390,6 +1393,9 @@ impl Escrow {
         contract_id: u32,
         milestone_index: u32,
     ) -> Option<MilestoneApprovals> {
+        if milestone_index >= MAX_MILESTONES {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
         let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
         let approvals = env.storage().temporary().get(&approval_key);
         if approvals.is_some() {
@@ -1408,6 +1414,9 @@ impl Escrow {
     /// `None` when no live approval exists,
     /// distinguishing "never approved" from "approved and evicted".
     pub fn get_approval_deadline(env: Env, contract_id: u32, milestone_index: u32) -> Option<u32> {
+        if milestone_index >= MAX_MILESTONES {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
         let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
         if !env.storage().temporary().has(&approval_key) {
             return None;
