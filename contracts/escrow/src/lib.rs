@@ -80,10 +80,11 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // `DisputeResolution` and `DisputeSplit` are defined once in `types.rs` and
 // re-exported here; `dispute.rs` uses them via `crate::DisputeResolution`.
 pub use types::{
-    Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode,
-    DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
-    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
+    DepositMode, DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone,
+    MilestoneApprovals, MilestoneSummary, PendingAdminProposal, ReadinessChecklist,
+    ReleaseAuthorization, Reputation, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    MAX_PAGINATION_LIMIT,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -1414,6 +1415,46 @@ impl Escrow {
         }
 
         Some(ttl::compute_expiry(&env, ttl::PENDING_APPROVAL_TTL_LEDGERS))
+    }
+
+    /// Returns a bounded, paginated read view of authorization records for a contract's milestones.
+    ///
+    /// # Arguments
+    /// * `env` - Soroban environment
+    /// * `contract_id` - Contract ID to query
+    /// * `start` - 0-based milestone index to start from
+    /// * `limit` - Maximum number of records to return (capped by pagination ceiling)
+    ///
+    /// # Returns
+    /// A vector of `AuthorizationRecord` elements for the requested slice.
+    /// Empty-safe: returns empty vector for unknown contracts, out-of-range bounds, or limit == 0.
+    pub fn get_authorization_records(
+        env: Env,
+        contract_id: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<AuthorizationRecord> {
+        approvals::get_authorization_records(&env, contract_id, start, limit)
+    }
+
+    /// Alias for [`get_authorization_records`].
+    pub fn get_authorization_records_page(
+        env: Env,
+        contract_id: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<AuthorizationRecord> {
+        Self::get_authorization_records(env, contract_id, start, limit)
+    }
+
+    /// Alias for [`get_authorization_records`].
+    pub fn list_authorization_records(
+        env: Env,
+        contract_id: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<AuthorizationRecord> {
+        Self::get_authorization_records(env, contract_id, start, limit)
     }
 
     // ── Pause / unpause ──────────────────────────────────────────────────────
