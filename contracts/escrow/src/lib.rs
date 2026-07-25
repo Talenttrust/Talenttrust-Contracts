@@ -1745,8 +1745,8 @@ impl Escrow {
         let rep_key = DataKey::Reputation(contract.freelancer.clone());
         let mut rep: types::Reputation =
             env.storage().persistent().get(&rep_key).unwrap_or_default();
-        rep.completed_contracts += 1;
-        rep.total_rating += rating as i128;
+        rep.completed_contracts = rep.completed_contracts.checked_add(1).unwrap_or_else(|| env.panic_with_error(Error::ArithmeticOverflow));
+        rep.total_rating = rep.total_rating.checked_add(rating as i128).unwrap_or_else(|| env.panic_with_error(Error::ArithmeticOverflow));
         rep.last_rating = rating as i128;
         env.storage().persistent().set(&rep_key, &rep);
 
