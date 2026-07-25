@@ -878,8 +878,8 @@ impl Escrow {
 
         // Check if all milestones are released or refunded; if so, complete.
         let all_released = milestones.iter().all(|m| m.released || m.refunded);
+        let old_release_status = contract.status;
         if all_released {
-            let old_status = contract.status.clone();
             contract.status = ContractStatus::Completed;
             Self::grant_pending_reputation_credit(&env, &contract.freelancer);
         }
@@ -923,7 +923,19 @@ impl Escrow {
         if all_released {
             env.events().publish(
                 (symbol_short!("ctrct_cmp"), contract_id),
-                (caller, env.ledger().timestamp()),
+                (caller.clone(), env.ledger().timestamp()),
+            );
+
+            env.events().publish(
+                (symbol_short!("ctrct_st"), contract_id),
+                (
+                    old_release_status as u32,
+                    ContractStatus::Completed as u32,
+                    contract.funded_amount,
+                    contract.released_amount,
+                    contract.refunded_amount,
+                    env.ledger().timestamp(),
+                ),
             );
         }
 
@@ -1127,6 +1139,7 @@ impl Escrow {
 
         // Check if all unreleased milestones are refunded
         let all_refunded_or_released = milestones.iter().all(|m| m.released || m.refunded);
+        let old_refund_status = contract.status;
         if all_refunded_or_released {
             let all_refunded = milestones.iter().all(|m| m.refunded);
             if all_refunded {
@@ -1155,6 +1168,18 @@ impl Escrow {
             (
                 total_refund_amount,
                 contract.status,
+                env.ledger().timestamp(),
+            ),
+        );
+
+        env.events().publish(
+            (symbol_short!("ctrct_st"), contract_id),
+            (
+                old_refund_status as u32,
+                contract.status as u32,
+                contract.funded_amount,
+                contract.released_amount,
+                contract.refunded_amount,
                 env.ledger().timestamp(),
             ),
         );
@@ -1619,6 +1644,7 @@ impl Escrow {
 
         client.require_auth();
 
+        let old_status = contract.status;
         let refund_amount =
             contract.funded_amount - contract.released_amount - contract.refunded_amount;
         if refund_amount > 0 {
@@ -1645,6 +1671,18 @@ impl Escrow {
         env.events().publish(
             (symbol_short!("cancelled"), contract_id),
             (client, refund_amount, env.ledger().timestamp()),
+        );
+
+        env.events().publish(
+            (symbol_short!("ctrct_st"), contract_id),
+            (
+                old_status as u32,
+                ContractStatus::Cancelled as u32,
+                contract.funded_amount,
+                contract.released_amount,
+                contract.refunded_amount,
+                env.ledger().timestamp(),
+            ),
         );
 
         true
@@ -2213,6 +2251,7 @@ impl Escrow {
             _ => env.panic_with_error(Error::InvalidState),
         }
 
+        let old_status = contract.status;
         contract.status = ContractStatus::Disputed;
         env.storage()
             .persistent()
@@ -2222,7 +2261,19 @@ impl Escrow {
 
         env.events().publish(
             (symbol_short!("dispute"), symbol_short!("opened")),
-            (contract_id, caller),
+            (contract_id, caller.clone()),
+        );
+
+        env.events().publish(
+            (symbol_short!("ctrct_st"), contract_id),
+            (
+                old_status as u32,
+                ContractStatus::Disputed as u32,
+                contract.funded_amount,
+                contract.released_amount,
+                contract.refunded_amount,
+                env.ledger().timestamp(),
+            ),
         );
 
         true
@@ -2302,7 +2353,9 @@ impl Escrow {
         contract.released_amount += freelancer_payout;
 
         // Set final status
-        contract.status = dispute::final_status_after_resolution(&contract);
+        let final_status = dispute::final_status_after_resolution(&contract);
+        let old_status = contract.status;
+        contract.status = final_status;
         if contract.status == ContractStatus::Completed {
             Self::grant_pending_reputation_credit(&env, &contract.freelancer);
         }
@@ -2316,6 +2369,18 @@ impl Escrow {
         env.events().publish(
             (symbol_short!("dispute"), symbol_short!("resolved")),
             (contract_id, resolution.code()),
+        );
+
+        env.events().publish(
+            (symbol_short!("ctrct_st"), contract_id),
+            (
+                old_status as u32,
+                contract.status as u32,
+                contract.funded_amount,
+                contract.released_amount,
+                contract.refunded_amount,
+                env.ledger().timestamp(),
+            ),
         );
 
         true
