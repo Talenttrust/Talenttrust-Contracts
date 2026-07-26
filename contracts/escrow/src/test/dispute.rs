@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use crate::dispute::{final_status_after_resolution, resolution_payouts};
 use crate::{
     ContractStatus, DisputeResolution, Escrow, EscrowClient, EscrowError, ReleaseAuthorization,
 };
@@ -127,11 +128,11 @@ fn resolution_payouts_split_rejects_negative_legs() {
 
     assert_eq!(
         resolution_payouts(&contract, &DisputeResolution::Split(-1, 101)),
-        Err(Error::InvalidDisputeSplit)
+        Err(EscrowError::InvalidDisputeSplit)
     );
     assert_eq!(
         resolution_payouts(&contract, &DisputeResolution::Split(101, -1)),
-        Err(Error::InvalidDisputeSplit)
+        Err(EscrowError::InvalidDisputeSplit)
     );
 }
 
@@ -143,11 +144,11 @@ fn resolution_payouts_split_rejects_non_conserving_sums() {
 
     assert_eq!(
         resolution_payouts(&contract, &DisputeResolution::Split(40, 59)),
-        Err(Error::InvalidDisputeSplit)
+        Err(EscrowError::InvalidDisputeSplit)
     );
     assert_eq!(
         resolution_payouts(&contract, &DisputeResolution::Split(40, 61)),
-        Err(Error::InvalidDisputeSplit)
+        Err(EscrowError::InvalidDisputeSplit)
     );
 }
 
@@ -176,7 +177,7 @@ fn resolution_payouts_split_rejects_overflowing_sum() {
 
     assert_eq!(
         resolution_payouts(&contract, &DisputeResolution::Split(i128::MAX, 1)),
-        Err(Error::PotentialOverflow)
+        Err(EscrowError::PotentialOverflow)
     );
 }
 
@@ -188,7 +189,7 @@ fn resolution_payouts_rejects_accounting_invariant_violation() {
 
     assert_eq!(
         resolution_payouts(&contract, &DisputeResolution::FullRefund),
-        Err(Error::AccountingInvariantViolated)
+        Err(EscrowError::AccountingInvariantViolated)
     );
 }
 
