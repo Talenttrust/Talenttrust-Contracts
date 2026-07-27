@@ -63,6 +63,20 @@ pub const MAX_MAX_MILESTONES: u32 = 100;
 /// Absolute minimum for the max escrow stroops setting (0.01 XLM).
 pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
 
+// ── Settlement (batch finalize) limit ────────────────────────────────────────
+
+/// Default maximum number of contracts finalizable in a single batch settlement call.
+pub const DEFAULT_MAX_BATCH_SETTLEMENT: u32 = 10;
+
+/// Absolute minimum for the max batch settlement setting.
+pub const MIN_MAX_BATCH_SETTLEMENT: u32 = 1;
+
+/// Absolute maximum for the max batch settlement setting.
+pub const MAX_MAX_BATCH_SETTLEMENT: u32 = 100;
+
+/// Backward-compatible alias for the default max batch settlement.
+pub const MAX_BATCH_SETTLEMENT: u32 = DEFAULT_MAX_BATCH_SETTLEMENT;
+
 pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
 pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
 
@@ -129,12 +143,13 @@ impl Escrow {
     /// These are compile-time constants — the return value never changes
     /// between calls on the same contract binary. The function is read-only
     /// and requires no authorization.
-    pub fn get_bounds(_env: Env) -> crate::ContractBounds {
+    pub fn get_bounds(env: Env) -> crate::ContractBounds {
         crate::ContractBounds {
             max_milestones: MAX_MILESTONES,
             max_single_milestone_stroops: crate::MAX_SINGLE_AMOUNT_STROOPS,
             max_total_escrow_stroops: MAX_TOTAL_ESCROW_STROOPS,
             max_fee_bps: 10_000,
+            max_settlement: Self::effective_max_settlement(&env),
         }
     }
 
@@ -549,6 +564,54 @@ impl Escrow {
         Self::effective_max_escrow_stroops(&env)
     }
 
+    /// Admin-configurable maximum number of contracts finalizable in a single
+    /// `finalize_contracts_batch` call.
+    ///
+    /// Default is [`DEFAULT_MAX_BATCH_SETTLEMENT`] (10). Valid range is
+    /// [`MIN_MAX_BATCH_SETTLEMENT`]..=[`MAX_MAX_BATCH_SETTLEMENT`] (1..=100).
+    ///
+    /// # Errors
+    /// * [`EscrowError::NotInitialized`] if `initialize` has not been called.
+    /// * [`EscrowError::UnauthorizedRole`] if `admin` is not the stored admin.
+    /// * [`EscrowError::LimitOutOfRange`] if `max_settlement` is outside bounds.
+    ///
+    /// # Events
+    /// `("limits", "max_settlement")` → `(max_settlement: u32, timestamp: u64)`
+    pub fn set_max_settlement(env: Env, max_settlement: u32) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+
+        if max_settlement < MIN_MAX_BATCH_SETTLEMENT
+            || max_settlement > MAX_MAX_BATCH_SETTLEMENT
+        {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxSettlement, &max_settlement);
+
+        env.events().publish(
+            (symbol_short!("limits"), Symbol::new(&env, "max_settlement")),
+            (max_settlement, env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Returns the effective maximum number of contracts finalizable in a
+    /// single batch settlement call.
+    ///
+    /// Returns [`DEFAULT_MAX_BATCH_SETTLEMENT`] when no admin override has been
+    /// set.
+    pub fn get_max_settlement(env: Env) -> u32 {
+        Self::effective_max_settlement(&env)
+    }
+
     // ── Private helpers ──────────────────────────────────────────────────────
 
     pub(crate) fn load_checklist(env: &Env) -> crate::ReadinessChecklist {
@@ -570,6 +633,13 @@ impl Escrow {
             .persistent()
             .get(&DataKey::MaxEscrowStroops)
             .unwrap_or(DEFAULT_MAX_TOTAL_ESCROW_STROOPS)
+    }
+
+    pub(crate) fn effective_max_settlement(env: &Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MaxSettlement)
+            .unwrap_or(DEFAULT_MAX_BATCH_SETTLEMENT)
     }
 
     /// Validates that the given contract_id is within the valid range.

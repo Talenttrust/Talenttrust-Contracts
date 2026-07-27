@@ -1,4 +1,5 @@
 use crate::types::{Contract, MilestoneIndexEvent};
+use crate::EscrowError;
 use soroban_sdk::{symbol_short, Env};
 
 pub use crate::types::MilestoneIndexEvent;
@@ -15,7 +16,7 @@ pub use crate::types::MilestoneIndexEvent;
 /// - `AmountMustBePositive` if any amount field is negative.
 pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contract) {
     if contract_id == 0 {
-        env.panic_with_error(Error::InvalidContractId);
+        env.panic_with_error(EscrowError::InvalidContractId);
     }
     env.events().publish(
         (symbol_short!("contract"), contract_id),
@@ -61,7 +62,7 @@ pub(crate) fn validate_event_amounts(
     total_deposited: i128,
 ) -> Result<(), crate::EscrowError> {
     if funded_amount < 0 || released_amount < 0 || refunded_amount < 0 || total_deposited < 0 {
-        return Err(Error::AmountMustBePositive);
+        return Err(EscrowError::AmountMustBePositive);
     }
     Ok(())
 }

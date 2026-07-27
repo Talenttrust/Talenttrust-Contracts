@@ -1,6 +1,9 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Events as _, Address, Env, Symbol, TryFromVal, Val};
+use soroban_sdk::{
+    testutils::{Address as _, Events as _},
+    Address, Env, Symbol, TryFromVal, Val,
+};
 
 use crate::{DisputeConfig, Escrow, EscrowClient, EscrowError};
 
@@ -82,9 +85,9 @@ fn event_emitted_on_valid_set() {
 
     let events = env.events().all();
     let has_arbiter_cfg = events.iter().any(|e| {
-        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID))
+        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID.into()))
             .ok()
-            .as_deref()
+            .as_ref()
             == Some(&Symbol::new(&env, "arbiter_cfg"))
     });
     assert!(has_arbiter_cfg, "expected arbiter_cfg event to be emitted");

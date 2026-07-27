@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 use crate::{DataKey, DisputeConfig, Escrow, EscrowClient};
 

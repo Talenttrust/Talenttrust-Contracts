@@ -50,6 +50,8 @@ pub struct ContractBounds {
     pub max_total_escrow_stroops: i128,
     /// Maximum protocol fee in basis points (10_000 = 100%).
     pub max_fee_bps: u32,
+    /// Maximum number of contracts finalizable in a single batch settlement call.
+    pub max_settlement: u32,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
@@ -95,6 +97,8 @@ pub enum DataKey {
     DisputeConfigKey,
     // Reputation configuration
     ReputationConfigKey,
+    // Configurable settlement (batch finalize) limit
+    MaxSettlement,
 }
 
 /// Canonical contract error type for all entrypoint-facing errors.
@@ -106,10 +110,6 @@ pub enum Error {
     IndexOutOfBounds = 3,
     /// The milestone has already been released.
     AlreadyReleased = 4,
-    /// The refund request is empty.
-    EmptyRefundRequest = 6,
-    /// Duplicate milestone indices specified in the refund request.
-    DuplicateMilestoneInRefund = 7,
     /// The milestone has already been refunded.
     AlreadyRefunded = 8,
     /// Insufficient funds available to perform the operation.
@@ -142,8 +142,6 @@ pub enum Error {
     ReputationAlreadyIssued = 23,
     /// The milestone list cannot be empty.
     EmptyMilestones = 25,
-    /// The milestone amount is invalid.
-    InvalidMilestoneAmount = 26,
     /// A contract with the specified ID already exists.
     ContractIdCollision = 27,
     /// The contract ID has overflowed the maximum limit.
@@ -152,12 +150,8 @@ pub enum Error {
     EmptyComment = 29,
     /// The comment string exceeds the maximum length limit.
     CommentTooLong = 30,
-    /// The participant address is invalid.
-    InvalidParticipant = 31,
     /// The deposit amount is invalid.
     InvalidDepositAmount = 32,
-    /// The milestone configuration is invalid.
-    InvalidMilestone = 33,
     /// The contract has already been initialized.
     AlreadyInitialized = 34,
     /// Insufficient accumulated fees available for extraction.
@@ -192,8 +186,6 @@ pub enum Error {
     TimelockNotElapsed = 48,
     /// The provided protocol parameters are invalid.
     InvalidProtocolParameters = 49,
-    /// The escrow cap would be exceeded by this operation.
-    EscrowCapExceeded = 51,
     /// No settlement token has been bound for custody transfers.
     SettlementTokenNotConfigured = 52,
     /// The milestone deadline has not yet passed.
