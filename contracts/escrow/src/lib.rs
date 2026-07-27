@@ -171,6 +171,10 @@ pub enum EscrowError {
     EmptyComment = 42,
     /// Reputation feedback comment exceeded the 200-character maximum.
     CommentTooLong = 43,
+    /// The protocol fee basis points exceed the maximum allowed (10_000).
+    InvalidProtocolParameters = 44,
+    /// The withdrawal amount exceeds the maximum allowed per operation.
+    InvalidWithdrawalAmount = 45,
 }
 
 impl Escrow {
@@ -2031,6 +2035,10 @@ impl Escrow {
 
         if amount <= 0 {
             env.panic_with_error(EscrowError::AmountMustBePositive);
+        }
+
+        if amount > crate::MAX_SINGLE_AMOUNT_STROOPS {
+            env.panic_with_error(EscrowError::InvalidWithdrawalAmount);
         }
 
         let accumulated: i128 = env

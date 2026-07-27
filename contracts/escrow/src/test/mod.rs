@@ -17,6 +17,7 @@ mod dispute;
 mod emergency_controls;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
+mod input_bounds_validation;
 mod mainnet_readiness;
 mod pause_controls;
 mod persistence;
