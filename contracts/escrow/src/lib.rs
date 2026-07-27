@@ -55,6 +55,7 @@
 mod amount_validation;
 mod approvals;
 mod deposit;
+mod events;
 mod finalize;
 mod migration;
 pub mod milestones_consts;
@@ -2423,10 +2424,7 @@ impl Escrow {
 
         ttl::extend_contract_ttl(&env, contract_id);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("opened")),
-            (contract_id, caller),
-        );
+        events::emit_dispute_opened_event(&env, contract_id, &caller, &contract);
 
         true
     }
@@ -2517,9 +2515,13 @@ impl Escrow {
 
         ttl::extend_contract_ttl(&env, contract_id);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("resolved")),
-            (contract_id, resolution.code()),
+        events::emit_dispute_resolved_event(
+            &env,
+            contract_id,
+            client_payout,
+            freelancer_payout,
+            resolution.code(),
+            contract.status,
         );
 
         true
