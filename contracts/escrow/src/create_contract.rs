@@ -1,6 +1,7 @@
 use crate::{
-    amount_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowArgs,
-    EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
+    amount_validation, storage_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
+    EscrowArgs, EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization,
+    MAX_MILESTONES,
 };
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol, Vec};
 
@@ -75,15 +76,8 @@ impl Escrow {
             }
         }
 
-        // Validate at least one milestone is specified.
-        if milestones.is_empty() {
-            env.panic_with_error(EscrowError::EmptyMilestones);
-        }
-
-        // Enforce maximum number of milestones.
-        if milestones.len() > MAX_MILESTONES {
-            env.panic_with_error(EscrowError::TooManyMilestones);
-        }
+        // Validate milestone count bounds via the centralized helper.
+        storage_validation::validate_milestone_count(&env, milestones.len());
 
         // Retrieve governed parameters for total escrow cap; allow any total if unset.
         let max_total = env

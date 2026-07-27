@@ -15,7 +15,7 @@ pub use crate::types::MilestoneIndexEvent;
 /// - `AmountMustBePositive` if any amount field is negative.
 pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contract) {
     if contract_id == 0 {
-        env.panic_with_error(Error::InvalidContractId);
+        env.panic_with_error(Error::ContractNotFound);
     }
     env.events().publish(
         (symbol_short!("contract"), contract_id),

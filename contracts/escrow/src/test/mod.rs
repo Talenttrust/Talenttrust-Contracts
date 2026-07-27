@@ -30,6 +30,7 @@ mod reputation;
 mod reputation_config_setter;
 mod rollback;
 mod security;
+mod storage_entrypoint_bounds;
 mod ttl_tests;
 
 // --- Shared constants ---

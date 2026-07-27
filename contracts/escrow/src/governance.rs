@@ -7,6 +7,7 @@
 //! Money movement for protocol-fee withdrawal remains in the crate root because
 //! it performs settlement-token transfers.
 
+use crate::storage_validation;
 use crate::ttl::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
 use crate::{
     milestones_consts::MAX_FEE_BPS, DataKey, Error, Escrow, EscrowArgs, EscrowClient,
@@ -37,6 +38,8 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
         admin.require_auth();
+
+        storage_validation::validate_protocol_fee_bps(&env, new_bps);
 
         let old_bps: u32 = env
             .storage()
@@ -226,6 +229,8 @@ impl Escrow {
         if protocol_fee_bps > MAX_FEE_BPS {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
+
+        storage_validation::validate_escrow_total_cap(&env, max_escrow_total_stroops);
 
         let params = GovernedParameters {
             protocol_fee_bps,
