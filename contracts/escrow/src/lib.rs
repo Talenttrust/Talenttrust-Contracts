@@ -81,13 +81,14 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // re-exported here; `dispute.rs` uses them via `crate::DisputeResolution`.
 pub use types::{
     Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode,
-    DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
+    DisputeResolution, DisputeSplit, Error, EventInput, GovernedParameters, Milestone, MilestoneApprovals,
     MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
     SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
 pub const MAX_MILESTONES: u32 = 10;
+pub const MAX_EVENT_BATCH_SIZE: u32 = 10;
 pub const MAX_SINGLE_AMOUNT_STROOPS: i128 = crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
 
@@ -171,6 +172,10 @@ pub enum EscrowError {
     EmptyComment = 42,
     /// Reputation feedback comment exceeded the 200-character maximum.
     CommentTooLong = 43,
+    /// The batch size exceeds the maximum allowed cap.
+    BatchCapExceeded = 54,
+    /// The batch request is empty.
+    EmptyBatch = 55,
 }
 
 impl Escrow {
@@ -1959,6 +1964,53 @@ impl Escrow {
         }
 
         milestones.get(milestone_index).unwrap().work_evidence
+    }
+
+    /// Emit a batch of contract events within a bounded cap.
+    ///
+    /// Validates that the input vector is non-empty and does not exceed
+    /// [`MAX_EVENT_BATCH_SIZE`]. Emits each event item in order and returns
+    /// the total number of events emitted.
+    pub fn batch_events(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+        Self::require_not_paused(&env);
+        if events.is_empty() {
+            env.panic_with_error(Error::EmptyRefundRequest);
+        }
+        if events.len() > MAX_EVENT_BATCH_SIZE {
+            env.panic_with_error(Error::BatchCapExceeded);
+        }
+        caller.require_auth();
+
+        let mut count: u32 = 0;
+        for item in events.iter() {
+            env.events().publish((item.topic.clone(), item.contract_id), item.data.clone());
+            count += 1;
+        }
+        count
+    }
+
+    /// Alias for `batch_events` to support alternative entrypoint naming.
+    pub fn emit_events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+        Self::batch_events(env, caller, events)
+    }
+
+    /// Alias for `batch_events` to support alternative entrypoint naming.
+    pub fn events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+        Self::batch_events(env, caller, events)
+    }
+
+    /// Emit a single contract event.
+    pub fn emit_event(
+        env: Env,
+        caller: Address,
+        topic: Symbol,
+        contract_id: u32,
+        data: Symbol,
+    ) -> bool {
+        Self::require_not_paused(&env);
+        caller.require_auth();
+        env.events().publish((topic, contract_id), data);
+        true
     }
 
     // -----------------------------------------------------------------------

@@ -193,6 +193,18 @@ pub enum Error {
     SettlementTokenNotConfigured = 52,
     /// The milestone deadline has not yet passed.
     MilestoneNotOverdue = 53,
+    /// The batch size exceeds the maximum allowed cap.
+    BatchCapExceeded = 54,
+    /// The batch request is empty.
+    EmptyBatch = 55,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventInput {
+    pub topic: soroban_sdk::Symbol,
+    pub contract_id: u32,
+    pub data: soroban_sdk::Symbol,
 }
 
 /// Contract lifecycle states

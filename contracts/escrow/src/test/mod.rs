@@ -15,6 +15,7 @@ mod create_contract_bounds;
 mod deposit;
 mod dispute;
 mod emergency_controls;
+mod events;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
 mod mainnet_readiness;

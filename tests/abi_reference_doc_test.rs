@@ -54,6 +54,7 @@ fn abi_reference_document_lists_current_public_entrypoints() {
         "get_governance_admin",
         "set_governed_params",
         "get_governed_parameters",
+        "batch_events",
     ];
 
     for entrypoint in expected_entrypoints {
