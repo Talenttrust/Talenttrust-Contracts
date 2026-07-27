@@ -246,6 +246,55 @@ pub fn assert_contract_state(
     assert_eq!(contract.refunded_amount, expected_refunded);
 }
 
+/// Register an escrow client, initialize it, bind a Stellar Asset Contract
+/// settlement token, and return both the client and the token address.
+///
+/// Use this instead of [`register_client`] whenever the test exercises any
+/// money-flow entrypoint (`deposit_funds`, `release_milestone`,
+/// `refund_unreleased_milestones`, `cancel_contract`) because those entrypoints
+/// require a bound settlement token.
+pub fn register_client_with_token(env: &Env) -> (EscrowClient<'_>, Address) {
+    let id = env.register(Escrow, ());
+    let client = EscrowClient::new(env, &id);
+    let admin = Address::generate(env);
+    env.mock_all_auths_allowing_non_root_auth();
+    client.initialize(&admin);
+    let token = env.register_stellar_asset_contract(admin.clone());
+    client.bind_settlement_token(&admin, &token);
+    (client, token)
+}
+
+/// Create, fund (minting tokens for the client), and fully release a
+/// 3-milestone contract using the provided settlement `token`, driving it to
+/// [`ContractStatus::Completed`]. Returns `(client_addr, freelancer_addr, contract_id)`.
+///
+/// Unlike [`complete_contract`] this helper binds the SAC and handles token
+/// minting, so it works with the real `deposit_funds` / `release_milestone`
+/// entrypoints.
+pub fn complete_contract_funded(
+    env: &Env,
+    client: &EscrowClient,
+    token: &Address,
+) -> (Address, Address, u32) {
+    let client_addr = Address::generate(env);
+    let freelancer_addr = Address::generate(env);
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &default_milestones(env),
+        &ReleaseAuthorization::ClientOnly,
+    );
+    let total = total_milestone_amount();
+    StellarAssetClient::new(env, token).mint(&client_addr, &total);
+    client.deposit_funds(&contract_id, &client_addr, &total);
+    for milestone_index in 0..3u32 {
+        client.approve_milestone_release(&contract_id, &client_addr, &milestone_index);
+        client.release_milestone(&contract_id, &client_addr, &milestone_index);
+    }
+    (client_addr, freelancer_addr, contract_id)
+}
+
 pub fn register_client(env: &Env) -> EscrowClient<'_> {
     let id = env.register(Escrow, ());
     let client = EscrowClient::new(env, &id);
