@@ -65,8 +65,8 @@ mod utils;
 
 use crate::utils::now_seconds;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, log, symbol_short, token, Address, Env, String, Symbol,
-    Vec,
+    contract, contracterror, contractimpl, log, symbol_short, token, Address, BytesN, Env, String,
+    Symbol, Vec,
 };
 
 pub use amount_validation::accumulate_amounts;
@@ -84,10 +84,12 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // re-exported here; `dispute.rs` uses them via `crate::DisputeResolution`.
 pub use types::{
     Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode, DisputeConfig,
-    DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
-    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    ReputationConfig, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    DisputeMetadata, DisputeMetadataV0, DisputeResolution, DisputeSplit, Error, GovernedParameters,
+    Milestone, MilestoneApprovals, MilestoneSummary, PendingAdminProposal, ReadinessChecklist,
+    ReleaseAuthorization, Reputation, ReputationConfig, SplitAmounts,
+    CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
+pub use types::DISPUTE_STORAGE_VERSION;
 
 /// Default maximum number of milestones allowed per contract.
 pub const DEFAULT_MAX_MILESTONES: u32 = 10;
@@ -1409,6 +1411,40 @@ impl Escrow {
         result
     }
 
+    /// Returns a bounded, read-only page of dispute metadata records.
+    ///
+    /// Iterates over allocated contract IDs and returns entries for contracts
+    /// that have a stored dispute record. The page is empty-safe: callers always
+    /// receive an empty vector when no disputes exist, when `start` is beyond
+    /// the last allocated ID, or when a request uses a zero `limit`. The
+    /// implementation caps each request to [`PAGE_CEILING`] entries per call and
+    /// walks the allocated ID range in ascending order.
+    pub fn get_disputes_page(env: Env, start: u32, limit: u32) -> Vec<DisputeMetadata> {
+        let capped_limit = core::cmp::min(limit, PAGE_CEILING);
+        if capped_limit == 0 {
+            return Vec::new(&env);
+        }
+
+        let total = Self::get_next_contract_id(env.clone()) as u64;
+        if start as u64 >= total {
+            return Vec::new(&env);
+        }
+
+        let mut result = Vec::new(&env);
+        let mut count = 0u32;
+        let mut current = start;
+        while current < total as u32 && count < capped_limit {
+            let key = DataKey::Dispute(current);
+            if let Some(meta) = env.storage().persistent().get::<_, DisputeMetadata>(&key) {
+                result.push_back(meta);
+                count += 1;
+            }
+            current += 1;
+        }
+
+        result
+    }
+
     /// Returns a structured summary of the contract and its milestones.
     ///
     /// Extends contract and milestone TTL on read without requiring caller auth.
@@ -2559,6 +2595,14 @@ impl Escrow {
         let milestones = ttl::load_milestones(&env, contract_id);
         rollback::store_dispute_rollback(&env, contract_id, &contract, &milestones);
 
+        let metadata = DisputeMetadata {
+            schema_version: DISPUTE_STORAGE_VERSION,
+            raised_by: caller.clone(),
+            reason_hash: BytesN::from_array(&env, &[0u8; 32]),
+            raised_at: env.ledger().timestamp(),
+        };
+        dispute::store_dispute_metadata(&env, contract_id, &metadata);
+
         contract.status = ContractStatus::Disputed;
         env.storage()
             .persistent()
@@ -2657,6 +2701,7 @@ impl Escrow {
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);
         rollback::clear_dispute_rollback(&env, contract_id);
+        dispute::clear_dispute_metadata(&env, contract_id);
 
         ttl::extend_contract_ttl(&env, contract_id);
 
@@ -2666,6 +2711,18 @@ impl Escrow {
         );
 
         true
+    }
+
+    /// Returns the stored dispute metadata for a contract, or `None` if no
+    /// dispute has been raised.
+    ///
+    /// Read-only operation — does not extend TTL or mutate state. Returns
+    /// `None` for non-existent contracts as well as contracts without an
+    /// active dispute, making it safe for indexers iterating over ID ranges.
+    pub fn get_dispute(env: Env, contract_id: u32) -> Option<DisputeMetadata> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Dispute(contract_id))
     }
 }
 

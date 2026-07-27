@@ -1,4 +1,4 @@
-use soroban_sdk::{contracterror, contracttype, Address, String, Vec};
+use soroban_sdk::{contracterror, contracttype, Address, BytesN, String, Vec};
 
 // ── Indexer summary types ────────────────────────────────────────────────────
 
@@ -93,6 +93,8 @@ pub enum DataKey {
     DisputeRollback(u32),
     // Dispute / arbiter configuration
     DisputeConfigKey,
+    // Dispute metadata per contract
+    Dispute(u32),
     // Reputation configuration
     ReputationConfigKey,
 }
@@ -204,6 +206,10 @@ pub enum Error {
     RollbackStateChanged = 55,
     /// The provided reputation parameters are out of the allowed bounds.
     InvalidReputationParameters = 56,
+    /// No dispute record exists for the requested contract.
+    DisputeNotFound = 57,
+    /// The stored dispute metadata version is not supported.
+    UnsupportedDisputeStorageVersion = 58,
 }
 
 /// Contract lifecycle states
@@ -415,4 +421,30 @@ impl Default for DisputeConfig {
             partial_refund_client_bps: 7000,
         }
     }
+}
+
+/// Current schema version for persisted dispute metadata.
+pub const DISPUTE_STORAGE_VERSION: u32 = 1;
+
+/// Persisted metadata for an on-chain dispute.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeMetadata {
+    /// Schema version for forward-compatible reads.
+    pub schema_version: u32,
+    /// Address that raised the dispute (client or freelancer).
+    pub raised_by: Address,
+    /// Optional 32-byte hash of the dispute reason.
+    pub reason_hash: BytesN<32>,
+    /// Ledger timestamp when the dispute was raised.
+    pub raised_at: u64,
+}
+
+/// V0 dispute metadata (pre-migration schema).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeMetadataV0 {
+    pub raised_by: Address,
+    pub reason_hash: BytesN<32>,
+    pub raised_at: u64,
 }

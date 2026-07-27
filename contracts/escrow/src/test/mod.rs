@@ -17,6 +17,7 @@ mod contracts_page;
 mod create_contract_bounds;
 mod deposit;
 mod dispute;
+mod disputes_page;
 mod emergency_controls;
 mod governance_events;
 mod input_sanitization_amounts;
