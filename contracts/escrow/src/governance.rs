@@ -12,6 +12,8 @@ use crate::{
     DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, MIN_CONTRACTS_LIMIT,
     MAX_CONTRACTS_LIMIT, DEFAULT_CONTRACTS_LIMIT, PendingAdminProposal,
     ReadinessChecklist,
+    milestones_consts::MAX_FEE_BPS, DataKey, Error, Escrow, EscrowArgs, EscrowClient,
+    GovernedParameters, PendingAdminProposal, ReadinessChecklist,
 };
 use soroban_sdk::{symbol_short, Address, Env, Symbol};
 
@@ -224,7 +226,7 @@ impl Escrow {
         }
         admin.require_auth();
 
-        if protocol_fee_bps > 10_000 {
+        if protocol_fee_bps > MAX_FEE_BPS {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 

@@ -6,16 +6,26 @@
 //! or `Refunded`. The root entrypoints own authentication, token transfer, event
 //! publication, and writes to `DataKey::Contract(contract_id)`.
 
-use soroban_sdk::{contractimpl, symbol_short, Address, Env};
+use soroban_sdk::{Address, Env};
 
 use crate::{
-    safe_add_amounts, Contract, ContractStatus, DataKey, DisputeResolution, DisputeSplit, Error,
-    Escrow, EscrowArgs, EscrowClient,
+    safe_add_amounts, Contract, ContractStatus, DataKey, DisputeConfig, DisputeResolution, Error,
 };
 
-// ---------------------------------------------------------------------------
-// resolution_payouts: pure arithmetic for dispute payout calculations
-// ---------------------------------------------------------------------------
+/// Read-only getter for the arbiter dispute-split configuration.
+///
+/// Returns `None` before any admin call to `set_arbiter_config`; callers
+/// should fall back to `DisputeConfig::default()` (30/70 split).
+pub fn get_dispute_config(env: &Env) -> Option<DisputeConfig> {
+    env.storage().persistent().get(&DataKey::DisputeConfigKey)
+}
+
+/// Storage writer for the arbiter dispute-split configuration.
+pub fn set_dispute_config(env: &Env, config: DisputeConfig) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::DisputeConfigKey, &config);
+}
 
 /// Compute the payout split for a dispute resolution.
 ///

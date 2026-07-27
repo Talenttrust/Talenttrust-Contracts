@@ -92,6 +92,11 @@ pub enum DataKey {
     SettlementToken,
     // Configurable contracts limit
     ContractsLimit,
+    DisputeRollback(u32),
+    // Dispute / arbiter configuration
+    DisputeConfigKey,
+    // Reputation configuration
+    ReputationConfigKey,
 }
 
 /// Canonical contract error type for all entrypoint-facing errors.
@@ -197,6 +202,12 @@ pub enum Error {
     MilestoneNotOverdue = 53,
     /// The value is outside the allowed bounds for the contracts limit.
     ContractsLimitExceeded = 54,
+    /// No safe rollback is available for the contract's current state.
+    RollbackNotAllowed = 54,
+    /// Contract or milestone state changed after the rollback point was recorded.
+    RollbackStateChanged = 55,
+    /// The provided reputation parameters are out of the allowed bounds.
+    InvalidReputationParameters = 56,
 }
 
 /// Minimum allowed value for the admin-configurable contracts limit.
@@ -336,6 +347,36 @@ pub struct Reputation {
     pub last_rating: i128,
 }
 
+/// Runtime-configurable reputation validation parameters, stored under
+/// [`DataKey::ReputationConfigKey`].
+///
+/// These were compile-time constants (`MIN_RATING`, `MAX_RATING`,
+/// `MAX_COMMENT_BYTES`) until issue #1119 added
+/// `Escrow::set_reputation_config`, which lets the admin retune them within
+/// bounds without redeploying the contract. `issue_reputation` reads this
+/// config (falling back to [`ReputationConfig::default`], which matches the
+/// original constants) instead of the raw constants directly.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReputationConfig {
+    /// Minimum valid rating (inclusive).
+    pub min_rating: u32,
+    /// Maximum valid rating (inclusive).
+    pub max_rating: u32,
+    /// Maximum byte length of a reputation feedback comment (inclusive).
+    pub max_comment_bytes: u32,
+}
+
+impl Default for ReputationConfig {
+    fn default() -> Self {
+        ReputationConfig {
+            min_rating: 1,
+            max_rating: 5,
+            max_comment_bytes: 200,
+        }
+    }
+}
+
 // ── Dispute Resolution ───────────────────────────────────────────────────────
 
 #[contracttype]
@@ -363,6 +404,28 @@ impl DisputeResolution {
             Self::PartialRefund => 1,
             Self::FullPayout => 2,
             Self::Split(_) => 3,
+        }
+    }
+}
+
+/// Configuration for the arbiter's partial-refund split, stored under
+/// [`DataKey::DisputeConfigKey`].
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeConfig {
+    /// Share of remaining funds allocated to the freelancer in partial refunds
+    /// (basis points, `3000` = 30%).
+    pub partial_refund_freelancer_bps: u32,
+    /// Share of remaining funds allocated to the client in partial refunds
+    /// (basis points, `7000` = 70%).
+    pub partial_refund_client_bps: u32,
+}
+
+impl Default for DisputeConfig {
+    fn default() -> Self {
+        DisputeConfig {
+            partial_refund_freelancer_bps: 3000,
+            partial_refund_client_bps: 7000,
         }
     }
 }
