@@ -1,5 +1,6 @@
 use super::{complete_contract, create_contract, register_client};
 use crate::{EscrowError, ReleaseAuthorization};
+use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, String};
 
 fn valid_comment(env: &Env) -> String {

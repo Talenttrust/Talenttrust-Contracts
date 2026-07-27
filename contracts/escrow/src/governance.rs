@@ -70,6 +70,16 @@ impl Escrow {
 
     /// Propose a new governance admin. Stores the proposal with a timelock.
     ///
+    /// Public entrypoint that delegates to [`propose_governance_admin_impl`].
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
+    pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+        Self::propose_governance_admin_impl(&env, proposed)
+    }
+
+    /// Propose a new governance admin. Stores the proposal with a timelock.
+    ///
     /// # Events
     /// `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
     pub(crate) fn propose_governance_admin_impl(env: &Env, proposed: Address) -> bool {
@@ -95,6 +105,16 @@ impl Escrow {
             (admin, proposed.clone(), env.ledger().timestamp()),
         );
         true
+    }
+
+    /// Accept a pending admin proposal, enforcing the timelock.
+    ///
+    /// Public entrypoint that delegates to [`accept_governance_admin_impl`].
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("accepted"))` → `(old_admin, new_admin, timestamp)`
+    pub fn accept_governance_admin(env: Env) -> bool {
+        Self::accept_governance_admin_impl(&env)
     }
 
     /// Accept a pending admin proposal, enforcing the timelock.

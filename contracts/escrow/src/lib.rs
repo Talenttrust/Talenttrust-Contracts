@@ -62,8 +62,7 @@ mod utils;
 
 use crate::utils::now_seconds;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, log, symbol_short, token, Address, Env, String, Symbol,
-    Vec,
+    contract, contracterror, contractimpl, symbol_short, token, Address, Env, String, Symbol, Vec,
 };
 
 pub use amount_validation::accumulate_amounts;
@@ -73,6 +72,7 @@ pub use amount_validation::safe_subtract_amounts;
 pub use amount_validation::validate_deposit_amount;
 pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
+pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 pub use dispute::final_status_after_resolution;
 pub use dispute::resolution_payouts;
 pub use migration::PendingClientMigration;
@@ -105,11 +105,23 @@ pub const MIN_MAX_MILESTONES: u32 = 1;
 /// Absolute maximum for the max milestones setting.
 pub const MAX_MAX_MILESTONES: u32 = 100;
 
+/// Default maximum number of arbiters allowed for a contract.
+pub const DEFAULT_MAX_ARBITERS: u32 = 1;
+
+/// Absolute minimum for the arbiter limit setting.
+pub const MIN_MAX_ARBITERS: u32 = 1;
+
+/// Absolute maximum for the arbiter limit setting.
+pub const MAX_MAX_ARBITERS: u32 = 100;
+
 /// Absolute minimum for the max escrow stroops setting (0.01 XLM).
 pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
 
 pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
 pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
+
+/// Maximum entries returned by any paginated view in a single call.
+pub const PAGE_CEILING: u32 = 50;
 
 // ─── Contract data ────────────────────────────────────────────────────────────
 
@@ -125,14 +137,6 @@ pub struct EscrowContractData {
     pub released_amount: i128,
     pub refunded_amount: i128,
     pub reputation_issued: bool,
-}
-
-#[soroban_sdk::contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MilestoneApprovals {
-    pub client_approved: bool,
-    pub freelancer_approved: bool,
-    pub arbiter_approved: bool,
 }
 
 #[soroban_sdk::contracttype]
@@ -244,6 +248,10 @@ pub enum EscrowError {
     EmptyComment = 42,
     /// Reputation feedback comment exceeded the 200-character maximum.
     CommentTooLong = 43,
+    /// A configured limit was set outside of the supported bounds.
+    LimitOutOfRange = 44,
+    /// The contract ID is out of valid bounds.
+    InvalidContractId = 45,
 }
 
 impl Escrow {
@@ -1803,31 +1811,22 @@ impl Escrow {
             .unwrap_or(false)
     }
 
-    // ── Cancel contract ──────────────────────────────────────────────────────
-
-    pub fn get_mainnet_readiness_info(env: Env) -> MainnetReadinessInfo {
-        let checklist = Self::load_checklist(&env);
-        MainnetReadinessInfo {
-            initialized: checklist.initialized,
-            governed_params_set: checklist.governed_params_set,
-            emergency_controls_enabled: checklist.emergency_controls_enabled,
-            caps_set: MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS > 0,
-            protocol_version: MAINNET_PROTOCOL_VERSION,
-            max_escrow_total_stroops: MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS,
-        }
-    }
-
-    fn load_checklist(env: &Env) -> ReadinessChecklist {
-        env.storage()
+    /// Validates that a contract ID is within the valid allocated range.
+    fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
+        let next_id: u32 = env
+            .storage()
             .persistent()
-            .get(&DataKey::ReadinessChecklist)
-            .unwrap_or_default()
+            .get(&DataKey::NextContractId)
+            .unwrap_or(1);
+        if contract_id == 0 || contract_id >= next_id {
+            env.panic_with_error(EscrowError::InvalidContractId);
+        }
     }
 
     // ─── Configurable limits ──────────────────────────────────────────────────
 
     /// Returns the effective max milestones, falling back to the default.
-    fn effective_max_milestones(env: &Env) -> u32 {
+    pub(crate) fn effective_max_milestones(env: &Env) -> u32 {
         env.storage()
             .persistent()
             .get(&DataKey::MaxMilestones)
@@ -1835,11 +1834,19 @@ impl Escrow {
     }
 
     /// Returns the effective max escrow stroops, falling back to the default.
-    fn effective_max_escrow_stroops(env: &Env) -> i128 {
+    pub(crate) fn effective_max_escrow_stroops(env: &Env) -> i128 {
         env.storage()
             .persistent()
             .get(&DataKey::MaxEscrowStroops)
             .unwrap_or(DEFAULT_MAX_TOTAL_ESCROW_STROOPS)
+    }
+
+    /// Returns the effective arbiter limit, falling back to the default.
+    fn effective_max_arbiters(env: &Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MaxArbiters)
+            .unwrap_or(DEFAULT_MAX_ARBITERS)
     }
 
     /// Set the max milestones limit. Admin only. Rejects out-of-range values.
@@ -1904,15 +1911,36 @@ impl Escrow {
         Self::effective_max_escrow_stroops(&env)
     }
 
-    // ─── Contract lifecycle ───────────────────────────────────────────────────
+    /// Set the arbiter limit. Admin only. Rejects out-of-range values.
+    pub fn set_max_arbiters(env: Env, max_arbiters: u32) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
 
-    /// Create a new escrow contract. Blocked when paused.
-    pub fn create_contract(
-        env: Env,
-        client: Address,
-        freelancer: Address,
-        milestone_amounts: Vec<i128>,
-    ) -> u32 {
+        if max_arbiters < MIN_MAX_ARBITERS || max_arbiters > MAX_MAX_ARBITERS {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+
+        env.storage().persistent().set(&DataKey::MaxArbiters, &max_arbiters);
+
+        env.events().publish(
+            (symbol_short!("limits"), Symbol::new(&env, "max_arbiters")),
+            (max_arbiters, env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Returns the current arbiter limit (or the default if not set).
+    pub fn get_max_arbiters(env: Env) -> u32 {
+        Self::effective_max_arbiters(&env)
+    }
+
+    /// Cancel an escrow contract and refund the client.
+    pub fn cancel_contract(env: Env, contract_id: u32, client: Address) -> bool {
         Self::require_not_paused(&env);
         let mut contract: Contract = env
             .storage()
@@ -1947,6 +1975,7 @@ impl Escrow {
             contract.refunded_amount,
         )
         .unwrap_or_else(|e| env.panic_with_error(e));
+        let old_status = contract.status;
         if refund_amount > 0 {
             let token = Self::read_settlement_token(&env)
                 .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
@@ -1957,19 +1986,11 @@ impl Escrow {
             );
         }
 
-        let mut total: i128 = 0;
-        for i in 0..milestone_amounts.len() {
-            let amt = milestone_amounts.get(i).unwrap();
-            if amt <= 0 {
-                env.panic_with_error(EscrowError::InvalidMilestoneAmount);
-            }
-            total = safe_add_amounts(total, amt)
-                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
-        }
-        let max_escrow = Self::effective_max_escrow_stroops(&env);
-        if total > max_escrow {
-            env.panic_with_error(EscrowError::InvalidMilestoneAmount);
-        }
+        contract.refunded_amount = contract
+            .refunded_amount
+            .checked_add(refund_amount)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+        contract.status = ContractStatus::Cancelled;
 
         env.storage()
             .persistent()
