@@ -1,41 +1,59 @@
 //! Dispute payout arithmetic and final-status helpers.
 //!
-//! This module owns dispute-related helpers:
-//!
-//! - [`resolution_payouts`] computes how the available escrow balance should be
-//!   split for a [`DisputeResolution`].
-//! - [`final_status_after_resolution`] decides whether dispute settlement leaves
-//!   the contract as [`ContractStatus::Completed`] or [`ContractStatus::Refunded`].
-//!
-//! The root `raise_dispute` / `resolve_dispute` entrypoints live in
-//! `contracts/escrow/src/lib.rs`.
+//! This module is intentionally storage-free. It computes how the currently
+//! available escrow balance should be split for a `DisputeResolution` and tells
+//! the root dispute entrypoint whether the contract should end as `Completed`
+//! or `Refunded`. The root entrypoints own authentication, token transfer, event
+//! publication, and writes to `DataKey::Contract(contract_id)`.
+
+use soroban_sdk::{Address, Env};
 
 use crate::{
-    safe_add_amounts, Contract, ContractStatus, DisputeResolution, Error, MAX_SINGLE_AMOUNT_STROOPS,
+    safe_add_amounts, Contract, ContractStatus, DataKey, DisputeConfig, DisputeResolution, Error,
 };
+
+/// Read-only getter for the arbiter dispute-split configuration.
+///
+/// Returns `None` before any admin call to `set_arbiter_config`; callers
+/// should fall back to `DisputeConfig::default()` (30/70 split).
+pub fn get_dispute_config(env: &Env) -> Option<DisputeConfig> {
+    env.storage().persistent().get(&DataKey::DisputeConfigKey)
+}
+
+/// Storage writer for the arbiter dispute-split configuration.
+pub fn set_dispute_config(env: &Env, config: DisputeConfig) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::DisputeConfigKey, &config);
+}
 
 /// Compute the payout split for a dispute resolution.
 ///
 /// Returns `(client_payout, freelancer_payout)` where both values are non-negative
-/// and sum to the available balance.
+/// and sum to the available balance. The available balance is computed as:
+/// `available = funded_amount - released_amount - refunded_amount`.
 ///
 /// # Errors
-/// - `AccountingInvariantViolated` if available would be negative
+/// - `AccountingInvariantViolated` if available would be negative (corrupted state)
 /// - `PotentialOverflow` if intermediate calculations overflow
-/// - `InvalidDisputeSplit` for Split variant with invalid amounts
+/// - `InvalidDisputeSplit` for Split variant with negative legs or non-conserving sum
 pub fn resolution_payouts(
     contract: &Contract,
     resolution: &DisputeResolution,
 ) -> Result<(i128, i128), Error> {
-    let available = crate::checked_available_balance(
-        contract.funded_amount,
-        contract.released_amount,
-        contract.refunded_amount,
-    )?;
+    let available = contract
+        .funded_amount
+        .checked_sub(contract.released_amount)
+        .and_then(|value| value.checked_sub(contract.refunded_amount))
+        .ok_or(Error::AccountingInvariantViolated)?;
+    if available < 0 {
+        return Err(Error::AccountingInvariantViolated);
+    }
 
     match resolution {
         DisputeResolution::FullRefund => Ok((available, 0)),
         DisputeResolution::PartialRefund => {
+            // freelancer gets floor(available * 30 / 100), client gets remainder
             let freelancer_payout = available
                 .checked_mul(30)
                 .and_then(|value| value.checked_div(100))
@@ -50,11 +68,7 @@ pub fn resolution_payouts(
             if split.client_amount < 0 || split.freelancer_amount < 0 {
                 return Err(Error::InvalidDisputeSplit);
             }
-            if split.client_amount > MAX_SINGLE_AMOUNT_STROOPS
-                || split.freelancer_amount > MAX_SINGLE_AMOUNT_STROOPS
-            {
-                return Err(Error::InvalidDisputeSplit);
-            }
+            // Issue #572: Reject split resolution whose components are individually within but jointly exceed balance
             if split.client_amount > available || split.freelancer_amount > available {
                 return Err(Error::InvalidDisputeSplit);
             }
@@ -79,3 +93,10 @@ pub fn final_status_after_resolution(contract: &Contract) -> ContractStatus {
         ContractStatus::Completed
     }
 }
+
+// ---------------------------------------------------------------------------
+// raise_dispute / resolve_dispute entrypoints
+// ---------------------------------------------------------------------------
+
+// Dispute entrypoints are implemented in `contracts/escrow/src/lib.rs`.
+// This module retains dispute-related helpers only.
