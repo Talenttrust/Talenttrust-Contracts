@@ -11,12 +11,11 @@ use crate::{
 mod approval_expiry;
 mod cancel_contract;
 mod client_migration;
-mod contract_events;
+mod contracts_page;
 mod create_contract_bounds;
 mod deposit;
 mod dispute;
 mod emergency_controls;
-mod events_comprehensive;
 mod governance_events;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
