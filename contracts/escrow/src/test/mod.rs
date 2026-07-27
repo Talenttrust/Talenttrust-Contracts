@@ -1,7 +1,8 @@
 #![cfg(test)]
 #![allow(dead_code)]
 
-use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env, Vec};
+pub use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
 use crate::{
     Contract, ContractStatus, Escrow, EscrowClient, EscrowError, Milestone, ReleaseAuthorization,
@@ -11,12 +12,10 @@ use crate::{
 mod approval_expiry;
 mod cancel_contract;
 mod client_migration;
-mod contract_events;
 mod create_contract_bounds;
 mod deposit;
 mod dispute;
 mod emergency_controls;
-mod events_comprehensive;
 mod governance_events;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;

@@ -329,7 +329,6 @@ fn get_average_rating_fractional_average_is_preserved() {
     assert_eq!(client.get_average_rating(&freelancer_addr), Some(15_000));
 }
 
-
 #[test]
 fn issue_reputation_rejects_invalid_contract_id_zero() {
     let env = Env::default();

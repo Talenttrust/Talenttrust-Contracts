@@ -98,7 +98,7 @@ impl Escrow {
         Self::require_not_paused(&env);
         new_client.require_auth();
 
-        let mut contract = Self::load_contract(&env, contract_id);
+        let contract = Self::load_contract(&env, contract_id);
         Self::require_not_finalized(&env, contract_id);
         Self::require_migration_allowed(&env, contract.status);
 

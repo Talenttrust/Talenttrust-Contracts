@@ -917,11 +917,7 @@ fn resolve_dispute_large_amount_flow_succeeds() {
     client.raise_dispute(&escrow_id, &client_addr);
 
     // FullPayout adds available all to released_amount.
-    assert!(client.resolve_dispute(
-        &escrow_id,
-        &arbiter_addr,
-        &DisputeResolution::FullPayout,
-    ));
+    assert!(client.resolve_dispute(&escrow_id, &arbiter_addr, &DisputeResolution::FullPayout,));
     let contract = client.get_contract(&escrow_id);
     assert_eq!(contract.released_amount, large_amt);
     assert_eq!(contract.status, ContractStatus::Completed);
@@ -948,11 +944,7 @@ fn resolve_dispute_full_refund_large_amounts() {
     client.deposit_funds(&escrow_id, &client_addr, &large);
     client.raise_dispute(&escrow_id, &client_addr);
 
-    assert!(client.resolve_dispute(
-        &escrow_id,
-        &arbiter_addr,
-        &DisputeResolution::FullRefund,
-    ));
+    assert!(client.resolve_dispute(&escrow_id, &arbiter_addr, &DisputeResolution::FullRefund,));
     let contract = client.get_contract(&escrow_id);
     assert_eq!(contract.refunded_amount, large);
     assert_eq!(contract.status, ContractStatus::Refunded);
