@@ -227,7 +227,7 @@ impl Escrow {
         }
         admin.require_auth();
 
-        if protocol_fee_bps > 10_000 {
+        if protocol_fee_bps > MAX_FEE_BPS {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
