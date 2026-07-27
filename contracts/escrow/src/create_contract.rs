@@ -1,7 +1,6 @@
 use crate::{
     amount_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowArgs,
-    EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization,
-    DEFAULT_MAX_MILESTONES, DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
+    EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
 };
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol, Vec};
 
@@ -14,8 +13,11 @@ impl Escrow {
     /// - Arbiter presence when required by the release authorization mode
     /// - Arbiter distinctness from client and freelancer
     /// - At least one milestone with all amounts strictly positive
-    /// - The `MAX_MILESTONES` cap
-    /// - The governed total-escrow cap (falls back to `i128::MAX` when unset)
+    /// - The configurable max-milestones cap (defaults to `MAX_MILESTONES`,
+    ///   bounded above by `MAX_MAX_MILESTONES`)
+    /// - The governed total-escrow cap combined with the configurable
+    ///   max-escrow-stroops cap (the min of the two is enforced; falls back
+    ///   to `i128::MAX` when neither is set)
     /// - No contract-id collision or overflow
     ///
     /// # Arguments
@@ -35,8 +37,10 @@ impl Escrow {
     /// * `InvalidMilestoneAmount` - If any milestone amount is <= 0
     /// * `MissingArbiter`       - If arbiter is required but not provided
     /// * `InvalidArbiter`       - If arbiter is same as client or freelancer
-    /// * `TooManyMilestones`    - If the number of milestones exceeds `MAX_MILESTONES`
-    /// * `TotalCapExceeded`     - If the sum of milestone amounts exceeds the governed cap
+    /// * `TooManyMilestones`    - If the number of milestones exceeds the
+    ///                            effective max-milestones cap
+    /// * `TotalCapExceeded`     - If the sum of milestone amounts exceeds the
+    ///                            effective total-escrow cap
     /// * `ContractIdOverflow`   - If the next id would exceed `u32::MAX`
     /// * `ContractIdCollision`  - If the allocated id slot is already occupied
     pub fn create_contract(
@@ -64,21 +68,43 @@ impl Escrow {
             _ => {}
         }
 
+        // Validate arbiter is distinct from both client and freelancer.
         if let Some(ref arb) = arbiter {
             if arb == &client || arb == &freelancer {
                 env.panic_with_error(EscrowError::InvalidArbiter);
             }
         }
 
+        // The admin-configurable arbiter cap delivered by PR #1243
+        // (`Escrow::set_max_arbiters` / `effective_max_arbiters`) is exposed
+        // here for forward compatibility with a future multi-arbiter
+        // signature. The current `arbiter: Option<Address>` parameter
+        // accepts at most one arbiter, and `MIN_MAX_ARBITERS = 1` clamps
+        // the admin-set cap to be at least `1`, so a runtime cap check
+        // against a single arbiter would be dead code. When the contract
+        // signature is extended to `Vec<Address>`, replace this comment
+        // with `if arbiter.len() > Escrow::effective_max_arbiters(&env) ...`.
+
+        // Validate at least one milestone is specified.
         if milestones.is_empty() {
             env.panic_with_error(EscrowError::EmptyMilestones);
         }
 
+        // Enforce the configurable max-milestones cap. The getter defaults to
+        // `DEFAULT_MAX_MILESTONES` when no admin override has been stored, and
+        // `set_max_milestones` clamps administrative updates to
+        // `[MIN_MAX_MILESTONES, MAX_MAX_MILESTONES]`, so this check is
+        // bounded and safe regardless of caller intent.
         let max_milestones = Self::effective_max_milestones(&env);
         if milestones.len() > max_milestones {
             env.panic_with_error(EscrowError::TooManyMilestones);
         }
 
+        // Combine the governance cap and the admin-configurable cap; the binding
+        // cap is the lesser of the two, falling back to `i128::MAX` when neither
+        // is set. This keeps legacy deployments (no governance params, no
+        // configurable cap) effectively unbounded while letting production
+        // deployments tighten the limit via either governance or admin config.
         let max_total = {
             let governed = env
                 .storage()
@@ -90,8 +116,11 @@ impl Escrow {
             governed.min(configurable)
         };
 
-        let max_milestones_usize = max_milestones as usize;
-        let mut native_milestones = [0_i128; 100];
+        // Validate milestone amounts and enforce the total cap via the
+        // canonical helper. The fixed-size scratch buffer is sized for the
+        // absolute upper bound (`MAX_MAX_MILESTONES`) so the configurable
+        // cap can be raised without re-sizing the buffer.
+        let mut native_milestones = [0_i128; crate::MAX_MAX_MILESTONES as usize];
         let len = milestones.len() as usize;
         for i in 0..len {
             native_milestones[i] = milestones.get(i as u32).unwrap();
@@ -111,12 +140,19 @@ impl Escrow {
 
         ttl::extend_next_contract_id_ttl(&env);
 
-        let id = Self::next_contract_id(&env);
+        let id = next_contract_id(&env);
 
+        // Retain the original freelancer address alongside `freelancer` so the
+        // created event can publish it without re-cloning once the move into
+        // the Contract struct below is performed.
+        let freelancer_addr = freelancer.clone();
+
+        // Construct the contract with all required fields, initialising
+        // accounting counters to zero and reputation_issued to false.
         let contract = Contract {
             client: client.clone(),
             freelancer: freelancer.clone(),
-            arbiter: arbiter.clone(),
+            arbiter,
             status: ContractStatus::Created,
             total_deposited: 0,
             funded_amount: 0,
@@ -152,34 +188,35 @@ impl Escrow {
             .persistent()
             .set(&DataKey::NextContractId, &next_id);
 
+        // Emit creation event for indexers and off-chain subscribers.
         env.events().publish(
             (symbol_short!("created"), id),
-            (client, freelancer, env.ledger().timestamp()),
+            (client, freelancer_addr, env.ledger().timestamp()),
         );
 
         id
     }
+}
 
-    /// Returns the next available contract ID and asserts it is not already occupied.
-    ///
-    /// # Errors
-    /// * `ContractIdCollision` - If the allocated id slot is already occupied
-    pub(crate) fn next_contract_id(env: &Env) -> u32 {
-        let id: u32 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::NextContractId)
-            .unwrap_or(1);
+/// Returns the next available contract ID and asserts it is not already occupied.
+///
+/// # Errors
+/// * `ContractIdCollision` - If the allocated id slot is already occupied
+pub(crate) fn next_contract_id(env: &Env) -> u32 {
+    let id: u32 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::NextContractId)
+        .unwrap_or(1);
 
-        if env
-            .storage()
-            .persistent()
-            .get::<_, Contract>(&DataKey::Contract(id))
-            .is_some()
-        {
-            env.panic_with_error(Error::ContractIdCollision);
-        }
-
-        id
+    if env
+        .storage()
+        .persistent()
+        .get::<_, Contract>(&DataKey::Contract(id))
+        .is_some()
+    {
+        env.panic_with_error(Error::ContractIdCollision);
     }
+
+    id
 }
