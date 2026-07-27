@@ -10,3 +10,6 @@ This document catalogs the `EscrowError` codes specifically related to the Arbit
 | **36** | `InvalidArbiter` | `create_contract` | Fired during contract creation if the provided `arbiter` address is identical to either the `client` address or the `freelancer` address. | **How to avoid:** Ensure the arbiter is an independent third party. The escrow contract strictly enforces separation of concerns; an address cannot serve as both a principal (client/freelancer) and the arbiter for the same contract. |
 
 > **Note:** The `UnauthorizedRole = 15` error code is also frequently encountered by arbiters if they attempt to call entrypoints restricted to the client or freelancer, or if a non-arbiter attempts to call `resolve_dispute`.
+
+
+<!-- > **Note:** The `UnauthorizedRole = 15` error code is also frequently encountered by arbiters if they attempt to call entrypoints restricted to the client or freelancer, or if a non-arbiter attempts to call `resolve_dispute`. -->
