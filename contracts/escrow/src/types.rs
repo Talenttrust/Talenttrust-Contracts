@@ -356,11 +356,7 @@ pub struct DisputeSummary {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisputeConfig {
-    /// Share of remaining funds allocated to the freelancer in partial refunds
-    /// (basis points, `3000` = 30%).
     pub partial_refund_freelancer_bps: u32,
-    /// Share of remaining funds allocated to the client in partial refunds
-    /// (basis points, `7000` = 70%).
     pub partial_refund_client_bps: u32,
 }
 
