@@ -50,6 +50,8 @@ pub struct ContractBounds {
     pub max_total_escrow_stroops: i128,
     /// Maximum protocol fee in basis points (10_000 = 100%).
     pub max_fee_bps: u32,
+    /// Maximum number of contracts finalizable in a single batch settlement call.
+    pub max_settlement: u32,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
@@ -90,6 +92,13 @@ pub enum DataKey {
     Finalization(u32),
     // Settlement token
     SettlementToken,
+    DisputeRollback(u32),
+    // Dispute / arbiter configuration
+    DisputeConfigKey,
+    // Reputation configuration
+    ReputationConfigKey,
+    // Configurable settlement (batch finalize) limit
+    MaxSettlement,
 }
 
 /// Canonical contract error type for all entrypoint-facing errors.
@@ -101,10 +110,6 @@ pub enum Error {
     IndexOutOfBounds = 3,
     /// The milestone has already been released.
     AlreadyReleased = 4,
-    /// The refund request is empty.
-    EmptyRefundRequest = 6,
-    /// Duplicate milestone indices specified in the refund request.
-    DuplicateMilestoneInRefund = 7,
     /// The milestone has already been refunded.
     AlreadyRefunded = 8,
     /// Insufficient funds available to perform the operation.
@@ -137,8 +142,6 @@ pub enum Error {
     ReputationAlreadyIssued = 23,
     /// The milestone list cannot be empty.
     EmptyMilestones = 25,
-    /// The milestone amount is invalid.
-    InvalidMilestoneAmount = 26,
     /// A contract with the specified ID already exists.
     ContractIdCollision = 27,
     /// The contract ID has overflowed the maximum limit.
@@ -147,12 +150,8 @@ pub enum Error {
     EmptyComment = 29,
     /// The comment string exceeds the maximum length limit.
     CommentTooLong = 30,
-    /// The participant address is invalid.
-    InvalidParticipant = 31,
     /// The deposit amount is invalid.
     InvalidDepositAmount = 32,
-    /// The milestone configuration is invalid.
-    InvalidMilestone = 33,
     /// The contract has already been initialized.
     AlreadyInitialized = 34,
     /// Insufficient accumulated fees available for extraction.
@@ -187,8 +186,6 @@ pub enum Error {
     TimelockNotElapsed = 48,
     /// The provided protocol parameters are invalid.
     InvalidProtocolParameters = 49,
-    /// The escrow cap would be exceeded by this operation.
-    EscrowCapExceeded = 51,
     /// No settlement token has been bound for custody transfers.
     SettlementTokenNotConfigured = 52,
     /// The milestone deadline has not yet passed.
@@ -198,6 +195,12 @@ pub enum Error {
     /// (the contract reached `Completed` without `grant_pending_reputation_credit`
     /// being called) or a duplicate call after credits were already fully drained.
     NoPendingReputationCredits = 54,
+    /// No safe rollback is available for the contract's current state.
+    RollbackNotAllowed = 54,
+    /// Contract or milestone state changed after the rollback point was recorded.
+    RollbackStateChanged = 55,
+    /// The provided reputation parameters are out of the allowed bounds.
+    InvalidReputationParameters = 56,
 }
 
 /// Contract lifecycle states
@@ -328,6 +331,36 @@ pub struct Reputation {
     pub last_rating: i128,
 }
 
+/// Runtime-configurable reputation validation parameters, stored under
+/// [`DataKey::ReputationConfigKey`].
+///
+/// These were compile-time constants (`MIN_RATING`, `MAX_RATING`,
+/// `MAX_COMMENT_BYTES`) until issue #1119 added
+/// `Escrow::set_reputation_config`, which lets the admin retune them within
+/// bounds without redeploying the contract. `issue_reputation` reads this
+/// config (falling back to [`ReputationConfig::default`], which matches the
+/// original constants) instead of the raw constants directly.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReputationConfig {
+    /// Minimum valid rating (inclusive).
+    pub min_rating: u32,
+    /// Maximum valid rating (inclusive).
+    pub max_rating: u32,
+    /// Maximum byte length of a reputation feedback comment (inclusive).
+    pub max_comment_bytes: u32,
+}
+
+impl Default for ReputationConfig {
+    fn default() -> Self {
+        ReputationConfig {
+            min_rating: 1,
+            max_rating: 5,
+            max_comment_bytes: 200,
+        }
+    }
+}
+
 // ── Dispute Resolution ───────────────────────────────────────────────────────
 
 #[contracttype]
@@ -355,6 +388,28 @@ impl DisputeResolution {
             Self::PartialRefund => 1,
             Self::FullPayout => 2,
             Self::Split(_) => 3,
+        }
+    }
+}
+
+/// Configuration for the arbiter's partial-refund split, stored under
+/// [`DataKey::DisputeConfigKey`].
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeConfig {
+    /// Share of remaining funds allocated to the freelancer in partial refunds
+    /// (basis points, `3000` = 30%).
+    pub partial_refund_freelancer_bps: u32,
+    /// Share of remaining funds allocated to the client in partial refunds
+    /// (basis points, `7000` = 70%).
+    pub partial_refund_client_bps: u32,
+}
+
+impl Default for DisputeConfig {
+    fn default() -> Self {
+        DisputeConfig {
+            partial_refund_freelancer_bps: 3000,
+            partial_refund_client_bps: 7000,
         }
     }
 }

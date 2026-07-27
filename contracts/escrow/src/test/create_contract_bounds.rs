@@ -205,6 +205,7 @@ fn get_bounds_result_type_has_no_participant_fields() {
         max_single_milestone_stroops,
         max_total_escrow_stroops,
         max_fee_bps,
+        max_settlement: _,
     } = bounds;
     assert!(max_milestones > 0);
     assert!(max_single_milestone_stroops > 0);
