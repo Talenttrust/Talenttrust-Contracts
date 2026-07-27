@@ -428,13 +428,23 @@ impl Escrow {
     /// A [`ContractBounds`] value containing only limit fields. Unlike
     /// [`get_contract_summary`], this type carries no per-contract participant
     /// or accounting data and its schema version tracks the limits API only.
-    pub fn get_bounds(_env: Env) -> ContractBounds {
+    pub fn get_bounds(env: Env) -> ContractBounds {
         ContractBounds {
-            max_milestones: MAX_MILESTONES,
+            max_milestones: contracts::effective_max_milestones(&env),
             max_single_milestone_stroops: MAX_SINGLE_AMOUNT_STROOPS,
-            max_total_escrow_stroops: MAX_TOTAL_ESCROW_STROOPS,
+            max_total_escrow_stroops: contracts::effective_max_escrow_stroops(&env),
             max_fee_bps: MAX_FEE_BPS,
         }
+    }
+
+    /// Admin configures contract parameters (max milestones, max escrow stroops).
+    pub fn set_contracts_parameters(env: Env, max_milestones: u32, max_escrow_stroops: i128) -> bool {
+        contracts::set_contracts_parameters(env, max_milestones, max_escrow_stroops)
+    }
+
+    /// Retrieves the active contract parameters.
+    pub fn get_contracts_parameters(env: Env) -> types::ContractsParameters {
+        contracts::get_contracts_parameters(env)
     }
 
     /// Returns the current arbiter dispute-split configuration.
