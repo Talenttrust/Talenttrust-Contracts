@@ -1,6 +1,8 @@
-use crate::types::{Contract, ContractStatus};
+use crate::types::{Contract, MilestoneIndexEvent};
 use crate::EscrowError;
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Env};
+
+pub use crate::types::MilestoneIndexEvent;
 
 /// Emits an indexed event on contract state changes to assist off-chain indexers
 /// in cheaply reconstructing contract lifecycle history and financial balances.
