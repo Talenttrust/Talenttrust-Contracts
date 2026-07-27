@@ -1,5 +1,6 @@
-use super::{create_contract, register_client, total_milestone_amount};
-use soroban_sdk::Env;
+use super::{create_contract, create_contract_with_arbiter, register_client, total_milestone_amount};
+use crate::{DisputeResolution, ReleaseAuthorization};
+use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
 #[derive(Clone, Copy)]
 struct ResourceBaseline {
@@ -80,6 +81,66 @@ const DISPUTE_BASELINE: ResourceBaseline = ResourceBaseline {
     max_read_bytes: 4_096,
     max_write_bytes: 8_192,
     max_fee_total: 1_900_000,
+};
+
+const RAISE_DISPUTE_BASELINE: ResourceBaseline = ResourceBaseline {
+    max_instructions: 10_000_000,
+    max_mem_bytes: 1_000_000,
+    max_read_entries: 4,
+    max_write_entries: 3,
+    max_read_bytes: 4_096,
+    max_write_bytes: 12_288,
+    max_fee_total: 2_000_000,
+};
+
+const RESOLVE_DISPUTE_FULL_REFUND_BASELINE: ResourceBaseline = ResourceBaseline {
+    max_instructions: 11_000_000,
+    max_mem_bytes: 1_000_000,
+    max_read_entries: 4,
+    max_write_entries: 3,
+    max_read_bytes: 4_096,
+    max_write_bytes: 14_336,
+    max_fee_total: 2_200_000,
+};
+
+const RESOLVE_DISPUTE_PARTIAL_REFUND_BASELINE: ResourceBaseline = ResourceBaseline {
+    max_instructions: 11_000_000,
+    max_mem_bytes: 1_000_000,
+    max_read_entries: 4,
+    max_write_entries: 3,
+    max_read_bytes: 4_096,
+    max_write_bytes: 14_336,
+    max_fee_total: 2_200_000,
+};
+
+const RESOLVE_DISPUTE_FULL_PAYOUT_BASELINE: ResourceBaseline = ResourceBaseline {
+    max_instructions: 11_000_000,
+    max_mem_bytes: 1_000_000,
+    max_read_entries: 4,
+    max_write_entries: 3,
+    max_read_bytes: 4_096,
+    max_write_bytes: 14_336,
+    max_fee_total: 2_200_000,
+};
+
+const RESOLVE_DISPUTE_SPLIT_BASELINE: ResourceBaseline = ResourceBaseline {
+    max_instructions: 11_000_000,
+    max_mem_bytes: 1_000_000,
+    max_read_entries: 4,
+    max_write_entries: 3,
+    max_read_bytes: 4_096,
+    max_write_bytes: 14_336,
+    max_fee_total: 2_200_000,
+};
+
+const DISPUTE_LARGE_INPUT_BASELINE: ResourceBaseline = ResourceBaseline {
+    max_instructions: 15_000_000,
+    max_mem_bytes: 2_000_000,
+    max_read_entries: 6,
+    max_write_entries: 4,
+    max_read_bytes: 8_192,
+    max_write_bytes: 24_576,
+    max_fee_total: 3_000_000,
 };
 
 fn measure_last_invocation(env: &Env) -> (MeasuredResources, i64) {
@@ -249,4 +310,170 @@ fn dispute_resource_baseline() {
 
     let (resources, fee_total) = measure_last_invocation(&env);
     assert_within_baseline("dispute", resources, fee_total, DISPUTE_BASELINE);
+}
+
+#[test]
+fn raise_dispute_resource_baseline() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (_client_addr, _, _, contract_id) = create_contract_with_arbiter(&env, &client);
+    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
+    let _ = client.raise_dispute(&contract_id, &_client_addr);
+
+    let (resources, fee_total) = measure_last_invocation(&env);
+    assert_within_baseline(
+        "raise_dispute",
+        resources,
+        fee_total,
+        RAISE_DISPUTE_BASELINE,
+    );
+}
+
+#[test]
+fn resolve_dispute_full_refund_resource_baseline() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (client_addr, _, arbiter_addr, contract_id) = create_contract_with_arbiter(&env, &client);
+    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
+    let _ = client.raise_dispute(&contract_id, &client_addr);
+    let _ = client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund);
+
+    let (resources, fee_total) = measure_last_invocation(&env);
+    assert_within_baseline(
+        "resolve_dispute FullRefund",
+        resources,
+        fee_total,
+        RESOLVE_DISPUTE_FULL_REFUND_BASELINE,
+    );
+}
+
+#[test]
+fn resolve_dispute_partial_refund_resource_baseline() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (client_addr, _, arbiter_addr, contract_id) = create_contract_with_arbiter(&env, &client);
+    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
+    let _ = client.raise_dispute(&contract_id, &client_addr);
+    let _ = client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::PartialRefund);
+
+    let (resources, fee_total) = measure_last_invocation(&env);
+    assert_within_baseline(
+        "resolve_dispute PartialRefund",
+        resources,
+        fee_total,
+        RESOLVE_DISPUTE_PARTIAL_REFUND_BASELINE,
+    );
+}
+
+#[test]
+fn resolve_dispute_full_payout_resource_baseline() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (client_addr, _, arbiter_addr, contract_id) = create_contract_with_arbiter(&env, &client);
+    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
+    let _ = client.raise_dispute(&contract_id, &client_addr);
+    let _ = client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullPayout);
+
+    let (resources, fee_total) = measure_last_invocation(&env);
+    assert_within_baseline(
+        "resolve_dispute FullPayout",
+        resources,
+        fee_total,
+        RESOLVE_DISPUTE_FULL_PAYOUT_BASELINE,
+    );
+}
+
+#[test]
+fn resolve_dispute_split_resource_baseline() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (client_addr, _, arbiter_addr, contract_id) = create_contract_with_arbiter(&env, &client);
+    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
+    let _ = client.raise_dispute(&contract_id, &client_addr);
+    let _ = client.resolve_dispute(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::Split(600_0000000, 600_0000000),
+    );
+
+    let (resources, fee_total) = measure_last_invocation(&env);
+    assert_within_baseline(
+        "resolve_dispute Split",
+        resources,
+        fee_total,
+        RESOLVE_DISPUTE_SPLIT_BASELINE,
+    );
+}
+
+#[test]
+fn dispute_raise_large_input_bounded() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let large_milestones = vec![&env, 10_000_000_000_000_000i128, 20_000_000_000_000_000i128];
+    let large_total = 30_000_000_000_000_000i128;
+
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &large_milestones,
+        &ReleaseAuthorization::ClientAndArbiter,
+    );
+    let _ = client.deposit_funds(&contract_id, &large_total);
+    let _ = client.raise_dispute(&contract_id, &client_addr);
+
+    let (resources, fee_total) = measure_last_invocation(&env);
+    assert_within_baseline(
+        "dispute raise large input",
+        resources,
+        fee_total,
+        DISPUTE_LARGE_INPUT_BASELINE,
+    );
+}
+
+#[test]
+fn dispute_resolve_large_input_bounded() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let large_milestones = vec![&env, 10_000_000_000_000_000i128, 20_000_000_000_000_000i128];
+    let large_total = 30_000_000_000_000_000i128;
+
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &large_milestones,
+        &ReleaseAuthorization::ClientAndArbiter,
+    );
+    let _ = client.deposit_funds(&contract_id, &large_total);
+    let _ = client.raise_dispute(&contract_id, &client_addr);
+    let _ = client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund);
+
+    let (resources, fee_total) = measure_last_invocation(&env);
+    assert_within_baseline(
+        "dispute resolve large input",
+        resources,
+        fee_total,
+        DISPUTE_LARGE_INPUT_BASELINE,
+    );
 }
