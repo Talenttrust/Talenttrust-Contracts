@@ -350,3 +350,25 @@ pub struct DisputeSummary {
     pub released_amount: i128,
     pub refunded_amount: i128,
 }
+
+/// Configuration for the arbiter's partial-refund split, stored under
+/// [`DataKey::DisputeConfigKey`].
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeConfig {
+    /// Share of remaining funds allocated to the freelancer in partial refunds
+    /// (basis points, `3000` = 30%).
+    pub partial_refund_freelancer_bps: u32,
+    /// Share of remaining funds allocated to the client in partial refunds
+    /// (basis points, `7000` = 70%).
+    pub partial_refund_client_bps: u32,
+}
+
+impl Default for DisputeConfig {
+    fn default() -> Self {
+        DisputeConfig {
+            partial_refund_freelancer_bps: 3000,
+            partial_refund_client_bps: 7000,
+        }
+    }
+}
