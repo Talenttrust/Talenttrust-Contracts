@@ -5,7 +5,13 @@ fn abi_reference_document_lists_current_public_entrypoints() {
     // Integration test lives under contracts/escrow; ABI docs are at repo root.
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut root = manifest_dir.to_path_buf();
-    while !root.join("docs").join("escrow").join("abi-reference.md").exists() && root.parent().is_some() {
+    while !root
+        .join("docs")
+        .join("escrow")
+        .join("abi-reference.md")
+        .exists()
+        && root.parent().is_some()
+    {
         root = root.parent().unwrap().to_path_buf();
     }
     let doc_path = root.join("docs").join("escrow").join("abi-reference.md");

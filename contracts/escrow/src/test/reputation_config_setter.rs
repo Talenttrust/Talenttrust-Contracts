@@ -1,6 +1,9 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Events as _, Address, Env, String, Symbol, TryFromVal, Val};
+use soroban_sdk::{
+    testutils::{Address as _, Events as _},
+    Address, Env, String, Symbol, TryFromVal, Val,
+};
 
 use crate::{Error, Escrow, EscrowClient, ReputationConfig};
 
@@ -183,9 +186,9 @@ fn event_emitted_on_valid_set() {
 
     let events = env.events().all();
     let has_rep_cfg = events.iter().any(|e| {
-        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID))
+        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID.into()))
             .ok()
-            .as_deref()
+            .as_ref()
             == Some(&Symbol::new(&env, "rep_cfg"))
     });
     assert!(has_rep_cfg, "expected rep_cfg event to be emitted");
@@ -200,9 +203,9 @@ fn no_event_emitted_when_set_fails() {
 
     let events = env.events().all();
     let has_rep_cfg = events.iter().any(|e| {
-        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID))
+        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID.into()))
             .ok()
-            .as_deref()
+            .as_ref()
             == Some(&Symbol::new(&env, "rep_cfg"))
     });
     assert!(
