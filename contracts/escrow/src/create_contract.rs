@@ -1,8 +1,10 @@
 use crate::{
     amount_validation, ttl, Contract, ContractStatus, DataKey, Error, EscrowError,
     GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
+    amount_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowArgs,
+    EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
 };
-use soroban_sdk::{symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol, Vec};
 
 #[contractimpl]
 impl Escrow {
@@ -121,6 +123,14 @@ impl Escrow {
             client: client.clone(),
             freelancer: freelancer.clone(),
             arbiter: arbiter.clone(),
+        let freelancer_addr = freelancer.clone();
+
+        // Construct the contract with all required fields, initialising accounting
+        // counters to zero and reputation_issued to false.
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter,
             status: ContractStatus::Created,
             total_deposited: 0,
             funded_amount: 0,
@@ -178,6 +188,12 @@ impl Escrow {
             .persistent()
             .get(&DataKey::NextContractId)
             .unwrap_or(1);
+            (client, freelancer_addr, env.ledger().timestamp()),
+        );
+
+        id
+    }
+}
 
         if env
             .storage()
