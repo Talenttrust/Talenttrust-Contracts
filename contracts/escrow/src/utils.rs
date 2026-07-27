@@ -15,7 +15,7 @@ use soroban_sdk::Env;
 /// The current ledger timestamp as a `u64` representing seconds since Unix epoch
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// use crate::utils::now_seconds;
 ///
 /// pub fn check_timeout(env: &Env, deadline: u64) -> bool {
@@ -25,7 +25,7 @@ use soroban_sdk::Env;
 ///
 /// # Testing
 /// In tests, use `env.ledger().set()` to control time:
-/// ```
+/// ```ignore
 /// use soroban_sdk::testutils::Ledger;
 ///
 /// env.ledger().set(LedgerInfo {

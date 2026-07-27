@@ -32,16 +32,48 @@ can clear both flags together.
 
 ## Blocked Operations
 
-When `Paused` is `true`, the following entrypoints panic with `ContractPaused`:
+When `Paused` is `true` or `Emergency` is `true`, the following entrypoints panic
+with `ContractPaused` (or `EmergencyActive` when only the `Emergency` flag is
+set). The gate runs **before** any state read, TTL bump, or auth call so a
+paused contract does not consume an auth cycle:
 
 - `create_contract`
 - `deposit_funds`
 - `release_milestone`
+- `refund_unreleased_milestones`
 - `issue_reputation`
 - `cancel_contract`
 
+The same gate is already wired into `finalize_contract` and the two migration
+endpoints (`propose_client_migration`, `accept_client_migration`), so the
+contract surface is consistently gated.
+
 Read-only queries (`get_contract`, `get_reputation`, `get_pending_reputation_credits`,
-`is_paused`, `is_emergency`, `get_admin`, `get_mainnet_readiness_info`) are never blocked.
+`get_admin`, `get_mainnet_readiness_info`, `is_paused`, `is_emergency`,
+`get_finalization_record`, `get_milestone_approvals`) are never blocked.
+
+Approval bookkeeping (`approve_milestone_release`) is mutation-adjacent; once
+the broader approval-entry hardening issue lands, that entrypoint will be
+added to this matrix.
+
+## Read-only queries
+
+The following queries are intentionally NOT gated and remain available even
+during a pause or emergency so that off-chain dashboards, indexers, and the
+admin can inspect state:
+
+| Function | Purpose |
+|---|---|
+| `get_contract(id)` | Read contract participants and metadata |
+| `get_milestones(id)` | Read milestone schedule |
+| `get_refundable_balance(id)` | Read refundable balance |
+| `get_milestone_approvals(id, idx)` | Read pending approvals (subject to TTL) |
+| `get_reputation(addr)` | Read reputation record |
+| `get_pending_reputation_credits(addr)` | Read pending credits |
+| `get_finalization_record(id)` | Read immutable close metadata |
+| `get_admin()` | Read the stored admin |
+| `get_mainnet_readiness_info()` | Read readiness checklist |
+| `is_paused()` / `is_emergency()` | Read pause/emergency flags |
 
 ## Events
 
@@ -66,3 +98,25 @@ confirms the emergency path has been exercised end-to-end before production use.
   can only be cleared via `resolve_emergency`.
 - All flag checks use `unwrap_or(false)` so an uninitialized contract defaults
   to unpaused (safe for fresh deployments before `initialize` is called).
+- Every Blocked Operation runs `Self::require_not_paused(&env)` at the **very
+  top** of its entrypoint — BEFORE auth, state load, TTL bumps, validation,
+  mutation, and event publish. This guarantees:
+  - A paused contract never burns an auth cycle.
+  - Degenerate inputs cannot be used to drift past the gate inside a paused state.
+  - Read-only queries are untouched.
+
+## Tests
+
+The pause/emergency gate is covered exhaustively in
+`contracts/escrow/src/test/pause_controls.rs`. For every Blocked Operation the
+suite verifies all four states:
+
+1. **Ungated happy path** (e.g. `unpause_restores_*` / `resolve_emergency_restores_*`).
+2. **Paused-only** (e.g. `pause_blocks_*`) — expect `ContractPaused`.
+3. **Emergency-only** (e.g. `emergency_blocks_*`) — expect `EmergencyActive`.
+4. **Auth-cycle safety** (`pause_gate_runs_before_auth_on_*`) — calling with
+   the wrong caller surfaces `ContractPaused` and not `UnauthorizedRole`,
+   proving the gate fires before `require_auth`.
+
+Read-only queries are explicitly verified to remain reachable during both
+`Paused` and `Emergency` states.

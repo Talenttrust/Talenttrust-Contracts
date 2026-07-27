@@ -18,10 +18,13 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, vec, Address, Env};
+use soroban_sdk::{
+    testutils::Address as _, testutils::Events, vec, Address, Env, FromVal, IntoVal, Symbol,
+    TryFromVal,
+};
 
 use super::register_client;
-use crate::{ContractStatus, Error, Escrow, EscrowClient, ReleaseAuthorization};
+use crate::{ContractStatus, Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,15 +37,36 @@ fn setup(env: &Env) -> (Address, Address, Address) {
     (client_addr, freelancer_addr, arbiter_addr)
 }
 
-/// Register the escrow contract and return a client.
+/// Register and initialize the escrow contract and return a client.
 fn register(env: &Env) -> EscrowClient<'_> {
     let id = env.register(Escrow, ());
-    EscrowClient::new(env, &id)
+    let client = EscrowClient::new(env, &id);
+    let admin = soroban_sdk::Address::generate(env);
+    client.initialize(&admin);
+    client
+}
+fn assert_contract_error<T, E>(
+    result: Result<T, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
+    expected: E,
+) where
+    E: Into<soroban_sdk::Error> + core::fmt::Debug,
+{
+    match result {
+        Err(Ok(e)) => {
+            let expected_err: soroban_sdk::Error = expected.into();
+            assert_eq!(e, expected_err, "contract error code mismatch");
+        }
+        _other => panic!(
+            "expected contract error {:?}, got unexpected result variant",
+            expected
+        ),
+    }
 }
 
-fn assert_contract_error<T, E>(
+// Helper that accepts i128-returning try_* calls (like refund_unreleased_milestones)
+fn assert_contract_error_i128<E>(
     result: Result<
-        Result<T, soroban_sdk::ConversionError>,
+        Result<i128, soroban_sdk::Error>,
         Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
     >,
     expected: E,
@@ -69,7 +93,7 @@ fn create_contract_with_mode(
     arbiter: &Option<Address>,
     release_auth: &ReleaseAuthorization,
 ) -> u32 {
-    let milestones = vec![env, 500_i128, 300_i128];
+    let milestones = vec![env, 500_i128, 300_i128, 200_i128];
     client.create_contract(
         client_addr,
         freelancer_addr,
@@ -79,7 +103,7 @@ fn create_contract_with_mode(
     )
 }
 
-fn fund_contract(env: &Env, client: &EscrowClient<'_>, contract_id: &u32) {
+fn fund_contract(_env: &Env, client: &EscrowClient<'_>, contract_id: &u32) {
     let milestones = client.get_milestones(contract_id);
     let total: i128 = milestones.iter().map(|m| m.amount).sum();
     let contract = client.get_contract(contract_id);
@@ -138,7 +162,10 @@ fn total() -> i128 {
 
 fn new_client(env: &Env) -> EscrowClient<'_> {
     let contract_id = env.register(Escrow, ());
-    EscrowClient::new(env, &contract_id)
+    let client = EscrowClient::new(env, &contract_id);
+    let admin = soroban_sdk::Address::generate(env);
+    client.initialize(&admin);
+    client
 }
 
 /// Create a funded contract with the given authorization mode.
@@ -218,7 +245,7 @@ fn client_only_freelancer_rejected() {
         &ReleaseAuthorization::ClientOnly,
     );
     let result = client.try_release_milestone(&id, &freelancer_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -236,7 +263,7 @@ fn client_only_arbiter_rejected() {
         &ReleaseAuthorization::ClientOnly,
     );
     let result = client.try_release_milestone(&id, &arbiter_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -255,7 +282,7 @@ fn client_only_attacker_rejected() {
     );
     let attacker = Address::generate(&env);
     let result = client.try_release_milestone(&id, &attacker, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ===========================================================================
@@ -294,7 +321,7 @@ fn arbiter_only_client_rejected() {
         &ReleaseAuthorization::ArbiterOnly,
     );
     let result = client.try_release_milestone(&id, &client_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -312,7 +339,7 @@ fn arbiter_only_freelancer_rejected() {
         &ReleaseAuthorization::ArbiterOnly,
     );
     let result = client.try_release_milestone(&id, &freelancer_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -331,7 +358,7 @@ fn arbiter_only_attacker_rejected() {
     );
     let attacker = Address::generate(&env);
     let result = client.try_release_milestone(&id, &attacker, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ===========================================================================
@@ -388,7 +415,7 @@ fn client_and_arbiter_freelancer_rejected() {
         &ReleaseAuthorization::ClientAndArbiter,
     );
     let result = client.try_release_milestone(&id, &freelancer_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -407,7 +434,7 @@ fn client_and_arbiter_attacker_rejected() {
     );
     let attacker = Address::generate(&env);
     let result = client.try_release_milestone(&id, &attacker, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ===========================================================================
@@ -463,7 +490,7 @@ fn multisig_arbiter_rejected() {
         &ReleaseAuthorization::MultiSig,
     );
     let result = client.try_release_milestone(&id, &arbiter_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -482,7 +509,7 @@ fn multisig_attacker_rejected() {
     );
     let attacker = Address::generate(&env);
     let result = client.try_release_milestone(&id, &attacker, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -544,7 +571,7 @@ fn multisig_arbiter_cannot_record_approval() {
     assert!(client.deposit_funds(&id, &client_addr, &total()));
 
     let result = client.try_approve_milestone_release(&id, &arbiter_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ===========================================================================
@@ -592,7 +619,7 @@ fn unauthorized_caller_without_auth_is_rejected() {
     );
     let stranger = Address::generate(&env);
     let result = client.try_release_milestone(&id, &stranger, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ===========================================================================
@@ -618,7 +645,7 @@ fn fail_closed_on_unauthorized_caller_no_state_change() {
 
     let attacker = Address::generate(&env);
     let result = client.try_release_milestone(&id, &attacker, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 
     let after = client.get_contract(&id);
     assert_eq!(before.released_amount, after.released_amount);
@@ -660,7 +687,7 @@ fn freelancer_cannot_release_milestone() {
     let (_client_addr, freelancer_addr, id) = funded_contract(&env, &client);
 
     let result = client.try_release_milestone(&id, &freelancer_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -690,10 +717,10 @@ fn release_emits_events() {
     let events = env.events().all();
     assert!(events.len() > 0);
 
-    // Find the release event
-    let release_event = events
-        .iter()
-        .find(|event| event.0 == soroban_sdk::symbol_short!("milestone_released"));
+    let topic_val = Symbol::new(&env, "milestone_released");
+    let release_event = events.iter().find(|event| {
+        event.1.len() > 0 && Symbol::from_val(&env, &event.1.get(0).unwrap()) == topic_val
+    });
     assert!(release_event.is_some());
 }
 
@@ -751,11 +778,659 @@ fn rejects_refund_after_release_and_release_after_refund() {
     assert!(client.release_milestone(&contract_id, &client_addr, &0));
     let refund_ids = vec![&env, 0_u32];
     let refund_result = client.try_refund_unreleased_milestones(&contract_id, &refund_ids);
-    assert_contract_error(refund_result, Error::AlreadyReleased);
+    match refund_result {
+        Err(Ok(e)) => {
+            assert_eq!(e, soroban_sdk::Error::from(Error::AlreadyReleased));
+        }
+        other => panic!("expected contract error AlreadyReleased, got {:?}", other),
+    }
 
     let refund_ids = vec![&env, 1_u32];
-    assert!(client.refund_unreleased_milestones(&contract_id, &refund_ids));
+    assert!(client.refund_unreleased_milestones(&contract_id, &refund_ids) > 0);
 
     let result = client.try_release_milestone(&contract_id, &client_addr, &1);
-    assert_contract_error(result, Error::AlreadyRefunded);
+    assert_contract_error(result, EscrowError::AlreadyRefunded);
+}
+
+// ===========================================================================
+//  InvalidState — release in non-Funded contract status
+//
+//  `release_milestone` must reject with `InvalidState` whenever the contract
+//  is not in the active, fully-funded state.  These tests cover every
+//  mode so the guard is verified independently of the caller-role path.
+// ===========================================================================
+
+/// Helper: create a contract and set it to Funded status via direct storage
+/// injection (no SAC token needed), without submitting any approvals.
+fn funded_no_approvals(
+    env: &Env,
+    client: &EscrowClient<'_>,
+    client_addr: &Address,
+    freelancer_addr: &Address,
+    auth: &ReleaseAuthorization,
+    arbiter: Option<&Address>,
+) -> u32 {
+    let arbiter_owned = arbiter.cloned();
+    let id = client.create_contract(
+        client_addr,
+        freelancer_addr,
+        &arbiter_owned,
+        &milestones(env),
+        auth,
+    );
+    // Inject Funded status and funded_amount directly so approve_milestone_release
+    // passes the status check without requiring a bound SAC token.
+    let escrow_addr = client.address.clone();
+    env.as_contract(&escrow_addr, || {
+        let key = crate::DataKey::Contract(id);
+        let mut c: crate::Contract = env.storage().persistent().get(&key).unwrap();
+        c.status = crate::ContractStatus::Funded;
+        c.funded_amount = total();
+        env.storage().persistent().set(&key, &c);
+    });
+    id
+}
+
+// ---------------------------------------------------------------------------
+//  Release in Created (not yet funded) status → InvalidState
+// ---------------------------------------------------------------------------
+
+/// ClientOnly mode: release on a freshly-created (unfunded) contract yields
+/// `InvalidState`.  No approval is attempted — the status guard fires first.
+#[test]
+fn release_in_created_status_client_only_fails_invalid_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    // Create but do NOT deposit — status stays Created.
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
+    );
+    // No approval possible on a Created contract (approvals.rs requires Funded),
+    // and release must fail with InvalidState before even reaching role checks.
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+/// ArbiterOnly mode: release on an unfunded contract yields `InvalidState`.
+#[test]
+fn release_in_created_status_arbiter_only_fails_invalid_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones(&env),
+        &ReleaseAuthorization::ArbiterOnly,
+    );
+    let result = client.try_release_milestone(&id, &arbiter_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+/// ClientAndArbiter mode: release on an unfunded contract yields `InvalidState`.
+#[test]
+fn release_in_created_status_client_and_arbiter_fails_invalid_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones(&env),
+        &ReleaseAuthorization::ClientAndArbiter,
+    );
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+/// MultiSig mode: release on an unfunded contract yields `InvalidState`.
+#[test]
+fn release_in_created_status_multisig_fails_invalid_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones(&env),
+        &ReleaseAuthorization::MultiSig,
+    );
+    // The status guard (Created → not Funded) fires before role or approval checks.
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+// ---------------------------------------------------------------------------
+//  Release in Completed status → InvalidState
+// ---------------------------------------------------------------------------
+
+/// Once a contract reaches `Completed` status, any release attempt must be
+/// rejected with `InvalidState`.  We set the status directly in storage
+/// (without executing an actual SAC transfer) to isolate the state-guard
+/// logic from token-custody concerns.
+#[test]
+fn release_in_completed_status_client_only_fails_invalid_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    // Manually transition the contract to Completed so we can verify the
+    // status guard in isolation.
+    let escrow_addr = client.address.clone();
+    env.as_contract(&escrow_addr, || {
+        let key = crate::DataKey::Contract(id);
+        let mut c: crate::Contract = env.storage().persistent().get(&key).unwrap();
+        c.status = ContractStatus::Completed;
+        env.storage().persistent().set(&key, &c);
+    });
+
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+/// ArbiterOnly mode: Completed status → InvalidState.
+#[test]
+fn release_in_completed_status_arbiter_only_fails_invalid_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones(&env),
+        &ReleaseAuthorization::ArbiterOnly,
+    );
+
+    let escrow_addr = client.address.clone();
+    env.as_contract(&escrow_addr, || {
+        let key = crate::DataKey::Contract(id);
+        let mut c: crate::Contract = env.storage().persistent().get(&key).unwrap();
+        c.status = ContractStatus::Completed;
+        env.storage().persistent().set(&key, &c);
+    });
+
+    let result = client.try_release_milestone(&id, &arbiter_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+/// MultiSig mode: Completed status → InvalidState.
+#[test]
+fn release_in_completed_status_multisig_fails_invalid_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones(&env),
+        &ReleaseAuthorization::MultiSig,
+    );
+
+    let escrow_addr = client.address.clone();
+    env.as_contract(&escrow_addr, || {
+        let key = crate::DataKey::Contract(id);
+        let mut c: crate::Contract = env.storage().persistent().get(&key).unwrap();
+        c.status = ContractStatus::Completed;
+        env.storage().persistent().set(&key, &c);
+    });
+
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+// ---------------------------------------------------------------------------
+//  Release after cancel → InvalidState
+// ---------------------------------------------------------------------------
+
+/// Cancelled contracts must not accept any further milestone releases.
+/// `cancel_contract` puts the contract into `Cancelled` status; any
+/// subsequent `release_milestone` call must fail with `InvalidState`.
+#[test]
+fn release_after_cancel_client_only_fails_invalid_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones(&env),
+        &ReleaseAuthorization::ClientOnly,
+    );
+    // Inject Cancelled status directly to isolate state guard from SAC concerns.
+    let escrow_addr = client.address.clone();
+    env.as_contract(&escrow_addr, || {
+        let key = crate::DataKey::Contract(id);
+        let mut c: crate::Contract = env.storage().persistent().get(&key).unwrap();
+        c.status = crate::ContractStatus::Cancelled;
+        env.storage().persistent().set(&key, &c);
+    });
+
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+/// ArbiterOnly mode: cancel then release fails with `InvalidState`.
+#[test]
+fn release_after_cancel_arbiter_only_fails_invalid_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &milestones(&env),
+        &ReleaseAuthorization::ArbiterOnly,
+    );
+
+    let escrow_addr = client.address.clone();
+    env.as_contract(&escrow_addr, || {
+        let key = crate::DataKey::Contract(id);
+        let mut c: crate::Contract = env.storage().persistent().get(&key).unwrap();
+        c.status = crate::ContractStatus::Cancelled;
+        env.storage().persistent().set(&key, &c);
+    });
+
+    let result = client.try_release_milestone(&id, &arbiter_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+/// MultiSig mode: cancel then release fails with `InvalidState`.
+#[test]
+fn release_after_cancel_multisig_fails_invalid_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones(&env),
+        &ReleaseAuthorization::MultiSig,
+    );
+
+    let escrow_addr = client.address.clone();
+    env.as_contract(&escrow_addr, || {
+        let key = crate::DataKey::Contract(id);
+        let mut c: crate::Contract = env.storage().persistent().get(&key).unwrap();
+        c.status = crate::ContractStatus::Cancelled;
+        env.storage().persistent().set(&key, &c);
+    });
+
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+// ===========================================================================
+//  Edge-case: approval by unauthorized party does not unlock release
+// ===========================================================================
+
+/// In `ArbiterOnly` mode, client approval alone does NOT satisfy the
+/// approval check, even though the client is a valid contract participant.
+/// The approval call itself should fail with `UnauthorizedRole`, and
+/// if it somehow recorded an approval, `release_milestone` by the arbiter
+/// would still fail with `InsufficientApprovals`.
+#[test]
+fn arbiter_only_client_approval_not_accepted() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::ArbiterOnly,
+        Some(&arbiter_addr),
+    );
+
+    // Client attempts to approve — must be rejected.
+    let result = client.try_approve_milestone_release(&id, &client_addr, &0);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
+
+    // Arbiter then tries to release without a valid approval — must fail.
+    let result = client.try_release_milestone(&id, &arbiter_addr, &0);
+    assert_contract_error(result, Error::InsufficientApprovals);
+}
+
+/// In `ClientOnly` mode, arbiter approval alone does NOT satisfy the check.
+/// The `approve_milestone_release` call by the arbiter is rejected, so no
+/// valid approval is stored, and the release attempt also fails.
+#[test]
+fn client_only_arbiter_approval_not_accepted() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::ClientOnly,
+        Some(&arbiter_addr),
+    );
+
+    // Arbiter attempts to approve — must be rejected.
+    let result = client.try_approve_milestone_release(&id, &arbiter_addr, &0);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
+
+    // Client tries to release without any stored approval — must fail.
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, Error::InsufficientApprovals);
+}
+
+/// In `MultiSig` mode, only the client approving (not the freelancer) is
+/// insufficient.  The release must fail with `InsufficientApprovals` even
+/// when the authorized caller (client) attempts the release.
+#[test]
+fn multisig_only_client_approval_is_insufficient_for_release() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::MultiSig,
+        None,
+    );
+
+    // Only the client approves.
+    assert!(client.approve_milestone_release(&id, &client_addr, &0));
+
+    // Client tries to release with only their own approval — must fail.
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, Error::InsufficientApprovals);
+}
+
+/// In `MultiSig` mode, only the freelancer approving (not the client) is
+/// insufficient.  The release must fail with `InsufficientApprovals` even
+/// when the authorized caller (freelancer) attempts the release.
+#[test]
+fn multisig_only_freelancer_approval_is_insufficient_for_release() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::MultiSig,
+        None,
+    );
+
+    // Only the freelancer approves.
+    assert!(client.approve_milestone_release(&id, &freelancer_addr, &0));
+
+    // Freelancer tries to release with only their own approval — must fail.
+    let result = client.try_release_milestone(&id, &freelancer_addr, &0);
+    assert_contract_error(result, Error::InsufficientApprovals);
+}
+
+/// In `MultiSig` mode, zero approvals on the milestone must fail for
+/// any authorized caller (client in this case).
+#[test]
+fn multisig_no_approvals_fails_for_authorized_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::MultiSig,
+        None,
+    );
+
+    // No approvals at all.
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, Error::InsufficientApprovals);
+}
+
+// ===========================================================================
+//  Edge-case: unknown / stranger caller is always rejected
+// ===========================================================================
+
+/// A completely unknown address must never release any milestone regardless
+/// of the authorization mode or approval state.
+#[test]
+fn stranger_rejected_on_all_modes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+    let stranger = Address::generate(&env);
+
+    // --- ClientOnly ---
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::ClientOnly,
+        None,
+    );
+    assert_contract_error(
+        client.try_release_milestone(&id, &stranger, &0),
+        EscrowError::UnauthorizedRole,
+    );
+
+    // --- ArbiterOnly ---
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::ArbiterOnly,
+        Some(&arbiter_addr),
+    );
+    assert_contract_error(
+        client.try_release_milestone(&id, &stranger, &0),
+        EscrowError::UnauthorizedRole,
+    );
+
+    // --- ClientAndArbiter ---
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::ClientAndArbiter,
+        Some(&arbiter_addr),
+    );
+    assert_contract_error(
+        client.try_release_milestone(&id, &stranger, &0),
+        EscrowError::UnauthorizedRole,
+    );
+
+    // --- MultiSig ---
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::MultiSig,
+        None,
+    );
+    assert_contract_error(
+        client.try_release_milestone(&id, &stranger, &0),
+        EscrowError::UnauthorizedRole,
+    );
+}
+
+// ===========================================================================
+//  Approval clearing after successful release
+// ===========================================================================
+
+/// Verifies that the approval record exists before release and is stored
+/// with the correct flags.  We test the storage round-trip here rather than
+/// a post-release clear, since an actual release requires a bound SAC token.
+///
+/// Approval clearing after release is covered by the SAC custody test suite
+/// in `contracts/escrow/src/test/sac_custody.rs`.
+#[test]
+fn approval_recorded_and_readable_client_only() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::ClientOnly,
+        None,
+    );
+
+    // No approval yet — should return None.
+    assert!(
+        client.get_milestone_approvals(&id, &0).is_none(),
+        "approvals should be absent before any approve call"
+    );
+
+    // Record the client's approval.
+    assert!(client.approve_milestone_release(&id, &client_addr, &0));
+
+    // Approval record must now exist with client_approved = true.
+    let approvals = client
+        .get_milestone_approvals(&id, &0)
+        .expect("approvals should be present after client approves");
+    assert!(approvals.client_approved);
+    assert!(!approvals.freelancer_approved);
+    assert!(!approvals.arbiter_approved);
+}
+
+/// In `MultiSig` mode, both client and freelancer approval flags are
+/// independently stored; after both approve the record shows both set.
+#[test]
+fn approval_recorded_and_readable_multisig_both_parties() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::MultiSig,
+        None,
+    );
+
+    // Only client approves first — freelancer flag must still be false.
+    assert!(client.approve_milestone_release(&id, &client_addr, &0));
+    let half = client
+        .get_milestone_approvals(&id, &0)
+        .expect("approvals must be present after client approval");
+    assert!(half.client_approved);
+    assert!(!half.freelancer_approved, "freelancer has not yet approved");
+
+    // Freelancer approves — now both flags must be true.
+    assert!(client.approve_milestone_release(&id, &freelancer_addr, &0));
+    let full = client
+        .get_milestone_approvals(&id, &0)
+        .expect("approvals must be present after both approvals");
+    assert!(full.client_approved);
+    assert!(full.freelancer_approved);
+}
+
+// ===========================================================================
+//  Contract-level accounting after unauthorized / invalid attempts
+// ===========================================================================
+
+/// Any rejected call (UnauthorizedRole, InvalidState, or InsufficientApprovals)
+/// must leave the contract's `released_amount` and `status` exactly as they
+/// were before the call — fail-closed, no partial state mutation.
+#[test]
+fn failed_releases_leave_accounting_unchanged() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, _) = setup(&env);
+
+    let id = funded_no_approvals(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        &ReleaseAuthorization::ClientOnly,
+        None,
+    );
+
+    let before = client.get_contract(&id);
+
+    // 1. Unauthorized caller — rejected with UnauthorizedRole.
+    let attacker = Address::generate(&env);
+    let _ = client.try_release_milestone(&id, &attacker, &0);
+
+    let mid = client.get_contract(&id);
+    assert_eq!(before.released_amount, mid.released_amount);
+    assert_eq!(before.status, mid.status);
+
+    // 2. Authorized caller but no approval — rejected with InsufficientApprovals.
+    let _ = client.try_release_milestone(&id, &client_addr, &0);
+
+    let after = client.get_contract(&id);
+    assert_eq!(
+        before.released_amount, after.released_amount,
+        "released_amount must not change after any failed release"
+    );
+    assert_eq!(
+        before.status, after.status,
+        "status must not change after any failed release"
+    );
 }

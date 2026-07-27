@@ -3,6 +3,81 @@
 use crate::{Escrow, EscrowClient};
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
+// ── Unit tests for calculate_protocol_fee floor-division rounding ─────────
+
+/// Verifies that `fee_bps == 0` returns `0` immediately, bypassing multiplication.
+#[test]
+fn test_calculate_protocol_fee_zero_bps_returns_zero() {
+    let env = Env::default();
+    let fee = Escrow::calculate_protocol_fee(&env, 1_000_000, 0);
+    assert_eq!(fee, 0, "zero fee_bps must return 0 without multiplication");
+}
+
+/// Verifies exact floor-division: 250 bps of 1_000_000 == 25_000.
+#[test]
+fn test_calculate_protocol_fee_250_bps_of_round_amount() {
+    let env = Env::default();
+    // 1_000_000 * 250 / 10_000 = 25_000 exactly
+    let fee = Escrow::calculate_protocol_fee(&env, 1_000_000, 250);
+    assert_eq!(fee, 25_000);
+    // Net payout must never be negative
+    assert!(1_000_000 - fee >= 0);
+}
+
+/// Verifies floor rounding: an indivisible product rounds DOWN, never up.
+///
+/// 1_001 * 250 = 250_250; 250_250 / 10_000 = 25 remainder 250 → floor == 25.
+#[test]
+fn test_calculate_protocol_fee_floor_rounds_down_on_indivisible_product() {
+    let env = Env::default();
+    let fee = Escrow::calculate_protocol_fee(&env, 1_001, 250);
+    assert_eq!(fee, 25, "indivisible product must round down (floor division)");
+    assert!(1_001 - fee >= 0);
+}
+
+/// Verifies that a sub-threshold amount produces a zero fee (amount * bps < 10_000).
+///
+/// 9 * 1_000 = 9_000; 9_000 / 10_000 = 0 (floors to zero).
+#[test]
+fn test_calculate_protocol_fee_sub_threshold_amount_rounds_to_zero() {
+    let env = Env::default();
+    let fee = Escrow::calculate_protocol_fee(&env, 9, 1_000);
+    assert_eq!(fee, 0, "sub-threshold amount must yield zero fee");
+}
+
+/// Verifies that the overflow guard panics with `PotentialOverflow` (error #28)
+/// when `amount * fee_bps` would overflow `i128`.
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #28)")]
+fn test_calculate_protocol_fee_overflow_guard_fires() {
+    let env = Env::default();
+    // i128::MAX * 1 already cannot be multiplied by any fee_bps > 1 safely;
+    // using i128::MAX with fee_bps = 2 guarantees overflow.
+    Escrow::calculate_protocol_fee(&env, i128::MAX, 2);
+}
+
+/// Verifies that the net payout (gross − fee) is never negative for a range of
+/// representative valid inputs.
+#[test]
+fn test_net_payout_never_negative_for_valid_inputs() {
+    let env = Env::default();
+    let cases: &[(i128, u32)] = &[
+        (1, 10_000),       // maximum fee rate, minimal amount
+        (10_000, 10_000),  // 100% fee rate
+        (50_000, 500),     // 5% fee rate
+        (3_333, 1_000),    // 10% fee rate, indivisible
+        (1, 1),            // near-zero fee
+    ];
+    for &(amount, bps) in cases {
+        let fee = Escrow::calculate_protocol_fee(&env, amount, bps);
+        assert!(
+            fee <= amount,
+            "fee ({fee}) must not exceed gross amount ({amount}) for bps={bps}"
+        );
+        assert!(amount - fee >= 0, "net payout must be non-negative");
+    }
+}
+
 fn create_token_contract(e: &Env, admin: &Address) -> Address {
     e.register_stellar_asset_contract_v2(admin.clone())
         .address()

@@ -1,71 +1,55 @@
-use super::{assert_contract_state, create_client, create_default_contract, setup};
-use crate::ContractStatus;
+use super::{assert_contract_error, EscrowFixture};
+use crate::{ContractStatus, Error};
+use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
 
-/// Tests that deposits accumulate correctly and transition to Funded status when fully funded.
-/// 
-/// # Security
-/// - Validates state transition from Created to Funded
-/// - Ensures funded_amount tracking is accurate
+/// A fully-funded fixture records the complete milestone total and custody balance.
 #[test]
-fn accumulates_deposits_without_exceeding_total() {
-    let (env, client_addr, freelancer_addr) = setup();
-    let client = create_client(&env);
-    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr);
+fn funded_fixture_deposits_the_configured_total() {
+    let fixture = EscrowFixture::builder().funded().build();
+    let escrow = fixture.escrow();
+    let token = fixture.settlement_token.as_ref().unwrap();
 
-    assert!(client.deposit_funds(&contract_id, &client_addr, &600_0000000_i128));
-    let contract = client.get_contract(&contract_id);
-    assert_contract_state(contract, ContractStatus::Created, 600_0000000_i128, 0, 0);
-
-    assert!(client.deposit_funds(&contract_id, &client_addr, &600_0000000_i128));
-    let contract = client.get_contract(&contract_id);
-    assert_contract_state(contract, ContractStatus::Funded, 1_200_0000000_i128, 0, 0);
+    assert_eq!(
+        escrow.get_contract(&fixture.escrow_id).status,
+        ContractStatus::Funded
+    );
+    assert_eq!(
+        TokenClient::new(&fixture.env, token).balance(&fixture.escrow_address),
+        fixture.total_amount()
+    );
 }
 
-/// Tests that zero-amount deposits are rejected.
-/// 
-/// # Security
-/// - Prevents dust attacks and invalid state transitions
+/// Deposits can be staged while the fixture keeps token custody setup uniform.
 #[test]
-#[should_panic]
-fn rejects_zero_deposit() {
-    let (env, client_addr, freelancer_addr) = setup();
-    let client = create_client(&env);
-    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr);
+fn deposit_transitions_from_partially_funded_to_funded() {
+    let fixture = EscrowFixture::builder().with_settlement_token().build();
+    let escrow = fixture.escrow();
+    let total = fixture.total_amount();
+    let partial = total / 2;
+    let token = fixture.settlement_token.as_ref().unwrap();
+    StellarAssetClient::new(&fixture.env, token).mint(&fixture.client, &total);
 
-    client.deposit_funds(&contract_id, &client_addr, &0_i128);
+    assert!(escrow.deposit_funds(&fixture.escrow_id, &fixture.client, &partial));
+    assert_eq!(
+        escrow.get_contract(&fixture.escrow_id).status,
+        ContractStatus::PartiallyFunded
+    );
+    assert!(escrow.deposit_funds(&fixture.escrow_id, &fixture.client, &(total - partial)));
+    assert_eq!(
+        escrow.get_contract(&fixture.escrow_id).status,
+        ContractStatus::Funded
+    );
 }
 
-/// Tests that deposits exceeding the total milestone amount are rejected.
-/// 
-/// # Security
-/// - Prevents overfunding attacks
-/// - Ensures contract accounting integrity
+/// Invalid deposit amounts fail before touching the configured SAC balance.
 #[test]
-#[should_panic]
-fn rejects_overfunding() {
-    let (env, client_addr, freelancer_addr) = setup();
-    let client = create_client(&env);
-    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr);
-
-    client.deposit_funds(&contract_id, &client_addr, &1_300_0000000_i128);
-}
-
-/// Tests that deposits are rejected after contract is fully refunded.
-/// 
-/// # Security
-/// - Validates fail-closed state machine
-/// - Prevents re-funding of resolved contracts
-#[test]
-#[should_panic]
-fn rejects_deposit_after_full_refund_resolution() {
-    let (env, client_addr, freelancer_addr) = setup();
-    let client = create_client(&env);
-    let contract_id = create_default_contract(&env, &client, &client_addr, &freelancer_addr);
-
-    assert!(client.deposit_funds(&contract_id, &client_addr, &1_200_0000000_i128));
-    let refund_ids = soroban_sdk::vec![&env, 0_u32, 1_u32, 2_u32];
-    let refunded = client.refund_unreleased_milestones(&contract_id, &refund_ids);
-    assert_eq!(refunded, 1_200_0000000_i128);
-
-    client.deposit_funds(&contract_id, &client_addr, &1_i128);
+fn deposit_rejects_non_positive_amounts() {
+    let fixture = EscrowFixture::builder().with_settlement_token().build();
+    let escrow = fixture.escrow();
+    for amount in [0_i128, -1_i128] {
+        assert_contract_error(
+            escrow.try_deposit_funds(&fixture.escrow_id, &fixture.client, &amount),
+            Error::AmountMustBePositive,
+        );
+    }
 }

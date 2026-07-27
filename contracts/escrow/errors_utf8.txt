@@ -1,0 +1,8986 @@
+﻿cargo :     Checking 
+escrow v0.1.0 (C:\User
+s\ADMIN\Desktop\mide-d
+rips\Talenttrust-Contr
+acts\contracts\escrow)
+At line:1 char:1
++ cargo check --color 
+never > errors.txt 
+2>&1; Get-Content 
+errors.txt - ...
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (    Checki   
+ ng es...ntracts\e    
+scrow):String) []    
+, RemoteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+error[E0428]: the 
+name 
+`amount_validation` 
+is defined multiple 
+times
+  --> contracts\escrow
+\src\lib.rs:27:1
+   |
+26 | mod 
+amount_validation;
+   | -----------------
+----- previous 
+definition of the 
+module 
+`amount_validation` 
+here
+27 | mod 
+amount_validation;
+   | ^^^^^^^^^^^^^^^^^
+^^^^^ 
+`amount_validation` 
+redefined here
+   |
+   = note: 
+`amount_validation` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+
+error[E0428]: the 
+name 
+`safe_add_amounts` is 
+defined multiple times
+   --> contracts\escro
+w\src\lib.rs:107:1
+    |
+103 | pub fn 
+safe_add_amounts(a: 
+i128, b: i128) -> 
+Option<i128> {
+    | ----------------
+----------------------
+------------------- 
+previous definition 
+of the value 
+`safe_add_amounts` 
+here
+...
+107 | pub fn 
+safe_add_amounts(a: 
+i128, b: i128) -> 
+Option<i128> {
+    | ^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^ 
+`safe_add_amounts` 
+redefined here
+    |
+    = note: 
+`safe_add_amounts` 
+must be defined only 
+once in the value 
+namespace of this 
+module
+
+error[E0252]: the 
+name `contractimpl` 
+is defined multiple 
+times
+ --> contracts\escrow\
+src\dispute.rs:7:19
+  |
+1 | use soroban_sdk::{
+contractimpl, 
+contracttype, 
+Address, Env};
+  |                   
+------------ previous 
+import of the macro 
+`contractimpl` here
+...
+7 | use soroban_sdk::{
+contractimpl, 
+symbol_short, 
+Address, Env, Symbol};
+  |                   
+^^^^^^^^^^^^--
+  |                   
+|
+  |                   
+`contractimpl` 
+reimported here
+  |                   
+help: remove 
+unnecessary import
+  |
+  = note: 
+`contractimpl` must 
+be defined only once 
+in the macro 
+namespace of this 
+module
+
+error[E0252]: the 
+name `Address` is 
+defined multiple times
+ --> contracts\escrow\
+src\dispute.rs:7:47
+  |
+1 | use soroban_sdk::{
+contractimpl, 
+contracttype, 
+Address, Env};
+  |                   
+                      
+      ------- 
+previous import of 
+the type `Address` 
+here
+...
+7 | use soroban_sdk::{
+contractimpl, 
+symbol_short, 
+Address, Env, Symbol};
+  |                   
+                      
+      ^^^^^^^--
+  |                   
+                      
+      |
+  |                   
+                      
+      `Address` 
+reimported here
+  |                   
+                      
+      help: remove 
+unnecessary import
+  |
+  = note: `Address` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+
+error[E0252]: the 
+name `Env` is defined 
+multiple times
+ --> contracts\escrow\
+src\dispute.rs:7:56
+  |
+1 | use soroban_sdk::{
+contractimpl, 
+contracttype, 
+Address, Env};
+  |                   
+                      
+               --- 
+previous import of 
+the type `Env` here
+...
+7 | use soroban_sdk::{
+contractimpl, 
+symbol_short, 
+Address, Env, Symbol};
+  |                   
+                      
+               ^^^--
+  |                   
+                      
+               |
+  |                   
+                      
+               `Env` 
+reimported here
+  |                   
+                      
+               help: 
+remove unnecessary 
+import
+  |
+  = note: `Env` must 
+be defined only once 
+in the type namespace 
+of this module
+
+error[E0255]: the 
+name 
+`safe_add_amounts` is 
+defined multiple times
+   --> contracts\escro
+w\src\lib.rs:103:1
+    |
+ 39 | pub use amount_v
+alidation::safe_add_am
+ounts;
+    |         --------
+----------------------
+----- previous import 
+of the value 
+`safe_add_amounts` 
+here
+...
+103 | pub fn 
+safe_add_amounts(a: 
+i128, b: i128) -> 
+Option<i128> {
+    | ^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^ 
+`safe_add_amounts` 
+redefined here
+    |
+    = note: 
+`safe_add_amounts` 
+must be defined only 
+once in the value 
+namespace of this 
+module
+help: you can use 
+`as` to change the 
+binding name of the 
+import
+    |
+ 39 | pub use amount_v
+alidation::safe_add_am
+ounts as other_safe_ad
+d_amounts;
+    |                 
+                      
+      ++++++++++++++++
++++++++++
+
+error[E0252]: the 
+name `safe_subtract_am
+ounts` is defined 
+multiple times
+  --> contracts\escrow
+\src\lib.rs:51:16
+   |
+40 | pub use amount_va
+lidation::{safe_add_am
+ounts, safe_subtract_a
+mounts};
+   |                  
+                      
+       
+--------------------- 
+previous import of 
+the value `safe_subtra
+ct_amounts` here
+...
+51 | pub(crate) use am
+ount_validation::safe_
+subtract_amounts;
+   |                ^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^ `safe
+_subtract_amounts` 
+reimported here
+   |
+   = note: `safe_subtr
+act_amounts` must be 
+defined only once in 
+the value namespace 
+of this module
+
+error[E0428]: the 
+name 
+`__raise_dispute` is 
+defined multiple times
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+  9 | #[contractimpl]
+    | --------------- 
+previous definition 
+of the module 
+`__raise_dispute` here
+...
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__raise_dispute` 
+redefined here
+    |
+    = note: 
+`__raise_dispute` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contractimpl` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__SPEC_XDR_FN_RA
+ISE_DISPUTE` is 
+defined multiple times
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+  9 | #[contractimpl]
+    | --------------- 
+previous definition 
+of the value `__SPEC_X
+DR_FN_RAISE_DISPUTE` 
+here
+...
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_FN_RAISE_D
+ISPUTE` redefined here
+    |
+    = note: `__SPEC_XD
+R_FN_RAISE_DISPUTE` 
+must be defined only 
+once in the value 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name 
+`__raise_dispute` is 
+defined multiple times
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+  9 | #[contractimpl]
+    | --------------- 
+previous definition 
+of the module 
+`__raise_dispute` here
+...
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__raise_dispute` 
+redefined here
+    |
+    = note: 
+`__raise_dispute` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contractimpl` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name 
+`__resolve_dispute` 
+is defined multiple 
+times
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+  9 | #[contractimpl]
+    | --------------- 
+previous definition 
+of the module 
+`__resolve_dispute` 
+here
+...
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__resolve_dispute` 
+redefined here
+    |
+    = note: 
+`__resolve_dispute` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contractimpl` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__SPEC_XDR_FN_RA
+ISE_DISPUTE` is 
+defined multiple times
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+  9 | #[contractimpl]
+    | --------------- 
+previous definition 
+of the value `__SPEC_X
+DR_FN_RAISE_DISPUTE` 
+here
+...
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_FN_RAISE_D
+ISPUTE` redefined here
+    |
+    = note: `__SPEC_XD
+R_FN_RAISE_DISPUTE` 
+must be defined only 
+once in the value 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__SPEC_XDR_FN_RE
+SOLVE_DISPUTE` is 
+defined multiple times
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+  9 | #[contractimpl]
+    | --------------- 
+previous definition 
+of the value `__SPEC_X
+DR_FN_RESOLVE_DISPUTE`
+ here
+...
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_FN_RESOLVE
+_DISPUTE` redefined 
+here
+    |
+    = note: `__SPEC_XD
+R_FN_RESOLVE_DISPUTE` 
+must be defined only 
+once in the value 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__SPEC_XDR_TYPE_
+CONTRACT` is defined 
+multiple times
+   --> contracts\escro
+w\src\types.rs:131:1
+    |
+ 35 | #[contracttype]
+    | --------------- 
+previous definition 
+of the value `__SPEC_X
+DR_TYPE_CONTRACT` here
+...
+131 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_TYPE_CONTR
+ACT` redefined here
+    |
+    = note: `__SPEC_XD
+R_TYPE_CONTRACT` must 
+be defined only once 
+in the value 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `Contract` is 
+defined multiple times
+   --> contracts\escro
+w\src\types.rs:133:1
+    |
+ 37 | pub struct 
+Contract {
+    | 
+------------------- 
+previous definition 
+of the type 
+`Contract` here
+...
+133 | pub struct 
+Contract {
+    | 
+^^^^^^^^^^^^^^^^^^^ 
+`Contract` redefined 
+here
+    |
+    = note: 
+`Contract` must be 
+defined only once in 
+the type namespace of 
+this module
+
+error[E0428]: the 
+name `__SPEC_XDR_TYPE_
+DATAKEY` is defined 
+multiple times
+   --> contracts\escro
+w\src\types.rs:188:1
+    |
+ 51 | #[contracttype]
+    | --------------- 
+previous definition 
+of the value `__SPEC_X
+DR_TYPE_DATAKEY` here
+...
+188 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_TYPE_DATAK
+EY` redefined here
+    |
+    = note: `__SPEC_XD
+R_TYPE_DATAKEY` must 
+be defined only once 
+in the value 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `DataKey` is 
+defined multiple times
+   --> contracts\escro
+w\src\types.rs:190:1
+    |
+ 53 | pub enum 
+DataKey {
+    | 
+---------------- 
+previous definition 
+of the type `DataKey` 
+here
+...
+190 | pub enum 
+DataKey {
+    | 
+^^^^^^^^^^^^^^^^ 
+`DataKey` redefined 
+here
+    |
+    = note: `DataKey` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+
+error[E0428]: the 
+name `__SPEC_XDR_TYPE_
+RELEASEAUTHORIZATION` 
+is defined multiple 
+times
+   --> contracts\escro
+w\src\types.rs:252:1
+    |
+157 | #[contracttype]
+    | --------------- 
+previous definition 
+of the value `__SPEC_X
+DR_TYPE_RELEASEAUTHORI
+ZATION` here
+...
+252 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_TYPE_RELEA
+SEAUTHORIZATION` 
+redefined here
+    |
+    = note: `__SPEC_XD
+R_TYPE_RELEASEAUTHORIZ
+ATION` must be 
+defined only once in 
+the value namespace 
+of this module
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `ReleaseAuthoriza
+tion` is defined 
+multiple times
+   --> contracts\escro
+w\src\types.rs:254:1
+    |
+159 | pub enum 
+ReleaseAuthorization {
+    | ----------------
+------------- 
+previous definition 
+of the type `ReleaseAu
+thorization` here
+...
+254 | pub enum 
+ReleaseAuthorization {
+    | ^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^ `Release
+Authorization` 
+redefined here
+    |
+    = note: `ReleaseAu
+thorization` must be 
+defined only once in 
+the type namespace of 
+this module
+
+error[E0428]: the 
+name `__SPEC_XDR_TYPE_
+MILESTONEAPPROVALS` 
+is defined multiple 
+times
+   --> contracts\escro
+w\src\types.rs:268:1
+    |
+173 | #[contracttype]
+    | --------------- 
+previous definition 
+of the value `__SPEC_X
+DR_TYPE_MILESTONEAPPRO
+VALS` here
+...
+268 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_TYPE_MILES
+TONEAPPROVALS` 
+redefined here
+    |
+    = note: `__SPEC_XD
+R_TYPE_MILESTONEAPPROV
+ALS` must be defined 
+only once in the 
+value namespace of 
+this module
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name 
+`MilestoneApprovals` 
+is defined multiple 
+times
+   --> contracts\escro
+w\src\types.rs:270:1
+    |
+175 | pub struct 
+MilestoneApprovals {
+    | ----------------
+------------- 
+previous definition 
+of the type 
+`MilestoneApprovals` 
+here
+...
+270 | pub struct 
+MilestoneApprovals {
+    | ^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^ 
+`MilestoneApprovals` 
+redefined here
+    |
+    = note: 
+`MilestoneApprovals` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+
+error[E0428]: the 
+name `__SPEC_XDR_TYPE_
+DEPOSITMODE` is 
+defined multiple times
+   --> contracts\escro
+w\src\types.rs:276:1
+    |
+181 | #[contracttype]
+    | --------------- 
+previous definition 
+of the value `__SPEC_X
+DR_TYPE_DEPOSITMODE` 
+here
+...
+276 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_TYPE_DEPOS
+ITMODE` redefined here
+    |
+    = note: `__SPEC_XD
+R_TYPE_DEPOSITMODE` 
+must be defined only 
+once in the value 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `DepositMode` is 
+defined multiple times
+   --> contracts\escro
+w\src\types.rs:278:1
+    |
+183 | pub enum 
+DepositMode {
+    | 
+-------------------- 
+previous definition 
+of the type 
+`DepositMode` here
+...
+278 | pub enum 
+DepositMode {
+    | 
+^^^^^^^^^^^^^^^^^^^^ 
+`DepositMode` 
+redefined here
+    |
+    = note: 
+`DepositMode` must be 
+defined only once in 
+the type namespace of 
+this module
+
+error[E0428]: the 
+name 
+`__resolve_emergency` 
+is defined multiple 
+times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__resolve_emergency` 
+redefined here
+    |
+    = note: 
+`__resolve_emergency` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contractimpl` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__propose_client
+_migration` is 
+defined multiple times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__propose_client_migr
+ation` redefined here
+    |
+    = note: `__propose
+_client_migration` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contractimpl` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__accept_client_
+migration` is defined 
+multiple times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__accept_client_migra
+tion` redefined here
+    |
+    = note: `__accept_
+client_migration` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contractimpl` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__has_pending_cl
+ient_migration` is 
+defined multiple times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__has_pending_client_
+migration` redefined 
+here
+    |
+    = note: `__has_pen
+ding_client_migration`
+ must be defined only 
+once in the type 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contractimpl` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__get_pending_cl
+ient_migration` is 
+defined multiple times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__get_pending_client_
+migration` redefined 
+here
+    |
+    = note: `__get_pen
+ding_client_migration`
+ must be defined only 
+once in the type 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contractimpl` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name 
+`__finalize_contract` 
+is defined multiple 
+times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__finalize_contract` 
+redefined here
+    |
+    = note: 
+`__finalize_contract` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contractimpl` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__get_finalizati
+on_record` is defined 
+multiple times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__get_finalization_re
+cord` redefined here
+    |
+    = note: `__get_fin
+alization_record` 
+must be defined only 
+once in the type 
+namespace of this 
+module
+    = note: this 
+error originates in 
+the attribute macro 
+`contractimpl` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__SPEC_XDR_FN_RE
+SOLVE_EMERGENCY` is 
+defined multiple times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_FN_RESOLVE
+_EMERGENCY` redefined 
+here
+    |
+    = note: `__SPEC_XD
+R_FN_RESOLVE_EMERGENCY
+` must be defined 
+only once in the 
+value namespace of 
+this module
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__SPEC_XDR_FN_PR
+OPOSE_CLIENT_MIGRATION
+` is defined multiple 
+times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_FN_PROPOSE
+_CLIENT_MIGRATION` 
+redefined here
+    |
+    = note: `__SPEC_XD
+R_FN_PROPOSE_CLIENT_MI
+GRATION` must be 
+defined only once in 
+the value namespace 
+of this module
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__SPEC_XDR_FN_AC
+CEPT_CLIENT_MIGRATION`
+ is defined multiple 
+times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_FN_ACCEPT_
+CLIENT_MIGRATION` 
+redefined here
+    |
+    = note: `__SPEC_XD
+R_FN_ACCEPT_CLIENT_MIG
+RATION` must be 
+defined only once in 
+the value namespace 
+of this module
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__SPEC_XDR_FN_HA
+S_PENDING_CLIENT_MIGRA
+TION` is defined 
+multiple times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_FN_HAS_PEN
+DING_CLIENT_MIGRATION`
+ redefined here
+    |
+    = note: `__SPEC_XD
+R_FN_HAS_PENDING_CLIEN
+T_MIGRATION` must be 
+defined only once in 
+the value namespace 
+of this module
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__SPEC_XDR_FN_GE
+T_PENDING_CLIENT_MIGRA
+TION` is defined 
+multiple times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_FN_GET_PEN
+DING_CLIENT_MIGRATION`
+ redefined here
+    |
+    = note: `__SPEC_XD
+R_FN_GET_PENDING_CLIEN
+T_MIGRATION` must be 
+defined only once in 
+the value namespace 
+of this module
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__SPEC_XDR_FN_FI
+NALIZE_CONTRACT` is 
+defined multiple times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_FN_FINALIZ
+E_CONTRACT` redefined 
+here
+    |
+    = note: `__SPEC_XD
+R_FN_FINALIZE_CONTRACT
+` must be defined 
+only once in the 
+value namespace of 
+this module
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0428]: the 
+name `__SPEC_XDR_FN_GE
+T_FINALIZATION_RECORD`
+ is defined multiple 
+times
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+`__SPEC_XDR_FN_GET_FIN
+ALIZATION_RECORD` 
+redefined here
+    |
+    = note: `__SPEC_XD
+R_FN_GET_FINALIZATION_
+RECORD` must be 
+defined only once in 
+the value namespace 
+of this module
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0432]: 
+unresolved import `cra
+te::GovernedParameters
+`
+ --> contracts\escrow\
+src\governance.rs:2:61
+  |
+2 |     DataKey, 
+Escrow, EscrowArgs, 
+EscrowClient, 
+EscrowError, 
+GovernedParameters, 
+ReadinessChecklist,
+  |                   
+                      
+                    
+^^^^^^^^^^^^^^^^^^ no 
+`GovernedParameters` 
+in the root
+  |
+  = help: consider 
+importing one of 
+these items instead:
+          crate::DataK
+ey::GovernedParameters
+          crate::types
+::GovernedParameters
+
+error[E0425]: cannot 
+find type `Error` in 
+this scope
+   --> contracts\escro
+w\src\dispute.rs:177:2
+7
+    |
+177 | ) -> 
+Result<(i128, i128), 
+Error> {
+    |                 
+          ^^^^^ not 
+found in this scope
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:182:1
+6
+    |
+182 |         .ok_or(E
+rror::AccountingInvari
+antViolated)?;
+    |                
+^^^^^ use of 
+undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:184:2
+0
+    |
+184 |         return E
+rr(Error::AccountingIn
+variantViolated);
+    |                 
+   ^^^^^ use of 
+undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:193:2
+4
+    |
+193 |                 
+.ok_or(Error::Potentia
+lOverflow)?;
+    |                 
+       ^^^^^ use of 
+undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:199:2
+8
+    |
+199 |                 
+return Err(Error::Inva
+lidDisputeSplit);
+    |                 
+           ^^^^^ use 
+of undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:202:2
+4
+    |
+202 |                 
+.ok_or(Error::Potentia
+lOverflow)?;
+    |                 
+       ^^^^^ use of 
+undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:204:2
+8
+    |
+204 |                 
+return Err(Error::Inva
+lidDisputeSplit);
+    |                 
+           ^^^^^ use 
+of undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:233:5
+3
+    |
+233 |             
+.unwrap_or_else(|| env
+.panic_with_error(Erro
+r::ContractNotFound));
+    |                 
+                      
+              ^^^^^ 
+use of undeclared 
+type `Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:236:3
+4
+    |
+236 |             env.
+panic_with_error(Error
+::UnauthorizedRole);
+    |                 
+                 
+^^^^^ use of 
+undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:239:3
+4
+    |
+239 |             env.
+panic_with_error(Error
+::ArbiterRequired);
+    |                 
+                 
+^^^^^ use of 
+undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:244:3
+4
+    |
+244 |             env.
+panic_with_error(Error
+::InvalidState);
+    |                 
+                 
+^^^^^ use of 
+undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:272:5
+3
+    |
+272 |             
+.unwrap_or_else(|| env
+.panic_with_error(Erro
+r::ContractNotFound));
+    |                 
+                      
+              ^^^^^ 
+use of undeclared 
+type `Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:275:3
+4
+    |
+275 |             env.
+panic_with_error(Error
+::InvalidState);
+    |                 
+                 
+^^^^^ use of 
+undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:278:3
+4
+    |
+278 |             env.
+panic_with_error(Error
+::UnauthorizedRole);
+    |                 
+                 
+^^^^^ use of 
+undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:285:5
+3
+    |
+285 |             
+.unwrap_or_else(|| env
+.panic_with_error(Erro
+r::PotentialOverflow))
+;
+    |                 
+                      
+              ^^^^^ 
+use of undeclared 
+type `Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:287:5
+3
+    |
+287 |             
+.unwrap_or_else(|| env
+.panic_with_error(Erro
+r::PotentialOverflow))
+;
+    |                 
+                      
+              ^^^^^ 
+use of undeclared 
+type `Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0433]: failed 
+to resolve: use of 
+undeclared type 
+`Error`
+   --> contracts\escro
+w\src\dispute.rs:292:3
+4
+    |
+292 |             env.
+panic_with_error(Error
+::AccountingInvariantV
+iolated);
+    |                 
+                 
+^^^^^ use of 
+undeclared type 
+`Error`
+    |
+help: consider 
+importing one of 
+these items
+    |
+  1 + use 
+crate::Error;
+    |
+  1 + use 
+core::error::Error;
+    |
+  1 + use 
+core::fmt::Error;
+    |
+  1 + use 
+soroban_sdk::Error;
+    |
+    = and 1 other 
+candidate
+
+error[E0422]: cannot 
+find struct, variant 
+or union type `Pending
+AdminProposal` in 
+this scope
+  --> contracts\escrow
+\src\governance.rs:69:
+14
+   |
+69 |             
+&PendingAdminProposal 
+{
+   |              
+^^^^^^^^^^^^^^^^^^^^ 
+not found in this 
+scope
+
+error[E0425]: cannot 
+find type `PendingAdmi
+nProposal` in this 
+scope
+  --> contracts\escrow
+\src\governance.rs:93:
+29
+   |
+93 |         let 
+pending: Option<Pendin
+gAdminProposal> =
+   |                  
+           
+^^^^^^^^^^^^^^^^^^^^ 
+not found in this 
+scope
+   |
+help: you might be 
+missing a type 
+parameter
+   |
+13 | impl<PendingAdmin
+Proposal> 
+super::Escrow {
+   |     
+++++++++++++++++++++++
+
+error[E0425]: cannot 
+find value `ADMIN_ROTA
+TION_MIN_DELAY_LEDGERS
+` in this scope
+   --> contracts\escro
+w\src\governance.rs:10
+6:22
+    |
+106 |         if 
+elapsed < ADMIN_ROTATI
+ON_MIN_DELAY_LEDGERS {
+    |                 
+     ^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^ not 
+found in this scope
+    |
+help: consider 
+importing this 
+constant through its 
+public re-export
+    |
+  1 + use crate::ADMIN
+_ROTATION_MIN_DELAY_LE
+DGERS;
+    |
+
+error[E0425]: cannot 
+find type `PendingAdmi
+nProposal` in this 
+scope
+   --> contracts\escro
+w\src\governance.rs:13
+3:30
+    |
+133 |         let 
+proposal: Option<Pendi
+ngAdminProposal> =
+    |                 
+             
+^^^^^^^^^^^^^^^^^^^^ 
+not found in this 
+scope
+    |
+help: you might be 
+missing a type 
+parameter
+    |
+ 13 | impl<PendingAdmi
+nProposal> 
+super::Escrow {
+    |     
+++++++++++++++++++++++
+
+error[E0425]: cannot 
+find value `token` in 
+this scope
+   --> contracts\escro
+w\src\lib.rs:189:46
+    |
+189 |             .set
+(&DataKey::SettlementT
+oken, &token);
+    |                 
+                      
+       ^^^^^ not 
+found in this scope
+
+error[E0425]: cannot 
+find value `admin` in 
+this scope
+   --> contracts\escro
+w\src\lib.rs:192:14
+    |
+192 |             
+(admin, token, env.led
+ger().timestamp()),
+    |              
+^^^^^ not found in 
+this scope
+
+error[E0425]: cannot 
+find value `token` in 
+this scope
+   --> contracts\escro
+w\src\lib.rs:192:21
+    |
+192 |             
+(admin, token, env.led
+ger().timestamp()),
+    |                 
+    ^^^^^ not found 
+in this scope
+
+error[E0425]: cannot 
+find value `admin` in 
+this scope
+   --> contracts\escro
+w\src\lib.rs:774:14
+    |
+774 |             
+(admin, env.ledger().t
+imestamp()),
+    |              
+^^^^^
+    |
+help: the binding 
+`admin` is available 
+in a different scope 
+in the same function
+   --> contracts\escro
+w\src\lib.rs:753:17
+    |
+753 |             let 
+admin: Address = env.s
+torage().persistent().
+get(&DataKey::Admin).u
+nwrap();
+    |                 
+^^^^^
+
+error[E0425]: cannot 
+find type `String` in 
+this scope
+   --> contracts\escro
+w\src\lib.rs:901:18
+    |
+901 |         
+comment: String,
+    |                 
+ ^^^^^^ not found in 
+this scope
+    |
+help: consider 
+importing this struct
+    |
+ 39 + use 
+soroban_sdk::String;
+    |
+
+error[E0425]: cannot 
+find type `String` in 
+this scope
+   --> contracts\escro
+w\src\lib.rs:971:73
+    |
+971 |     pub fn get_r
+eputation_comment(env:
+ Env, contract_id: 
+u32) -> 
+Option<String> {
+    |                 
+                      
+                      
+            ^^^^^^ 
+not found in this 
+scope
+    |
+help: consider 
+importing this struct
+    |
+ 39 + use 
+soroban_sdk::String;
+    |
+
+error[E0425]: cannot 
+find type `String` in 
+this scope
+   --> contracts\escro
+w\src\lib.rs:973:29
+    |
+973 |         let 
+comment: 
+Option<String> = env.s
+torage().persistent().
+get(&comment_key);
+    |                 
+            ^^^^^^ 
+not found in this 
+scope
+    |
+help: consider 
+importing this struct
+    |
+ 39 + use 
+soroban_sdk::String;
+    |
+
+error[E0425]: cannot 
+find type `String` in 
+this scope
+    --> contracts\escr
+ow\src\lib.rs:1058:19
+     |
+1058 |         
+evidence: String,
+     |                
+   ^^^^^^ not found 
+in this scope
+     |
+help: consider 
+importing this struct
+     |
+  39 + use 
+soroban_sdk::String;
+     |
+
+warning: unused 
+imports: `Address`, 
+`Env`, `Symbol`, and 
+`contractimpl`
+ --> contracts\escrow\
+src\dispute.rs:7:19
+  |
+7 | use soroban_sdk::{
+contractimpl, 
+symbol_short, 
+Address, Env, Symbol};
+  |                   
+^^^^^^^^^^^^          
+      ^^^^^^^  ^^^  
+^^^^^^
+  |
+  = note: `#[warn(unus
+ed_imports)]` (part 
+of `#[warn(unused)]`) 
+on by default
+
+warning: unused 
+import: `Milestone`
+ --> contracts\escrow\
+src\finalize.rs:5:5
+  |
+5 |     Milestone, 
+MilestoneSummary, CONT
+RACT_SUMMARY_SCHEMA_VE
+RSION,
+  |     ^^^^^^^^^
+
+warning: unused 
+import: `Escrow`
+ --> contracts\escrow\
+src\governance.rs:2:14
+  |
+2 |     DataKey, 
+Escrow, EscrowArgs, 
+EscrowClient, 
+EscrowError, 
+GovernedParameters, 
+ReadinessChecklist,
+  |              
+^^^^^^
+
+warning: unused 
+import: `amount_valida
+tion::safe_add_amounts
+`
+  --> contracts\escrow
+\src\lib.rs:39:9
+   |
+39 | pub use amount_va
+lidation::safe_add_amo
+unts;
+   |         ^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^
+
+warning: unused 
+import: 
+`safe_add_amounts`
+  --> contracts\escrow
+\src\lib.rs:40:29
+   |
+40 | pub use amount_va
+lidation::{safe_add_am
+ounts, safe_subtract_a
+mounts};
+   |                  
+           
+^^^^^^^^^^^^^^^^
+
+warning: unused 
+import: `amount_valida
+tion::safe_subtract_am
+ounts`
+  --> contracts\escrow
+\src\lib.rs:51:16
+   |
+51 | pub(crate) use am
+ount_validation::safe_
+subtract_amounts;
+   |                ^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^
+
+warning: unused 
+import: `contracttype`
+  --> contracts\escrow
+\src\lib.rs:54:44
+   |
+54 |     contract, 
+contracterror, 
+contractimpl, 
+contracttype, 
+symbol_short, 
+Address, Env, Symbol, 
+Vec,
+   |                  
+                      
+    ^^^^^^^^^^^^
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `Debug` for 
+type `types::Contract`
+   --> contracts\escro
+w\src\types.rs:132:17
+    |
+ 36 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+----- first 
+implementation here
+...
+132 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+^^^^^ conflicting 
+implementation for 
+`types::Contract`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `Debug` for 
+type `types::DataKey`
+   --> contracts\escro
+w\src\types.rs:189:17
+    |
+ 52 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+----- first 
+implementation here
+...
+189 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+^^^^^ conflicting 
+implementation for 
+`types::DataKey`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `Debug` for 
+type `types::ReleaseAu
+thorization`
+   --> contracts\escro
+w\src\types.rs:253:23
+    |
+158 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+      ----- first 
+implementation here
+...
+253 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+      ^^^^^ 
+conflicting 
+implementation for `ty
+pes::ReleaseAuthorizat
+ion`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `Debug` for 
+type `types::Milestone
+Approvals`
+   --> contracts\escro
+w\src\types.rs:269:17
+    |
+174 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+----- first 
+implementation here
+...
+269 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+^^^^^ conflicting 
+implementation for `ty
+pes::MilestoneApproval
+s`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `Debug` for 
+type 
+`types::DepositMode`
+   --> contracts\escro
+w\src\types.rs:277:23
+    |
+182 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+      ----- first 
+implementation here
+...
+277 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+      ^^^^^ 
+conflicting 
+implementation for 
+`types::DepositMode`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`StructuralPartialEq` 
+for type 
+`types::Contract`
+   --> contracts\escro
+w\src\types.rs:132:28
+    |
+ 36 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           --------- 
+first implementation 
+here
+...
+132 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           ^^^^^^^^^ 
+conflicting 
+implementation for 
+`types::Contract`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`StructuralPartialEq` 
+for type 
+`types::DataKey`
+   --> contracts\escro
+w\src\types.rs:189:28
+    |
+ 52 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           --------- 
+first implementation 
+here
+...
+189 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           ^^^^^^^^^ 
+conflicting 
+implementation for 
+`types::DataKey`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`StructuralPartialEq` 
+for type `types::Relea
+seAuthorization`
+   --> contracts\escro
+w\src\types.rs:253:34
+    |
+158 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+                 
+--------- first 
+implementation here
+...
+253 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+                 
+^^^^^^^^^ conflicting 
+implementation for `ty
+pes::ReleaseAuthorizat
+ion`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`StructuralPartialEq` 
+for type `types::Miles
+toneApprovals`
+   --> contracts\escro
+w\src\types.rs:269:28
+    |
+174 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           --------- 
+first implementation 
+here
+...
+269 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           ^^^^^^^^^ 
+conflicting 
+implementation for `ty
+pes::MilestoneApproval
+s`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`StructuralPartialEq` 
+for type 
+`types::DepositMode`
+   --> contracts\escro
+w\src\types.rs:277:34
+    |
+182 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+                 
+--------- first 
+implementation here
+...
+277 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+                 
+^^^^^^^^^ conflicting 
+implementation for 
+`types::DepositMode`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `PartialEq` for 
+type `types::Contract`
+   --> contracts\escro
+w\src\types.rs:132:28
+    |
+ 36 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           --------- 
+first implementation 
+here
+...
+132 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           ^^^^^^^^^ 
+conflicting 
+implementation for 
+`types::Contract`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `PartialEq` for 
+type `types::DataKey`
+   --> contracts\escro
+w\src\types.rs:189:28
+    |
+ 52 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           --------- 
+first implementation 
+here
+...
+189 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           ^^^^^^^^^ 
+conflicting 
+implementation for 
+`types::DataKey`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `PartialEq` for 
+type `types::ReleaseAu
+thorization`
+   --> contracts\escro
+w\src\types.rs:253:34
+    |
+158 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+                 
+--------- first 
+implementation here
+...
+253 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+                 
+^^^^^^^^^ conflicting 
+implementation for `ty
+pes::ReleaseAuthorizat
+ion`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `PartialEq` for 
+type `types::Milestone
+Approvals`
+   --> contracts\escro
+w\src\types.rs:269:28
+    |
+174 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           --------- 
+first implementation 
+here
+...
+269 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+           ^^^^^^^^^ 
+conflicting 
+implementation for `ty
+pes::MilestoneApproval
+s`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `PartialEq` for 
+type 
+`types::DepositMode`
+   --> contracts\escro
+w\src\types.rs:277:34
+    |
+182 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+                 
+--------- first 
+implementation here
+...
+277 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+                 
+^^^^^^^^^ conflicting 
+implementation for 
+`types::DepositMode`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `core::cmp::Eq` 
+for type 
+`types::Contract`
+   --> contracts\escro
+w\src\types.rs:132:24
+    |
+ 36 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+       -- first 
+implementation here
+...
+132 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+       ^^ conflicting 
+implementation for 
+`types::Contract`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `core::cmp::Eq` 
+for type 
+`types::DataKey`
+   --> contracts\escro
+w\src\types.rs:189:24
+    |
+ 52 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+       -- first 
+implementation here
+...
+189 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+       ^^ conflicting 
+implementation for 
+`types::DataKey`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `core::cmp::Eq` 
+for type `types::Relea
+seAuthorization`
+   --> contracts\escro
+w\src\types.rs:253:30
+    |
+158 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+             -- first 
+implementation here
+...
+253 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+             ^^ 
+conflicting 
+implementation for `ty
+pes::ReleaseAuthorizat
+ion`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `core::cmp::Eq` 
+for type `types::Miles
+toneApprovals`
+   --> contracts\escro
+w\src\types.rs:269:24
+    |
+174 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+       -- first 
+implementation here
+...
+269 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |                 
+       ^^ conflicting 
+implementation for `ty
+pes::MilestoneApproval
+s`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `core::cmp::Eq` 
+for type 
+`types::DepositMode`
+   --> contracts\escro
+w\src\types.rs:277:30
+    |
+182 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+             -- first 
+implementation here
+...
+277 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+             ^^ 
+conflicting 
+implementation for 
+`types::DepositMode`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `Clone` for 
+type `types::Contract`
+   --> contracts\escro
+w\src\types.rs:132:10
+    |
+ 36 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |          ----- 
+first implementation 
+here
+...
+132 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |          ^^^^^ 
+conflicting 
+implementation for 
+`types::Contract`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `Clone` for 
+type `types::DataKey`
+   --> contracts\escro
+w\src\types.rs:189:10
+    |
+ 52 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |          ----- 
+first implementation 
+here
+...
+189 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |          ^^^^^ 
+conflicting 
+implementation for 
+`types::DataKey`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `Clone` for 
+type `types::ReleaseAu
+thorization`
+   --> contracts\escro
+w\src\types.rs:253:10
+    |
+158 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |          ----- 
+first implementation 
+here
+...
+253 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |          ^^^^^ 
+conflicting 
+implementation for `ty
+pes::ReleaseAuthorizat
+ion`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `Clone` for 
+type `types::Milestone
+Approvals`
+   --> contracts\escro
+w\src\types.rs:269:10
+    |
+174 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |          ----- 
+first implementation 
+here
+...
+269 | #[derive(Clone, 
+Debug, Eq, PartialEq)]
+    |          ^^^^^ 
+conflicting 
+implementation for `ty
+pes::MilestoneApproval
+s`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait `Clone` for 
+type 
+`types::DepositMode`
+   --> contracts\escro
+w\src\types.rs:277:10
+    |
+182 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |          ----- 
+first implementation 
+here
+...
+277 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |          ^^^^^ 
+conflicting 
+implementation for 
+`types::DepositMode`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`TryFromVal<Env, 
+soroban_sdk::Val>` 
+for type 
+`types::Contract`
+   --> contracts\escro
+w\src\types.rs:131:1
+    |
+ 35 | #[contracttype]
+    | --------------- 
+first implementation 
+here
+...
+131 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+conflicting 
+implementation for 
+`types::Contract`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`TryFromVal<Env, 
+types::Contract>` for 
+type 
+`soroban_sdk::Val`
+   --> contracts\escro
+w\src\types.rs:131:1
+    |
+ 35 | #[contracttype]
+    | --------------- 
+first implementation 
+here
+...
+131 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+conflicting 
+implementation for 
+`soroban_sdk::Val`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`TryFromVal<Env, 
+soroban_sdk::Val>` 
+for type 
+`types::DataKey`
+   --> contracts\escro
+w\src\types.rs:188:1
+    |
+ 51 | #[contracttype]
+    | --------------- 
+first implementation 
+here
+...
+188 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+conflicting 
+implementation for 
+`types::DataKey`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`TryFromVal<Env, 
+types::DataKey>` for 
+type 
+`soroban_sdk::Val`
+   --> contracts\escro
+w\src\types.rs:188:1
+    |
+ 51 | #[contracttype]
+    | --------------- 
+first implementation 
+here
+...
+188 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+conflicting 
+implementation for 
+`soroban_sdk::Val`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`TryFromVal<Env, 
+soroban_sdk::Val>` 
+for type `types::Relea
+seAuthorization`
+   --> contracts\escro
+w\src\types.rs:252:1
+    |
+157 | #[contracttype]
+    | --------------- 
+first implementation 
+here
+...
+252 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+conflicting 
+implementation for `ty
+pes::ReleaseAuthorizat
+ion`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`TryFromVal<Env, types
+::ReleaseAuthorization
+>` for type 
+`soroban_sdk::Val`
+   --> contracts\escro
+w\src\types.rs:252:1
+    |
+157 | #[contracttype]
+    | --------------- 
+first implementation 
+here
+...
+252 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+conflicting 
+implementation for 
+`soroban_sdk::Val`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`TryFromVal<Env, 
+soroban_sdk::Val>` 
+for type `types::Miles
+toneApprovals`
+   --> contracts\escro
+w\src\types.rs:268:1
+    |
+173 | #[contracttype]
+    | --------------- 
+first implementation 
+here
+...
+268 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+conflicting 
+implementation for `ty
+pes::MilestoneApproval
+s`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`TryFromVal<Env, types
+::MilestoneApprovals>`
+ for type 
+`soroban_sdk::Val`
+   --> contracts\escro
+w\src\types.rs:268:1
+    |
+173 | #[contracttype]
+    | --------------- 
+first implementation 
+here
+...
+268 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+conflicting 
+implementation for 
+`soroban_sdk::Val`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`TryFromVal<Env, 
+soroban_sdk::Val>` 
+for type 
+`types::DepositMode`
+   --> contracts\escro
+w\src\types.rs:276:1
+    |
+181 | #[contracttype]
+    | --------------- 
+first implementation 
+here
+...
+276 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+conflicting 
+implementation for 
+`types::DepositMode`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`TryFromVal<Env, 
+types::DepositMode>` 
+for type 
+`soroban_sdk::Val`
+   --> contracts\escro
+w\src\types.rs:276:1
+    |
+181 | #[contracttype]
+    | --------------- 
+first implementation 
+here
+...
+276 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+conflicting 
+implementation for 
+`soroban_sdk::Val`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`core::marker::Copy` 
+for type `types::Relea
+seAuthorization`
+   --> contracts\escro
+w\src\types.rs:253:17
+    |
+158 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+---- first 
+implementation here
+...
+253 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+^^^^ conflicting 
+implementation for `ty
+pes::ReleaseAuthorizat
+ion`
+
+error[E0119]: 
+conflicting 
+implementations of 
+trait 
+`core::marker::Copy` 
+for type 
+`types::DepositMode`
+   --> contracts\escro
+w\src\types.rs:277:17
+    |
+182 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+---- first 
+implementation here
+...
+277 | #[derive(Clone, 
+Copy, Debug, Eq, 
+PartialEq)]
+    |                 
+^^^^ conflicting 
+implementation for 
+`types::DepositMode`
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr`
+   --> contracts\escro
+w\src\types.rs:35:1
+    |
+ 35 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr`
+...
+131 | #[contracttype]
+    | --------------- 
+other definition for 
+`spec_xdr`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr`
+   --> contracts\escro
+w\src\types.rs:51:1
+    |
+ 51 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr`
+...
+188 | #[contracttype]
+    | --------------- 
+other definition for 
+`spec_xdr`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr`
+   --> contracts\escro
+w\src\types.rs:157:1
+    |
+157 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr`
+...
+252 | #[contracttype]
+    | --------------- 
+other definition for 
+`spec_xdr`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr`
+   --> contracts\escro
+w\src\types.rs:173:1
+    |
+173 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr`
+...
+268 | #[contracttype]
+    | --------------- 
+other definition for 
+`spec_xdr`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr`
+   --> contracts\escro
+w\src\types.rs:181:1
+    |
+181 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr`
+...
+276 | #[contracttype]
+    | --------------- 
+other definition for 
+`spec_xdr`
+    |
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:12:5
+    |
+ 12 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+    |     ^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+...
+139 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+    |     ------------
+----------------------
+----------------------
+----------------- 
+other definition for 
+`raise_dispute`
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:12:5
+    |
+ 12 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+    |     ^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+...
+224 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+    |     ------------
+----------------------
+----------------------
+----------------- 
+other definition for 
+`raise_dispute`
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:55:5
+    |
+ 55 | /     pub fn 
+resolve_dispute(
+ 56 | |         env: 
+Env,
+ 57 | |         
+contract_id: u32,
+ 58 | |         
+arbiter: Address,
+ 59 | |         
+resolution: 
+DisputeResolution,
+ 60 | |     ) -> bool 
+{
+    | |_____________^ 
+duplicate definitions 
+for `resolve_dispute`
+...
+258 | /     pub fn 
+resolve_dispute(
+259 | |         env: 
+Env,
+260 | |         
+contract_id: u32,
+261 | |         
+arbiter: Address,
+262 | |         
+resolution: 
+DisputeResolution,
+263 | |     ) -> bool 
+{
+    | |_____________- 
+other definition for 
+`resolve_dispute`
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+    --> contracts\escr
+ow\src\dispute.rs:12:5
+     |
+  12 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+     |
+    ::: contracts\escr
+ow\src\lib.rs:1293:5
+     |
+1293 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     -----------
+----------------------
+----------------------
+------------------ 
+other definition for 
+`raise_dispute`
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_dispute`
+    --> contracts\escr
+ow\src\dispute.rs:55:5
+     |
+  55 | /     pub fn 
+resolve_dispute(
+  56 | |         env: 
+Env,
+  57 | |         
+contract_id: u32,
+  58 | |         
+arbiter: Address,
+  59 | |         
+resolution: 
+DisputeResolution,
+  60 | |     ) -> 
+bool {
+     | 
+|_____________^ 
+duplicate definitions 
+for `resolve_dispute`
+     |
+    ::: contracts\escr
+ow\src\lib.rs:1368:5
+     |
+1368 | /     pub fn 
+resolve_dispute(
+1369 | |         env: 
+Env,
+1370 | |         
+contract_id: u32,
+1371 | |         
+arbiter: Address,
+1372 | |         
+resolution: 
+DisputeResolution,
+1373 | |     ) -> 
+bool {
+     | 
+|_____________- other 
+definition for 
+`resolve_dispute`
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_ra
+ise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr_raise_di
+spute`
+...
+137 | #[contractimpl]
+    | --------------- 
+other definition for `
+spec_xdr_raise_dispute
+`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_ra
+ise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr_raise_di
+spute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for `
+spec_xdr_raise_dispute
+`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_ra
+ise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr_raise_di
+spute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for `
+spec_xdr_raise_dispute
+`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_re
+solve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr_resolve_
+dispute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for `
+spec_xdr_resolve_dispu
+te`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_re
+solve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr_resolve_
+dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for `
+spec_xdr_resolve_dispu
+te`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:139:5
+    |
+139 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+    |     ^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+...
+224 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+    |     ------------
+----------------------
+----------------------
+----------------- 
+other definition for 
+`raise_dispute`
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+    --> contracts\escr
+ow\src\dispute.rs:139:
+5
+     |
+ 139 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+     |
+    ::: contracts\escr
+ow\src\lib.rs:1293:5
+     |
+1293 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     -----------
+----------------------
+----------------------
+------------------ 
+other definition for 
+`raise_dispute`
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_ra
+ise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr_raise_di
+spute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for `
+spec_xdr_raise_dispute
+`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_ra
+ise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr_raise_di
+spute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for `
+spec_xdr_raise_dispute
+`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+    --> contracts\escr
+ow\src\dispute.rs:224:
+5
+     |
+ 224 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+     |
+    ::: contracts\escr
+ow\src\lib.rs:1293:5
+     |
+1293 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     -----------
+----------------------
+----------------------
+------------------ 
+other definition for 
+`raise_dispute`
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_dispute`
+    --> contracts\escr
+ow\src\dispute.rs:258:
+5
+     |
+ 258 | /     pub fn 
+resolve_dispute(
+ 259 | |         env: 
+Env,
+ 260 | |         
+contract_id: u32,
+ 261 | |         
+arbiter: Address,
+ 262 | |         
+resolution: 
+DisputeResolution,
+ 263 | |     ) -> 
+bool {
+     | 
+|_____________^ 
+duplicate definitions 
+for `resolve_dispute`
+     |
+    ::: contracts\escr
+ow\src\lib.rs:1368:5
+     |
+1368 | /     pub fn 
+resolve_dispute(
+1369 | |         env: 
+Env,
+1370 | |         
+contract_id: u32,
+1371 | |         
+arbiter: Address,
+1372 | |         
+resolution: 
+DisputeResolution,
+1373 | |     ) -> 
+bool {
+     | 
+|_____________- other 
+definition for 
+`resolve_dispute`
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_ra
+ise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr_raise_di
+spute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for `
+spec_xdr_raise_dispute
+`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_re
+solve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr_resolve_
+dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for `
+spec_xdr_resolve_dispu
+te`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`set_protocol_fee_bps`
+    --> contracts\escr
+ow\src\governance.rs:1
+6:5
+     |
+  16 |     pub fn set_
+protocol_fee_bps(env: 
+Env, new_bps: u32) -> 
+bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^ duplicate 
+definitions for 
+`set_protocol_fee_bps`
+     |
+    ::: contracts\escr
+ow\src\lib.rs:1179:5
+     |
+1179 |     pub fn set_
+protocol_fee_bps(env: 
+Env, new_bps: u32) -> 
+bool {
+     |     -----------
+----------------------
+----------------------
+---- other definition 
+for 
+`set_protocol_fee_bps`
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_se
+t_protocol_fee_bps`
+   --> contracts\escro
+w\src\governance.rs:12
+:1
+    |
+ 12 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `spec_xdr_set_prot
+ocol_fee_bps`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for `
+spec_xdr_set_protocol_
+fee_bps`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_emergency`
+   --> contracts\escro
+w\src\lib.rs:811:5
+    |
+787 |     pub fn resol
+ve_emergency(env: 
+Env) -> bool {
+    |     ------------
+----------------------
+-------- other 
+definition for 
+`resolve_emergency`
+...
+811 |     pub fn resol
+ve_emergency(env: 
+Env) -> bool {
+    |     ^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^ duplicate 
+definitions for 
+`resolve_emergency`
+
+error[E0592]: 
+duplicate definitions 
+with name `propose_cli
+ent_migration`
+    --> contracts\escr
+ow\src\lib.rs:1134:5
+     |
+ 286 | /     pub fn pr
+opose_client_migration
+(
+ 287 | |         env: 
+Env,
+ 288 | |         
+contract_id: u32,
+ 289 | |         
+current_client: 
+Address,
+ 290 | |         
+new_client: Address,
+ 291 | |     ) -> 
+bool {
+     | 
+|_____________- other 
+definition for `propos
+e_client_migration`
+...
+1134 | /     pub fn pr
+opose_client_migration
+(
+1135 | |         env: 
+Env,
+1136 | |         
+contract_id: u32,
+1137 | |         
+current_client: 
+Address,
+1138 | |         
+new_client: Address,
+1139 | |     ) -> 
+bool {
+     | 
+|_____________^ 
+duplicate definitions 
+for `propose_client_mi
+gration`
+
+error[E0592]: 
+duplicate definitions 
+with name `accept_clie
+nt_migration`
+    --> contracts\escr
+ow\src\lib.rs:1144:5
+     |
+ 296 |     pub fn acce
+pt_client_migration(en
+v: Env, contract_id: 
+u32, new_client: 
+Address) -> bool {
+     |     -----------
+----------------------
+----------------------
+----------------------
+---------- other 
+definition for `accept
+_client_migration`
+...
+1144 |     pub fn acce
+pt_client_migration(en
+v: Env, contract_id: 
+u32, new_client: 
+Address) -> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^ duplicate 
+definitions for `accep
+t_client_migration`
+
+error[E0592]: 
+duplicate definitions 
+with name `has_pending
+_client_migration`
+    --> contracts\escr
+ow\src\lib.rs:1149:5
+     |
+ 301 |     pub fn has_
+pending_client_migrati
+on(env: Env, 
+contract_id: u32) -> 
+bool {
+     |     -----------
+----------------------
+----------------------
+---------------- 
+other definition for `
+has_pending_client_mig
+ration`
+...
+1149 |     pub fn has_
+pending_client_migrati
+on(env: Env, 
+contract_id: u32) -> 
+bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `has_pending_clien
+t_migration`
+
+error[E0592]: 
+duplicate definitions 
+with name `get_pending
+_client_migration`
+    --> contracts\escr
+ow\src\lib.rs:1154:5
+     |
+ 306 |       pub fn ge
+t_pending_client_migra
+tion(env: Env, 
+contract_id: u32) -> P
+endingClientMigration 
+{
+     |       ---------
+----------------------
+----------------------
+----------------------
+-------------- other 
+definition for `get_pe
+nding_client_migration
+`
+...
+1154 | /     pub fn ge
+t_pending_client_migra
+tion(
+1155 | |         env: 
+Env,
+1156 | |         
+contract_id: u32,
+1157 | |     ) -> migr
+ation::PendingClientMi
+gration {
+     | |______________
+______________________
+______^ duplicate 
+definitions for `get_p
+ending_client_migratio
+n`
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`finalize_contract`
+    --> contracts\escr
+ow\src\lib.rs:1164:5
+     |
+ 269 |     pub fn fina
+lize_contract(env: 
+Env, contract_id: 
+u32, finalizer: 
+Address) -> bool {
+     |     -----------
+----------------------
+----------------------
+----------------------
+--- other definition 
+for 
+`finalize_contract`
+...
+1164 |     pub fn fina
+lize_contract(env: 
+Env, contract_id: 
+u32, finalizer: 
+Address) -> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^ duplicate 
+definitions for 
+`finalize_contract`
+
+error[E0592]: 
+duplicate definitions 
+with name `get_finaliz
+ation_record`
+    --> contracts\escr
+ow\src\lib.rs:1169:5
+     |
+ 274 | /     pub fn ge
+t_finalization_record(
+ 275 | |         env: 
+Env,
+ 276 | |         
+contract_id: u32,
+ 277 | |     ) -> Opti
+on<finalize::Finalizat
+ionRecord> {
+     | |______________
+______________________
+_________- other 
+definition for `get_fi
+nalization_record`
+...
+1169 | /     pub fn ge
+t_finalization_record(
+1170 | |         env: 
+Env,
+1171 | |         
+contract_id: u32,
+1172 | |     ) -> Opti
+on<finalize::Finalizat
+ionRecord> {
+     | |______________
+______________________
+_________^ duplicate 
+definitions for `get_f
+inalization_record`
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`get_protocol_fee_bps`
+    --> contracts\escr
+ow\src\lib.rs:1246:5
+     |
+1205 |     pub(crate) 
+fn get_protocol_fee_bp
+s(env: &Env) -> u32 {
+     |     -----------
+----------------------
+------------------- 
+other definition for 
+`get_protocol_fee_bps`
+...
+1246 |     fn get_prot
+ocol_fee_bps(env: 
+&Env) -> u32 {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^ duplicate 
+definitions for 
+`get_protocol_fee_bps`
+
+error[E0592]: 
+duplicate definitions 
+with name `calculate_p
+rotocol_fee`
+    --> contracts\escr
+ow\src\lib.rs:1253:5
+     |
+1212 |     pub(crate) 
+fn calculate_protocol_
+fee(amount: i128, 
+fee_bps: u32) -> i128 
+{
+     |     -----------
+----------------------
+----------------------
+----------------- 
+other definition for `
+calculate_protocol_fee
+`
+...
+1253 |     fn calculat
+e_protocol_fee(amount:
+ i128, fee_bps: u32) 
+-> i128 {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^ duplicate 
+definitions for `calcu
+late_protocol_fee`
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_fi
+nalize_contract`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `spec_
+xdr_finalize_contract`
+    | other 
+definition for `spec_x
+dr_finalize_contract`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_ge
+t_finalization_record`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `spec_
+xdr_get_finalization_r
+ecord`
+    | other 
+definition for `spec_x
+dr_get_finalization_re
+cord`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_pr
+opose_client_migration
+`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `spec_
+xdr_propose_client_mig
+ration`
+    | other 
+definition for `spec_x
+dr_propose_client_migr
+ation`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_ac
+cept_client_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `spec_
+xdr_accept_client_migr
+ation`
+    | other 
+definition for `spec_x
+dr_accept_client_migra
+tion`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_ha
+s_pending_client_migra
+tion`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `spec_
+xdr_has_pending_client
+_migration`
+    | other 
+definition for `spec_x
+dr_has_pending_client_
+migration`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_ge
+t_pending_client_migra
+tion`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `spec_
+xdr_get_pending_client
+_migration`
+    | other 
+definition for `spec_x
+dr_get_pending_client_
+migration`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `spec_xdr_re
+solve_emergency`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `spec_
+xdr_resolve_emergency`
+    | other 
+definition for `spec_x
+dr_resolve_emergency`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+...
+137 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `resolve_dispute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for 
+`resolve_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `resolve_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`resolve_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `resolve_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`resolve_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`set_protocol_fee_bps`
+   --> contracts\escro
+w\src\governance.rs:12
+:1
+    |
+ 12 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for 
+`set_protocol_fee_bps`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`set_protocol_fee_bps`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_emergency`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for 
+`resolve_emergency`
+    | other 
+definition for 
+`resolve_emergency`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `propose_cli
+ent_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `propo
+se_client_migration`
+    | other 
+definition for `propos
+e_client_migration`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `accept_clie
+nt_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `accep
+t_client_migration`
+    | other 
+definition for `accept
+_client_migration`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `has_pending
+_client_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `has_p
+ending_client_migratio
+n`
+    | other 
+definition for `has_pe
+nding_client_migration
+`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `get_pending
+_client_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `get_p
+ending_client_migratio
+n`
+    | other 
+definition for `get_pe
+nding_client_migration
+`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`finalize_contract`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for 
+`finalize_contract`
+    | other 
+definition for 
+`finalize_contract`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `get_finaliz
+ation_record`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `get_f
+inalization_record`
+    | other 
+definition for `get_fi
+nalization_record`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractar
+gs` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+...
+137 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`try_raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for 
+`try_raise_dispute`
+...
+137 | #[contractimpl]
+    | --------------- 
+other definition for 
+`try_raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`try_raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for 
+`try_raise_dispute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for 
+`try_raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `resolve_dispute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for 
+`resolve_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`try_resolve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for 
+`try_resolve_dispute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for 
+`try_resolve_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`try_raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for 
+`try_raise_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`try_raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `resolve_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`resolve_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`try_resolve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for 
+`try_resolve_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`try_resolve_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`try_raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for 
+`try_raise_dispute`
+...
+220 | #[contractimpl]
+    | --------------- 
+other definition for 
+`try_raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`try_raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for 
+`try_raise_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`try_raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `raise_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`try_raise_dispute`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for 
+`try_raise_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`try_raise_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `resolve_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`resolve_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`try_resolve_dispute`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for 
+`try_resolve_dispute`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`try_resolve_dispute`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`set_protocol_fee_bps`
+   --> contracts\escro
+w\src\governance.rs:12
+:1
+    |
+ 12 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for 
+`set_protocol_fee_bps`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for 
+`set_protocol_fee_bps`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `try_set_pro
+tocol_fee_bps`
+   --> contracts\escro
+w\src\governance.rs:12
+:1
+    |
+ 12 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+duplicate definitions 
+for `try_set_protocol_
+fee_bps`
+    |
+   ::: contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | --------------- 
+other definition for `
+try_set_protocol_fee_b
+ps`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`resolve_emergency`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for 
+`resolve_emergency`
+    | other 
+definition for 
+`resolve_emergency`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `try_resolve
+_emergency`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `try_r
+esolve_emergency`
+    | other 
+definition for `try_re
+solve_emergency`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `propose_cli
+ent_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `propo
+se_client_migration`
+    | other 
+definition for `propos
+e_client_migration`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `try_propose
+_client_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `try_p
+ropose_client_migratio
+n`
+    | other 
+definition for `try_pr
+opose_client_migration
+`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `accept_clie
+nt_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `accep
+t_client_migration`
+    | other 
+definition for `accept
+_client_migration`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `try_accept_
+client_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `try_a
+ccept_client_migration
+`
+    | other 
+definition for `try_ac
+cept_client_migration`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `has_pending
+_client_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `has_p
+ending_client_migratio
+n`
+    | other 
+definition for `has_pe
+nding_client_migration
+`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `try_has_pen
+ding_client_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `try_h
+as_pending_client_migr
+ation`
+    | other 
+definition for `try_ha
+s_pending_client_migra
+tion`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `get_pending
+_client_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `get_p
+ending_client_migratio
+n`
+    | other 
+definition for `get_pe
+nding_client_migration
+`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `try_get_pen
+ding_client_migration`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `try_g
+et_pending_client_migr
+ation`
+    | other 
+definition for `try_ge
+t_pending_client_migra
+tion`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name 
+`finalize_contract`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for 
+`finalize_contract`
+    | other 
+definition for 
+`finalize_contract`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `try_finaliz
+e_contract`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `try_f
+inalize_contract`
+    | other 
+definition for `try_fi
+nalize_contract`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `get_finaliz
+ation_record`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `get_f
+inalization_record`
+    | other 
+definition for `get_fi
+nalization_record`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0592]: 
+duplicate definitions 
+with name `try_get_fin
+alization_record`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate 
+definitions for `try_g
+et_finalization_record
+`
+    | other 
+definition for `try_ge
+t_finalization_record`
+    |
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractcl
+ient` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0308]: 
+mismatched types
+   --> contracts\escro
+w\src\amount_validatio
+n.rs:33:20
+    |
+ 33 |         return E
+rr(crate::Error::Amoun
+tMustBePositive);
+    |                
+--- ^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^ 
+expected 
+`EscrowError`, found 
+`Error`
+    |                |
+    |                
+arguments to this 
+enum variant are 
+incorrect
+    |
+help: the type 
+constructed contains 
+`types::Error` due to 
+the type of the 
+argument passed
+   --> contracts\escro
+w\src\amount_validatio
+n.rs:33:16
+    |
+ 33 |         return E
+rr(crate::Error::Amoun
+tMustBePositive);
+    |                ^
+^^^-------------------
+---------------^
+    |                 
+   |
+    |                 
+   this argument 
+influences the type 
+of `Err`
+note: tuple variant 
+defined here
+   --> C:\Users\ADMIN\
+.rustup\toolchains\sta
+ble-x86_64-pc-windows-
+msvc\lib/rustlib/src/r
+ust\library\core\src\r
+esult.rs:566:5
+    |
+566 |     
+Err(#[stable(feature 
+= "rust1", since = 
+"1.0.0")] E),
+    |     ^^^
+
+error[E0308]: 
+mismatched types
+   --> contracts\escro
+w\src\amount_validatio
+n.rs:39:20
+    |
+ 39 |         return E
+rr(crate::Error::Inval
+idMilestoneAmount);
+    |                
+--- ^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^ 
+expected 
+`EscrowError`, found 
+`Error`
+    |                |
+    |                
+arguments to this 
+enum variant are 
+incorrect
+    |
+help: the type 
+constructed contains 
+`types::Error` due to 
+the type of the 
+argument passed
+   --> contracts\escro
+w\src\amount_validatio
+n.rs:39:16
+    |
+ 39 |         return E
+rr(crate::Error::Inval
+idMilestoneAmount);
+    |                ^
+^^^-------------------
+-----------------^
+    |                 
+   |
+    |                 
+   this argument 
+influences the type 
+of `Err`
+note: tuple variant 
+defined here
+   --> C:\Users\ADMIN\
+.rustup\toolchains\sta
+ble-x86_64-pc-windows-
+msvc\lib/rustlib/src/r
+ust\library\core\src\r
+esult.rs:566:5
+    |
+566 |     
+Err(#[stable(feature 
+= "rust1", since = 
+"1.0.0")] E),
+    |     ^^^
+
+error[E0599]: no 
+variant or associated 
+item named 
+`PotentialOverflow` 
+found for enum 
+`types::Error` in the 
+current scope
+  --> contracts\escrow
+\src\amount_validation
+.rs:68:38
+   |
+68 |             
+return Err(crate::Erro
+r::PotentialOverflow);
+   |                  
+                    
+^^^^^^^^^^^^^^^^^ 
+variant or associated 
+item not found in 
+`types::Error`
+   |
+  ::: contracts\escrow
+\src\types.rs:89:1
+   |
+89 | pub enum Error {
+   | -------------- 
+variant or associated 
+item 
+`PotentialOverflow` 
+not found for this 
+enum
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_rai
+se_dispute` found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #4 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_res
+olve_dispute` found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+    --> contracts\escr
+ow\src\dispute.rs:12:1
+2
+     |
+  12 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |            
+^^^^^^^^^^^^^ 
+multiple 
+`raise_dispute` found
+     |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\lib.rs:1293:5
+     |
+1293 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:12:5
+     |
+  12 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:139:
+5
+     |
+ 139 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #4 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:224:
+5
+     |
+ 224 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+
+error[E0034]: 
+multiple applicable 
+items in scope
+    --> contracts\escr
+ow\src\dispute.rs:55:1
+2
+     |
+  55 |     pub fn 
+resolve_dispute(
+     |            
+^^^^^^^^^^^^^^^ 
+multiple 
+`resolve_dispute` 
+found
+     |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\lib.rs:1368:5
+     |
+1368 | /     pub fn 
+resolve_dispute(
+1369 | |         env: 
+Env,
+1370 | |         
+contract_id: u32,
+1371 | |         
+arbiter: Address,
+1372 | |         
+resolution: 
+DisputeResolution,
+1373 | |     ) -> 
+bool {
+     | |_____________^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:55:5
+     |
+  55 | /     pub fn 
+resolve_dispute(
+  56 | |         env: 
+Env,
+  57 | |         
+contract_id: u32,
+  58 | |         
+arbiter: Address,
+  59 | |         
+resolution: 
+DisputeResolution,
+  60 | |     ) -> 
+bool {
+     | |_____________^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:258:
+5
+     |
+ 258 | /     pub fn 
+resolve_dispute(
+ 259 | |         env: 
+Env,
+ 260 | |         
+contract_id: u32,
+ 261 | |         
+arbiter: Address,
+ 262 | |         
+resolution: 
+DisputeResolution,
+ 263 | |     ) -> 
+bool {
+     | |_____________^
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_rai
+se_dispute` found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #4 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+    --> contracts\escr
+ow\src\dispute.rs:139:
+12
+     |
+ 139 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |            
+^^^^^^^^^^^^^ 
+multiple 
+`raise_dispute` found
+     |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\lib.rs:1293:5
+     |
+1293 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:12:5
+     |
+  12 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:139:
+5
+     |
+ 139 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #4 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:224:
+5
+     |
+ 224 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+
+error[E0282]: type 
+annotations needed
+   --> contracts\escro
+w\src\dispute.rs:192:2
+8
+    |
+192 |                 
+.and_then(|value| valu
+e.checked_div(100))
+    |                 
+           ^^^^^  
+----- type must be 
+known at this point
+    |
+help: consider giving 
+this closure 
+parameter an explicit 
+type
+    |
+192 |                 
+.and_then(|value: /* 
+Type */| value.checked
+_div(100))
+    |                 
+                
+++++++++++++
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_rai
+se_dispute` found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #4 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_res
+olve_dispute` found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+    --> contracts\escr
+ow\src\dispute.rs:224:
+12
+     |
+ 224 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |            
+^^^^^^^^^^^^^ 
+multiple 
+`raise_dispute` found
+     |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\lib.rs:1293:5
+     |
+1293 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:12:5
+     |
+  12 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:139:
+5
+     |
+ 139 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #4 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:224:
+5
+     |
+ 224 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+
+error[E0034]: 
+multiple applicable 
+items in scope
+    --> contracts\escr
+ow\src\dispute.rs:258:
+12
+     |
+ 258 |     pub fn 
+resolve_dispute(
+     |            
+^^^^^^^^^^^^^^^ 
+multiple 
+`resolve_dispute` 
+found
+     |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\lib.rs:1368:5
+     |
+1368 | /     pub fn 
+resolve_dispute(
+1369 | |         env: 
+Env,
+1370 | |         
+contract_id: u32,
+1371 | |         
+arbiter: Address,
+1372 | |         
+resolution: 
+DisputeResolution,
+1373 | |     ) -> 
+bool {
+     | |_____________^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:55:5
+     |
+  55 | /     pub fn 
+resolve_dispute(
+  56 | |         env: 
+Env,
+  57 | |         
+contract_id: u32,
+  58 | |         
+arbiter: Address,
+  59 | |         
+resolution: 
+DisputeResolution,
+  60 | |     ) -> 
+bool {
+     | |_____________^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:258:
+5
+     |
+ 258 | /     pub fn 
+resolve_dispute(
+ 259 | |         env: 
+Env,
+ 260 | |         
+contract_id: u32,
+ 261 | |         
+arbiter: Address,
+ 262 | |         
+resolution: 
+DisputeResolution,
+ 263 | |     ) -> 
+bool {
+     | |_____________^
+
+error[E0609]: no 
+field 
+`reputation_issued` 
+on type 
+`&types::Contract`
+   --> contracts\escro
+w\src\finalize.rs:115:
+41
+    |
+115 |             
+reputation_issued: con
+tract.reputation_issue
+d,
+    |                 
+                      
+  ^^^^^^^^^^^^^^^^^ 
+unknown field
+    |
+    = note: available 
+fields are: `client`, 
+`freelancer`, 
+`arbiter`, `status`, 
+`total_deposited` ... 
+and 4 others
+
+error[E0599]: no 
+variant or associated 
+item named 
+`NotInitialized` 
+found for enum 
+`types::Error` in the 
+current scope
+  --> contracts\escrow
+\src\governance.rs:30:
+67
+   |
+30 |             
+.unwrap_or_else(|| env
+.panic_with_error(crat
+e::Error::NotInitializ
+ed));
+   |                  
+                      
+                      
+     ^^^^^^^^^^^^^^ 
+variant or associated 
+item not found in 
+`types::Error`
+   |
+  ::: contracts\escrow
+\src\types.rs:89:1
+   |
+89 | pub enum Error {
+   | -------------- 
+variant or associated 
+item `NotInitialized` 
+not found for this 
+enum
+
+error[E0308]: 
+mismatched types
+   --> contracts\escro
+w\src\governance.rs:43
+:26
+    |
+ 43 |             
+(Symbol::new(env, 
+"protocol_fee_bps"),),
+    |              
+----------- ^^^ 
+expected `&Env`, 
+found `Env`
+    |              |
+    |              
+arguments to this 
+function are incorrect
+    |
+note: associated 
+function defined here
+   --> C:\Users\ADMIN\
+.cargo\registry\src\in
+dex.crates.io-1949cf8c
+6b5b557f\soroban-sdk-2
+2.0.11\src\symbol.rs:2
+12:12
+    |
+212 |     pub fn 
+new(env: &Env, s: 
+&str) -> Self {
+    |            ^^^
+help: consider 
+borrowing here
+    |
+ 43 |             
+(Symbol::new(&env, 
+"protocol_fee_bps"),),
+    |                 
+         +
+
+error[E0599]: no 
+variant or associated 
+item named 
+`NotInitialized` 
+found for enum 
+`types::Error` in the 
+current scope
+  --> contracts\escrow
+\src\governance.rs:64:
+67
+   |
+64 |             
+.unwrap_or_else(|| env
+.panic_with_error(crat
+e::Error::NotInitializ
+ed));
+   |                  
+                      
+                      
+     ^^^^^^^^^^^^^^ 
+variant or associated 
+item not found in 
+`types::Error`
+   |
+  ::: contracts\escrow
+\src\types.rs:89:1
+   |
+89 | pub enum Error {
+   | -------------- 
+variant or associated 
+item `NotInitialized` 
+not found for this 
+enum
+
+error[E0308]: 
+mismatched types
+   --> contracts\escro
+w\src\governance.rs:76
+:50
+    |
+ 76 |             (sym
+bol_short!("admin"), 
+Symbol::new(env, 
+"proposed")),
+    |                 
+                     
+----------- ^^^ 
+expected `&Env`, 
+found `Env`
+    |                 
+                     |
+    |                 
+                     
+arguments to this 
+function are incorrect
+    |
+note: associated 
+function defined here
+   --> C:\Users\ADMIN\
+.cargo\registry\src\in
+dex.crates.io-1949cf8c
+6b5b557f\soroban-sdk-2
+2.0.11\src\symbol.rs:2
+12:12
+    |
+212 |     pub fn 
+new(env: &Env, s: 
+&str) -> Self {
+    |            ^^^
+help: consider 
+borrowing here
+    |
+ 76 |             (sym
+bol_short!("admin"), 
+Symbol::new(&env, 
+"proposed")),
+    |                 
+                      
+           +
+
+error[E0599]: no 
+variant or associated 
+item named 
+`TimelockNotElapsed` 
+found for enum 
+`EscrowError` in the 
+current scope
+   --> contracts\escro
+w\src\governance.rs:10
+7:47
+    |
+107 |             env.
+panic_with_error(Escro
+wError::TimelockNotEla
+psed);
+    |                 
+                      
+        
+^^^^^^^^^^^^^^^^^^ 
+variant or associated 
+item not found in 
+`EscrowError`
+    |
+   ::: contracts\escro
+w\src\lib.rs:64:1
+    |
+ 64 | pub enum 
+EscrowError {
+    | 
+-------------------- 
+variant or associated 
+item 
+`TimelockNotElapsed` 
+not found for this 
+enum
+
+error[E0599]: no 
+variant or associated 
+item named 
+`NotInitialized` 
+found for enum 
+`types::Error` in the 
+current scope
+   --> contracts\escro
+w\src\governance.rs:11
+7:67
+    |
+117 |             
+.unwrap_or_else(|| env
+.panic_with_error(crat
+e::Error::NotInitializ
+ed));
+    |                 
+                      
+                      
+      ^^^^^^^^^^^^^^ 
+variant or associated 
+item not found in 
+`types::Error`
+    |
+   ::: contracts\escro
+w\src\types.rs:89:1
+    |
+ 89 | pub enum Error {
+    | -------------- 
+variant or associated 
+item `NotInitialized` 
+not found for this 
+enum
+
+error[E0308]: 
+mismatched types
+   --> contracts\escro
+w\src\governance.rs:12
+5:50
+    |
+125 |             (sym
+bol_short!("admin"), 
+Symbol::new(env, 
+"accepted")),
+    |                 
+                     
+----------- ^^^ 
+expected `&Env`, 
+found `Env`
+    |                 
+                     |
+    |                 
+                     
+arguments to this 
+function are incorrect
+    |
+note: associated 
+function defined here
+   --> C:\Users\ADMIN\
+.cargo\registry\src\in
+dex.crates.io-1949cf8c
+6b5b557f\soroban-sdk-2
+2.0.11\src\symbol.rs:2
+12:12
+    |
+212 |     pub fn 
+new(env: &Env, s: 
+&str) -> Self {
+    |            ^^^
+help: consider 
+borrowing here
+    |
+125 |             (sym
+bol_short!("admin"), 
+Symbol::new(&env, 
+"accepted")),
+    |                 
+                      
+           +
+
+error[E0599]: no 
+variant or associated 
+item named `InvalidPro
+tocolParameters` 
+found for enum 
+`EscrowError` in the 
+current scope
+   --> contracts\escro
+w\src\governance.rs:17
+1:47
+    |
+171 |             env.
+panic_with_error(Escro
+wError::InvalidProtoco
+lParameters);
+    |                 
+                      
+        ^^^^^^^^^^^^^^
+^^^^^^^^^^^ variant 
+or associated item 
+not found in 
+`EscrowError`
+    |
+   ::: contracts\escro
+w\src\lib.rs:64:1
+    |
+ 64 | pub enum 
+EscrowError {
+    | 
+-------------------- 
+variant or associated 
+item `InvalidProtocolP
+arameters` not found 
+for this enum
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\governance.rs:12
+:1
+    |
+ 12 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_set
+_protocol_fee_bps` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\governance.rs:12
+:1
+    |
+ 12 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+    --> contracts\escr
+ow\src\governance.rs:1
+6:12
+     |
+  16 |     pub fn set_
+protocol_fee_bps(env: 
+Env, new_bps: u32) -> 
+bool {
+     |            
+^^^^^^^^^^^^^^^^^^^^ 
+multiple `set_protocol
+_fee_bps` found
+     |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\lib.rs:1179:5
+     |
+1179 |     pub fn set_
+protocol_fee_bps(env: 
+Env, new_bps: u32) -> 
+bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\governance.rs:1
+6:5
+     |
+  16 |     pub fn set_
+protocol_fee_bps(env: 
+Env, new_bps: u32) -> 
+bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\types.rs:35:1
+    |
+ 35 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type 
+`types::Contract`
+   --> contracts\escro
+w\src\types.rs:35:1
+    |
+ 35 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type 
+`types::Contract`
+   --> contracts\escro
+w\src\types.rs:131:1
+    |
+131 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\types.rs:51:1
+    |
+ 51 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type 
+`types::DataKey`
+   --> contracts\escro
+w\src\types.rs:51:1
+    |
+ 51 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type 
+`types::DataKey`
+   --> contracts\escro
+w\src\types.rs:188:1
+    |
+188 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0560]: struct 
+`types::Contract` has 
+no field named 
+`reputation_issued`
+   --> contracts\escro
+w\src\types.rs:142:5
+    |
+142 |     pub 
+reputation_issued: 
+bool,
+    |     ^^^^^^^^^^^^
+^^^^^^^^^^^^^^^ 
+`types::Contract` 
+does not have this 
+field
+    |
+    = note: all 
+struct fields are 
+already assigned
+
+error[E0609]: no 
+field 
+`reputation_issued` 
+on type 
+`&types::Contract`
+   --> contracts\escro
+w\src\types.rs:142:9
+    |
+142 |     pub 
+reputation_issued: 
+bool,
+    |         
+^^^^^^^^^^^^^^^^^ 
+unknown field
+    |
+    = note: available 
+fields are: `client`, 
+`freelancer`, 
+`arbiter`, `status`, 
+`total_deposited` ... 
+and 4 others
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\types.rs:131:1
+    |
+131 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type 
+`types::Contract`
+   --> contracts\escro
+w\src\types.rs:35:1
+    |
+ 35 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type 
+`types::Contract`
+   --> contracts\escro
+w\src\types.rs:131:1
+    |
+131 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0560]: struct 
+`types::Contract` has 
+no field named 
+`reputation_issued`
+   --> contracts\escro
+w\src\types.rs:142:9
+    |
+142 |     pub 
+reputation_issued: 
+bool,
+    |         
+^^^^^^^^^^^^^^^^^ 
+`types::Contract` 
+does not have this 
+field
+    |
+    = note: all 
+struct fields are 
+already assigned
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\types.rs:157:1
+    |
+157 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `types::R
+eleaseAuthorization`
+   --> contracts\escro
+w\src\types.rs:157:1
+    |
+157 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `types::R
+eleaseAuthorization`
+   --> contracts\escro
+w\src\types.rs:252:1
+    |
+252 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\types.rs:173:1
+    |
+173 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `types::M
+ilestoneApprovals`
+   --> contracts\escro
+w\src\types.rs:173:1
+    |
+173 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `types::M
+ilestoneApprovals`
+   --> contracts\escro
+w\src\types.rs:268:1
+    |
+268 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\types.rs:181:1
+    |
+181 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type 
+`types::DepositMode`
+   --> contracts\escro
+w\src\types.rs:181:1
+    |
+181 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type 
+`types::DepositMode`
+   --> contracts\escro
+w\src\types.rs:276:1
+    |
+276 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\types.rs:188:1
+    |
+188 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type 
+`types::DataKey`
+   --> contracts\escro
+w\src\types.rs:51:1
+    |
+ 51 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type 
+`types::DataKey`
+   --> contracts\escro
+w\src\types.rs:188:1
+    |
+188 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\types.rs:252:1
+    |
+252 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `types::R
+eleaseAuthorization`
+   --> contracts\escro
+w\src\types.rs:157:1
+    |
+157 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `types::R
+eleaseAuthorization`
+   --> contracts\escro
+w\src\types.rs:252:1
+    |
+252 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\types.rs:268:1
+    |
+268 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `types::M
+ilestoneApprovals`
+   --> contracts\escro
+w\src\types.rs:173:1
+    |
+173 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `types::M
+ilestoneApprovals`
+   --> contracts\escro
+w\src\types.rs:268:1
+    |
+268 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\types.rs:276:1
+    |
+276 | #[contracttype]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type 
+`types::DepositMode`
+   --> contracts\escro
+w\src\types.rs:181:1
+    |
+181 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type 
+`types::DepositMode`
+   --> contracts\escro
+w\src\types.rs:276:1
+    |
+276 | #[contracttype]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro 
+`contracttype` (in 
+Nightly builds, run 
+with -Z 
+macro-backtrace for 
+more info)
+
+error[E0599]: no 
+variant or associated 
+item named 
+`SettlementToken` 
+found for enum 
+`types::DataKey` in 
+the current scope
+   --> contracts\escro
+w\src\lib.rs:189:28
+    |
+189 |             .set
+(&DataKey::SettlementT
+oken, &token);
+    |                 
+           
+^^^^^^^^^^^^^^^ 
+variant or associated 
+item not found in 
+`types::DataKey`
+    |
+   ::: contracts\escro
+w\src\types.rs:53:1
+    |
+ 53 | pub enum 
+DataKey {
+    | 
+---------------- 
+variant or associated 
+item 
+`SettlementToken` not 
+found for this enum
+
+error[E0308]: 
+mismatched types
+   --> contracts\escro
+w\src\lib.rs:194:9
+    |
+186 |     pub fn get_m
+ainnet_readiness_info(
+env: Env) -> 
+ReadinessChecklist {
+    |                 
+                      
+             
+------------------ 
+expected 
+`ReadinessChecklist` 
+because of return type
+...
+194 |         true
+    |         ^^^^ 
+expected 
+`ReadinessChecklist`, 
+found `bool`
+
+error[E0599]: no 
+variant or associated 
+item named 
+`EmptyComment` found 
+for enum 
+`EscrowError` in the 
+current scope
+   --> contracts\escro
+w\src\lib.rs:919:47
+    |
+ 64 | pub enum 
+EscrowError {
+    | 
+-------------------- 
+variant or associated 
+item `EmptyComment` 
+not found for this 
+enum
+...
+919 |             env.
+panic_with_error(Escro
+wError::EmptyComment);
+    |                 
+                      
+        ^^^^^^^^^^^^ 
+variant or associated 
+item not found in 
+`EscrowError`
+
+error[E0599]: no 
+variant or associated 
+item named 
+`CommentTooLong` 
+found for enum 
+`EscrowError` in the 
+current scope
+   --> contracts\escro
+w\src\lib.rs:923:47
+    |
+ 64 | pub enum 
+EscrowError {
+    | 
+-------------------- 
+variant or associated 
+item `CommentTooLong` 
+not found for this 
+enum
+...
+923 |             env.
+panic_with_error(Escro
+wError::CommentTooLong
+);
+    |                 
+                      
+        
+^^^^^^^^^^^^^^ 
+variant or associated 
+item not found in 
+`EscrowError`
+
+error[E0609]: no 
+field 
+`reputation_issued` 
+on type 
+`types::Contract`
+   --> contracts\escro
+w\src\lib.rs:930:21
+    |
+930 |         if contr
+act.reputation_issued 
+{
+    |                 
+    ^^^^^^^^^^^^^^^^^ 
+unknown field
+    |
+    = note: available 
+fields are: `client`, 
+`freelancer`, 
+`arbiter`, `status`, 
+`total_deposited` ... 
+and 4 others
+
+error[E0609]: no 
+field 
+`reputation_issued` 
+on type 
+`types::Contract`
+   --> contracts\escro
+w\src\lib.rs:938:18
+    |
+938 |         contract
+.reputation_issued = 
+true;
+    |                 
+ ^^^^^^^^^^^^^^^^^ 
+unknown field
+    |
+    = note: available 
+fields are: `client`, 
+`freelancer`, 
+`arbiter`, `status`, 
+`total_deposited` ... 
+and 4 others
+
+error[E0599]: no 
+variant or associated 
+item named 
+`EvidenceTooLong` 
+found for enum 
+`EscrowError` in the 
+current scope
+    --> contracts\escr
+ow\src\lib.rs:1082:47
+     |
+  64 | pub enum 
+EscrowError {
+     | 
+-------------------- 
+variant or associated 
+item 
+`EvidenceTooLong` not 
+found for this enum
+...
+1082 |             env
+.panic_with_error(Escr
+owError::EvidenceTooLo
+ng);
+     |                
+                      
+         
+^^^^^^^^^^^^^^^ 
+variant or associated 
+item not found in 
+`EscrowError`
+
+error[E0599]: no 
+function or 
+associated item named 
+`propose_client_migrat
+ion_impl` found for 
+struct `Escrow` in 
+the current scope
+    --> contracts\escr
+ow\src\lib.rs:1140:15
+     |
+  58 | pub struct 
+Escrow;
+     | 
+----------------- 
+function or 
+associated item `propo
+se_client_migration_im
+pl` not found for 
+this struct
+...
+1140 |         Self::p
+ropose_client_migratio
+n_impl(env, 
+contract_id, 
+current_client, 
+new_client)
+     |               ^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^ function or 
+associated item not 
+found in `Escrow`
+     |
+note: if you're 
+trying to build a new 
+`Escrow` consider 
+using one of the 
+following associated 
+functions:
+      
+governance::<impl Escr
+ow>::get_governed_para
+meters
+      Escrow::get_repu
+tation_comment
+    --> contracts\escr
+ow\src\lib.rs:971:5
+     |
+ 971 |     pub fn get_
+reputation_comment(env
+: Env, contract_id: 
+u32) -> 
+Option<String> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
+     |
+    ::: contracts\escr
+ow\src\governance.rs:1
+96:5
+     |
+ 196 |     pub fn get_
+governed_parameters(en
+v: Env) -> Option<Gove
+rnedParameters> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
+help: there is an 
+associated function `p
+ropose_client_migratio
+n` with a similar name
+     |
+1140 -         Self::p
+ropose_client_migratio
+n_impl(env, 
+contract_id, 
+current_client, 
+new_client)
+1140 +         Self::p
+ropose_client_migratio
+n(env, contract_id, 
+current_client, 
+new_client)
+     |
+
+error[E0599]: no 
+function or 
+associated item named 
+`accept_client_migrati
+on_impl` found for 
+struct `Escrow` in 
+the current scope
+    --> contracts\escr
+ow\src\lib.rs:1145:15
+     |
+  58 | pub struct 
+Escrow;
+     | 
+----------------- 
+function or 
+associated item `accep
+t_client_migration_imp
+l` not found for this 
+struct
+...
+1145 |         Self::a
+ccept_client_migration
+_impl(env, 
+contract_id, 
+new_client)
+     |               ^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^ function or 
+associated item not 
+found in `Escrow`
+     |
+note: if you're 
+trying to build a new 
+`Escrow` consider 
+using one of the 
+following associated 
+functions:
+      
+governance::<impl Escr
+ow>::get_governed_para
+meters
+      Escrow::get_repu
+tation_comment
+    --> contracts\escr
+ow\src\lib.rs:971:5
+     |
+ 971 |     pub fn get_
+reputation_comment(env
+: Env, contract_id: 
+u32) -> 
+Option<String> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
+     |
+    ::: contracts\escr
+ow\src\governance.rs:1
+96:5
+     |
+ 196 |     pub fn get_
+governed_parameters(en
+v: Env) -> Option<Gove
+rnedParameters> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
+help: there is an 
+associated function `a
+ccept_client_migration
+` with a similar name
+     |
+1145 -         Self::a
+ccept_client_migration
+_impl(env, 
+contract_id, 
+new_client)
+1145 +         Self::a
+ccept_client_migration
+(env, contract_id, 
+new_client)
+     |
+
+error[E0599]: no 
+function or 
+associated item named 
+`has_pending_client_mi
+gration_impl` found 
+for struct `Escrow` 
+in the current scope
+    --> contracts\escr
+ow\src\lib.rs:1150:15
+     |
+  58 | pub struct 
+Escrow;
+     | 
+----------------- 
+function or 
+associated item `has_p
+ending_client_migratio
+n_impl` not found for 
+this struct
+...
+1150 |         Self::h
+as_pending_client_migr
+ation_impl(env, 
+contract_id)
+     |               ^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^ function 
+or associated item 
+not found in `Escrow`
+     |
+note: if you're 
+trying to build a new 
+`Escrow` consider 
+using one of the 
+following associated 
+functions:
+      
+governance::<impl Escr
+ow>::get_governed_para
+meters
+      Escrow::get_repu
+tation_comment
+    --> contracts\escr
+ow\src\lib.rs:971:5
+     |
+ 971 |     pub fn get_
+reputation_comment(env
+: Env, contract_id: 
+u32) -> 
+Option<String> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
+     |
+    ::: contracts\escr
+ow\src\governance.rs:1
+96:5
+     |
+ 196 |     pub fn get_
+governed_parameters(en
+v: Env) -> Option<Gove
+rnedParameters> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
+help: there is an 
+associated function `h
+as_pending_client_migr
+ation` with a similar 
+name
+     |
+1150 -         Self::h
+as_pending_client_migr
+ation_impl(env, 
+contract_id)
+1150 +         Self::h
+as_pending_client_migr
+ation(env, 
+contract_id)
+     |
+
+error[E0599]: no 
+function or 
+associated item named 
+`get_pending_client_mi
+gration_impl` found 
+for struct `Escrow` 
+in the current scope
+    --> contracts\escr
+ow\src\lib.rs:1158:15
+     |
+  58 | pub struct 
+Escrow;
+     | 
+----------------- 
+function or 
+associated item `get_p
+ending_client_migratio
+n_impl` not found for 
+this struct
+...
+1158 |         Self::g
+et_pending_client_migr
+ation_impl(env, 
+contract_id)
+     |               ^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^ function 
+or associated item 
+not found in `Escrow`
+     |
+note: if you're 
+trying to build a new 
+`Escrow` consider 
+using one of the 
+following associated 
+functions:
+      
+governance::<impl Escr
+ow>::get_governed_para
+meters
+      Escrow::get_repu
+tation_comment
+    --> contracts\escr
+ow\src\lib.rs:971:5
+     |
+ 971 |     pub fn get_
+reputation_comment(env
+: Env, contract_id: 
+u32) -> 
+Option<String> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
+     |
+    ::: contracts\escr
+ow\src\governance.rs:1
+96:5
+     |
+ 196 |     pub fn get_
+governed_parameters(en
+v: Env) -> Option<Gove
+rnedParameters> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
+help: there is an 
+associated function `g
+et_pending_client_migr
+ation` with a similar 
+name
+     |
+1158 -         Self::g
+et_pending_client_migr
+ation_impl(env, 
+contract_id)
+1158 +         Self::g
+et_pending_client_migr
+ation(env, 
+contract_id)
+     |
+
+error[E0599]: no 
+function or 
+associated item named 
+`finalize_contract_imp
+l` found for struct 
+`Escrow` in the 
+current scope
+    --> contracts\escr
+ow\src\lib.rs:1165:15
+     |
+  58 | pub struct 
+Escrow;
+     | 
+----------------- 
+function or 
+associated item `final
+ize_contract_impl` 
+not found for this 
+struct
+...
+1165 |         Self::f
+inalize_contract_impl(
+env, contract_id, 
+finalizer)
+     |               ^
+^^^^^^^^^^^^^^^^^^^^^ 
+function or 
+associated item not 
+found in `Escrow`
+     |
+note: if you're 
+trying to build a new 
+`Escrow` consider 
+using one of the 
+following associated 
+functions:
+      
+governance::<impl Escr
+ow>::get_governed_para
+meters
+      Escrow::get_repu
+tation_comment
+    --> contracts\escr
+ow\src\lib.rs:971:5
+     |
+ 971 |     pub fn get_
+reputation_comment(env
+: Env, contract_id: 
+u32) -> 
+Option<String> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
+     |
+    ::: contracts\escr
+ow\src\governance.rs:1
+96:5
+     |
+ 196 |     pub fn get_
+governed_parameters(en
+v: Env) -> Option<Gove
+rnedParameters> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
+help: there is an 
+associated function 
+`finalize_contract` 
+with a similar name
+     |
+1165 -         Self::f
+inalize_contract_impl(
+env, contract_id, 
+finalizer)
+1165 +         Self::f
+inalize_contract(env, 
+contract_id, 
+finalizer)
+     |
+
+error[E0599]: no 
+function or 
+associated item named 
+`get_finalization_reco
+rd_impl` found for 
+struct `Escrow` in 
+the current scope
+    --> contracts\escr
+ow\src\lib.rs:1173:15
+     |
+  58 | pub struct 
+Escrow;
+     | 
+----------------- 
+function or 
+associated item `get_f
+inalization_record_imp
+l` not found for this 
+struct
+...
+1173 |         Self::g
+et_finalization_record
+_impl(env, 
+contract_id)
+     |               ^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^ function or 
+associated item not 
+found in `Escrow`
+     |
+note: if you're 
+trying to build a new 
+`Escrow` consider 
+using one of the 
+following associated 
+functions:
+      
+governance::<impl Escr
+ow>::get_governed_para
+meters
+      Escrow::get_repu
+tation_comment
+    --> contracts\escr
+ow\src\lib.rs:971:5
+     |
+ 971 |     pub fn get_
+reputation_comment(env
+: Env, contract_id: 
+u32) -> 
+Option<String> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
+     |
+    ::: contracts\escr
+ow\src\governance.rs:1
+96:5
+     |
+ 196 |     pub fn get_
+governed_parameters(en
+v: Env) -> Option<Gove
+rnedParameters> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
+help: there is an 
+associated function `g
+et_finalization_record
+` with a similar name
+     |
+1173 -         Self::g
+et_finalization_record
+_impl(env, 
+contract_id)
+1173 +         Self::g
+et_finalization_record
+(env, contract_id)
+     |
+
+error[E0599]: no 
+function or 
+associated item named 
+`set_protocol_fee_bps_
+impl` found for 
+struct `Escrow` in 
+the current scope
+    --> contracts\escr
+ow\src\lib.rs:1180:15
+     |
+  58 | pub struct 
+Escrow;
+     | 
+----------------- 
+function or 
+associated item `set_p
+rotocol_fee_bps_impl` 
+not found for this 
+struct
+...
+1180 |         Self::s
+et_protocol_fee_bps_im
+pl(&env, new_bps)
+     |               ^
+^^^^^^^^^^^^^^^^^^^^^^
+^^ function or 
+associated item not 
+found in `Escrow`
+     |
+note: if you're 
+trying to build a new 
+`Escrow` consider 
+using one of the 
+following associated 
+functions:
+      
+governance::<impl Escr
+ow>::get_governed_para
+meters
+      Escrow::get_repu
+tation_comment
+    --> contracts\escr
+ow\src\lib.rs:971:5
+     |
+ 971 |     pub fn get_
+reputation_comment(env
+: Env, contract_id: 
+u32) -> 
+Option<String> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
+     |
+    ::: contracts\escr
+ow\src\governance.rs:1
+96:5
+     |
+ 196 |     pub fn get_
+governed_parameters(en
+v: Env) -> Option<Gove
+rnedParameters> {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
+help: there is an 
+associated function `g
+et_protocol_fee_bps` 
+with a similar name
+    --> contracts\escr
+ow\src\lib.rs:1205:5
+     |
+1205 |     pub(crate) 
+fn get_protocol_fee_bp
+s(env: &Env) -> u32 {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: 
+mismatched types
+    --> contracts\escr
+ow\src\lib.rs:1185:45
+     |
+1185 |         Self::p
+ropose_governance_admi
+n_impl(&env, proposed)
+     |         -------
+----------------------
+------ ^^^^ expected 
+`Env`, found `&Env`
+     |         |
+     |         
+arguments to this 
+function are incorrect
+     |
+note: associated 
+function defined here
+    --> contracts\escr
+ow\src\governance.rs:5
+0:19
+     |
+  50 |     pub(crate) 
+fn propose_governance_
+admin_impl(env: Env, 
+proposed: Address) -> 
+bool {
+     |                
+   ^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^ --------
+help: consider 
+removing the borrow
+     |
+1185 -         Self::p
+ropose_governance_admi
+n_impl(&env, proposed)
+1185 +         Self::p
+ropose_governance_admi
+n_impl(env, proposed)
+     |
+
+error[E0308]: 
+mismatched types
+    --> contracts\escr
+ow\src\lib.rs:1190:44
+     |
+1190 |         Self::a
+ccept_governance_admin
+_impl(&env)
+     |         -------
+----------------------
+----- ^^^^ expected 
+`Env`, found `&Env`
+     |         |
+     |         
+arguments to this 
+function are incorrect
+     |
+note: associated 
+function defined here
+    --> contracts\escr
+ow\src\governance.rs:8
+3:19
+     |
+  83 |     pub(crate) 
+fn accept_governance_a
+dmin_impl(env: Env) 
+-> bool {
+     |                
+   ^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^ --------
+help: consider 
+removing the borrow
+     |
+1190 -         Self::a
+ccept_governance_admin
+_impl(&env)
+1190 +         Self::a
+ccept_governance_admin
+_impl(env)
+     |
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_fin
+alize_contract` found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_get
+_finalization_record` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_pro
+pose_client_migration`
+ found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_acc
+ept_client_migration` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_has
+_pending_client_migrat
+ion` found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_get
+_pending_client_migrat
+ion` found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_res
+olve_emergency` found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_set
+_protocol_fee_bps` 
+found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\governance.rs:12
+:1
+    |
+ 12 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_rai
+se_dispute` found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:137:1
+    |
+137 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #4 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ 
+multiple `spec_xdr_res
+olve_dispute` found
+    |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\lib.rs:111:1
+    |
+111 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:9:1
+    |
+  9 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+   --> contracts\escro
+w\src\dispute.rs:220:1
+    |
+220 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this 
+error originates in 
+the attribute macro `s
+oroban_sdk::contractsp
+ecfn` (in Nightly 
+builds, run with -Z 
+macro-backtrace for 
+more info)
+
+error[E0034]: 
+multiple applicable 
+items in scope
+    --> contracts\escr
+ow\src\lib.rs:1179:12
+     |
+1179 |     pub fn set_
+protocol_fee_bps(env: 
+Env, new_bps: u32) -> 
+bool {
+     |            
+^^^^^^^^^^^^^^^^^^^^ 
+multiple `set_protocol
+_fee_bps` found
+     |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\lib.rs:1179:5
+     |
+1179 |     pub fn set_
+protocol_fee_bps(env: 
+Env, new_bps: u32) -> 
+bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\governance.rs:1
+6:5
+     |
+  16 |     pub fn set_
+protocol_fee_bps(env: 
+Env, new_bps: u32) -> 
+bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^
+
+error[E0034]: 
+multiple applicable 
+items in scope
+    --> contracts\escr
+ow\src\lib.rs:1293:12
+     |
+1293 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |            
+^^^^^^^^^^^^^ 
+multiple 
+`raise_dispute` found
+     |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\lib.rs:1293:5
+     |
+1293 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:12:5
+     |
+  12 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:139:
+5
+     |
+ 139 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+note: candidate #4 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:224:
+5
+     |
+ 224 |     pub fn 
+raise_dispute(env: 
+Env, contract_id: 
+u32, caller: Address) 
+-> bool {
+     |     ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
+
+error[E0034]: 
+multiple applicable 
+items in scope
+    --> contracts\escr
+ow\src\lib.rs:1368:12
+     |
+1368 |     pub fn 
+resolve_dispute(
+     |            
+^^^^^^^^^^^^^^^ 
+multiple 
+`resolve_dispute` 
+found
+     |
+note: candidate #1 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\lib.rs:1368:5
+     |
+1368 | /     pub fn 
+resolve_dispute(
+1369 | |         env: 
+Env,
+1370 | |         
+contract_id: u32,
+1371 | |         
+arbiter: Address,
+1372 | |         
+resolution: 
+DisputeResolution,
+1373 | |     ) -> 
+bool {
+     | |_____________^
+note: candidate #2 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:55:5
+     |
+  55 | /     pub fn 
+resolve_dispute(
+  56 | |         env: 
+Env,
+  57 | |         
+contract_id: u32,
+  58 | |         
+arbiter: Address,
+  59 | |         
+resolution: 
+DisputeResolution,
+  60 | |     ) -> 
+bool {
+     | |_____________^
+note: candidate #3 is 
+defined in an impl 
+for the type `Escrow`
+    --> contracts\escr
+ow\src\dispute.rs:258:
+5
+     |
+ 258 | /     pub fn 
+resolve_dispute(
+ 259 | |         env: 
+Env,
+ 260 | |         
+contract_id: u32,
+ 261 | |         
+arbiter: Address,
+ 262 | |         
+resolution: 
+DisputeResolution,
+ 263 | |     ) -> 
+bool {
+     | |_____________^
+
+Some errors have 
+detailed 
+explanations: E0034, 
+E0119, E0252, E0255, 
+E0282, E0308, E0422, 
+E0425, E0428...
+For more information 
+about an error, try 
+`rustc --explain 
+E0034`.
+warning: `escrow` 
+(lib) generated 7 
+warnings
+error: could not 
+compile `escrow` 
+(lib) due to 276 
+previous errors; 7 
+warnings emitted

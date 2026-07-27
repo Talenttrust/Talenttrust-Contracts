@@ -171,3 +171,134 @@ fn assert_not_live_api(doc: &str, entrypoint: &str, doc_name: &str) {
         );
     }
 }
+
+// ─── Regression tests: released_milestone_count parity (fixes #416) ──────────
+//
+// `release_milestone` sets `ms.released = true` in the persisted milestone
+// vector. `summarize_contract` reads that flag directly — it is the single
+// source of truth. `DataKey::MilestoneReleased` was a never-written variant
+// and has been removed from `types.rs`.
+//
+// These tests assert that `released_milestone_count` in the finalization
+// summary always equals the number of milestones with `released == true` in
+// the vector, across zero / partial / full / mixed-refund scenarios.
+
+#[cfg(test)]
+mod released_count_parity {
+    use crate::{ContractStatus, Escrow, EscrowClient, ReleaseAuthorization};
+    use soroban_sdk::{testutils::Address as _, vec, Address, Env};
+
+    fn setup() -> (Env, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let addr = env.register(Escrow, ());
+        (env, addr)
+    }
+
+    fn client<'a>(env: &'a Env, addr: &Address) -> EscrowClient<'a> {
+        EscrowClient::new(env, addr)
+    }
+
+    /// Assert count in summary equals count of `released` flags in milestone summaries.
+    fn assert_parity(count: u32, milestones: &soroban_sdk::Vec<crate::types::MilestoneSummary>) {
+        let from_vec = milestones.iter().filter(|m| m.released).count() as u32;
+        assert_eq!(
+            count, from_vec,
+            "released_milestone_count must equal milestone vector released flags"
+        );
+    }
+
+    /// Zero released: dispute → finalize without releasing any milestone.
+    #[test]
+    fn summary_count_zero_when_no_milestones_released() {
+        let (env, addr) = setup();
+        let c = client(&env, &addr);
+        let cl = Address::generate(&env);
+        let fr = Address::generate(&env);
+        let arb = Address::generate(&env);
+        let id = c.create_contract(
+            &cl, &fr, &Some(arb.clone()),
+            &vec![&env, 100_i128, 200_i128],
+            &ReleaseAuthorization::ClientOnly,
+        );
+        c.deposit_funds(&id, &cl, &300_i128);
+        c.raise_dispute(&id, &cl);
+        c.finalize_contract(&id, &arb);
+        let record = c.get_finalization_record(&id).unwrap();
+        assert_eq!(record.summary.released_milestone_count, 0);
+        assert_parity(record.summary.released_milestone_count, &record.summary.milestones);
+    }
+
+    /// Partial release (2 of 3): third milestone refunded to reach Completed.
+    #[test]
+    fn summary_count_matches_partial_release() {
+        let (env, addr) = setup();
+        let c = client(&env, &addr);
+        let cl = Address::generate(&env);
+        let fr = Address::generate(&env);
+        let id = c.create_contract(
+            &cl, &fr, &None,
+            &vec![&env, 100_i128, 200_i128, 300_i128],
+            &ReleaseAuthorization::ClientOnly,
+        );
+        c.deposit_funds(&id, &cl, &600_i128);
+        c.approve_milestone_release(&id, &cl, &0);
+        c.release_milestone(&id, &cl, &0);
+        c.approve_milestone_release(&id, &cl, &1);
+        c.release_milestone(&id, &cl, &1);
+        c.refund_unreleased_milestones(&id, &vec![&env, 2_u32]);
+        assert_eq!(c.get_contract(&id).status, ContractStatus::Completed);
+        c.finalize_contract(&id, &cl);
+        let record = c.get_finalization_record(&id).unwrap();
+        assert_eq!(record.summary.released_milestone_count, 2);
+        assert_parity(record.summary.released_milestone_count, &record.summary.milestones);
+    }
+
+    /// Full release: all 3 milestones released.
+    #[test]
+    fn summary_count_matches_full_release() {
+        let (env, addr) = setup();
+        let c = client(&env, &addr);
+        let cl = Address::generate(&env);
+        let fr = Address::generate(&env);
+        let id = c.create_contract(
+            &cl, &fr, &None,
+            &vec![&env, 100_i128, 200_i128, 300_i128],
+            &ReleaseAuthorization::ClientOnly,
+        );
+        c.deposit_funds(&id, &cl, &600_i128);
+        for idx in [0_u32, 1, 2] {
+            c.approve_milestone_release(&id, &cl, &idx);
+            c.release_milestone(&id, &cl, &idx);
+        }
+        assert_eq!(c.get_contract(&id).status, ContractStatus::Completed);
+        c.finalize_contract(&id, &cl);
+        let record = c.get_finalization_record(&id).unwrap();
+        assert_eq!(record.summary.released_milestone_count, 3);
+        assert_parity(record.summary.released_milestone_count, &record.summary.milestones);
+    }
+
+    /// Mixed release+refund: refunded milestones must not inflate the count.
+    #[test]
+    fn summary_count_excludes_refunded_milestones() {
+        let (env, addr) = setup();
+        let c = client(&env, &addr);
+        let cl = Address::generate(&env);
+        let fr = Address::generate(&env);
+        let id = c.create_contract(
+            &cl, &fr, &None,
+            &vec![&env, 100_i128, 200_i128],
+            &ReleaseAuthorization::ClientOnly,
+        );
+        c.deposit_funds(&id, &cl, &300_i128);
+        c.approve_milestone_release(&id, &cl, &0);
+        c.release_milestone(&id, &cl, &0);
+        c.refund_unreleased_milestones(&id, &vec![&env, 1_u32]);
+        assert_eq!(c.get_contract(&id).status, ContractStatus::Completed);
+        c.finalize_contract(&id, &cl);
+        let record = c.get_finalization_record(&id).unwrap();
+        // 1 released, 1 refunded — count must be 1, not 2.
+        assert_eq!(record.summary.released_milestone_count, 1);
+        assert_parity(record.summary.released_milestone_count, &record.summary.milestones);
+    }
+}

@@ -5,8 +5,8 @@ The Escrow contract issues reputation credentials (ratings) to freelancers after
 ## Validation Rules
 
 1. **Client authorization:** Only the contract client may call `issue_reputation`. Unauthorized callers fail with `UnauthorizedRole`.
-2. **Freelancer match:** The supplied freelancer address must match the contract's stored freelancer. Mismatches fail with `FreelancerMismatch`.
-3. **Self-rating prevention:** If `contract.client == contract.freelancer`, issuance fails with `SelfRating`. This guards against degenerate contracts (for example after client migration) and complements create-time `InvalidParticipant`.
+2. **Comment validation:** The comment must not be empty (`EmptyComment`) and must not exceed 200 characters (`CommentTooLong`).
+3. **Self-rating prevention:** If `contract.client == contract.freelancer`, issuance fails with `SelfRating`. This guards against degenerate contracts.
 4. **Contract completion gating:** Reputation can only be issued after the contract is `Completed`. Non-completed contracts fail with `NotCompleted`.
 5. **Rating bounds:** Ratings must be between `1` and `5` inclusive. Values outside this range fail with `InvalidRating`.
 6. **Duplicate issuance protection:** Reputation may only be issued once per contract. Subsequent attempts fail with `ReputationAlreadyIssued`.

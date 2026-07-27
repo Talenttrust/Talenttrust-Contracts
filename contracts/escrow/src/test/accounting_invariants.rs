@@ -398,3 +398,136 @@ fn exact_total_mode_rejects_second_deposit() {
     );
     assert_invariant(&client, id);
 }
+
+// ---------------------------------------------------------------------------
+// On-chain token balance conservation (issue #651)
+//
+// These tests register a real mock SAC, bind it, fund the client, and assert
+// after each operation that the escrow contract's *actual* token balance
+// equals the derived accounting balance:
+//
+//   contract_token_balance == funded_amount - released_amount - refunded_amount
+//                             + accumulated_protocol_fees
+//
+// i.e. the contract never holds less than it owes nor more than was deposited.
+// ---------------------------------------------------------------------------
+
+use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
+
+/// Register escrow, register and bind a mock SAC, and initialize. Returns
+/// `(escrow_client, sac_address, admin)`.
+fn sac_setup(env: &Env) -> (EscrowClient<'_>, Address, Address) {
+    let id = env.register(Escrow, ());
+    let client = EscrowClient::new(env, &id);
+    let admin = Address::generate(env);
+    let sac = env.register_stellar_asset_contract(admin.clone());
+    client.initialize(&admin);
+    client.bind_settlement_token(&sac);
+    (client, sac, admin)
+}
+
+/// Mint `amount` SAC tokens to `holder`.
+fn sac_mint(env: &Env, sac: &Address, holder: &Address, amount: i128) {
+    StellarAssetClient::new(env, sac).mint(holder, &amount);
+}
+
+/// Assert the on-chain token balance held by the escrow contract equals the
+/// derived accounting balance (`funded - released - refunded + accrued fees`).
+fn assert_balance_conservation(client: &EscrowClient, sac: &Address) {
+    let env = client.env.clone();
+    let d = client.get_contract(&1u32);
+    let accrued = client.get_accumulated_protocol_fees();
+    let derived = d.funded_amount - d.released_amount - d.refunded_amount + accrued;
+    let on_chain = TokenClient::new(&env, sac).balance(&client.address);
+    assert_eq!(
+        on_chain, derived,
+        "token balance {} != derived accounting {} (funded={}, released={}, refunded={}, fees={})",
+        on_chain, derived, d.funded_amount, d.released_amount, d.refunded_amount, accrued
+    );
+}
+
+#[test]
+fn balance_conserved_through_deposit() {
+    let env = make_env();
+    let (client, sac, _admin) = sac_setup(&env);
+    let (ca, fa) = participants(&env);
+
+    let id = client.create_contract(
+        &ca,
+        &fa,
+        &None,
+        &vec![&env, 100_i128, 200_i128],
+        &ReleaseAuthorization::ClientOnly,
+    );
+    assert_eq!(id, 1);
+
+    // Before any deposit the contract holds nothing and owes nothing.
+    assert_balance_conservation(&client, &sac);
+
+    let total = 300_i128;
+    sac_mint(&env, &sac, &ca, total);
+    assert!(client.deposit_funds(&id, &ca, &total));
+
+    // After deposit the contract holds exactly the funded amount.
+    assert_eq!(client.get_contract(&id).status, ContractStatus::Funded);
+    assert_eq!(client.get_contract(&id).funded_amount, total);
+    assert_eq!(TokenClient::new(&env, &sac).balance(&client.address), total);
+    assert_balance_conservation(&client, &sac);
+}
+
+#[test]
+fn balance_conserved_when_cancel_returns_full_remaining_balance() {
+    let env = make_env();
+    let (client, sac, _admin) = sac_setup(&env);
+    let (ca, fa) = participants(&env);
+
+    let id = client.create_contract(
+        &ca,
+        &fa,
+        &None,
+        &vec![&env, 100_i128, 200_i128],
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    let total = 300_i128;
+    sac_mint(&env, &sac, &ca, total);
+    assert!(client.deposit_funds(&id, &ca, &total));
+    assert_balance_conservation(&client, &sac);
+
+    // Cancel returns the full remaining balance to the client.
+    assert!(client.cancel_contract(&id, &ca));
+
+    let d = client.get_contract(&id);
+    assert_eq!(d.status, ContractStatus::Cancelled);
+    assert_eq!(d.refunded_amount, total, "cancel refunds the full balance");
+
+    // Contract holds nothing; client got the full amount back.
+    assert_eq!(TokenClient::new(&env, &sac).balance(&client.address), 0);
+    assert_eq!(TokenClient::new(&env, &sac).balance(&ca), total);
+    assert_balance_conservation(&client, &sac);
+}
+
+#[test]
+fn cancel_without_deposit_moves_no_tokens() {
+    let env = make_env();
+    let (client, sac, _admin) = sac_setup(&env);
+    let (ca, fa) = participants(&env);
+
+    let id = client.create_contract(
+        &ca,
+        &fa,
+        &None,
+        &vec![&env, 100_i128],
+        &ReleaseAuthorization::ClientOnly,
+    );
+    assert_balance_conservation(&client, &sac);
+
+    // Cancelling a never-funded contract is a no-op for token balances.
+    assert!(client.cancel_contract(&id, &ca));
+    let d = client.get_contract(&id);
+    assert_eq!(d.status, ContractStatus::Cancelled);
+    assert_eq!(d.funded_amount, 0);
+    assert_eq!(d.refunded_amount, 0);
+    assert_eq!(TokenClient::new(&env, &sac).balance(&client.address), 0);
+    assert_balance_conservation(&client, &sac);
+}

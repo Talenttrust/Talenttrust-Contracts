@@ -49,7 +49,6 @@ test tests::test_milestone_invariants_zero_amount - should panic ... ok
 test tests::test_milestone_invariants_partial_releases ... ok
 test tests::test_milestone_invariants_no_releases ... ok
 test tests::test_single_milestone_contract ... ok
-test tests::test_hello ... ok
 test tests::test_many_milestones_contract ... ok
 test tests::test_milestone_invariants_mismatch_released_sum - should panic ... ok
 test tests::test_release_milestone ... ok

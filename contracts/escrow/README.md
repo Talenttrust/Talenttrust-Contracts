@@ -2,6 +2,15 @@
 
 Rust/Soroban escrow contract for TalentTrust freelancer milestones.
 
+The crate-level rustdoc module map is in [`src/lib.rs`](src/lib.rs). Generate
+it from the repository root with:
+
+```bash
+cargo doc -p escrow --no-deps
+```
+
+Then open `target/doc/escrow/index.html`.
+
 ## Implemented Features
 
 - Create a contract between a client and a freelancer.
@@ -35,6 +44,16 @@ Rust/Soroban escrow contract for TalentTrust freelancer milestones.
 - `get_finalization_record(contract_id) -> Option<FinalizationRecord>`
 - `get_reputation(freelancer) -> Option<ReputationRecord>`
 - `get_pending_reputation_credits(freelancer) -> u32`
+
+### Protocol Fee Read API
+
+- `get_protocol_fee_bps() -> u32` — Returns the current protocol fee rate in basis points (0–10 000).  
+  Written by `set_protocol_fee_bps`. No authentication required. Returns `0` when unset. Bumps persistent TTL on access.
+
+- `get_accumulated_protocol_fees() -> i128` — Returns total protocol fees accumulated across all released milestones, in stroops.  
+  No authentication required. Returns `0` when no fees have been accumulated. Bumps persistent TTL on access.
+
+These entrypoints let off-chain dashboards and indexers read the current fee configuration and accrued revenue without scraping raw ledger entries.
 
 ## Important Integration Notes
 

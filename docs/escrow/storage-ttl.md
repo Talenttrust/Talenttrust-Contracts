@@ -52,7 +52,7 @@ All transient reads and writes go through the helpers in `contracts/escrow/src/t
 | `compute_expiry(env, ttl)` | Returns `sequence + ttl` (saturating). |
 | `store_with_ttl(env, key, value, ttl)` | Writes to temporary storage and sets TTL. |
 | `read_if_live(env, key)` | Returns `Some(v)` if live, `None` if absent or evicted. |
-| `extend_if_below_threshold(env, key, threshold, extend_to)` | Bumps TTL; returns `false` if key absent. |
+| `extend_if_below_threshold(env, key, threshold, extend_to)` | Bumps TTL only below the threshold; returns `false` if key is absent or evicted. |
 | `remove_transient(env, key)` | Explicit removal before auto-eviction. |
 | `has_transient(env, key)` | Returns `true` if the key is currently live. |
 
@@ -84,8 +84,11 @@ environments produce identical expiry values. This is verified by
 
 - If remaining TTL is **below** the bump threshold, the entry's TTL is
   extended to the full policy value.
-- If the entry is already fresh, the call is a no-op (Soroban only extends,
-  never shrinks).
+- If the entry is already fresh, including when its remaining TTL equals the
+  threshold, the call is a no-op (Soroban only extends, never shrinks).
+- The helper's boolean reports whether the key was live. Soroban does not expose
+  the resulting TTL to production contracts, so the test suite uses the
+  test-only `get_ttl` API to verify whether an extension occurred.
 - If the entry is absent or already evicted, the helper returns `false` and
   performs no write.
 
@@ -118,6 +121,7 @@ auto-eviction.
 | `migration_evicted_after_expiry` | `read_if_live` returns `None` one ledger after migration TTL |
 | `extend_returns_false_for_absent_key` | `extend_if_below_threshold` returns `false` when key absent |
 | `extend_returns_true_and_entry_survives_past_original_expiry` | Bump keeps entry live past original expiry |
+| `extend_is_a_no_op_when_remaining_ttl_is_at_threshold` | Exact threshold does not extend a fresh entry |
 | `extend_migration_returns_false_for_absent_key` | Same absent-key check for migration threshold |
 | `remove_transient_clears_entry_immediately` | Entry absent after `remove_transient` |
 | `remove_transient_is_idempotent` | Second `remove_transient` does not panic |

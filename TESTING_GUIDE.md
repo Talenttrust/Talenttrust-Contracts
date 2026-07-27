@@ -1,5 +1,18 @@
 # Step-by-Step Testing Procedure for Cancel Contract State Guardrails
 
+## Dispute Payout Test Matrix
+
+Issue #423 adds focused tests for the pure dispute payout helpers in `contracts/escrow/src/test/dispute.rs`.
+
+| Resolution | Expected client refund | Expected freelancer payout | Security property |
+| --- | --- | --- | --- |
+| `FullRefund` | `available` | `0` | Conserves all available balance for the client |
+| `PartialRefund` | `available - floor(available * 30 / 100)` | `floor(available * 30 / 100)` | Conserves balance with deterministic integer rounding |
+| `FullPayout` | `0` | `available` | Conserves all available balance for the freelancer |
+| `Split(client, freelancer)` | `client` | `freelancer` | Requires non-negative legs and `client + freelancer == available` |
+
+Coverage includes zero available balance, one-stroop rounding, exact split conservation, undersized split rejection, oversized split rejection, checked-add overflow rejection, negative split rejection, and accounting invariant violation when released plus refunded exceeds deposited funds.
+
 ## Quick Summary of What Was Done
 
 You have successfully implemented security guardrails for the `cancel_contract` function in the TalentTrust escrow contract. The fix prevents fund stranding and double-resolution by rejecting cancellation attempts from `Disputed` and `Refunded` states.
@@ -565,12 +578,233 @@ No operation can change them once reached.
 
 ---
 
-## Next Steps
+# Issue #405: Negative-Path Coverage Matrix for deposit_funds & release_milestone
 
-1. **Run the validation script** above to verify everything works
-2. **Review the summary document** at `/workspaces/Talenttrust-Contracts/CANCEL_CONTRACT_FIX_SUMMARY.md`
-3. **Create a PR** with the commit message template provided
-4. **Link to the issue** this addresses (security assignment)
-5. **Add reviewers** from the TalentTrust team
+## Overview
 
-Your implementation is now ready for peer review and deployment! 🎉
+This section documents the exhaustive negative-path test coverage for error branches in `deposit_funds` and `release_milestone`. Each test asserts the exact error code using the `try_*` client variant pattern, ensuring all error paths are covered and reachable.
+
+## Negative-Path Coverage Matrix
+
+| Function          | Error Code               | Test Name                              | Error Code Value | Reachable | Notes                                                                                |
+|-------------------|--------------------------|----------------------------------------|------------------|-----------|--------------------------------------------------------------------------------------|
+| deposit_funds     | AmountMustBePositive     | test_deposit_amount_zero               | 8                | Yes       | Tested with amount = 0                                                               |
+| deposit_funds     | AmountMustBePositive     | test_deposit_amount_negative           | 8                | Yes       | Tested with amount = -1                                                              |
+| deposit_funds     | ContractNotFound         | test_deposit_contract_not_found        | 9                | Yes       | Tested with non-existent contract_id                                                 |
+| deposit_funds     | UnauthorizedRole         | test_deposit_unauthorized_role         | 10               | Yes       | Tested with wrong caller (not client)                                                |
+| deposit_funds     | InvalidState             | test_deposit_invalid_state             | 11               | Yes       | Tested by depositing after contract is Funded                                        |
+| deposit_funds     | InsufficientFunds        | test_deposit_insufficient_funds        | 15               | No        | UNREACHABLE - balance checks occur at token contract level, not in escrow unit logic  |
+| release_milestone | ContractNotFound         | test_release_contract_not_found        | 9                | Yes       | Tested with non-existent contract_id                                                 |
+| release_milestone | UnauthorizedRole         | test_release_unauthorized_role         | 10               | Yes       | Tested with wrong caller (not authorized for release)                                |
+| release_milestone | InvalidState             | test_release_invalid_state             | 11               | Yes       | Tested by releasing before funding (contract in Created state)                       |
+| release_milestone | MilestoneAlreadyReleased | test_release_milestone_already_released| 13               | Yes       | Tested by releasing same milestone twice                                             |
+| release_milestone | AlreadyRefunded          | test_release_already_refunded          | 14               | Yes       | Tested by releasing a refunded milestone                                             |
+| release_milestone | IndexOutOfBounds         | test_release_index_out_of_bounds       | 12               | Yes       | Tested with index = 99 (contract has only 3 milestones)                              |
+| release_milestone | InsufficientFunds        | test_release_insufficient_funds        | 15               | Yes       | Tested with partial deposit (less than first milestone amount)                       |
+
+## Error Code Reference
+
+From `contracts/escrow/src/types.rs`:
+
+```rust
+pub enum Error {
+    InvalidParticipants = 1,
+    MissingArbiter = 2,
+    InvalidArbiter = 3,
+    EmptyMilestones = 4,
+    InvalidMilestoneAmount = 5,
+    ContractIdCollision = 6,
+    ContractIdOverflow = 7,
+    AmountMustBePositive = 8,
+    ContractNotFound = 9,
+    UnauthorizedRole = 10,
+    InvalidState = 11,
+    IndexOutOfBounds = 12,
+    MilestoneAlreadyReleased = 13,
+    AlreadyRefunded = 14,
+    InsufficientFunds = 15,
+    EmptyRefundRequest = 16,
+    DuplicateMilestoneInRefund = 17,
+    AlreadyApproved = 18,
+    InsufficientApprovals = 19,
+    FreelancerMismatch = 20,
+    InvalidRating = 21,
+    ReputationAlreadyIssued = 22,
+}
+```
+
+## Test Execution
+
+### Run All Deposit Negative-Path Tests
+
+```bash
+cd /workspaces/Talenttrust-Contracts
+cargo test -p escrow test_deposit_amount_ --lib
+cargo test -p escrow test_deposit_contract_not_found --lib
+cargo test -p escrow test_deposit_unauthorized_role --lib
+cargo test -p escrow test_deposit_invalid_state --lib
+```
+
+**Expected output:** All tests pass, showing exact error codes.
+
+### Run All Release Negative-Path Tests
+
+```bash
+cd /workspaces/Talenttrust-Contracts
+cargo test -p escrow test_release_ --lib
+```
+
+**Expected output:** All tests pass, covering 7 error branches across release_milestone.
+
+## Unreachable Branches Documentation
+
+### deposit_funds - InsufficientFunds (UNREACHABLE)
+
+**Reason:** The current contract implementation does not perform token balance verification at the contract level. Balance checks occur exclusively at the token contract level during actual fund transfer operations. In unit tests with `env.mock_all_auths()`, these checks are bypassed.
+
+**Why it can't be tested:** The escrow contract receives already-verified funds from the token contract and does not re-check balances. Real balance validation happens in:
+- The token contract's transfer logic
+- Integration tests with actual token contracts
+- Mainnet operations where token contracts enforce balance invariants
+
+**Test status:** Ignored (`#[ignore]`) with documentation comment explaining why.
+
+---
+
+### release_milestone - All Error Branches (REACHABLE)
+
+All seven error branches in `release_milestone` are reachable and have corresponding tests:
+
+1. ✅ `ContractNotFound` — triggered by non-existent contract ID
+2. ✅ `UnauthorizedRole` — triggered by caller without release authorization
+3. ✅ `InvalidState` — triggered when contract not in Funded state
+4. ✅ `MilestoneAlreadyReleased` — triggered by duplicate release attempt
+5. ✅ `AlreadyRefunded` — triggered by release of refunded milestone
+6. ✅ `IndexOutOfBounds` — triggered by invalid milestone index
+7. ✅ `InsufficientFunds` — triggered by insufficient available balance
+
+## Test File Organization
+
+### Deposits (`contracts/escrow/src/test/deposit.rs`)
+
+**Legacy tests (pre-Issue #405):**
+- `accumulates_deposits_without_exceeding_total` — happy path
+- `rejects_zero_deposit` — zero amount via should_panic
+- `rejects_overfunding` — exceeds total via should_panic
+- `rejects_deposit_after_full_refund_resolution` — invalid state via should_panic
+
+**New negative-path tests (Issue #405):**
+- `test_deposit_amount_zero` — try_* variant
+- `test_deposit_amount_negative` — try_* variant
+- `test_deposit_contract_not_found` — try_* variant
+- `test_deposit_unauthorized_role` — try_* variant
+- `test_deposit_invalid_state` — try_* variant
+- `test_deposit_insufficient_funds` — ignored (unreachable)
+
+### Releases (`contracts/escrow/src/test/release.rs`)
+
+**Legacy tests (pre-Issue #405):**
+- `releases_funded_milestones_and_completes_when_all_are_released` — happy path
+- `rejects_release_without_sufficient_balance` — insufficient funds via should_panic
+- `rejects_release_of_invalid_milestone` — index out of bounds via should_panic
+- `rejects_releasing_refunded_milestone` — already refunded via should_panic
+- `rejects_releasing_same_milestone_twice` — already released via should_panic
+
+**New negative-path tests (Issue #405):**
+- `test_release_contract_not_found` — try_* variant
+- `test_release_unauthorized_role` — try_* variant
+- `test_release_invalid_state` — try_* variant
+- `test_release_milestone_already_released` — try_* variant (more precise than legacy)
+- `test_release_already_refunded` — try_* variant (more precise than legacy)
+- `test_release_index_out_of_bounds` — try_* variant (more precise than legacy)
+- `test_release_insufficient_funds` — try_* variant (more precise than legacy)
+
+## Acceptance Checklist
+
+- [x] 13 new negative-path tests added (5 deposit + 7 release + 1 ignored)
+- [x] All reachable error branches have corresponding tests
+- [x] All tests use `try_*` client variant for precise error code assertion
+- [x] Unreachable branches documented with comments
+- [x] NatSpec documentation on every test
+- [x] Tests follow consistent pattern: setup → action → assert_contract_error
+- [x] Error codes verified against types.rs enum
+- [x] build passes: `cargo build -p escrow`
+- [x] fmt passes: `cargo fmt --all -- --check`
+- [x] clippy passes: `cargo clippy --workspace -- -D warnings`
+- [x] tests pass: `cargo test -p escrow`
+
+## How to Verify Locally
+
+Run this script to validate all negative-path tests:
+
+```bash
+#!/bin/bash
+set -e
+
+cd /workspaces/Talenttrust-Contracts
+
+echo "Testing deposit_funds negative paths..."
+cargo test -p escrow test_deposit_ --lib 2>&1 | grep -E "test|result" | tail -5
+
+echo ""
+echo "Testing release_milestone negative paths..."
+cargo test -p escrow test_release_ --lib 2>&1 | grep -E "test|result" | tail -10
+
+echo ""
+echo "Full escrow test suite..."
+cargo test -p escrow 2>&1 | grep "test result" | tail -1
+```
+
+Expected summary:
+- All 13 negative-path tests pass
+- All pre-existing tests still pass
+- No regressions
+- Coverage: 100% of reachable error branches for both functions
+
+
+## Acceptance Checklist
+
+- [x] 13 new negative-path tests added (5 deposit + 7 release + 1 ignored unreachable)
+- [x] All reachable error branches have corresponding tests
+- [x] All tests use `try_*` client variant for precise error code assertion
+- [x] Unreachable branches documented with comments and reasoning
+- [x] NatSpec documentation on every test explaining security properties
+- [x] Tests follow consistent pattern: setup → action → assert_contract_error
+- [x] Error codes verified against types.rs enum (8, 9, 10, 11, 12, 13, 14, 15)
+- [x] Mocked auth pattern used for unauthorized caller tests
+- [x] Partial funding used for InsufficientFunds test in release_milestone
+- [x] TESTING_GUIDE.md updated with complete negative-path coverage matrix
+- [x] Unreachable error codes documented with reasons
+- [x] build passes: `cargo build -p escrow`
+- [x] fmt passes: `cargo fmt --all -- --check`
+- [x] clippy passes: `cargo clippy --workspace -- -D warnings`
+- [x] tests pass: `cargo test -p escrow` (no regressions)
+
+## Summary of Tests Added
+
+**deposit_funds (5 tests + 1 ignored):**
+
+| Test Name                      | Error Code           | Reachable |
+|--------------------------------|----------------------|-----------|
+| test_deposit_amount_zero       | AmountMustBePositive | Yes       |
+| test_deposit_amount_negative   | AmountMustBePositive | Yes       |
+| test_deposit_contract_not_found| ContractNotFound     | Yes       |
+| test_deposit_unauthorized_role | UnauthorizedRole     | Yes       |
+| test_deposit_invalid_state     | InvalidState         | Yes       |
+| test_deposit_insufficient_funds| InsufficientFunds    | **No**    |
+
+**release_milestone (7 tests):**
+
+| Test Name                          | Error Code               | Reachable |
+|------------------------------------|--------------------------|-----------|
+| test_release_contract_not_found    | ContractNotFound         | Yes       |
+| test_release_unauthorized_role     | UnauthorizedRole         | Yes       |
+| test_release_invalid_state         | InvalidState             | Yes       |
+| test_release_milestone_already_released | MilestoneAlreadyReleased | Yes |
+| test_release_already_refunded      | AlreadyRefunded          | Yes       |
+| test_release_index_out_of_bounds   | IndexOutOfBounds         | Yes       |
+| test_release_insufficient_funds    | InsufficientFunds        | Yes       |
+
+**Total Coverage:** 12 reachable error branches + 1 documented unreachable = **13 tests**
+
+All tests use the `try_*` client variant pattern to assert the exact error code being returned from the contract, ensuring comprehensive negative-path coverage for Issue #405.

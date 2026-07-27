@@ -1,6 +1,7 @@
 use super::{
     assert_contract_error, complete_contract, create_contract, default_milestones,
-    generated_participants, register_client, total_milestone_amount, MILESTONE_ONE, MILESTONE_TWO,
+    generated_participants, register_client, total_milestone_amount, MILESTONE_ONE, MILESTONE_THREE,
+    MILESTONE_TWO,
 };
 use crate::{ContractStatus, DataKey, EscrowError, ReadinessChecklist, ReleaseAuthorization};
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -265,32 +266,26 @@ fn get_contract_fails_for_unknown_id() {
     );
 }
 
-// ─── MilestoneReleased ────────────────────────────────────────────────────────
+// ─── Milestone released flag (milestone vector) ───────────────────────────────
 
+/// `release_milestone` sets `ms.released = true` in the persisted milestone
+/// vector. There is no separate `DataKey::MilestoneReleased` storage key; the
+/// vector is the single source of truth for released state.
 #[test]
-fn milestone_released_written_on_release() {
+fn milestone_released_flag_set_in_vector_on_release() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
 
     let (client_addr, _, id) = create_contract(&env, &client);
     client.deposit_funds(&id, &client_addr, &total_milestone_amount());
+    client.approve_milestone_release(&id, &client_addr, &0);
     client.release_milestone(&id, &client_addr, &0);
 
-    env.as_contract(&client.address, || {
-        let v: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::MilestoneReleased(id, 0))
-            .unwrap_or(false);
-        assert!(v);
-        let v1: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::MilestoneReleased(id, 1))
-            .unwrap_or(false);
-        assert!(!v1);
-    });
+    let milestones = client.get_milestones(&id);
+    assert!(milestones.get(0).unwrap().released, "index 0 must be released");
+    assert!(!milestones.get(1).unwrap().released, "index 1 must not be released");
+    assert!(!milestones.get(2).unwrap().released, "index 2 must not be released");
 }
 
 #[test]
@@ -489,6 +484,66 @@ fn released_amount_tracks_milestone_amounts() {
     let r = client.get_contract(&id);
     assert_eq!(r.released_amount, total_milestone_amount());
     assert_eq!(r.status, ContractStatus::Completed);
+}
+
+// ─── get_milestone single-index reader (issue #649) ───────────────────────────
+
+#[test]
+fn get_milestone_index_zero_returns_first_milestone() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    // Default contract has three milestones: ONE, TWO, THREE.
+    let (_client_addr, _, id) = create_contract(&env, &client);
+
+    let m = client
+        .get_milestone(&id, &0u32)
+        .expect("index 0 is in bounds");
+    assert_eq!(m.amount, MILESTONE_ONE);
+    // It must match the entry returned by the full-vector reader.
+    assert_eq!(m, client.get_milestones(&id).get(0).unwrap());
+}
+
+#[test]
+fn get_milestone_last_valid_index_returns_last_milestone() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (_client_addr, _, id) = create_contract(&env, &client);
+
+    let milestones = client.get_milestones(&id);
+    let last = milestones.len() - 1;
+    let m = client
+        .get_milestone(&id, &last)
+        .expect("last index is in bounds");
+    assert_eq!(m.amount, MILESTONE_THREE);
+    assert_eq!(m, milestones.get(last).unwrap());
+}
+
+#[test]
+fn get_milestone_out_of_bounds_returns_none() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (_client_addr, _, id) = create_contract(&env, &client);
+
+    let len = client.get_milestones(&id).len();
+    // One past the last valid index must return None, not panic.
+    assert!(client.get_milestone(&id, &len).is_none());
+    assert!(client.get_milestone(&id, &(len + 5)).is_none());
+}
+
+#[test]
+fn get_milestone_unknown_contract_panics_contract_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    // No contract has been created; id 999 was never allocated.
+    assert_contract_error(
+        client.try_get_milestone(&999u32, &0u32),
+        EscrowError::ContractNotFound,
+    );
 }
 
 #[test]

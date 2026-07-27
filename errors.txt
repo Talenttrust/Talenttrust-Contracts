@@ -1,0 +1,4231 @@
+﻿error[E0428]: the name `amount_validation` is defined multiple times
+  --> contracts\escrow\src\lib.rs:28:1
+   |
+27 | mod amount_validation;
+   | ---------------------- previous definition of the module `amount_validation` here
+28 | mod amount_validation;
+   | ^^^^^^^^^^^^^^^^^^^^^^ `amount_validation` redefined here
+   |
+   = note: `amount_validation` must be defined only once in the type namespace of this module
+
+
+error[E0255]: the name `safe_add_amounts` is defined multiple times
+   --> contracts\escrow\src\lib.rs:106:1
+    |
+ 40 | pub use amount_validation::{safe_add_amounts, safe_subtract_...
+    |                             ---------------- previous import of the value `safe_add_amounts` here
+...
+106 |...ption<i128> {
+    |...^^^^^^^^^^^ `safe_add_amounts` redefined here
+    |
+    = note: `safe_add_amounts` must be defined only once in the value namespace of this module
+help: you can use `as` to change the binding name of the import
+    |
+ 40 | pub use amount_validation::{safe_add_amounts as other_safe_add_amounts, safe_subtract_amounts};
+    |                                              +++++++++++++++++++++++++
+
+
+error[E0252]: the name `safe_subtract_amounts` is defined multiple times
+  --> contracts\escrow\src\lib.rs:51:16
+   |
+40 | ...nt_validation::{safe_add_amounts, safe_subtract_amounts};
+   |                                      --------------------- previous import of the value `safe_subtract_amounts` here
+...
+51 | ...se amount_val...ts;
+   |       ^^^^^^^^^^...^^ `safe_subtract_amounts` reimported here
+   |
+   = note: `safe_subtract_amounts` must be defined only once in the value namespace of this module
+
+
+error[E0428]: the name `__propose_client_migration` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__propose_client_migration` redefined here
+    |
+    = note: `__propose_client_migration` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__accept_client_migration` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__accept_client_migration` redefined here
+    |
+    = note: `__accept_client_migration` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__has_pending_client_migration` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__has_pending_client_migration` redefined here
+    |
+    = note: `__has_pending_client_migration` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__get_pending_client_migration` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__get_pending_client_migration` redefined here
+    |
+    = note: `__get_pending_client_migration` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__finalize_contract` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__finalize_contract` redefined here
+    |
+    = note: `__finalize_contract` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__get_finalization_record` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__get_finalization_record` redefined here
+    |
+    = note: `__get_finalization_record` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__raise_dispute` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__raise_dispute` redefined here
+    |
+    = note: `__raise_dispute` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__resolve_dispute` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__resolve_dispute` redefined here
+    |
+    = note: `__resolve_dispute` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__SPEC_XDR_FN_PROPOSE_CLIENT_MIGRATION` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__SPEC_XDR_FN_PROPOSE_CLIENT_MIGRATION` redefined here
+    |
+    = note: `__SPEC_XDR_FN_PROPOSE_CLIENT_MIGRATION` must be defined only once in the value namespace of this module
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__SPEC_XDR_FN_ACCEPT_CLIENT_MIGRATION` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__SPEC_XDR_FN_ACCEPT_CLIENT_MIGRATION` redefined here
+    |
+    = note: `__SPEC_XDR_FN_ACCEPT_CLIENT_MIGRATION` must be defined only once in the value namespace of this module
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__SPEC_XDR_FN_HAS_PENDING_CLIENT_MIGRATION` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__SPEC_XDR_FN_HAS_PENDING_CLIENT_MIGRATION` redefined here
+    |
+    = note: `__SPEC_XDR_FN_HAS_PENDING_CLIENT_MIGRATION` must be defined only once in the value namespace of this module
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__SPEC_XDR_FN_GET_PENDING_CLIENT_MIGRATION` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__SPEC_XDR_FN_GET_PENDING_CLIENT_MIGRATION` redefined here
+    |
+    = note: `__SPEC_XDR_FN_GET_PENDING_CLIENT_MIGRATION` must be defined only once in the value namespace of this module
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__SPEC_XDR_FN_FINALIZE_CONTRACT` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__SPEC_XDR_FN_FINALIZE_CONTRACT` redefined here
+    |
+    = note: `__SPEC_XDR_FN_FINALIZE_CONTRACT` must be defined only once in the value namespace of this module
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__SPEC_XDR_FN_GET_FINALIZATION_RECORD` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__SPEC_XDR_FN_GET_FINALIZATION_RECORD` redefined here
+    |
+    = note: `__SPEC_XDR_FN_GET_FINALIZATION_RECORD` must be defined only once in the value namespace of this module
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__SPEC_XDR_FN_RAISE_DISPUTE` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__SPEC_XDR_FN_RAISE_DISPUTE` redefined here
+    |
+    = note: `__SPEC_XDR_FN_RAISE_DISPUTE` must be defined only once in the value namespace of this module
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0428]: the name `__SPEC_XDR_FN_RESOLVE_DISPUTE` is defined multiple times
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__SPEC_XDR_FN_RESOLVE_DISPUTE` redefined here
+    |
+    = note: `__SPEC_XDR_FN_RESOLVE_DISPUTE` must be defined only once in the value namespace of this module
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error: cannot find macro `format` in this scope
+  --> contracts\escrow\src\deposit.rs:80:9
+   |
+80 | ...   format!("...
+   |       ^^^^^^
+
+
+error: cannot find attribute `contracttype` in this scope
+   --> contracts\escrow\src\governance.rs:7:3
+    |
+  7 | #[contracttype]
+    |   ^^^^^^^^^^^^
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-macros-22.0.11\src\lib.rs:196:1
+    |
+196 |...TokenStream {
+    |...----------- similarly named attribute macro `contractimpl` defined here
+    |
+help: an attribute macro with a similar name exists
+    |
+  7 - #[contracttype]
+  7 + #[contractimpl]
+    |
+help: consider importing one of these attribute macros
+    |
+  1 + use crate::contracttype;
+    |
+  1 + use soroban_sdk::contracttype;
+    |
+
+
+error: cannot find attribute `contracttype` in this scope
+   --> contracts\escrow\src\dispute.rs:12:3
+    |
+ 12 | #[contracttype]
+    |   ^^^^^^^^^^^^
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-macros-22.0.11\src\lib.rs:196:1
+    |
+196 |...TokenStream {
+    |...----------- similarly named attribute macro `contractimpl` defined here
+    |
+help: an attribute macro with a similar name exists
+    |
+ 12 - #[contracttype]
+ 12 + #[contractimpl]
+    |
+help: consider importing one of these attribute macros
+    |
+  3 + use crate::contracttype;
+    |
+  3 + use soroban_sdk::contracttype;
+    |
+
+
+error[E0425]: cannot find function `register_client` in this scope
+  --> contracts\escrow\src\deposit.rs:68:18
+   |
+68 | ... = register_client(&e...
+   |       ^^^^^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing this function
+   |
+ 1 + use crate::test::register_client;
+   |
+
+
+error[E0425]: cannot find function `create_contract` in this scope
+  --> contracts\escrow\src\deposit.rs:69:41
+   |
+69 | ... = create_contract(&e...
+   |       ^^^^^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing this function
+   |
+ 1 + use crate::test::create_contract;
+   |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+  --> contracts\escrow\src\deposit.rs:74:10
+   |
+74 | ...  &total_milestone_amount(),
+   |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing this function
+   |
+ 1 + use crate::test::total_milestone_amount;
+   |
+
+
+error[E0425]: cannot find type `Error` in this scope
+  --> contracts\escrow\src\dispute.rs:42:27
+   |
+42 | ...), Error> {
+   |       ^^^^^ not found in this scope
+   |
+help: consider importing one of these items
+   |
+ 3 + use crate::Error;
+   |
+ 3 + use core::error::Error;
+   |
+ 3 + use core::fmt::Error;
+   |
+ 3 + use proptest::string::Error;
+   |
+   = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> contracts\escrow\src\dispute.rs:47:16
+   |
+47 | ...or(Error::Ac...
+   |       ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 3 + use crate::Error;
+   |
+ 3 + use core::error::Error;
+   |
+ 3 + use core::fmt::Error;
+   |
+ 3 + use proptest::string::Error;
+   |
+   = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> contracts\escrow\src\dispute.rs:49:20
+   |
+49 | ...rr(Error::Ac...
+   |       ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 3 + use crate::Error;
+   |
+ 3 + use core::error::Error;
+   |
+ 3 + use core::fmt::Error;
+   |
+ 3 + use proptest::string::Error;
+   |
+   = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> contracts\escrow\src\dispute.rs:58:24
+   |
+58 | ...or(Error::Po...
+   |       ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 3 + use crate::Error;
+   |
+ 3 + use core::error::Error;
+   |
+ 3 + use core::fmt::Error;
+   |
+ 3 + use proptest::string::Error;
+   |
+   = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> contracts\escrow\src\dispute.rs:64:28
+   |
+64 | ...rr(Error::In...
+   |       ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 3 + use crate::Error;
+   |
+ 3 + use core::error::Error;
+   |
+ 3 + use core::fmt::Error;
+   |
+ 3 + use proptest::string::Error;
+   |
+   = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> contracts\escrow\src\dispute.rs:67:24
+   |
+67 | ...or(Error::Po...
+   |       ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 3 + use crate::Error;
+   |
+ 3 + use core::error::Error;
+   |
+ 3 + use core::fmt::Error;
+   |
+ 3 + use proptest::string::Error;
+   |
+   = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> contracts\escrow\src\dispute.rs:69:28
+   |
+69 | ...rr(Error::In...
+   |       ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 3 + use crate::Error;
+   |
+ 3 + use core::error::Error;
+   |
+ 3 + use core::fmt::Error;
+   |
+ 3 + use proptest::string::Error;
+   |
+   = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> contracts\escrow\src\dispute.rs:98:53
+   |
+98 | ...or(Error::Co...
+   |       ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 3 + use crate::Error;
+   |
+ 3 + use core::error::Error;
+   |
+ 3 + use core::fmt::Error;
+   |
+ 3 + use proptest::string::Error;
+   |
+   = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\dispute.rs:101:34
+    |
+101 | ...or(Error::U...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\dispute.rs:104:34
+    |
+104 | ...or(Error::A...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\dispute.rs:109:34
+    |
+109 | ...or(Error::I...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\dispute.rs:137:53
+    |
+137 | ...or(Error::C...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\dispute.rs:140:34
+    |
+140 | ...or(Error::I...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\dispute.rs:143:34
+    |
+143 | ...or(Error::U...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\dispute.rs:150:53
+    |
+150 | ...or(Error::P...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\dispute.rs:152:53
+    |
+152 | ...or(Error::P...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\dispute.rs:157:34
+    |
+157 | ...or(Error::A...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> contracts\escrow\src\governance.rs:33:53
+   |
+33 | ...or(Error::Co...
+   |       ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 1 + use crate::Error;
+   |
+ 1 + use core::error::Error;
+   |
+ 1 + use core::fmt::Error;
+   |
+ 1 + use proptest::string::Error;
+   |
+   = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> contracts\escrow\src\governance.rs:73:53
+   |
+73 | ...or(Error::Co...
+   |       ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 1 + use crate::Error;
+   |
+ 1 + use core::error::Error;
+   |
+ 1 + use core::fmt::Error;
+   |
+ 1 + use proptest::string::Error;
+   |
+   = and 3 other candidates
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\governance.rs:102:53
+    |
+102 | ...or(Error::I...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  1 + use crate::Error;
+    |
+  1 + use core::error::Error;
+    |
+  1 + use core::fmt::Error;
+    |
+  1 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0425]: cannot find value `ADMIN_ROTATION_MIN_DELAY_LEDGERS` in this scope
+   --> contracts\escrow\src\governance.rs:108:22
+    |
+108 | ... < ADMIN_ROTATION_MIN_DELAY_LEDGERS {
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this constant through its public re-export
+    |
+  1 + use crate::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
+    |
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\governance.rs:119:53
+    |
+119 | ...or(Error::C...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  1 + use crate::Error;
+    |
+  1 + use core::error::Error;
+    |
+  1 + use core::fmt::Error;
+    |
+  1 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+  --> contracts\escrow\src\test\dispute.rs:76:9
+   |
+76 | ...   resolution_payouts(&c...
+   |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing this function
+   |
+ 3 + use crate::dispute::resolution_payouts;
+   |
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+  --> contracts\escrow\src\test\dispute.rs:88:9
+   |
+88 | ...   resolution_payouts(&c...
+   |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing this function
+   |
+ 3 + use crate::dispute::resolution_payouts;
+   |
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+   --> contracts\escrow\src\test\dispute.rs:100:9
+    |
+100 | ...   resolution_payouts(&c...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::resolution_payouts;
+    |
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+   --> contracts\escrow\src\test\dispute.rs:113:9
+    |
+113 | ...   resolution_payouts(&z...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::resolution_payouts;
+    |
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+   --> contracts\escrow\src\test\dispute.rs:117:9
+    |
+117 | ...   resolution_payouts(&o...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::resolution_payouts;
+    |
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+   --> contracts\escrow\src\test\dispute.rs:129:9
+    |
+129 | ...   resolution_payouts(&c...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::resolution_payouts;
+    |
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\test\dispute.rs:130:13
+    |
+130 | ...rr(Error::I...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+   --> contracts\escrow\src\test\dispute.rs:133:9
+    |
+133 | ...   resolution_payouts(&c...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::resolution_payouts;
+    |
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\test\dispute.rs:134:13
+    |
+134 | ...rr(Error::I...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+   --> contracts\escrow\src\test\dispute.rs:145:9
+    |
+145 | ...   resolution_payouts(&c...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::resolution_payouts;
+    |
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\test\dispute.rs:146:13
+    |
+146 | ...rr(Error::I...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+   --> contracts\escrow\src\test\dispute.rs:149:9
+    |
+149 | ...   resolution_payouts(&c...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::resolution_payouts;
+    |
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\test\dispute.rs:150:13
+    |
+150 | ...rr(Error::I...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+   --> contracts\escrow\src\test\dispute.rs:162:9
+    |
+162 | ...   resolution_payouts(&c...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::resolution_payouts;
+    |
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+   --> contracts\escrow\src\test\dispute.rs:166:9
+    |
+166 | ...   resolution_payouts(&z...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::resolution_payouts;
+    |
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+   --> contracts\escrow\src\test\dispute.rs:178:9
+    |
+178 | ...   resolution_payouts(&c...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::resolution_payouts;
+    |
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\test\dispute.rs:179:13
+    |
+179 | ...rr(Error::P...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0425]: cannot find function `resolution_payouts` in this scope
+   --> contracts\escrow\src\test\dispute.rs:190:9
+    |
+190 | ...   resolution_payouts(&c...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::resolution_payouts;
+    |
+
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> contracts\escrow\src\test\dispute.rs:191:13
+    |
+191 | ...rr(Error::A...
+    |       ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  3 + use crate::Error;
+    |
+  3 + use core::error::Error;
+    |
+  3 + use core::fmt::Error;
+    |
+  3 + use proptest::string::Error;
+    |
+    = and 3 other candidates
+
+
+error[E0425]: cannot find function `final_status_after_resolution` in this scope
+   --> contracts\escrow\src\test\dispute.rs:203:9
+    |
+203 | ...   final_status_after_resolution(&f...
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::final_status_after_resolution;
+    |
+
+
+error[E0425]: cannot find function `final_status_after_resolution` in this scope
+   --> contracts\escrow\src\test\dispute.rs:207:9
+    |
+207 | ...   final_status_after_resolution(&p...
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  3 + use crate::dispute::final_status_after_resolution;
+    |
+
+
+error[E0425]: cannot find function `assert_contract_error` in this scope
+   --> contracts\escrow\src\test\persistence.rs:358:5
+    |
+358 |     assert_contract_error(cl...
+    |     ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+note: function `crate::test::release_authorization::assert_contract_error` exists but is inaccessible
+   --> contracts\escrow\src\test\release_authorization.rs:47:1
+    |
+ 47 | / fn assert_co...
+ 48 | |     result: ...
+ 49 | |     expected...
+ 50 | | ) where
+...   |
+ 63 | | }
+    | |_^ not accessible
+help: consider importing this function
+    |
+  1 + use crate::test::assert_contract_error;
+    |
+
+
+error[E0425]: cannot find function `assert_contract_error` in this scope
+   --> contracts\escrow\src\test\persistence.rs:369:5
+    |
+369 |     assert_contract_error(cl...
+    |     ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+note: function `crate::test::release_authorization::assert_contract_error` exists but is inaccessible
+   --> contracts\escrow\src\test\release_authorization.rs:47:1
+    |
+ 47 | / fn assert_co...
+ 48 | |     result: ...
+ 49 | |     expected...
+ 50 | | ) where
+...   |
+ 63 | | }
+    | |_^ not accessible
+help: consider importing this function
+    |
+  1 + use crate::test::assert_contract_error;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:409:63
+    |
+409 | ..., &total_milestone_amount()));
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:412:38
+    |
+412 | ...t, total_milestone_amount());
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find value `MILESTONE_ONE` in this scope
+   --> contracts\escrow\src\test\persistence.rs:417:47
+    |
+417 | ...t, MILESTONE_ONE);
+    |       ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this constant
+    |
+  1 + use crate::test::MILESTONE_ONE;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:418:45
+    |
+418 | ...t, total_milestone_amount());
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:430:63
+    |
+430 | ..., &total_milestone_amount()));
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:448:46
+    |
+448 | ...t, total_milestone_amount());
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find value `MILESTONE_ONE` in this scope
+   --> contracts\escrow\src\test\persistence.rs:449:48
+    |
+449 | ...t, MILESTONE_ONE);
+    |       ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this constant
+    |
+  1 + use crate::test::MILESTONE_ONE;
+    |
+
+
+error[E0425]: cannot find function `assert_contract_error` in this scope
+   --> contracts\escrow\src\test\persistence.rs:462:5
+    |
+462 |     assert_contract_error(
+    |     ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+note: function `crate::test::release_authorization::assert_contract_error` exists but is inaccessible
+   --> contracts\escrow\src\test\release_authorization.rs:47:1
+    |
+ 47 | / fn assert_co...
+ 48 | |     result: ...
+ 49 | |     expected...
+ 50 | | ) where
+...   |
+ 63 | | }
+    | |_^ not accessible
+help: consider importing this function
+    |
+  1 + use crate::test::assert_contract_error;
+    |
+
+
+error[E0425]: cannot find function `assert_contract_error` in this scope
+   --> contracts\escrow\src\test\persistence.rs:476:5
+    |
+476 |     assert_contract_error(cl...
+    |     ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+note: function `crate::test::release_authorization::assert_contract_error` exists but is inaccessible
+   --> contracts\escrow\src\test\release_authorization.rs:47:1
+    |
+ 47 | / fn assert_co...
+ 48 | |     result: ...
+ 49 | |     expected...
+ 50 | | ) where
+...   |
+ 63 | | }
+    | |_^ not accessible
+help: consider importing this function
+    |
+  1 + use crate::test::assert_contract_error;
+    |
+
+
+error[E0425]: cannot find value `MILESTONE_ONE` in this scope
+   --> contracts\escrow\src\test\persistence.rs:492:51
+    |
+492 | ...t, MILESTONE_ONE);
+    |       ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this constant
+    |
+  1 + use crate::test::MILESTONE_ONE;
+    |
+
+
+error[E0425]: cannot find value `MILESTONE_TWO` in this scope
+   --> contracts\escrow\src\test\persistence.rs:493:51
+    |
+493 | ...t, MILESTONE_TWO);
+    |       ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this constant
+    |
+  1 + use crate::test::MILESTONE_TWO;
+    |
+
+
+error[E0425]: cannot find value `MILESTONE_THREE` in this scope
+   --> contracts\escrow\src\test\persistence.rs:494:51
+    |
+494 | ...t, MILESTONE_THREE);
+    |       ^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this constant
+    |
+  1 + use crate::test::MILESTONE_THREE;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:512:63
+    |
+512 | ..., &total_milestone_amount()));
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:574:63
+    |
+574 | ..., &total_milestone_amount()));
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:578:9
+    |
+578 | ...   total_milestone_amount()
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:589:63
+    |
+589 | ..., &total_milestone_amount()));
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:592:20
+    |
+592 | ... = total_milestone_amount() ...
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find value `MILESTONE_ONE` in this scope
+   --> contracts\escrow\src\test\persistence.rs:592:47
+    |
+592 | ... - MILESTONE_ONE;
+    |       ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this constant
+    |
+  1 + use crate::test::MILESTONE_ONE;
+    |
+
+
+error[E0425]: cannot find function `complete_contract` in this scope
+   --> contracts\escrow\src\test\persistence.rs:604:57
+    |
+604 | ... = complete_contract(&e...
+    |       ^^^^^^^^^^^^^^^^^
+    |
+   ::: contracts\escrow\src\test\mod.rs:55:1
+    |
+ 55 |...dress, u32) {
+    |...----------- similarly named function `create_contract` defined here
+    |
+help: a function with a similar name exists
+    |
+604 -     let (_client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
+604 +     let (_client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::complete_contract;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:616:63
+    |
+616 | ..., &total_milestone_amount()));
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:636:63
+    |
+636 | ..., &total_milestone_amount()));
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+   --> contracts\escrow\src\test\persistence.rs:662:63
+    |
+662 | ..., &total_milestone_amount()));
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::total_milestone_amount;
+    |
+
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts\escrow\src\test\persistence.rs:691:28
+    |
+691 | ... = ttl::LED...
+    |       ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+    = help: if you wanted to use a crate named `ttl`, use `cargo add ttl` to add it to your `Cargo.toml`
+help: consider importing this module
+    |
+  1 + use crate::ttl;
+    |
+
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts\escrow\src\test\persistence.rs:692:39
+    |
+692 | ... = ttl::LED...
+    |       ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+    = help: if you wanted to use a crate named `ttl`, use `cargo add ttl` to add it to your `Cargo.toml`
+help: consider importing this module
+    |
+  1 + use crate::ttl;
+    |
+
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts\escrow\src\test\persistence.rs:708:26
+    |
+708 | ... = ttl::PER...
+    |       ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+    = help: if you wanted to use a crate named `ttl`, use `cargo add ttl` to add it to your `Cargo.toml`
+help: consider importing this module
+    |
+  1 + use crate::ttl;
+    |
+
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts\escrow\src\test\persistence.rs:709:21
+    |
+709 | ... = ttl::PER...
+    |       ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+    = help: if you wanted to use a crate named `ttl`, use `cargo add ttl` to add it to your `Cargo.toml`
+help: consider importing this module
+    |
+  1 + use crate::ttl;
+    |
+
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts\escrow\src\test\persistence.rs:760:26
+    |
+760 | ... = ttl::PER...
+    |       ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+    = help: if you wanted to use a crate named `ttl`, use `cargo add ttl` to add it to your `Cargo.toml`
+help: consider importing this module
+    |
+  1 + use crate::ttl;
+    |
+
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts\escrow\src\test\persistence.rs:761:21
+    |
+761 | ... = ttl::PER...
+    |       ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+    = help: if you wanted to use a crate named `ttl`, use `cargo add ttl` to add it to your `Cargo.toml`
+help: consider importing this module
+    |
+  1 + use crate::ttl;
+    |
+
+
+error[E0425]: cannot find function `default_milestones` in this scope
+   --> contracts\escrow\src\test\persistence.rs:777:34
+    |
+777 | ...), default_milestones(&e...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::default_milestones;
+    |
+
+
+error[E0425]: cannot find function `default_milestones` in this scope
+   --> contracts\escrow\src\test\persistence.rs:796:40
+    |
+796 | ...), default_milestones(&e...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::default_milestones;
+    |
+
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts\escrow\src\test\persistence.rs:811:26
+    |
+811 | ... = ttl::PER...
+    |       ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+    = help: if you wanted to use a crate named `ttl`, use `cargo add ttl` to add it to your `Cargo.toml`
+help: consider importing this module
+    |
+  1 + use crate::ttl;
+    |
+
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts\escrow\src\test\persistence.rs:812:21
+    |
+812 | ... = ttl::PER...
+    |       ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+    = help: if you wanted to use a crate named `ttl`, use `cargo add ttl` to add it to your `Cargo.toml`
+help: consider importing this module
+    |
+  1 + use crate::ttl;
+    |
+
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts\escrow\src\test\persistence.rs:856:26
+    |
+856 | ... = ttl::PER...
+    |       ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+    = help: if you wanted to use a crate named `ttl`, use `cargo add ttl` to add it to your `Cargo.toml`
+help: consider importing this module
+    |
+  1 + use crate::ttl;
+    |
+
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts\escrow\src\test\persistence.rs:857:21
+    |
+857 | ... = ttl::PER...
+    |       ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+    = help: if you wanted to use a crate named `ttl`, use `cargo add ttl` to add it to your `Cargo.toml`
+help: consider importing this module
+    |
+  1 + use crate::ttl;
+    |
+
+
+error[E0425]: cannot find function `assert_contract_error` in this scope
+   --> contracts\escrow\src\test\persistence.rs:917:9
+    |
+917 | ...   assert_contract_error(
+    |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+note: function `crate::test::release_authorization::assert_contract_error` exists but is inaccessible
+   --> contracts\escrow\src\test\release_authorization.rs:47:1
+    |
+ 47 | / fn assert_co...
+ 48 | |     result: ...
+ 49 | |     expected...
+ 50 | | ) where
+...   |
+ 63 | | }
+    | |_^ not accessible
+help: consider importing this function
+    |
+  1 + use crate::test::assert_contract_error;
+    |
+
+
+error[E0425]: cannot find function `assert_contract_error` in this scope
+   --> contracts\escrow\src\test\persistence.rs:921:9
+    |
+921 | ...   assert_contract_error(
+    |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+note: function `crate::test::release_authorization::assert_contract_error` exists but is inaccessible
+   --> contracts\escrow\src\test\release_authorization.rs:47:1
+    |
+ 47 | / fn assert_co...
+ 48 | |     result: ...
+ 49 | |     expected...
+ 50 | | ) where
+...   |
+ 63 | | }
+    | |_^ not accessible
+help: consider importing this function
+    |
+  1 + use crate::test::assert_contract_error;
+    |
+
+
+error[E0425]: cannot find function `assert_contract_error` in this scope
+   --> contracts\escrow\src\test\persistence.rs:964:5
+    |
+964 |     assert_contract_error(cl...
+    |     ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+note: function `crate::test::release_authorization::assert_contract_error` exists but is inaccessible
+   --> contracts\escrow\src\test\release_authorization.rs:47:1
+    |
+ 47 | / fn assert_co...
+ 48 | |     result: ...
+ 49 | |     expected...
+ 50 | | ) where
+...   |
+ 63 | | }
+    | |_^ not accessible
+help: consider importing this function
+    |
+  1 + use crate::test::assert_contract_error;
+    |
+
+
+error[E0425]: cannot find function `assert_contract_error` in this scope
+   --> contracts\escrow\src\test\persistence.rs:965:5
+    |
+965 |     assert_contract_error(cl...
+    |     ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+note: function `crate::test::release_authorization::assert_contract_error` exists but is inaccessible
+   --> contracts\escrow\src\test\release_authorization.rs:47:1
+    |
+ 47 | / fn assert_co...
+ 48 | |     result: ...
+ 49 | |     expected...
+ 50 | | ) where
+...   |
+ 63 | | }
+    | |_^ not accessible
+help: consider importing this function
+    |
+  1 + use crate::test::assert_contract_error;
+    |
+
+
+error[E0425]: cannot find function `assert_contract_error` in this scope
+   --> contracts\escrow\src\test\persistence.rs:966:5
+    |
+966 |     assert_contract_error(
+    |     ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+note: function `crate::test::release_authorization::assert_contract_error` exists but is inaccessible
+   --> contracts\escrow\src\test\release_authorization.rs:47:1
+    |
+ 47 | / fn assert_co...
+ 48 | |     result: ...
+ 49 | |     expected...
+ 50 | | ) where
+...   |
+ 63 | | }
+    | |_^ not accessible
+help: consider importing this function
+    |
+  1 + use crate::test::assert_contract_error;
+    |
+
+
+error[E0425]: cannot find function `generated_participants` in this scope
+   --> contracts\escrow\src\test\persistence.rs:971:18
+    |
+971 | ... = generated_participants(&e...
+    |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::generated_participants;
+    |
+
+
+error[E0425]: cannot find function `default_milestones` in this scope
+   --> contracts\escrow\src\test\persistence.rs:976:10
+    |
+976 | ...  &default_milestones(&e...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::default_milestones;
+    |
+
+
+error[E0425]: cannot find function `default_milestones` in this scope
+   --> contracts\escrow\src\test\persistence.rs:987:34
+    |
+987 | ...), default_milestones(&e...
+    |       ^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  1 + use crate::test::default_milestones;
+    |
+
+
+error[E0425]: cannot find function `total_milestone_amount` in this scope
+    --> contracts\escrow\src\test\persistence.rs:1006:63
+     |
+1006 | ..., &total_milestone_amount()));
+     |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+     |
+help: consider importing this function
+     |
+   1 + use crate::test::total_milestone_amount;
+     |
+
+
+error[E0425]: cannot find function `assert_contract_error` in this scope
+    --> contracts\escrow\src\test\persistence.rs:1023:5
+     |
+1023 |     assert_contract_error(
+     |     ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+     |
+note: function `crate::test::release_authorization::assert_contract_error` exists but is inaccessible
+    --> contracts\escrow\src\test\release_authorization.rs:47:1
+     |
+  47 | / fn assert_c...
+  48 | |     result:...
+  49 | |     expecte...
+  50 | | ) where
+...    |
+  63 | | }
+     | |_^ not accessible
+help: consider importing this function
+     |
+   1 + use crate::test::assert_contract_error;
+     |
+
+
+error[E0425]: cannot find function `assert_contract_error` in this scope
+    --> contracts\escrow\src\test\persistence.rs:1027:5
+     |
+1027 |     assert_contract_error(
+     |     ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+     |
+note: function `crate::test::release_authorization::assert_contract_error` exists but is inaccessible
+    --> contracts\escrow\src\test\release_authorization.rs:47:1
+     |
+  47 | / fn assert_c...
+  48 | |     result:...
+  49 | |     expecte...
+  50 | | ) where
+...    |
+  63 | | }
+     | |_^ not accessible
+help: consider importing this function
+     |
+   1 + use crate::test::assert_contract_error;
+     |
+
+
+error[E0592]: duplicate definitions with name `raise_dispute`
+   --> contracts\escrow\src\dispute.rs:89:5
+    |
+ 89 |    ...ss) -> bool {
+    |    ...^^^^^^^^^^^ duplicate definitions for `raise_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:894:5
+    |
+894 |    ...ss) -> bool {
+    |    ...----------- other definition for `raise_dispute`
+
+
+error[E0592]: duplicate definitions with name `resolve_dispute`
+   --> contracts\escrow\src\dispute.rs:123:5
+    |
+123 | /     pub fn resol...
+124 | |         env: Env,
+125 | |         contract...
+126 | |         arbiter:...
+127 | |         resoluti...
+128 | |     ) -> bool {
+    | |_____________^ duplicate definitions for `resolve_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:899:5
+    |
+899 | /     pub fn resol...
+900 | |         env: Env,
+901 | |         contract...
+902 | |         arbiter:...
+903 | |         resoluti...
+904 | |     ) -> bool {
+    | |_____________- other definition for `resolve_dispute`
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_raise_dispute`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ duplicate definitions for `spec_xdr_raise_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | --------------- other definition for `spec_xdr_raise_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_raise_dispute`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ duplicate definitions for `spec_xdr_raise_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | --------------- other definition for `spec_xdr_raise_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_resolve_dispute`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ duplicate definitions for `spec_xdr_resolve_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | --------------- other definition for `spec_xdr_resolve_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_resolve_dispute`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ duplicate definitions for `spec_xdr_resolve_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | --------------- other definition for `spec_xdr_resolve_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `set_governed_params`
+    --> contracts\escrow\src\governance.rs:146:5
+     |
+ 146 | /     pub fn set_g...
+ 147 | |         env: Env,
+ 148 | |         admin: A...
+ 149 | |         protocol...
+ 150 | |         max_escr...
+ 151 | |     ) -> bool {
+     | |_____________^ duplicate definitions for `set_governed_params`
+     |
+    ::: contracts\escrow\src\lib.rs:1279:5
+     |
+1279 | /     pub fn set_g...
+1280 | |         env: Env,
+1281 | |         admin: A...
+1282 | |         protocol...
+1283 | |         max_escr...
+1284 | |     ) -> bool {
+     | |_____________- other definition for `set_governed_params`
+
+
+error[E0592]: duplicate definitions with name `get_governed_parameters`
+    --> contracts\escrow\src\governance.rs:198:5
+     |
+ 198 |   ...dParameters> {
+     |   ...^^^^^^^^^^^^ duplicate definitions for `get_governed_parameters`
+     |
+    ::: contracts\escrow\src\lib.rs:1324:5
+     |
+1324 |   ...dParameters> {
+     |   ...------------ other definition for `get_governed_parameters`
+
+
+error[E0592]: duplicate definitions with name `propose_client_migration`
+    --> contracts\escrow\src\lib.rs:1193:5
+     |
+ 281 | /     pub fn propo...
+ 282 | |         env: Env,
+ 283 | |         contract...
+ 284 | |         current_...
+ 285 | |         new_clie...
+ 286 | |     ) -> bool {
+     | |_____________- other definition for `propose_client_migration`
+...
+1193 | /     pub fn propo...
+1194 | |         env: Env,
+1195 | |         contract...
+1196 | |         current_...
+1197 | |         new_clie...
+1198 | |     ) -> bool {
+     | |_____________^ duplicate definitions for `propose_client_migration`
+
+
+error[E0592]: duplicate definitions with name `accept_client_migration`
+    --> contracts\escrow\src\lib.rs:1203:5
+     |
+ 291 |   ...ess) -> bool {
+     |   ...------------ other definition for `accept_client_migration`
+...
+1203 |   ...ess) -> bool {
+     |   ...^^^^^^^^^^^^ duplicate definitions for `accept_client_migration`
+
+
+error[E0592]: duplicate definitions with name `has_pending_client_migration`
+    --> contracts\escrow\src\lib.rs:1208:5
+     |
+ 296 |   ...u32) -> bool {
+     |   ...------------ other definition for `has_pending_client_migration`
+...
+1208 |   ...u32) -> bool {
+     |   ...^^^^^^^^^^^^ duplicate definitions for `has_pending_client_migration`
+
+
+error[E0592]: duplicate definitions with name `get_pending_client_migration`
+    --> contracts\escrow\src\lib.rs:1213:5
+     |
+ 301 |   ...lientMigration {
+     |   ...-------------- other definition for `get_pending_client_migration`
+...
+1213 | /     pub fn get_pending_client_migration(
+1214 | |         env: Env,
+1215 | |         contract_id: u32,
+1216 | |     ) -> migration::PendingClientMigration {
+     | |__________________________________________^ duplicate definitions for `get_pending_client_migration`
+
+
+error[E0592]: duplicate definitions with name `finalize_contract`
+    --> contracts\escrow\src\lib.rs:1223:5
+     |
+ 264 |   ...ess) -> bool {
+     |   ...------------ other definition for `finalize_contract`
+...
+1223 |   ...ess) -> bool {
+     |   ...^^^^^^^^^^^^ duplicate definitions for `finalize_contract`
+
+
+error[E0592]: duplicate definitions with name `get_finalization_record`
+    --> contracts\escrow\src\lib.rs:1228:5
+     |
+ 269 | /     pub fn get_finalization_record(
+ 270 | |         env: Env,
+ 271 | |         contract_id: u32,
+ 272 | |     ) -> Option<finalize::FinalizationRecord> {
+     | |_____________________________________________- other definition for `get_finalization_record`
+...
+1228 | /     pub fn get_finalization_record(
+1229 | |         env: Env,
+1230 | |         contract_id: u32,
+1231 | |     ) -> Option<finalize::FinalizationRecord> {
+     | |_____________________________________________^ duplicate definitions for `get_finalization_record`
+
+
+error[E0592]: duplicate definitions with name `get_protocol_fee_bps`
+    --> contracts\escrow\src\lib.rs:1365:5
+     |
+1330 |   ...&Env) -> u32 {
+     |   ...------------ other definition for `get_protocol_fee_bps`
+...
+1365 |   ...&Env) -> u32 {
+     |   ...^^^^^^^^^^^^ duplicate definitions for `get_protocol_fee_bps`
+
+
+error[E0592]: duplicate definitions with name `calculate_protocol_fee`
+    --> contracts\escrow\src\lib.rs:1372:5
+     |
+1337 |   ...u32) -> i128 {
+     |   ...------------ other definition for `calculate_protocol_fee`
+...
+1372 |   ...u32) -> i128 {
+     |   ...^^^^^^^^^^^^ duplicate definitions for `calculate_protocol_fee`
+
+
+error[E0592]: duplicate definitions with name `raise_dispute`
+    --> contracts\escrow\src\lib.rs:1412:5
+     |
+ 894 |   ...ess) -> bool {
+     |   ...------------ other definition for `raise_dispute`
+...
+1412 |   ...ess) -> bool {
+     |   ...^^^^^^^^^^^^ duplicate definitions for `raise_dispute`
+
+
+error[E0592]: duplicate definitions with name `resolve_dispute`
+    --> contracts\escrow\src\lib.rs:1487:5
+     |
+ 899 | /     pub fn resol...
+ 900 | |         env: Env,
+ 901 | |         contract...
+ 902 | |         arbiter:...
+ 903 | |         resoluti...
+ 904 | |     ) -> bool {
+     | |_____________- other definition for `resolve_dispute`
+...
+1487 | /     pub fn resol...
+1488 | |         env: Env,
+1489 | |         contract...
+1490 | |         arbiter:...
+1491 | |         resoluti...
+1492 | |     ) -> bool {
+     | |_____________^ duplicate definitions for `resolve_dispute`
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_finalize_contract`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `spec_xdr_finalize_contract`
+    | other definition for `spec_xdr_finalize_contract`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_get_finalization_record`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `spec_xdr_get_finalization_record`
+    | other definition for `spec_xdr_get_finalization_record`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_propose_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `spec_xdr_propose_client_migration`
+    | other definition for `spec_xdr_propose_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_accept_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `spec_xdr_accept_client_migration`
+    | other definition for `spec_xdr_accept_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_has_pending_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `spec_xdr_has_pending_client_migration`
+    | other definition for `spec_xdr_has_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_get_pending_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `spec_xdr_get_pending_client_migration`
+    | other definition for `spec_xdr_get_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_raise_dispute`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `spec_xdr_raise_dispute`
+    | other definition for `spec_xdr_raise_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `spec_xdr_resolve_dispute`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `spec_xdr_resolve_dispute`
+    | other definition for `spec_xdr_resolve_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `raise_dispute`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ duplicate definitions for `raise_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | --------------- other definition for `raise_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `resolve_dispute`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ duplicate definitions for `resolve_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | --------------- other definition for `resolve_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `propose_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `propose_client_migration`
+    | other definition for `propose_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `accept_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `accept_client_migration`
+    | other definition for `accept_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `has_pending_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `has_pending_client_migration`
+    | other definition for `has_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `get_pending_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `get_pending_client_migration`
+    | other definition for `get_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `finalize_contract`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `finalize_contract`
+    | other definition for `finalize_contract`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `get_finalization_record`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `get_finalization_record`
+    | other definition for `get_finalization_record`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `raise_dispute`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `raise_dispute`
+    | other definition for `raise_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `resolve_dispute`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `resolve_dispute`
+    | other definition for `resolve_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `raise_dispute`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ duplicate definitions for `raise_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | --------------- other definition for `raise_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `try_raise_dispute`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ duplicate definitions for `try_raise_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | --------------- other definition for `try_raise_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `resolve_dispute`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ duplicate definitions for `resolve_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | --------------- other definition for `resolve_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `try_resolve_dispute`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ duplicate definitions for `try_resolve_dispute`
+    |
+   ::: contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | --------------- other definition for `try_resolve_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `propose_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `propose_client_migration`
+    | other definition for `propose_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `try_propose_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_propose_client_migration`
+    | other definition for `try_propose_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `accept_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `accept_client_migration`
+    | other definition for `accept_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `try_accept_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_accept_client_migration`
+    | other definition for `try_accept_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `has_pending_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `has_pending_client_migration`
+    | other definition for `has_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `try_has_pending_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_has_pending_client_migration`
+    | other definition for `try_has_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `get_pending_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `get_pending_client_migration`
+    | other definition for `get_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `try_get_pending_client_migration`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_get_pending_client_migration`
+    | other definition for `try_get_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `finalize_contract`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `finalize_contract`
+    | other definition for `finalize_contract`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `try_finalize_contract`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_finalize_contract`
+    | other definition for `try_finalize_contract`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `get_finalization_record`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `get_finalization_record`
+    | other definition for `get_finalization_record`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `try_get_finalization_record`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_get_finalization_record`
+    | other definition for `try_get_finalization_record`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `raise_dispute`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `raise_dispute`
+    | other definition for `raise_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `try_raise_dispute`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_raise_dispute`
+    | other definition for `try_raise_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `resolve_dispute`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `resolve_dispute`
+    | other definition for `resolve_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0592]: duplicate definitions with name `try_resolve_dispute`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_resolve_dispute`
+    | other definition for `try_resolve_dispute`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0425]: cannot find function `emit_status_changed` in this scope
+  --> contracts\escrow\src\deposit.rs:51:9
+   |
+51 | ...   emit_status_changed(en...
+   |       ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+
+error[E0599]: no method named `all` found for struct `Events` in the current scope
+   --> contracts\escrow\src\deposit.rs:77:31
+    |
+ 77 | ...().all();
+    |       ^^^ method not found in `Events`
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils.rs:403:8
+    |
+403 | ...fn all(&sel...
+    |       --- the method is available for `soroban_sdk::events::Events` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-14365257304385305591.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Events` which provides `all` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::Events;
+    |
+
+
+error[E0282]: type annotations needed
+  --> contracts\escrow\src\dispute.rs:57:28
+   |
+57 | ...n(|value| value.ch...
+   |       ^^^^^  ----- type must be known at this point
+   |
+help: consider giving this closure parameter an explicit type
+   |
+57 |                 .and_then(|value: /* Type */| value.checked_div(100))
+   |                                 ++++++++++++
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_raise_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_resolve_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0277]: the trait bound `Val: TryFromVal<..., ...>` is not satisfied
+  --> contracts\escrow\src\dispute.rs:85:1
+   |
+85 | #[contractimpl]
+   | ^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+   = help: the trait `TryFromVal<Env, DisputeResolution>` is not implemented for `Val`
+   = help: the following other types implement trait `TryFromVal<E, V>`:
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+           and 198 others
+   = note: required for `Val` to implement `FromVal<Env, ...>`
+   = note: required for `DisputeResolution` to implement `IntoVal<Env, ...>`
+   = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-14293128291146119199.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+   = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0277]: the trait bound `Val: TryFromVal<..., ...>` is not satisfied
+  --> contracts\escrow\src\dispute.rs:85:1
+   |
+85 | #[contractimpl]
+   | ^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+   = help: the trait `TryFromVal<Env, DisputeResolution>` is not implemented for `Val`
+   = help: the following other types implement trait `TryFromVal<E, V>`:
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+             `Val` implements `TryFromVal<E, ...>`
+           and 198 others
+   = note: required for `Val` to implement `FromVal<Env, ...>`
+   = note: required for `DisputeResolution` to implement `IntoVal<Env, ...>`
+   = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-14293128291146119199.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+   = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\dispute.rs:89:12
+    |
+ 89 | ...fn raise_dispute(en...
+    |       ^^^^^^^^^^^^^ multiple `raise_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:894:5
+    |
+894 |    ...ss) -> bool {
+    |    ...^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\dispute.rs:89:5
+    |
+ 89 |    ...ss) -> bool {
+    |    ...^^^^^^^^^^^
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\dispute.rs:123:12
+    |
+123 | ...fn resolve_dispute(
+    |       ^^^^^^^^^^^^^^^ multiple `resolve_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:899:5
+    |
+899 | /     pub fn resol...
+900 | |         env: Env,
+901 | |         contract...
+902 | |         arbiter:...
+903 | |         resoluti...
+904 | |     ) -> bool {
+    | |_____________^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\dispute.rs:123:5
+    |
+123 | /     pub fn resol...
+124 | |         env: Env,
+125 | |         contract...
+126 | |         arbiter:...
+127 | |         resoluti...
+128 | |     ) -> bool {
+    | |_____________^
+
+
+error[E0277]: the trait bound `Val: TryFromVal<..., ...>` is not satisfied
+   --> contracts\escrow\src\governance.rs:78:13
+    |
+ 76 |           env.storage().persistent().set(
+    |                                      --- required by a bound introduced by this call
+ 77 |               &DataKey::PendingAdmin,
+ 78 | /             &PendingAdminProposal {
+ 79 | |                 proposed: proposed.clone(),
+ 80 | |                 proposed_at_ledger: env.l...
+ 81 | |             },
+    | |_____________^ unsatisfied trait bound
+    |
+    = help: the trait `TryFromVal<Env, PendingAdminProposal>` is not implemented for `Val`
+    = help: the following other types implement trait `TryFromVal<E, V>`:
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+            and 198 others
+    = note: required for `Val` to implement `FromVal<Env, ...>`
+    = note: required for `PendingAdminProposal` to implement `IntoVal<Env, ...>`
+note: required by a bound in `soroban_sdk::storage::Persistent::set`
+   --> C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\storage.rs:325:12
+    |
+322 | ...fn set<K, V>(&self, key...
+    |       --- required by a bound in this associated function
+...
+325 | ...V: IntoVal<Env, Val>,
+    |       ^^^^^^^^^^^^^^^^^ required by this bound in `Persistent::set`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-14293128291146119199.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0277]: the trait bound `PendingAdminProposal: TryFromVal<..., ...>` is not satisfied
+   --> contracts\escrow\src\governance.rs:101:14
+    |
+101 | ...  .get(&Dat...
+    |       ^^^ unsatisfied trait bound
+    |
+help: the trait `TryFromVal<Env, soroban_sdk::Val>` is not implemented for `PendingAdminProposal`
+   --> contracts\escrow\src\governance.rs:9:1
+    |
+  9 | pub struct PendingAdminProposal {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: the following other types implement trait `TryFromVal<E, V>`:
+              `()` implements `TryFromVal<E, [...; 0]>`
+              `()` implements `TryFromVal<E, ...>`
+              `()` implements `TryFromVal<Env, ()>`
+              `(T0, T1)` implements `TryFromVal<E, [...; N]>`
+              `(T0, T1)` implements `TryFromVal<E, ...>`
+              `(T0, T1, T2)` implements `TryFromVal<E, [...; N]>`
+              `(T0, T1, T2)` implements `TryFromVal<E, ...>`
+              `(..., ..., ..., ...)` implements `TryFromVal<E, [...; N]>`
+            and 512 others
+note: required by a bound in `soroban_sdk::storage::Persistent::get`
+   --> C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\storage.rs:317:12
+    |
+313 | ...fn get<K, V>(&self, key: &...
+    |       --- required by a bound in this associated function
+...
+317 | ...V: TryFromVal<Env, Val>,
+    |       ^^^^^^^^^^^^^^^^^^^^ required by this bound in `Persistent::get`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-14293128291146119199.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0599]: no variant or associated item named `TimelockNotElapsed` found for enum `EscrowError` in the current scope
+   --> contracts\escrow\src\governance.rs:109:47
+    |
+109 | ...r::TimelockNotElapsed);
+    |       ^^^^^^^^^^^^^^^^^^ variant or associated item not found in `EscrowError`
+    |
+   ::: contracts\escrow\src\lib.rs:65:1
+    |
+ 65 | pub enum EscrowError {
+    | -------------------- variant or associated item `TimelockNotElapsed` not found for this enum
+
+
+error[E0277]: the trait bound `PendingAdminProposal: TryFromVal<..., ...>` is not satisfied
+   --> contracts\escrow\src\governance.rs:136:40
+    |
+136 | ...().get(&Dat...
+    |       ^^^ unsatisfied trait bound
+    |
+help: the trait `TryFromVal<Env, soroban_sdk::Val>` is not implemented for `PendingAdminProposal`
+   --> contracts\escrow\src\governance.rs:9:1
+    |
+  9 | pub struct PendingAdminProposal {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: the following other types implement trait `TryFromVal<E, V>`:
+              `()` implements `TryFromVal<E, [...; 0]>`
+              `()` implements `TryFromVal<E, ...>`
+              `()` implements `TryFromVal<Env, ()>`
+              `(T0, T1)` implements `TryFromVal<E, [...; N]>`
+              `(T0, T1)` implements `TryFromVal<E, ...>`
+              `(T0, T1, T2)` implements `TryFromVal<E, [...; N]>`
+              `(T0, T1, T2)` implements `TryFromVal<E, ...>`
+              `(..., ..., ..., ...)` implements `TryFromVal<E, [...; N]>`
+            and 512 others
+note: required by a bound in `soroban_sdk::storage::Persistent::get`
+   --> C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\storage.rs:317:12
+    |
+313 | ...fn get<K, V>(&self, key: &...
+    |       --- required by a bound in this associated function
+...
+317 | ...V: TryFromVal<Env, Val>,
+    |       ^^^^^^^^^^^^^^^^^^^^ required by this bound in `Persistent::get`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-14293128291146119199.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0599]: no variant or associated item named `InvalidProtocolParameters` found for enum `EscrowError` in the current scope
+   --> contracts\escrow\src\governance.rs:173:47
+    |
+173 | ...r::InvalidProtocolParameters);
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^ variant or associated item not found in `EscrowError`
+    |
+   ::: contracts\escrow\src\lib.rs:65:1
+    |
+ 65 | pub enum EscrowError {
+    | -------------------- variant or associated item `InvalidProtocolParameters` not found for this enum
+
+
+error[E0425]: cannot find function `emit_status_changed` in this scope
+   --> contracts\escrow\src\lib.rs:883:9
+    |
+883 | ...   emit_status_changed(en...
+    |       ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+
+error[E0599]: no function or associated item named `raise_dispute_impl` found for struct `Escrow` in the current scope
+   --> contracts\escrow\src\lib.rs:895:15
+    |
+ 59 | pub struct Escrow;
+    | ----------------- function or associated item `raise_dispute_impl` not found for this struct
+...
+895 |         Self::raise_dispute_impl(en...
+    |               ^^^^^^^^^^^^^^^^^^ function or associated item not found in `Escrow`
+
+
+error[E0599]: no function or associated item named `resolve_dispute_impl` found for struct `Escrow` in the current scope
+   --> contracts\escrow\src\lib.rs:905:15
+    |
+ 59 | pub struct Escrow;
+    | ----------------- function or associated item `resolve_dispute_impl` not found for this struct
+...
+905 |         Self::resolve_dispute_impl(en...
+    |               ^^^^^^^^^^^^^^^^^^^^ function or associated item not found in `Escrow`
+
+
+error[E0599]: no variant or associated item named `EmptyComment` found for enum `EscrowError` in the current scope
+   --> contracts\escrow\src\lib.rs:949:47
+    |
+ 65 | pub enum EscrowError {
+    | -------------------- variant or associated item `EmptyComment` not found for this enum
+...
+949 |             env.panic_with_error(EscrowError::EmptyComment);
+    |                                               ^^^^^^^^^^^^ variant or associated item not found in `EscrowError`
+
+
+error[E0599]: no variant or associated item named `CommentTooLong` found for enum `EscrowError` in the current scope
+   --> contracts\escrow\src\lib.rs:953:47
+    |
+ 65 | pub enum EscrowError {
+    | -------------------- variant or associated item `CommentTooLong` not found for this enum
+...
+953 |             env.panic_with_error(EscrowError::CommentTooLong);
+    |                                               ^^^^^^^^^^^^^^ variant or associated item not found in `EscrowError`
+
+
+error[E0599]: no function or associated item named `propose_client_migration_impl` found for struct `Escrow` in the current scope
+    --> contracts\escrow\src\lib.rs:1199:15
+     |
+  59 | pub struct Escrow;
+     | ----------------- function or associated item `propose_client_migration_impl` not found for this struct
+...
+1199 |         Self::propose_client_migration_impl(en...
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function or associated item not found in `Escrow`
+     |
+help: there is an associated function `propose_client_migration` with a similar name
+     |
+1199 -         Self::propose_client_migration_impl(env, contract_id, current_client, new_client)
+1199 +         Self::propose_client_migration(env, contract_id, current_client, new_client)
+     |
+
+
+error[E0599]: no function or associated item named `accept_client_migration_impl` found for struct `Escrow` in the current scope
+    --> contracts\escrow\src\lib.rs:1204:15
+     |
+  59 | pub struct Escrow;
+     | ----------------- function or associated item `accept_client_migration_impl` not found for this struct
+...
+1204 |         Self::accept_client_migration_impl(en...
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function or associated item not found in `Escrow`
+     |
+help: there is an associated function `accept_client_migration` with a similar name
+     |
+1204 -         Self::accept_client_migration_impl(env, contract_id, new_client)
+1204 +         Self::accept_client_migration(env, contract_id, new_client)
+     |
+
+
+error[E0599]: no function or associated item named `has_pending_client_migration_impl` found for struct `Escrow` in the current scope
+    --> contracts\escrow\src\lib.rs:1209:15
+     |
+  59 | pub struct Escrow;
+     | ----------------- function or associated item `has_pending_client_migration_impl` not found for this struct
+...
+1209 |         Self...gration_impl(en...
+     |             ...^^^^^^^^^^^^ function or associated item not found in `Escrow`
+     |
+help: there is an associated function `has_pending_client_migration` with a similar name
+     |
+1209 -         Self::has_pending_client_migration_impl(env, contract_id)
+1209 +         Self::has_pending_client_migration(env, contract_id)
+     |
+
+
+error[E0599]: no function or associated item named `get_pending_client_migration_impl` found for struct `Escrow` in the current scope
+    --> contracts\escrow\src\lib.rs:1217:15
+     |
+  59 | pub struct Escrow;
+     | ----------------- function or associated item `get_pending_client_migration_impl` not found for this struct
+...
+1217 |         Self...gration_impl(en...
+     |             ...^^^^^^^^^^^^ function or associated item not found in `Escrow`
+     |
+help: there is an associated function `get_pending_client_migration` with a similar name
+     |
+1217 -         Self::get_pending_client_migration_impl(env, contract_id)
+1217 +         Self::get_pending_client_migration(env, contract_id)
+     |
+
+
+error[E0599]: no function or associated item named `finalize_contract_impl` found for struct `Escrow` in the current scope
+    --> contracts\escrow\src\lib.rs:1224:15
+     |
+  59 | pub struct Escrow;
+     | ----------------- function or associated item `finalize_contract_impl` not found for this struct
+...
+1224 |         Self::finalize_contract_impl(en...
+     |               ^^^^^^^^^^^^^^^^^^^^^^ function or associated item not found in `Escrow`
+     |
+help: there is an associated function `finalize_contract` with a similar name
+     |
+1224 -         Self::finalize_contract_impl(env, contract_id, finalizer)
+1224 +         Self::finalize_contract(env, contract_id, finalizer)
+     |
+
+
+error[E0599]: no function or associated item named `get_finalization_record_impl` found for struct `Escrow` in the current scope
+    --> contracts\escrow\src\lib.rs:1232:15
+     |
+  59 | pub struct Escrow;
+     | ----------------- function or associated item `get_finalization_record_impl` not found for this struct
+...
+1232 |         Self::get_finalization_record_impl(en...
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function or associated item not found in `Escrow`
+     |
+help: there is an associated function `get_finalization_record` with a similar name
+     |
+1232 -         Self::get_finalization_record_impl(env, contract_id)
+1232 +         Self::get_finalization_record(env, contract_id)
+     |
+
+
+error[E0599]: no variant or associated item named `InvalidProtocolParameters` found for enum `EscrowError` in the current scope
+    --> contracts\escrow\src\lib.rs:1299:47
+     |
+  65 | pub enum EscrowError {
+     | -------------------- variant or associated item `InvalidProtocolParameters` not found for this enum
+...
+1299 |             env.panic_with_error(EscrowError::InvalidProtocolParameters);
+     |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^ variant or associated item not found in `EscrowError`
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_finalize_contract` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_get_finalization_record` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_propose_client_migration` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_accept_client_migration` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_has_pending_client_migration` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_get_pending_client_migration` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_raise_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_resolve_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_propose_client_migration` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_accept_client_migration` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_has_pending_client_migration` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_get_pending_client_migration` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_finalize_contract` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_get_finalization_record` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_raise_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ multiple `spec_xdr_resolve_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #3 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractspecfn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0277]: the trait bound `Val: TryFromVal<..., ...>` is not satisfied
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+    = help: the trait `TryFromVal<Env, DisputeResolution>` is not implemented for `Val`
+    = help: the following other types implement trait `TryFromVal<E, V>`:
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+            and 198 others
+    = note: required for `Val` to implement `FromVal<Env, ...>`
+    = note: required for `DisputeResolution` to implement `IntoVal<Env, ...>`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-14293128291146119199.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0277]: the trait bound `Val: TryFromVal<..., ...>` is not satisfied
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+    = help: the trait `TryFromVal<Env, DisputeResolution>` is not implemented for `Val`
+    = help: the following other types implement trait `TryFromVal<E, V>`:
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+            and 198 others
+    = note: required for `Val` to implement `FromVal<Env, ...>`
+    = note: required for `DisputeResolution` to implement `IntoVal<Env, ...>`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-14293128291146119199.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0277]: the trait bound `Val: TryFromVal<..., ...>` is not satisfied
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+    = help: the trait `TryFromVal<Env, DisputeResolution>` is not implemented for `Val`
+    = help: the following other types implement trait `TryFromVal<E, V>`:
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+            and 198 others
+    = note: required for `Val` to implement `FromVal<Env, ...>`
+    = note: required for `DisputeResolution` to implement `IntoVal<Env, ...>`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-14293128291146119199.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0277]: the trait bound `Val: TryFromVal<..., ...>` is not satisfied
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+    = help: the trait `TryFromVal<Env, DisputeResolution>` is not implemented for `Val`
+    = help: the following other types implement trait `TryFromVal<E, V>`:
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+              `Val` implements `TryFromVal<E, ...>`
+            and 198 others
+    = note: required for `Val` to implement `FromVal<Env, ...>`
+    = note: required for `DisputeResolution` to implement `IntoVal<Env, ...>`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-14293128291146119199.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:894:12
+    |
+894 | ...fn raise_dispute(en...
+    |       ^^^^^^^^^^^^^ multiple `raise_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:894:5
+    |
+894 |    ...ss) -> bool {
+    |    ...^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\dispute.rs:89:5
+    |
+ 89 |    ...ss) -> bool {
+    |    ...^^^^^^^^^^^
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\lib.rs:899:12
+    |
+899 | ...fn resolve_dispute(
+    |       ^^^^^^^^^^^^^^^ multiple `resolve_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\lib.rs:899:5
+    |
+899 | /     pub fn resol...
+900 | |         env: Env,
+901 | |         contract...
+902 | |         arbiter:...
+903 | |         resoluti...
+904 | |     ) -> bool {
+    | |_____________^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts\escrow\src\dispute.rs:123:5
+    |
+123 | /     pub fn resol...
+124 | |         env: Env,
+125 | |         contract...
+126 | |         arbiter:...
+127 | |         resoluti...
+128 | |     ) -> bool {
+    | |_____________^
+
+
+error[E0034]: multiple applicable items in scope
+    --> contracts\escrow\src\lib.rs:1279:12
+     |
+1279 | ...fn set_governed_params(
+     |       ^^^^^^^^^^^^^^^^^^^ multiple `set_governed_params` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts\escrow\src\lib.rs:1279:5
+     |
+1279 | /     pub fn set_g...
+1280 | |         env: Env,
+1281 | |         admin: A...
+1282 | |         protocol...
+1283 | |         max_escr...
+1284 | |     ) -> bool {
+     | |_____________^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts\escrow\src\governance.rs:146:5
+     |
+ 146 | /     pub fn set_g...
+ 147 | |         env: Env,
+ 148 | |         admin: A...
+ 149 | |         protocol...
+ 150 | |         max_escr...
+ 151 | |     ) -> bool {
+     | |_____________^
+
+
+error[E0034]: multiple applicable items in scope
+    --> contracts\escrow\src\lib.rs:1324:12
+     |
+1324 | ...fn get_governed_parameters(en...
+     |       ^^^^^^^^^^^^^^^^^^^^^^^ multiple `get_governed_parameters` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts\escrow\src\lib.rs:1324:5
+     |
+1324 |   ...dParameters> {
+     |   ...^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts\escrow\src\governance.rs:198:5
+     |
+ 198 |   ...dParameters> {
+     |   ...^^^^^^^^^^^^
+
+
+error[E0034]: multiple applicable items in scope
+    --> contracts\escrow\src\lib.rs:1412:12
+     |
+1412 | ...fn raise_dispute(en...
+     |       ^^^^^^^^^^^^^ multiple `raise_dispute` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts\escrow\src\lib.rs:894:5
+     |
+ 894 |   ...ess) -> bool {
+     |   ...^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts\escrow\src\dispute.rs:89:5
+     |
+  89 |   ...ess) -> bool {
+     |   ...^^^^^^^^^^^^
+
+
+error[E0034]: multiple applicable items in scope
+    --> contracts\escrow\src\lib.rs:1487:12
+     |
+1487 | ...fn resolve_dispute(
+     |       ^^^^^^^^^^^^^^^ multiple `resolve_dispute` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts\escrow\src\lib.rs:899:5
+     |
+ 899 | /     pub fn resol...
+ 900 | |         env: Env,
+ 901 | |         contract...
+ 902 | |         arbiter:...
+ 903 | |         resoluti...
+ 904 | |     ) -> bool {
+     | |_____________^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts\escrow\src\dispute.rs:123:5
+     |
+ 123 | /     pub fn resol...
+ 124 | |         env: Env,
+ 125 | |         contract...
+ 126 | |         arbiter:...
+ 127 | |         resoluti...
+ 128 | |     ) -> bool {
+     | |_____________^
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\test\dispute.rs:224:20
+    |
+224 | ...nt.raise_dispute(&e...
+    |       ^^^^^^^^^^^^^ multiple `raise_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\test\dispute.rs:242:20
+    |
+242 | ...nt.raise_dispute(&e...
+    |       ^^^^^^^^^^^^^ multiple `raise_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:250:9
+    |
+250 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\test\dispute.rs:281:16
+    |
+281 | ...nt.try_raise_dispute(&e...
+    |       ^^^^^^^^^^^^^^^^^ multiple `try_raise_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:288:9
+    |
+288 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:304:9
+    |
+304 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:323:9
+    |
+323 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:342:9
+    |
+342 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\test\dispute.rs:376:20
+    |
+376 | ...nt.raise_dispute(&e...
+    |       ^^^^^^^^^^^^^ multiple `raise_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\test\dispute.rs:377:20
+    |
+377 | ...nt.resolve_dispute(&e...
+    |       ^^^^^^^^^^^^^^^ multiple `resolve_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:393:9
+    |
+393 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:408:9
+    |
+408 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:423:9
+    |
+423 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:441:9
+    |
+441 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:456:9
+    |
+456 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:469:9
+    |
+469 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:485:9
+    |
+485 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:499:9
+    |
+499 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:514:9
+    |
+514 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\test\dispute.rs:557:20
+    |
+557 | ...nt.raise_dispute(&e...
+    |       ^^^^^^^^^^^^^ multiple `raise_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\test\dispute.rs:560:20
+    |
+560 | ...nt.resolve_dispute(&e...
+    |       ^^^^^^^^^^^^^^^ multiple `resolve_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:574:9
+    |
+574 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\dispute.rs:602:9
+    |
+602 | ...et (env, _contract_id, client) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, EscrowClient<'_>)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-638745306174944386.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0282]: type annotations needed
+   --> contracts\escrow\src\test\dispute.rs:611:45
+    |
+611 | ...().any(|e| {
+    |            ^
+612 | ... = e.try_int...
+    |       - type must be known at this point
+    |
+help: consider giving this closure parameter an explicit type
+    |
+611 |     let dispute_opened = events.iter().any(|e: /* Type */| {
+    |                                              ++++++++++++
+
+
+error[E0282]: type annotations needed
+   --> contracts\escrow\src\test\dispute.rs:629:47
+    |
+629 | ...er().any(|e| {
+    |              ^
+630 | ... = e.try_into() {
+    |       - type must be known at this point
+    |
+help: consider giving this closure parameter an explicit type
+    |
+629 |     let dispute_resolved = events.iter().any(|e: /* Type */| {
+    |                                                ++++++++++++
+
+
+error[E0599]: no variant or associated item named `InvalidProtocolParameters` found for enum `EscrowError` in the current scope
+   --> contracts\escrow\src\test\mainnet_readiness.rs:108:55
+    |
+108 | ...r::InvalidProtocolParameters);
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^ variant or associated item not found in `EscrowError`
+    |
+   ::: contracts\escrow\src\lib.rs:65:1
+    |
+ 65 | pub enum EscrowError {
+    | -------------------- variant or associated item `InvalidProtocolParameters` not found for this enum
+
+
+error[E0308]: mismatched types
+   --> contracts\escrow\src\test\pause_controls.rs:105:9
+    |
+105 | ...et (_env, client, admin) = setup_initialized();
+    |       ^^^^^^^^^^^^^^^^^^^^^   ------------------- this expression has type `(Env, ...)`
+    |       |
+    |       expected a tuple with 2 elements, found one with 3 elements
+    |
+    = note: expected tuple `(Env, soroban_sdk::Address)`
+               found tuple `(_, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-18146479620413148030.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+
+error[E0034]: multiple applicable items in scope
+   --> contracts\escrow\src\test\persistence.rs:46:20
+    |
+ 46 | ...nt.raise_dispute(&c...
+    |       ^^^^^^^^^^^^^ multiple `raise_dispute` found
+    |
+note: candidate #1 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\lib.rs:110:1
+    |
+110 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `EscrowClient<'a>`
+   --> contracts\escrow\src\dispute.rs:85:1
+    |
+ 85 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+
+error[E0599]: no method named `with_mut` found for struct `Ledger` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:690:18
+    |
+690 |     env.ledger().with_mut(|l...
+    |     -------------^^^^^^^^ method not found in `Ledger`
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils.rs:284:8
+    |
+284 | ...fn with_mut<F>...
+    |       -------- the method is available for `soroban_sdk::ledger::Ledger` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-18194399506027164447.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Ledger` which provides `with_mut` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::Ledger;
+    |
+
+
+error[E0599]: no method named `get_ttl` found for struct `Persistent` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:714:14
+    |
+712 | /         env.storage()
+713 | |             .persistent()
+714 | |             .get_ttl(&c...
+    | |             -^^^^^^^ method not found in `Persistent`
+    | |_____________|
+    |
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils\storage.rs:14:8
+    |
+ 14 |   ...fn get_ttl<K:...
+    |         ------- the method is available for `soroban_sdk::storage::Persistent` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-804087331662877467.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Persistent` which provides `get_ttl` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::storage::Persistent;
+    |
+
+
+error[E0599]: no method named `with_mut` found for struct `Ledger` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:718:18
+    |
+718 |     env.ledger().with_mut(|l...
+    |     -------------^^^^^^^^ method not found in `Ledger`
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils.rs:284:8
+    |
+284 | ...fn with_mut<F>...
+    |       -------- the method is available for `soroban_sdk::ledger::Ledger` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-18194399506027164447.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Ledger` which provides `with_mut` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::Ledger;
+    |
+
+
+error[E0599]: no method named `get_ttl` found for struct `Persistent` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:731:14
+    |
+729 | /         env.storage()
+730 | |             .persistent()
+731 | |             .get_ttl(&c...
+    | |             -^^^^^^^ method not found in `Persistent`
+    | |_____________|
+    |
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils\storage.rs:14:8
+    |
+ 14 |   ...fn get_ttl<K:...
+    |         ------- the method is available for `soroban_sdk::storage::Persistent` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-804087331662877467.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Persistent` which provides `get_ttl` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::storage::Persistent;
+    |
+
+
+error[E0599]: no method named `with_mut` found for struct `Ledger` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:744:18
+    |
+744 |     env.ledger().with_mut(|l...
+    |     -------------^^^^^^^^ method not found in `Ledger`
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils.rs:284:8
+    |
+284 | ...fn with_mut<F>...
+    |       -------- the method is available for `soroban_sdk::ledger::Ledger` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-18194399506027164447.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Ledger` which provides `with_mut` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::Ledger;
+    |
+
+
+error[E0599]: no method named `get_ttl` found for struct `Persistent` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:767:14
+    |
+765 | /         env.storage()
+766 | |             .persistent()
+767 | |             .get_ttl(&(...
+    | |             -^^^^^^^ method not found in `Persistent`
+    | |_____________|
+    |
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils\storage.rs:14:8
+    |
+ 14 |   ...fn get_ttl<K:...
+    |         ------- the method is available for `soroban_sdk::storage::Persistent` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-804087331662877467.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Persistent` which provides `get_ttl` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::storage::Persistent;
+    |
+
+
+error[E0599]: no method named `with_mut` found for struct `Ledger` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:770:18
+    |
+770 |     env.ledger().with_mut(|l...
+    |     -------------^^^^^^^^ method not found in `Ledger`
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils.rs:284:8
+    |
+284 | ...fn with_mut<F>...
+    |       -------- the method is available for `soroban_sdk::ledger::Ledger` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-18194399506027164447.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Ledger` which provides `with_mut` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::Ledger;
+    |
+
+
+error[E0599]: no method named `get_ttl` found for struct `Persistent` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:782:14
+    |
+780 | /         env.storage()
+781 | |             .persistent()
+782 | |             .get_ttl(&(...
+    | |             -^^^^^^^ method not found in `Persistent`
+    | |_____________|
+    |
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils\storage.rs:14:8
+    |
+ 14 |   ...fn get_ttl<K:...
+    |         ------- the method is available for `soroban_sdk::storage::Persistent` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-804087331662877467.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Persistent` which provides `get_ttl` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::storage::Persistent;
+    |
+
+
+error[E0599]: no method named `with_mut` found for struct `Ledger` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:790:18
+    |
+790 |     env.ledger().with_mut(|l...
+    |     -------------^^^^^^^^ method not found in `Ledger`
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils.rs:284:8
+    |
+284 | ...fn with_mut<F>...
+    |       -------- the method is available for `soroban_sdk::ledger::Ledger` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-18194399506027164447.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Ledger` which provides `with_mut` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::Ledger;
+    |
+
+
+error[E0599]: no method named `get_ttl` found for struct `Persistent` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:818:14
+    |
+816 | /         env.storage()
+817 | |             .persistent()
+818 | |             .get_ttl(&(...
+    | |             -^^^^^^^ method not found in `Persistent`
+    | |_____________|
+    |
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils\storage.rs:14:8
+    |
+ 14 |   ...fn get_ttl<K:...
+    |         ------- the method is available for `soroban_sdk::storage::Persistent` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-804087331662877467.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Persistent` which provides `get_ttl` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::storage::Persistent;
+    |
+
+
+error[E0599]: no method named `with_mut` found for struct `Ledger` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:821:18
+    |
+821 |     env.ledger().with_mut(|l...
+    |     -------------^^^^^^^^ method not found in `Ledger`
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils.rs:284:8
+    |
+284 | ...fn with_mut<F>...
+    |       -------- the method is available for `soroban_sdk::ledger::Ledger` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-18194399506027164447.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Ledger` which provides `with_mut` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::Ledger;
+    |
+
+
+error[E0599]: no method named `get_ttl` found for struct `Persistent` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:832:14
+    |
+830 | /         env.storage()
+831 | |             .persistent()
+832 | |             .get_ttl(&(...
+    | |             -^^^^^^^ method not found in `Persistent`
+    | |_____________|
+    |
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils\storage.rs:14:8
+    |
+ 14 |   ...fn get_ttl<K:...
+    |         ------- the method is available for `soroban_sdk::storage::Persistent` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-804087331662877467.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Persistent` which provides `get_ttl` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::storage::Persistent;
+    |
+
+
+error[E0599]: no method named `with_mut` found for struct `Ledger` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:840:18
+    |
+840 |     env.ledger().with_mut(|l...
+    |     -------------^^^^^^^^ method not found in `Ledger`
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils.rs:284:8
+    |
+284 | ...fn with_mut<F>...
+    |       -------- the method is available for `soroban_sdk::ledger::Ledger` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-18194399506027164447.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Ledger` which provides `with_mut` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::Ledger;
+    |
+
+
+error[E0599]: no method named `get_ttl` found for struct `Persistent` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:862:14
+    |
+860 | /         env.storage()
+861 | |             .persistent()
+862 | |             .get_ttl(&c...
+    | |             -^^^^^^^ method not found in `Persistent`
+    | |_____________|
+    |
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils\storage.rs:14:8
+    |
+ 14 |   ...fn get_ttl<K:...
+    |         ------- the method is available for `soroban_sdk::storage::Persistent` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-804087331662877467.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Persistent` which provides `get_ttl` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::storage::Persistent;
+    |
+
+
+error[E0599]: no method named `with_mut` found for struct `Ledger` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:865:18
+    |
+865 |     env.ledger().with_mut(|l...
+    |     -------------^^^^^^^^ method not found in `Ledger`
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils.rs:284:8
+    |
+284 | ...fn with_mut<F>...
+    |       -------- the method is available for `soroban_sdk::ledger::Ledger` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-18194399506027164447.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Ledger` which provides `with_mut` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::Ledger;
+    |
+
+
+error[E0599]: no method named `get_ttl` found for struct `Persistent` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:877:14
+    |
+875 | /         env.storage()
+876 | |             .persistent()
+877 | |             .get_ttl(&c...
+    | |             -^^^^^^^ method not found in `Persistent`
+    | |_____________|
+    |
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils\storage.rs:14:8
+    |
+ 14 |   ...fn get_ttl<K:...
+    |         ------- the method is available for `soroban_sdk::storage::Persistent` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-804087331662877467.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Persistent` which provides `get_ttl` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::storage::Persistent;
+    |
+
+
+error[E0599]: no method named `with_mut` found for struct `Ledger` in the current scope
+   --> contracts\escrow\src\test\persistence.rs:885:18
+    |
+885 |     env.ledger().with_mut(|l...
+    |     -------------^^^^^^^^ method not found in `Ledger`
+    |
+   ::: C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-sdk-22.0.11\src\testutils.rs:284:8
+    |
+284 | ...fn with_mut<F>...
+    |       -------- the method is available for `soroban_sdk::ledger::Ledger` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: the full name for the type has been written to 'C:\Users\ADMIN\Desktop\innovative-drips\Talenttrust-Contracts\target\debug\deps\escrow-da8a7fb4f3d79de0.long-type-18194399506027164447.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: trait `Ledger` which provides `with_mut` is implemented but not in scope; perhaps you want to import it
+    |
+  1 + use soroban_sdk::testutils::Ledger;
+    |
+
+

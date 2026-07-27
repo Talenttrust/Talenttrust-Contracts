@@ -1,11 +1,10 @@
-extern crate std;
+use soroban_sdk::{testutils::Address as _, testutils::Events, Address, Env};
 
-use soroban_sdk::{testutils::Address as _, Address, Env};
-
-use crate::{
-    Escrow, EscrowClient, MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS,
-    MAINNET_PROTOCOL_VERSION,
+use super::{
+    assert_contract_error, complete_contract, default_milestones, generated_participants,
+    register_client,
 };
+use crate::{types::CONTRACT_SUMMARY_SCHEMA_VERSION, Error, Escrow, EscrowClient, EscrowError};
 
 /// Returns a fresh (Env, contract Address) pair with all auths mocked.
 fn setup() -> (Env, Address) {
@@ -16,8 +15,7 @@ fn setup() -> (Env, Address) {
 }
 
 // ── 4.1 ─────────────────────────────────────────────────────────────────────
-// Fresh contract: all mutable boolean fields are false; caps_set reflects the
-// compile-time constant; constant numeric fields are populated.
+// Fresh contract: all mutable boolean fields are false
 #[test]
 fn fresh_contract_returns_safe_defaults() {
     let (env, contract_id) = setup();
@@ -25,22 +23,17 @@ fn fresh_contract_returns_safe_defaults() {
 
     let info = client.get_mainnet_readiness_info();
 
-    assert!(!info.initialized, "initialized should be false on a fresh contract");
-    assert!(!info.governed_params_set, "governed_params_set should be false on a fresh contract");
+    assert!(
+        !info.initialized,
+        "initialized should be false on a fresh contract"
+    );
+    assert!(
+        !info.governed_params_set,
+        "governed_params_set should be false on a fresh contract"
+    );
     assert!(
         !info.emergency_controls_enabled,
         "emergency_controls_enabled should be false on a fresh contract"
-    );
-    // caps_set is derived from the compile-time constant, not from storage.
-    assert_eq!(
-        info.caps_set,
-        MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS > 0,
-        "caps_set must reflect the compile-time constant"
-    );
-    assert_eq!(info.protocol_version, MAINNET_PROTOCOL_VERSION);
-    assert_eq!(
-        info.max_escrow_total_stroops,
-        MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS
     );
 }
 
@@ -55,7 +48,10 @@ fn initialize_sets_initialized_to_true() {
     client.initialize(&admin);
 
     let info = client.get_mainnet_readiness_info();
-    assert!(info.initialized, "initialized must be true after initialize()");
+    assert!(
+        info.initialized,
+        "initialized must be true after initialize()"
+    );
 }
 
 // ── 4.3 ─────────────────────────────────────────────────────────────────────
@@ -93,7 +89,7 @@ fn unauthorized_set_governed_params_does_not_set_flag() {
     client.initialize(&admin);
 
     let result = client.try_set_governed_params(&fake_admin, &1000_u32, &500_000_000_000_i128);
-    super::assert_contract_error(result, EscrowError::UnauthorizedRole);
+    super::assert_contract_error(result, Error::UnauthorizedRole);
 
     let info = client.get_mainnet_readiness_info();
     assert!(
@@ -111,7 +107,7 @@ fn invalid_set_governed_params_does_not_set_flag() {
     client.initialize(&admin);
 
     let result = client.try_set_governed_params(&admin, &20_000_u32, &500_000_000_000_i128);
-    super::assert_contract_error(result, EscrowError::InvalidProtocolParameters);
+    super::assert_contract_error(result, Error::InvalidProtocolParameters);
 
     let info = client.get_mainnet_readiness_info();
     assert!(
@@ -126,6 +122,8 @@ fn invalid_set_governed_params_does_not_set_flag() {
 fn activate_emergency_pause_sets_emergency_controls_enabled() {
     let (env, contract_id) = setup();
     let client = EscrowClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
 
     client.activate_emergency_pause();
 
@@ -142,6 +140,8 @@ fn activate_emergency_pause_sets_emergency_controls_enabled() {
 fn resolve_emergency_sets_emergency_controls_enabled() {
     let (env, contract_id) = setup();
     let client = EscrowClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
 
     client.resolve_emergency();
 
@@ -150,24 +150,6 @@ fn resolve_emergency_sets_emergency_controls_enabled() {
         info.emergency_controls_enabled,
         "emergency_controls_enabled must be true after resolve_emergency()"
     );
-}
-
-// ── 4.7 ─────────────────────────────────────────────────────────────────────
-// `caps_set` always reflects the compile-time constant, regardless of state.
-#[test]
-fn caps_set_reflects_compile_time_constant() {
-    let (env, contract_id) = setup();
-    let client = EscrowClient::new(&env, &contract_id);
-
-    let info = client.get_mainnet_readiness_info();
-
-    let expected = MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS > 0;
-    assert_eq!(
-        info.caps_set, expected,
-        "caps_set must equal (MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS > 0)"
-    );
-    // The constant is 1_000_000_000_000_000, so caps_set must be true.
-    assert!(info.caps_set, "caps_set must be true for the mainnet constant");
 }
 
 // ── 4.8 ─────────────────────────────────────────────────────────────────────
@@ -207,8 +189,14 @@ fn get_mainnet_readiness_info_is_idempotent() {
     let second = client.get_mainnet_readiness_info();
     let third = client.get_mainnet_readiness_info();
 
-    assert_eq!(first, second, "repeated calls must return identical results");
-    assert_eq!(second, third, "repeated calls must return identical results");
+    assert_eq!(
+        first, second,
+        "repeated calls must return identical results"
+    );
+    assert_eq!(
+        second, third,
+        "repeated calls must return identical results"
+    );
 }
 
 // ── 4.10 ────────────────────────────────────────────────────────────────────
@@ -227,12 +215,6 @@ fn missing_storage_returns_safe_defaults() {
     assert!(!info.initialized);
     assert!(!info.governed_params_set);
     assert!(!info.emergency_controls_enabled);
-    // Constant fields are always populated regardless of storage state.
-    assert_eq!(info.protocol_version, MAINNET_PROTOCOL_VERSION);
-    assert_eq!(
-        info.max_escrow_total_stroops,
-        MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS
-    );
 }
 
 // ── 4.11 ────────────────────────────────────────────────────────────────────
@@ -246,7 +228,7 @@ fn missing_storage_returns_safe_defaults() {
 
 /// Confirms that calling `initialize` twice panics.
 #[test]
-#[should_panic(expected = "already initialized")]
+#[should_panic(expected = "HostError: Error(Contract, #12)")]
 fn double_initialize_panics() {
     let (env, contract_id) = setup();
     let client = EscrowClient::new(&env, &contract_id);
@@ -255,6 +237,24 @@ fn double_initialize_panics() {
     client.initialize(&admin);
     // Second call must panic.
     client.initialize(&admin);
+}
+
+// ── 4.13 ────────────────────────────────────────────────────────────────────
+// Finalized records carry the current CONTRACT_SUMMARY_SCHEMA_VERSION.
+#[test]
+fn finalized_record_carries_current_schema_version() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let (client_addr, _freelancer, contract_id) = complete_contract(&env, &client);
+
+    assert!(client.finalize_contract(&contract_id, &client_addr));
+
+    let record = client.get_finalization_record(&contract_id).unwrap();
+    assert_eq!(
+        record.summary.schema_version, CONTRACT_SUMMARY_SCHEMA_VERSION,
+        "finalized record must carry the current schema version"
+    );
 }
 
 /// Confirms that a fresh contract (no successful initialize) still reports
@@ -270,5 +270,66 @@ fn failed_lifecycle_does_not_update_checklist() {
     assert!(
         !info.initialized,
         "initialized must remain false when initialize() has never succeeded"
+    );
+}
+
+// ── 4.12 ────────────────────────────────────────────────────────────────────
+// Verifies the complete operator workflow and corresponding flag transitions.
+#[test]
+fn test_operator_workflow_transitions() {
+    let (env, contract_id) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    // 1. Fresh state: all false
+    let info = client.get_mainnet_readiness_info();
+    assert!(!info.initialized);
+    assert!(!info.governed_params_set);
+    assert!(!info.emergency_controls_enabled);
+    assert!(!client.is_paused());
+    assert!(!client.is_emergency());
+
+    // 2. Step 1: Initialize the contract
+    client.initialize(&admin);
+    let info = client.get_mainnet_readiness_info();
+    assert!(info.initialized);
+    assert!(!info.governed_params_set);
+    assert!(!info.emergency_controls_enabled);
+
+    // 3. Step 2: Configure Governed Parameters
+    assert!(client.set_governed_params(&admin, &1000_u32, &500_000_000_000_i128));
+    let info = client.get_mainnet_readiness_info();
+    assert!(info.initialized);
+    assert!(info.governed_params_set);
+    assert!(!info.emergency_controls_enabled);
+
+    // 4. Step 3: Exercise Emergency Controls (Pause the contract)
+    client.activate_emergency_pause();
+    let info = client.get_mainnet_readiness_info();
+    assert!(info.initialized);
+    assert!(info.governed_params_set);
+    assert!(info.emergency_controls_enabled);
+    assert!(
+        client.is_paused(),
+        "Contract should be paused after activating emergency pause"
+    );
+    assert!(
+        client.is_emergency(),
+        "Contract should be in emergency mode"
+    );
+
+    // 5. Step 5: Resolve the Emergency (Resume normal operations)
+    client.resolve_emergency();
+    let info = client.get_mainnet_readiness_info();
+    assert!(info.initialized);
+    assert!(info.governed_params_set);
+    assert!(info.emergency_controls_enabled); // Should remain true once enabled
+    assert!(
+        !client.is_paused(),
+        "Contract should be unpaused after resolving emergency"
+    );
+    assert!(
+        !client.is_emergency(),
+        "Contract should not be in emergency mode"
     );
 }

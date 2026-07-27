@@ -1,0 +1,268 @@
+src/test/access_control.rs:13:    let contract_id = client.create_contract(
+src/test/access_control.rs:33:    let contract_id = client.create_contract(
+src/test/access_control.rs:55:    let contract_id = client.create_contract(
+src/test/access_control.rs:78:    let contract_id = client.create_contract(
+src/test/access_control.rs:107:    let contract_id = client.create_contract(
+src/test/access_control.rs:135:    let result = client.try_create_contract(
+src/test/access_control.rs:153:    let result = client.try_create_contract(
+src/test/access_control.rs:171:    let _ = client.create_contract(
+src/test/access_control.rs:187:    let result = client.try_create_contract(
+src/test/access_control.rs:205:    let result = client.try_create_contract(
+src/test/access_control.rs:222:    let contract_id = client.create_contract(
+src/test/access_control.rs:241:    let contract_id = client.create_contract(
+src/test/access_control.rs:261:    let contract_id = client.create_contract(
+src/test/access_control.rs:280:    let contract_id = client.create_contract(
+src/test/access_control.rs:303:    let contract_id = client.create_contract(
+src/test/access_control.rs:324:    let contract_id = client.create_contract(
+src/test/access_control.rs:345:    let contract_id = client.create_contract(
+src/test/access_control.rs:364:    let contract_id = client.create_contract(
+src/test/access_control.rs:386:    let contract_id = client.create_contract(
+src/test/access_control.rs:413:    let contract_id = client.create_contract(
+src/test/access_control.rs:432:    let contract_id = client.create_contract(
+src/test/access_control.rs:461:    let contract_id = client.create_contract(
+src/test/access_control.rs:481:    let contract_id = client.create_contract(
+src/test/accounting_invariants.rs:60:    let id = client.create_contract(
+src/test/accounting_invariants.rs:82:    let id = client.create_contract(
+src/test/accounting_invariants.rs:103:    let id = client.create_contract(
+src/test/accounting_invariants.rs:134:    let id = client.create_contract(
+src/test/accounting_invariants.rs:168:    let id = client.create_contract(&ca, &fa, &vec![&env, 100_i128], &DepositMode::Incremental);
+src/test/accounting_invariants.rs:183:    let id = client.create_contract(
+src/test/accounting_invariants.rs:208:    let id = client.create_contract(
+src/test/accounting_invariants.rs:236:    let id = client.create_contract(
+src/test/accounting_invariants.rs:262:    let id = client.create_contract(&ca, &fa, &vec![&env, 100_i128], &DepositMode::Incremental);
+src/test/accounting_invariants.rs:274:    let id = client.create_contract(&ca, &fa, &vec![&env, 100_i128], &DepositMode::Incremental);
+src/test/accounting_invariants.rs:291:    let id = client.create_contract(&ca, &fa, &vec![&env, 100_i128], &DepositMode::ExactTotal);
+src/test/accounting_invariants.rs:306:    let id = client.create_contract(&ca, &fa, &vec![&env, 100_i128], &DepositMode::Incremental);
+src/test/accounting_invariants.rs:318:    let id = client.create_contract(&ca, &fa, &vec![&env, 100_i128], &DepositMode::Incremental);
+src/test/accounting_invariants.rs:336:    let id1 = client.create_contract(&ca1, &fa1, &vec![&env, 100_i128], &DepositMode::ExactTotal);
+src/test/accounting_invariants.rs:337:    let id2 = client.create_contract(
+src/test/accounting_invariants.rs:366:    let id = client.create_contract(
+src/test/accounting_invariants.rs:389:    let id = client.create_contract(&ca, &fa, &vec![&env, 100_i128], &DepositMode::ExactTotal);
+src/test/approval_expiry.rs:30:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:57:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:88:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:116:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:143:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:166:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:188:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:210:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:238:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:269:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:296:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:320:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:342:    let contract_id = client.create_contract(
+src/test/approval_expiry.rs:362:    let contract_id = client.create_contract(
+src/test/authorization_matrix_validation.rs:40:    let id = client.create_contract(client_addr, freelancer_addr, &arbiter.cloned(), &milestones, auth);
+src/test/authorization_matrix_validation.rs:496:    let result = client.try_create_contract(
+src/test/cancel_contract.rs:43:    client.create_contract(
+src/test/cancel_contract.rs:380:    client.create_contract(
+src/test/cancel_contract.rs:400:    client.create_contract(
+src/test/client_migration.rs:84:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:142:    let (client_addr, freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:193:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:256:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:305:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:327:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:346:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:367:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:392:    let (client_addr, freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:408:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:428:    let (_client_addr, freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:457:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:481:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:505:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:519:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:539:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/client_migration.rs:560:    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+src/test/contract_id_allocation.rs:37:    let result = escrow.try_create_contract(
+src/test/contract_id_allocation.rs:64:    let existing_id = escrow.create_contract(
+src/test/contract_id_allocation.rs:79:    let result = escrow.try_create_contract(
+src/test/create_contract.rs:19:    let contract_id = client.create_contract(
+src/test/create_contract.rs:51:    client.create_contract(
+src/test/create_contract.rs:72:    client.create_contract(
+src/test/create_contract.rs:93:    client.create_contract(
+src/test/create_contract_bounds.rs:51:        client.try_create_contract(&same, &same, &None, &vec![&env, 100_i128], &ReleaseAuthorization::ClientOnly),
+src/test/create_contract_bounds.rs:65:        client.try_create_contract(&c, &f, &None, &Vec::new(&env), &ReleaseAuthorization::ClientOnly),
+src/test/create_contract_bounds.rs:84:        client.try_create_contract(&c, &f, &None, &amounts, &ReleaseAuthorization::ClientOnly),
+src/test/create_contract_bounds.rs:102:    client.create_contract(&c, &f, &None, &amounts, &ReleaseAuthorization::ClientOnly);
+src/test/create_contract_bounds.rs:114:        client.try_create_contract(&c, &f, &None, &vec![&env, 0_i128], &ReleaseAuthorization::ClientOnly),
+src/test/create_contract_bounds.rs:126:        client.try_create_contract(&c, &f, &None, &vec![&env, -1_i128], &ReleaseAuthorization::ClientOnly),
+src/test/create_contract_bounds.rs:142:        client.try_create_contract(&c, &f, &None, &vec![&env, large, large], &ReleaseAuthorization::ClientOnly),
+src/test/create_contract_bounds.rs:155:    client.create_contract(
+src/test/create_contract_bounds.rs:171:        client.try_create_contract(
+src/test/create_contract_bounds.rs:190:        client.try_create_contract(&c, &f, &None, &vec![&env, half, half], &ReleaseAuthorization::ClientOnly),
+src/test/create_contract_bounds.rs:210:        client.try_create_contract(&c, &f, &None, &amounts, &ReleaseAuthorization::ClientOnly),
+src/test/deposit.rs:18:        create_contract(&env, &client);
+src/test/deposit.rs:148:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/deposit.rs:168:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/dispute.rs:26:    let contract_id = client.create_contract(
+src/test/dispute.rs:238:    let escrow_id = client.create_contract(
+src/test/emergency_controls.rs:18:    let id = client.create_contract(
+src/test/emergency_controls.rs:73:fn emergency_blocks_create_contract() {
+src/test/emergency_controls.rs:81:        client.try_create_contract(
+src/test/emergency_controls.rs:164:    let id = client.create_contract(
+src/test/flows.rs:15:    let second_id = client.create_contract(
+src/test/flows.rs:64:    let (client_addr, _, contract_id) = create_contract(&env, &client);
+src/test/flows.rs:77:    let (client_addr, _, contract_id) = create_contract(&env, &client);
+src/test/input_sanitization_amounts.rs:27:    client.create_contract(
+src/test/input_sanitization_amounts.rs:41:    client.create_contract(
+src/test/input_sanitization_amounts.rs:55:    client.create_contract(
+src/test/input_sanitization_amounts.rs:68:    let id = client.create_contract(
+src/test/input_sanitization_amounts.rs:83:    client.create_contract(
+src/test/input_sanitization_amounts.rs:97:    let contract_id = client.create_contract(
+src/test/input_sanitization_amounts.rs:112:    let contract_id = client.create_contract(
+src/test/input_sanitization_amounts.rs:127:    let contract_id = client.create_contract(
+src/test/input_sanitization_amounts.rs:141:    let contract_id = client.create_contract(
+src/test/input_sanitization_amounts.rs:355:    client.create_contract(
+src/test/input_sanitization_amounts.rs:369:    let contract_id = client.create_contract(
+src/test/input_sanitization_identities.rs:43:    client.create_contract(&same_party, &same_party, &None, &default_milestones(&env));
+src/test/input_sanitization_identities.rs:55:    let id = client.create_contract(&client_addr, &freelancer_addr, &None, &default_milestones(&env));
+src/test/input_sanitization_identities.rs:76:    client.create_contract(
+src/test/input_sanitization_identities.rs:94:    client.create_contract(
+src/test/input_sanitization_identities.rs:112:    let id = client.create_contract(
+src/test/input_sanitization_identities.rs:137:    let id = client.create_contract(
+src/test/input_sanitization_identities.rs:163:    client.create_contract(&same_party, &same_party, &None, &default_milestones(&env));
+src/test/input_sanitization_identities.rs:181:    let id1 = client.create_contract(&alice, &bob, &None, &default_milestones(&env));
+src/test/input_sanitization_identities.rs:185:    let id2 = client.create_contract(
+src/test/input_sanitization_identities.rs:223:    let id = client.create_contract(&addr1, &addr2, &Some(addr3.clone()), &default_milestones(&env));
+src/test/input_sanitization_identities.rs:244:    client.create_contract(
+src/test/lifecycle.rs:18:    let contract_id = client.create_contract(
+src/test/lifecycle.rs:38:    let contract_id = client.create_contract(
+src/test/lifecycle.rs:129:    let contract_id = client.create_contract(
+src/test/milestone_schedule.rs:99:    let id = client.create_contract(
+src/test/milestone_schedule.rs:126:    let id = client.create_contract(
+src/test/milestone_schedule.rs:157:    let id = client.create_contract(
+src/test/milestone_schedule.rs:191:    let id = client.create_contract(
+src/test/milestone_schedule.rs:214:    let id = client.create_contract(
+src/test/milestone_schedule.rs:243:    client.create_contract(
+src/test/milestone_schedule.rs:267:    client.create_contract(
+src/test/milestone_schedule.rs:288:    let id = client.create_contract(
+src/test/milestone_schedule.rs:319:    client.create_contract(
+src/test/milestone_schedule.rs:345:    client.create_contract(
+src/test/milestone_schedule.rs:372:    let id = client.create_contract(
+src/test/milestone_schedule.rs:411:    client.create_contract(
+src/test/milestone_schedule.rs:441:    client.create_contract(
+src/test/milestone_schedule.rs:471:    client.create_contract(
+src/test/milestone_schedule.rs:493:    let id = client.create_contract(
+src/test/milestone_schedule.rs:520:    let id = client.create_contract(
+src/test/milestone_schedule.rs:554:    let id = client.create_contract(
+src/test/milestone_schedule.rs:577:    let id = client.create_contract(
+src/test/milestone_schedule.rs:603:    client.create_contract(
+src/test/milestone_schedule.rs:633:    let id = client.create_contract(
+src/test/milestone_schedule.rs:673:    let id_a = client.create_contract(
+src/test/milestone_schedule.rs:681:    let id_b = client.create_contract(
+src/test/milestone_schedule.rs:714:    let id = client.create_contract(
+src/test/mod.rs:53:pub fn create_contract(env: &Env, client: &EscrowClient) -> (Address, Address, u32) {
+src/test/mod.rs:57:    let id = client.create_contract(
+src/test/mod.rs:76:    let id = client.create_contract(
+src/test/mod.rs:89:    let (client_addr, freelancer_addr, id) = create_contract(env, client);
+src/test/mod.rs:148:    client.create_contract(
+src/test/participant_index_pagination.rs:37:    let id1 = escrow.create_contract(
+src/test/participant_index_pagination.rs:45:    let id2 = escrow.create_contract(
+src/test/pause_controls.rs:44:    let id = client.create_contract(
+src/test/pause_controls.rs:66:    let id = client.create_contract(
+src/test/pause_controls.rs:136:fn pause_blocks_create_contract() {
+src/test/pause_controls.rs:143:        client.try_create_contract(
+src/test/pause_controls.rs:155:fn emergency_blocks_create_contract() {
+src/test/pause_controls.rs:216:fn unpause_restores_create_contract() {
+src/test/pause_controls.rs:223:    let id = client.create_contract(
+src/test/pause_controls.rs:234:fn resolve_emergency_restores_create_contract() {
+src/test/pause_controls.rs:241:    let id = client.create_contract(
+src/test/pause_controls.rs:508:fn pause_gate_runs_before_auth_on_create_contract() {
+src/test/pause_controls.rs:517:        client.try_create_contract(
+src/test/performance.rs:165:    let _ = create_contract(&env, &client);
+src/test/performance.rs:182:    let (_, _, contract_id) = create_contract(&env, &client);
+src/test/performance.rs:200:    let (_, _, contract_id) = create_contract(&env, &client);
+src/test/performance.rs:219:    let (_, _, contract_id) = create_contract(&env, &client);
+src/test/performance.rs:233:    let (_, _, contract_id) = create_contract(&env, &client);
+src/test/performance.rs:246:    let (_, _, contract_id) = create_contract(&env, &client);
+src/test/persistence.rs:102:    let _created = client.create_contract(
+src/test/persistence.rs:149:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/persistence.rs:164:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/persistence.rs:304:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/persistence.rs:383:        create_contract(&env, &client);
+src/test/persistence.rs:403:        create_contract(&env, &client);
+src/test/persistence.rs:434:        create_contract(&env, &client);
+src/test/persistence.rs:501:        create_contract(&env, &client);
+src/test/persistence.rs:525:        create_contract(&env, &client);
+src/test/persistence.rs:581:        create_contract(&env, &client);
+src/test/persistence.rs:593:        create_contract(&env, &client);
+src/test/persistence.rs:613:        create_contract(&env, &client);
+src/test/persistence.rs:646:        create_contract(&env, &client);
+src/test/persistence.rs:671:        create_contract(&env, &client);
+src/test/persistence.rs:708:        create_contract(&env, &client);
+src/test/persistence.rs:759:        create_contract(&env, &client);
+src/test/persistence.rs:806:        create_contract(&env, &client);
+src/test/persistence.rs:852:        create_contract(&env, &client);
+src/test/persistence.rs:974:    let id = client.create_contract(
+src/test/persistence.rs:1008:        create_contract(&env, &client);
+src/test/protocol_fees.rs:75:    let id = client.create_contract(
+src/test/protocol_fees.rs:120:    let id = client.create_contract(
+src/test/protocol_fees.rs:221:    // Based on lib.rs line 145: pub fn create_contract(env: Env, client: Address, freelancer: Address, arbiter: Option<Address>, milestones: Vec<i128>, terms_hash: Option<Bytes>, grace_period_seconds: Option<u64>)
+src/test/protocol_fees.rs:224:    // client.create_contract(&client_addr, &freelancer_addr, &None, &milestones);
+src/test/protocol_fees.rs:225:    let id = client.create_contract(&client_addr, &freelancer_addr, &None, &milestones, &None, &None);
+src/test/refund.rs:10:    let (client_addr, _freelancer, contract_id) = create_contract(&env, &client);
+src/test/refund.rs:27:    let (client_addr, _freelancer, contract_id) = create_contract(&env, &client);
+src/test/release.rs:22:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/release.rs:49:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/release.rs:62:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/release.rs:74:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/release.rs:89:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/release.rs:109:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:124:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:141:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:157:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:172:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:186:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:200:    let (_client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:213:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:228:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:242:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:255:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:269:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:285:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release.rs:299:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &escrow);
+src/test/release_authorization.rs:94:    client.create_contract(
+src/test/release_authorization.rs:139:    let id = client.create_contract(
+src/test/release_authorization.rs:179:    let id = client.create_contract(
+src/test/release_authorization.rs:519:    let id = client.create_contract(
+src/test/release_authorization.rs:540:    let id = client.create_contract(
+src/test/release_authorization.rs:561:    let id = client.create_contract(
+src/test/release_authorization.rs:585:    let id = client.create_contract(
+src/test/reputation.rs:26:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/reputation.rs:169:    let contract_id2 = client.create_contract(
+src/test/reputation.rs:203:    let contract_id2 = client.create_contract(
+src/test/sac_custody.rs:92:    let id = escrow_client.create_contract(
+src/test/sac_custody.rs:177:    let id = client.create_contract(
+src/test/sac_custody.rs:218:    let id = client.create_contract(
+src/test/sac_custody.rs:352:    let id = client.create_contract(
+src/test/sac_custody.rs:448:    let id = client.create_contract(
+src/test/security.rs:13:        client.try_create_contract(&addr, &addr, &None, &default_milestones(&env), &ReleaseAuthorization::ClientOnly);
+src/test/security.rs:26:        client.try_create_contract(&client_addr, &freelancer_addr, &None, &empty, &ReleaseAuthorization::ClientOnly);
+src/test/security.rs:38:    let result = client.try_create_contract(
+src/test/security.rs:55:    let _ = client.create_contract(
+src/test/security.rs:69:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/security.rs:80:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/security.rs:91:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/security.rs:103:    let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/security.rs:117:    let (client_addr, freelancer_addr, contract_id) = create_contract(&env, &client);
+src/test/storage.rs:90:fn paused_blocks_create_contract() {
+src/test/storage.rs:100:        client.try_create_contract(
+src/test/storage.rs:119:    let (client_addr, _, id) = create_contract(&env, &client);
+src/test/storage.rs:136:    let (client_addr, _, id) = create_contract(&env, &client);
+src/test/storage.rs:154:    let (client_addr, _, id) = create_contract(&env, &client);
+src/test/storage.rs:171:    let (_, _, id) = create_contract(&env, &client);
+src/test/storage.rs:231:    let id = client.create_contract(
+src/test/storage.rs:251:    let (_, _, id1) = create_contract(&env, &client);
+src/test/storage.rs:252:    let (_, _, id2) = create_contract(&env, &client);
+src/test/storage.rs:279:    let (client_addr, _, id) = create_contract(&env, &client);
+src/test/storage.rs:296:    let (client_addr, _, id) = create_contract(&env, &client);
+src/test/storage.rs:312:    let (client_addr, _, id) = create_contract(&env, &client);
+src/test/storage.rs:392:    let id = client.create_contract(
+src/test/storage.rs:471:    let (client_addr, _, id) = create_contract(&env, &client);
+src/test/storage.rs:494:    let (client_addr, _, id) = create_contract(&env, &client);
+src/test/summary.rs:219:        let id = c.create_contract(
+src/test/summary.rs:239:        let id = c.create_contract(
+src/test/summary.rs:264:        let id = c.create_contract(
+src/test/summary.rs:288:        let id = c.create_contract(
+src/test/timeout_tests.rs:38:    let contract_id = client.create_contract(
