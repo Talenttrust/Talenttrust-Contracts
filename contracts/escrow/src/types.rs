@@ -193,6 +193,8 @@ pub enum Error {
     SettlementTokenNotConfigured = 52,
     /// The milestone deadline has not yet passed.
     MilestoneNotOverdue = 53,
+    /// The work evidence string is empty; at least one byte is required.
+    EmptyEvidence = 54,
 }
 
 /// Contract lifecycle states

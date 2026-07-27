@@ -8,6 +8,7 @@ use crate::{
 };
 
 // --- Submodules ---
+mod access_control;
 mod approval_expiry;
 mod cancel_contract;
 mod client_migration;
@@ -263,9 +264,23 @@ pub fn total_milestone_amount() -> i128 {
     MILESTONE_ONE + MILESTONE_TWO + MILESTONE_THREE
 }
 
+/// Alias used by tests that import `total_milestones` directly.
+pub fn total_milestones() -> i128 {
+    total_milestone_amount()
+}
+
 /// Generate a fresh (client, freelancer) address pair for a test.
 pub fn generated_participants(env: &Env) -> (Address, Address) {
     (Address::generate(env), Address::generate(env))
+}
+
+/// Generate a fresh (client, freelancer, arbiter) address triple for a test.
+pub fn generated_participants3(env: &Env) -> (Address, Address, Address) {
+    (
+        Address::generate(env),
+        Address::generate(env),
+        Address::generate(env),
+    )
 }
 
 /// Create, fund, and fully release a 3-milestone contract, driving it to
