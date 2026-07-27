@@ -9,6 +9,7 @@ use crate::{
 
 // --- Submodules ---
 mod approval_expiry;
+mod budget;
 mod cancel_contract;
 mod client_migration;
 mod create_contract_bounds;
@@ -19,6 +20,7 @@ mod input_sanitization_amounts;
 mod input_sanitization_identities;
 mod mainnet_readiness;
 mod pause_controls;
+mod performance;
 mod persistence;
 mod refund;
 mod release;
