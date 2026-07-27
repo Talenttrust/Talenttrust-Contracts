@@ -78,8 +78,6 @@ pub enum DataKey {
 pub enum Error {
     /// The specified milestone index is out of bounds.
     IndexOutOfBounds = 3,
-    /// The milestone has already been released.
-    AlreadyReleased = 4,
     /// The refund request is empty.
     EmptyRefundRequest = 6,
     /// Duplicate milestone indices specified in the refund request.
@@ -126,8 +124,6 @@ pub enum Error {
     EmptyComment = 29,
     /// The comment string exceeds the maximum length limit.
     CommentTooLong = 30,
-    /// The participant address is invalid.
-    InvalidParticipant = 31,
     /// The deposit amount is invalid.
     InvalidDepositAmount = 32,
     /// The milestone configuration is invalid.

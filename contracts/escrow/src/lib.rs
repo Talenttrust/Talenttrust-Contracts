@@ -1048,7 +1048,7 @@ impl Escrow {
 
             // SECURITY: Check if milestone is already released
             if milestone.released {
-                env.panic_with_error(Error::AlreadyReleased);
+                env.panic_with_error(Error::MilestoneAlreadyReleased);
             }
 
             // SECURITY: Check if milestone is already refunded
