@@ -56,6 +56,11 @@ fn abi_reference_document_lists_current_public_entrypoints() {
         "accept_governance_admin",
         "get_pending_governance_admin",
         "get_governance_admin",
+         "set_governed_params",
+         "get_governed_parameters",
+         "set_contracts_limit",
+         "get_contracts_limit",
+     ];
         "set_governed_params",
         "get_governed_parameters",
         "is_governed_params_set",

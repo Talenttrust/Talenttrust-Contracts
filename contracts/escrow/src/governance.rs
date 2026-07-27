@@ -9,6 +9,9 @@
 
 use crate::ttl::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
 use crate::{
+    DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, MIN_CONTRACTS_LIMIT,
+    MAX_CONTRACTS_LIMIT, DEFAULT_CONTRACTS_LIMIT, PendingAdminProposal,
+    ReadinessChecklist,
     milestones_consts::MAX_FEE_BPS, DataKey, Error, Escrow, EscrowArgs, EscrowClient,
     GovernedParameters, PendingAdminProposal, ReadinessChecklist,
 };
@@ -251,5 +254,49 @@ impl Escrow {
     /// Retrieve the current governed parameters.
     pub fn get_governed_parameters(env: Env) -> Option<GovernedParameters> {
         env.storage().persistent().get(&DataKey::GovernedParameters)
+    }
+
+    /// Set the admin-configurable contracts limit.
+    ///
+    /// Admin-gated: the stored admin (under [`DataKey::Admin`]) must authorize
+    /// the call and the contract must be initialized.
+    ///
+    /// `limit` must be in the range [`MIN_CONTRACTS_LIMIT`, `MAX_CONTRACTS_LIMIT`].
+    /// The default value is [`DEFAULT_CONTRACTS_LIMIT`] (`u32::MAX`), which
+    /// preserves the existing hard-coded ceiling.
+    ///
+    /// # Events
+    /// `(Symbol("contracts_limit"),)` → `(old_limit, new_limit, admin, timestamp)`
+    pub fn set_contracts_limit(env: Env, admin: Address, limit: u32) -> bool {
+        Self::require_initialized(&env);
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
+        if admin != stored_admin {
+            env.panic_with_error(Error::UnauthorizedRole);
+        }
+        admin.require_auth();
+
+        if limit < MIN_CONTRACTS_LIMIT || limit > MAX_CONTRACTS_LIMIT {
+            env.panic_with_error(Error::ContractsLimitExceeded);
+        }
+
+        let old_limit: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ContractsLimit)
+            .unwrap_or(DEFAULT_CONTRACTS_LIMIT);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::ContractsLimit, &limit);
+
+        env.events().publish(
+            (Symbol::new(&env, "contracts_limit"),),
+            (old_limit, limit, admin.clone(), env.ledger().timestamp()),
+        );
+        true
     }
 }

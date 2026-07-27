@@ -1,6 +1,7 @@
 use crate::{
     amount_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowArgs,
     EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
+    DEFAULT_CONTRACTS_LIMIT,
 };
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol, Vec};
 
@@ -116,6 +117,16 @@ impl Escrow {
         ttl::extend_next_contract_id_ttl(&env);
 
         let id = next_contract_id(&env);
+
+        // Enforce the admin-configurable contracts limit.
+        let limit: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ContractsLimit)
+            .unwrap_or(DEFAULT_CONTRACTS_LIMIT);
+        if id > limit {
+            env.panic_with_error(Error::ContractsLimitExceeded);
+        }
 
         let freelancer_addr = freelancer.clone();
 
