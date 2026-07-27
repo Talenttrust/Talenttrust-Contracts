@@ -1,13 +1,13 @@
 #![cfg(test)]
 
 use soroban_sdk::{
-    testutils::Address as _, testutils::Events, Address, Env, IntoVal, Symbol, TryFromVal, Val,
+    testutils::Address as _, testutils::Events, Address, Env, Symbol, TryFromVal, Val,
 };
 
 use crate::{Escrow, EscrowClient};
 
 #[test]
-fn test_arbiter_config_setter() {
+fn event_emitted_on_valid_set() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -20,7 +20,7 @@ fn test_arbiter_config_setter() {
         .last()
         .and_then(|e| e.1.get(0).and_then(|v| Symbol::try_from_val(&env, &v).ok()));
 
-    let expected_topic = Some(Symbol::new(&env, "arbiter_config_set"));
+    let expected_topic = Some(Symbol::new(&env, "arbiter_cfg"));
     assert_eq!(topic, expected_topic);
     let _fallback: Val = Val::VOID.into();
 }
