@@ -11,7 +11,7 @@
 //!
 //! | Source | Responsibility | Storage keys owned or touched |
 //! | --- | --- | --- |
-//! | `lib.rs` | Contract wrapper plus root entrypoints for setup, custody, money movement, reads, reputation, work evidence, pause/emergency, fee withdrawal, and dispute orchestration. | `DataKey::Initialized`, `Admin`, `SettlementToken`, `Paused`, `Emergency`, `ReadinessChecklist`, `Contract(id)`, `(Contract(id), "milestones")`, `MilestoneApprovals`, `AccumulatedProtocolFees`, `ReputationIssued`, `PendingReputationCredits`, `Reputation`, `ReputationComment`, `ReputationConfigKey` |
+//! | `lib.rs` | Contract wrapper plus root entrypoints for setup, custody, money movement, reads, reputation, work evidence, pause/emergency, fee withdrawal, and ABI-compatible dispute wrappers. | `DataKey::Initialized`, `Admin`, `SettlementToken`, `Paused`, `Emergency`, `ReadinessChecklist`, `Contract(id)`, `(Contract(id), "milestones")`, `MilestoneApprovals`, `AccumulatedProtocolFees`, `ReputationIssued`, `PendingReputationCredits`, `Reputation`, `ReputationComment`, `ReputationConfigKey` |
 //! | `amount_validation` | Stateless validation and checked arithmetic for stroop amounts and milestone totals. | None directly; callers write validated amounts to `Contract(id)` and milestone vectors. |
 //! | `approvals` | Temporary milestone release approvals and release-authorization checks. | Temporary `DataKey::MilestoneApprovals(contract_id, milestone_index)`; reads `Contract(id)` and `(Contract(id), "milestones")`. |
 //! | `deposit` | Deposit preflight and post-transfer accounting used by `deposit_funds`. | `DataKey::Contract(contract_id)` and `(DataKey::Contract(contract_id), "milestones")`. |
@@ -22,7 +22,7 @@
 //! | `types` | Shared Soroban types, error enums, summaries, governance records, dispute records, and the canonical `DataKey` enum. | Declares storage key schema only; does not access storage itself. |
 //! | `utils` | Small deterministic helpers shared by entrypoints, currently ledger timestamp access. | None. |
 //! | `create_contract` | Contract creation, participant/milestone validation, ID allocation, and creation events. | `DataKey::Contract(id)`, `(DataKey::Contract(id), "milestones")`, `NextContractId`, and `GovernedParameters`. |
-//! | `dispute` | Dispute payout arithmetic, final-status selection, and arbiter dispute-split config storage. | `DataKey::DisputeConfigKey`; root dispute entrypoints update `DataKey::Contract(contract_id)`. |
+//! | `dispute` | Dispute payout arithmetic, lifecycle orchestration, final-status selection, and arbiter dispute-split config storage. | `DataKey::DisputeConfigKey`, `DataKey::Contract(id)`, and dispute rollback records. |
 //! | `governance` | Admin-controlled protocol fee, governed parameter, readiness, and admin-rotation entrypoints. | `DataKey::Admin`, `ProtocolFeeBps`, `PendingAdmin`, `GovernedParameters`, and `ReadinessChecklist`. |
 //!
 //! Generate this map with `cargo doc -p escrow --no-deps` and open
@@ -671,7 +671,7 @@ impl Escrow {
     /// or via dispute resolution. Credits accumulate independently for each
     /// completed contract and are consumed one at a time by `issue_reputation`.
     /// A `Refunded` contract never calls this helper and therefore earns no credit.
-    fn grant_pending_reputation_credit(env: &Env, freelancer: &Address) {
+    pub(crate) fn grant_pending_reputation_credit(env: &Env, freelancer: &Address) {
         let pending_key = DataKey::PendingReputationCredits(freelancer.clone());
         let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
         env.storage().persistent().set(&pending_key, &(pending + 1));
@@ -2315,53 +2315,7 @@ impl Escrow {
     /// - Blocks milestone releases while disputed
     /// - Respects pause and emergency controls
     pub fn raise_dispute(env: Env, contract_id: u32, caller: Address) -> bool {
-        /// Gate: contract must have been initialized so pause and emergency rails
-        /// are always in scope before any state mutation can occur.
-        Self::require_initialized(&env);
-        Self::require_not_paused(&env);
-        caller.require_auth();
-
-        let mut contract: Contract = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
-
-        ttl::extend_contract_ttl(&env, contract_id);
-        Self::require_not_finalized(&env, contract_id);
-
-        // Verify caller is client or freelancer
-        if caller != contract.client && caller != contract.freelancer {
-            env.panic_with_error(Error::UnauthorizedRole);
-        }
-
-        // Require arbiter assignment
-        if contract.arbiter.is_none() {
-            env.panic_with_error(Error::ArbiterRequired);
-        }
-
-        // Verify contract is in a disputable state (Funded or PartiallyFunded)
-        match contract.status {
-            ContractStatus::Funded | ContractStatus::PartiallyFunded => {}
-            _ => env.panic_with_error(Error::InvalidState),
-        }
-
-        let milestones = ttl::load_milestones(&env, contract_id);
-        rollback::store_dispute_rollback(&env, contract_id, &contract, &milestones);
-
-        contract.status = ContractStatus::Disputed;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Contract(contract_id), &contract);
-
-        ttl::extend_contract_ttl(&env, contract_id);
-
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("opened")),
-            (contract_id, caller),
-        );
-
-        true
+        dispute::raise_dispute_impl(&env, contract_id, caller)
     }
 
     /// Resolves an open dispute by applying the arbiter-selected resolution.
@@ -2402,60 +2356,7 @@ impl Escrow {
         arbiter: Address,
         resolution: DisputeResolution,
     ) -> bool {
-        /// Gate: contract must have been initialized so pause and emergency rails
-        /// are always in scope before any state mutation can occur.
-        Self::require_initialized(&env);
-        Self::require_not_paused(&env);
-        arbiter.require_auth();
-
-        let mut contract: Contract = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
-
-        ttl::extend_contract_ttl(&env, contract_id);
-        Self::require_not_finalized(&env, contract_id);
-
-        // Verify contract is in Disputed state
-        if contract.status != ContractStatus::Disputed {
-            env.panic_with_error(Error::InvalidStatusTransition);
-        }
-
-        // Verify caller is the assigned arbiter
-        match &contract.arbiter {
-            Some(contract_arbiter) if *contract_arbiter == arbiter => {}
-            _ => env.panic_with_error(Error::UnauthorizedRole),
-        }
-
-        // Compute payouts based on resolution
-        let (client_payout, freelancer_payout) =
-            dispute::resolution_payouts(&contract, &resolution)
-                .unwrap_or_else(|e| env.panic_with_error(e));
-
-        // Update contract accounting
-        contract.refunded_amount += client_payout;
-        contract.released_amount += freelancer_payout;
-
-        // Set final status
-        contract.status = dispute::final_status_after_resolution(&contract);
-        if contract.status == ContractStatus::Completed {
-            Self::grant_pending_reputation_credit(&env, &contract.freelancer);
-        }
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Contract(contract_id), &contract);
-        rollback::clear_dispute_rollback(&env, contract_id);
-
-        ttl::extend_contract_ttl(&env, contract_id);
-
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("resolved")),
-            (contract_id, resolution.code()),
-        );
-
-        true
+        dispute::resolve_dispute_impl(&env, contract_id, arbiter, resolution)
     }
 }
 
