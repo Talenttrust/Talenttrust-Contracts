@@ -273,7 +273,8 @@ fn resolution_payouts_conserves_available_balance() {
         assert_eq!(freelancer, available);
 
         // PartialRefund
-        let (client, freelancer) = resolution_payouts(&c, &DisputeResolution::PartialRefund).unwrap();
+        let (client, freelancer) =
+            resolution_payouts(&c, &DisputeResolution::PartialRefund).unwrap();
         assert_eq!(client + freelancer, available);
         let expected_freelancer = (available * 30) / 100;
         assert_eq!(freelancer, expected_freelancer);
@@ -286,7 +287,8 @@ fn resolution_payouts_conserves_available_balance() {
             client_amount: split_client,
             freelancer_amount: split_freelancer,
         };
-        let (client, freelancer) = resolution_payouts(&c, &DisputeResolution::Split(split)).unwrap();
+        let (client, freelancer) =
+            resolution_payouts(&c, &DisputeResolution::Split(split)).unwrap();
         assert_eq!(client + freelancer, available);
         assert_eq!(client, split_client);
         assert_eq!(freelancer, split_freelancer);

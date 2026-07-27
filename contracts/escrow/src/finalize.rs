@@ -1,8 +1,8 @@
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Vec};
 
 use crate::{
-    safe_subtract_amounts, Contract, ContractStatus, ContractSummary, DataKey, Error, Escrow,
-    EscrowError, Milestone, MilestoneSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    keys, Contract, ContractStatus, ContractSummary, DataKey, Error, Escrow, EscrowError,
+    Milestone, MilestoneSummary,
 };
 
 /// Immutable metadata written when an escrow contract is closed.
@@ -74,11 +74,11 @@ impl Escrow {
     }
 
     fn summarize_contract(env: &Env, contract_id: u32, contract: &Contract) -> ContractSummary {
-        let milestone_key = Symbol::new(env, "milestones");
+        let milestone_key = keys::milestone_key(env, contract_id);
         let milestones: Vec<Milestone> = env
             .storage()
             .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
+            .get(&milestone_key)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
         let mut total_amount: i128 = 0;

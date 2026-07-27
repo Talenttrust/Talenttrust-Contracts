@@ -26,7 +26,10 @@ fn complete_contract_for(
         assert!(client.approve_milestone_release(&contract_id, client_addr, &milestone_index));
         assert!(client.release_milestone(&contract_id, client_addr, &milestone_index));
     }
-    assert_eq!(client.get_contract(&contract_id).status, ContractStatus::Completed);
+    assert_eq!(
+        client.get_contract(&contract_id).status,
+        ContractStatus::Completed
+    );
     contract_id
 }
 
@@ -67,36 +70,44 @@ fn pending_reputation_credits_accumulate_and_drain_across_completed_contracts() 
         client.refund_unreleased_milestones(&refunded_contract, &vec![&env, 0_u32, 1, 2]),
         super::total_milestone_amount()
     );
-    assert_eq!(client.get_contract(&refunded_contract).status, ContractStatus::Refunded);
+    assert_eq!(
+        client.get_contract(&refunded_contract).status,
+        ContractStatus::Refunded
+    );
     assert_eq!(client.get_pending_reputation_credits(&freelancer), 3);
 
     assert!(client.issue_reputation(&first_contract, &first_client, &5, &valid_comment(&env)));
     assert_eq!(client.get_pending_reputation_credits(&freelancer), 2);
     assert_eq!(
-        client.get_reputation(&freelancer).unwrap().completed_contracts,
+        client
+            .get_reputation(&freelancer)
+            .unwrap()
+            .completed_contracts,
         1
     );
 
     assert!(client.issue_reputation(&second_contract, &second_client, &4, &valid_comment(&env)));
     assert_eq!(client.get_pending_reputation_credits(&freelancer), 1);
     assert_eq!(
-        client.get_reputation(&freelancer).unwrap().completed_contracts,
+        client
+            .get_reputation(&freelancer)
+            .unwrap()
+            .completed_contracts,
         2
     );
 
     assert!(client.issue_reputation(&third_contract, &third_client, &3, &valid_comment(&env)));
     assert_eq!(client.get_pending_reputation_credits(&freelancer), 0);
     assert_eq!(
-        client.get_reputation(&freelancer).unwrap().completed_contracts,
+        client
+            .get_reputation(&freelancer)
+            .unwrap()
+            .completed_contracts,
         3
     );
 
-    let duplicate = client.try_issue_reputation(
-        &first_contract,
-        &first_client,
-        &1,
-        &valid_comment(&env),
-    );
+    let duplicate =
+        client.try_issue_reputation(&first_contract, &first_client, &1, &valid_comment(&env));
     super::assert_contract_error(duplicate, EscrowError::ReputationAlreadyIssued);
     assert_eq!(client.get_pending_reputation_credits(&freelancer), 0);
 }
@@ -131,10 +142,12 @@ fn issue_reputation_rejects_invalid_rating_bounds() {
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
 
-    let result_low = client.try_issue_reputation(&contract_id, &client_addr, &0, &valid_comment(&env));
+    let result_low =
+        client.try_issue_reputation(&contract_id, &client_addr, &0, &valid_comment(&env));
     super::assert_contract_error(result_low, EscrowError::InvalidRating);
 
-    let result_high = client.try_issue_reputation(&contract_id, &client_addr, &6, &valid_comment(&env));
+    let result_high =
+        client.try_issue_reputation(&contract_id, &client_addr, &6, &valid_comment(&env));
     super::assert_contract_error(result_high, EscrowError::InvalidRating);
 }
 

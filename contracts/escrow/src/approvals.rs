@@ -9,6 +9,7 @@
 //! Approval records live in Soroban temporary storage and expire according to
 //! `PENDING_APPROVAL_TTL_LEDGERS`. Missing or expired approvals fail closed.
 
+use crate::keys;
 use crate::ttl::{PENDING_APPROVAL_BUMP_THRESHOLD, PENDING_APPROVAL_TTL_LEDGERS};
 use crate::types::{
     Contract, ContractStatus, DataKey, Error, Milestone, MilestoneApprovals, ReleaseAuthorization,
@@ -117,7 +118,7 @@ pub fn approve_milestone(
     }
 
     // Load or create approval record
-    let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
+    let approval_key = keys::milestone_approval_key(contract_id, milestone_index);
     let mut approvals: MilestoneApprovals =
         env.storage()
             .temporary()
@@ -183,7 +184,7 @@ pub fn check_approvals(
     contract_id: u32,
     milestone_index: u32,
 ) -> Result<bool, Error> {
-    let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
+    let approval_key = keys::milestone_approval_key(contract_id, milestone_index);
 
     // Try to load approvals from temporary storage
     // If TTL has expired, this will return None
@@ -220,7 +221,7 @@ pub fn check_approvals(
 /// * `contract_id` - The contract ID
 /// * `milestone_index` - The milestone index
 pub fn clear_approvals(env: &Env, contract_id: u32, milestone_index: u32) {
-    let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
+    let approval_key = keys::milestone_approval_key(contract_id, milestone_index);
     env.storage().temporary().remove(&approval_key);
 }
 
@@ -228,7 +229,7 @@ pub fn clear_approvals(env: &Env, contract_id: u32, milestone_index: u32) {
 mod tests {
     use super::*;
     use crate::Escrow;
-    use soroban_sdk::{testutils::Address as _, Env, Symbol, Vec};
+    use soroban_sdk::{testutils::Address as _, Env, Vec};
 
     fn setup_contract_in_storage(
         env: &Env,
@@ -254,11 +255,8 @@ mod tests {
                 }],
             );
             let _ = release_auth;
-            let milestone_key = Symbol::new(env, "milestones");
-            env.storage().persistent().set(
-                &(DataKey::Contract(contract_id), milestone_key),
-                &milestones,
-            );
+            let milestone_key = keys::milestone_key(env, contract_id);
+            env.storage().persistent().set(&milestone_key, &milestones);
         });
     }
 
@@ -303,11 +301,8 @@ mod tests {
                     deadline: None,
                 }],
             );
-            let milestone_key = Symbol::new(&env, "milestones");
-            env.storage().persistent().set(
-                &(DataKey::Contract(contract_id), milestone_key),
-                &milestones,
-            );
+            let milestone_key = keys::milestone_key(&env, contract_id);
+            env.storage().persistent().set(&milestone_key, &milestones);
 
             // Client approves
             let result = approve_milestone(&env, contract_id, 0, &client);
@@ -360,11 +355,8 @@ mod tests {
                     deadline: None,
                 }],
             );
-            let milestone_key = Symbol::new(&env, "milestones");
-            env.storage().persistent().set(
-                &(DataKey::Contract(contract_id), milestone_key),
-                &milestones,
-            );
+            let milestone_key = keys::milestone_key(&env, contract_id);
+            env.storage().persistent().set(&milestone_key, &milestones);
 
             // Only client approves - insufficient
             let result = approve_milestone(&env, contract_id, 0, &client);
@@ -424,11 +416,8 @@ mod tests {
                     deadline: None,
                 }],
             );
-            let milestone_key = Symbol::new(&env, "milestones");
-            env.storage().persistent().set(
-                &(DataKey::Contract(contract_id), milestone_key),
-                &milestones,
-            );
+            let milestone_key = keys::milestone_key(&env, contract_id);
+            env.storage().persistent().set(&milestone_key, &milestones);
 
             // First approval succeeds
             let result = approve_milestone(&env, contract_id, 0, &client);

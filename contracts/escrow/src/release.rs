@@ -1,8 +1,8 @@
 use crate::{
-    approvals, ttl, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
+    approvals, keys, ttl, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
     ReleaseAuthorization,
 };
-use soroban_sdk::{Address, Env, Symbol, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 impl Escrow {
     /// Core logic for releasing a milestone, transferring funds to the freelancer.
@@ -64,11 +64,11 @@ impl Escrow {
             }
         }
 
-        let milestone_key = Symbol::new(&env, "milestones");
+        let milestone_key = keys::milestone_key(&env, contract_id);
         let mut milestones: Vec<Milestone> = env
             .storage()
             .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key.clone()))
+            .get(&milestone_key)
             .unwrap();
 
         ttl::extend_milestone_ttl(&env, contract_id);
@@ -128,7 +128,7 @@ impl Escrow {
         }
 
         env.storage().persistent().set(
-            &(DataKey::Contract(contract_id), milestone_key),
+            &milestone_key,
             &milestones,
         );
         env.storage()
