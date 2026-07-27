@@ -2,11 +2,19 @@ use std::{fs, path::Path};
 
 #[test]
 fn abi_reference_document_lists_current_public_entrypoints() {
+    // Integration test lives under contracts/escrow; ABI docs are at repo root.
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let doc_path = manifest_dir
+    let mut root = manifest_dir.to_path_buf();
+    while !root
         .join("docs")
         .join("escrow")
-        .join("abi-reference.md");
+        .join("abi-reference.md")
+        .exists()
+        && root.parent().is_some()
+    {
+        root = root.parent().unwrap().to_path_buf();
+    }
+    let doc_path = root.join("docs").join("escrow").join("abi-reference.md");
     let contents = fs::read_to_string(&doc_path)
         .unwrap_or_else(|_| panic!("expected ABI reference at {:?}", doc_path));
 
@@ -37,8 +45,10 @@ fn abi_reference_document_lists_current_public_entrypoints() {
         "is_emergency",
         "cancel_contract",
         "raise_dispute",
+        "raise_dispute_batch",
         "resolve_dispute",
         "issue_reputation",
+        "issue_reputation_batch",
         "get_reputation_comment",
         "get_reputation",
         "get_average_rating",
@@ -54,7 +64,7 @@ fn abi_reference_document_lists_current_public_entrypoints() {
         "get_governance_admin",
         "set_governed_params",
         "get_governed_parameters",
-        "batch_events",
+        "is_governed_params_set",
     ];
 
     for entrypoint in expected_entrypoints {
