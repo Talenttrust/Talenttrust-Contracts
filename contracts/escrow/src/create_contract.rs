@@ -137,6 +137,30 @@ impl Escrow {
             .persistent()
             .set(&DataKey::Contract(id), &contract);
 
+        // Maintain append-only participant indices for fast enumeration.
+        // These are updated after the contract is persisted to keep the index consistent.
+        let client_key = DataKey::ClientContracts(client.clone());
+        let mut client_ids: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&client_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        client_ids.push_back(id);
+        env.storage().persistent().set(&client_key, &client_ids);
+        ttl::extend_participant_contract_index_ttl(&env, &client_key);
+
+        let freelancer_key = DataKey::FreelancerContracts(freelancer_addr.clone());
+        let mut freelancer_ids: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&freelancer_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        freelancer_ids.push_back(id);
+        env.storage()
+            .persistent()
+            .set(&freelancer_key, &freelancer_ids);
+        ttl::extend_participant_contract_index_ttl(&env, &freelancer_key);
+
         // Build and persist the milestone vector.
         let mut milestone_vec: Vec<Milestone> = Vec::new(&env);
         for amount in milestones.iter() {

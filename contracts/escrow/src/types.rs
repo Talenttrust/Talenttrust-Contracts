@@ -69,6 +69,9 @@ pub enum DataKey {
     Finalization(u32),
     // Settlement token
     SettlementToken,
+    // Participant indexer (append-only contract id lists)
+    ClientContracts(Address),
+    FreelancerContracts(Address),
 }
 
 /// Canonical contract error type for all entrypoint-facing errors.

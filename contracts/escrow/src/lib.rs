@@ -1222,6 +1222,53 @@ impl Escrow {
             .unwrap_or(1)
     }
 
+    /// Returns a paginated slice of contract IDs associated with a participant.
+    ///
+    /// `role` parameter:
+    /// - `0`: Client role ([`DataKey::ClientContracts`])
+    /// - `1`: Freelancer role ([`DataKey::FreelancerContracts`])
+    ///
+    /// Requests out of bounds or exceeding the maximum limit will be bounded
+    /// safely without throwing a panic.
+    pub fn list_contracts_by_participant(
+        env: Env,
+        participant: Address,
+        role: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<u32> {
+        let max_limit: u32 = 100;
+        let effective_limit = core::cmp::min(limit, max_limit);
+
+        let key = match role {
+            0 => DataKey::ClientContracts(participant),
+            1 => DataKey::FreelancerContracts(participant),
+            _ => return Vec::new(&env),
+        };
+
+        let ids: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(&env));
+        let total: u32 = ids.len();
+
+        if start >= total {
+            return Vec::new(&env);
+        }
+
+        let end_exclusive = core::cmp::min(start.saturating_add(effective_limit), total);
+        let mut page: Vec<u32> = Vec::new(&env);
+        let mut i: u32 = start;
+
+        while i < end_exclusive {
+            page.push_back(ids.get(i).unwrap());
+            i += 1;
+        }
+
+        page
+    }
+
     /// Returns a structured summary of the contract and its milestones.
     ///
     /// Extends contract and milestone TTL on read without requiring caller auth.

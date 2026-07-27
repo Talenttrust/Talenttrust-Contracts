@@ -18,6 +18,7 @@ mod dispute;
 mod emergency_controls;
 mod mainnet_readiness;
 mod milestones_events;
+mod participant_index_pagination;
 mod pause_controls;
 mod persistence;
 mod refund;

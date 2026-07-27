@@ -14,11 +14,10 @@ fn participant_index_empty_returns_empty_page() {
 
     let participant = Address::generate(&env);
 
-    let page_client = client.list_contracts_by_participant(&participant, &0u8, &0u32, &10u32);
+    let page_client = client.list_contracts_by_participant(&participant, &0u32, &0u32, &10u32);
     assert_eq!(page_client.len(), 0);
 
-    let page_freelancer =
-        client.list_contracts_by_participant(&participant, &1u8, &0u32, &10u32);
+    let page_freelancer = client.list_contracts_by_participant(&participant, &1u32, &0u32, &10u32);
     assert_eq!(page_freelancer.len(), 0);
 }
 
@@ -51,21 +50,20 @@ fn participant_index_client_and_freelancer_lists_are_correct_and_paginated() {
     );
 
     // Client pagination for client1: should contain only id1.
-    let page = escrow.list_contracts_by_participant(&client1, &0u8, &0u32, &10u32);
+    let page = escrow.list_contracts_by_participant(&client1, &0u32, &0u32, &10u32);
     assert_eq!(page.len(), 1);
-    assert_eq!(page.get(0), id1);
+    assert_eq!(page.get(0), Some(id1));
 
     // Freelancer pagination for freelancer2: should contain only id2.
-    let page = escrow.list_contracts_by_participant(&freelancer2, &1u8, &0u32, &10u32);
+    let page = escrow.list_contracts_by_participant(&freelancer2, &1u32, &0u32, &10u32);
     assert_eq!(page.len(), 1);
-    assert_eq!(page.get(0), id2);
+    assert_eq!(page.get(0), Some(id2));
 
     // start out of range -> empty
-    let page = escrow.list_contracts_by_participant(&client1, &0u8, &5u32, &10u32);
+    let page = escrow.list_contracts_by_participant(&client1, &0u32, &5u32, &10u32);
     assert_eq!(page.len(), 0);
 
     // limit cap behavior: request more than available; should return remaining only.
-    let page = escrow.list_contracts_by_participant(&client1, &0u8, &0u32, &1000u32);
+    let page = escrow.list_contracts_by_participant(&client1, &0u32, &0u32, &1000u32);
     assert_eq!(page.len(), 1);
 }
-
