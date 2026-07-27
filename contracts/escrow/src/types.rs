@@ -158,14 +158,14 @@ pub enum Error {
     PotentialOverflow = 45,
     /// The contract has already been finalized.
     AlreadyFinalized = 46,
-    /// The contract has already been cancelled.
-    AlreadyCancelled = 50,
     /// The work evidence string exceeds the maximum length limit.
     EvidenceTooLong = 47,
     /// The governance admin rotation timelock has not elapsed.
     TimelockNotElapsed = 48,
     /// The provided protocol parameters are invalid.
     InvalidProtocolParameters = 49,
+    /// The contract has already been cancelled.
+    AlreadyCancelled = 50,
     /// The escrow cap would be exceeded by this operation.
     EscrowCapExceeded = 51,
     /// No settlement token has been bound for custody transfers.
@@ -331,4 +331,22 @@ impl DisputeResolution {
             Self::Split(_) => 3,
         }
     }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProtocolParameters {
+    pub fee_bps: u32,
+    pub max_escrow_total: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeSummary {
+    pub contract_id: u32,
+    pub status: ContractStatus,
+    pub total_deposited: i128,
+    pub funded_amount: i128,
+    pub released_amount: i128,
+    pub refunded_amount: i128,
 }
