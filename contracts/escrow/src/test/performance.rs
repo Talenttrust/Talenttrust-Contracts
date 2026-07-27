@@ -318,9 +318,9 @@ fn raise_dispute_resource_baseline() {
     env.mock_all_auths();
     let client = register_client(&env);
 
-    let (_client_addr, _, _, contract_id) = create_contract_with_arbiter(&env, &client);
+    let (client_addr, _, _, contract_id) = create_contract_with_arbiter(&env, &client);
     let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
-    let _ = client.raise_dispute(&contract_id, &_client_addr);
+    let _ = client.raise_dispute(&contract_id, &client_addr);
 
     let (resources, fee_total) = measure_last_invocation(&env);
     assert_within_baseline(
