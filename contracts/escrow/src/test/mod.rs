@@ -19,6 +19,7 @@ mod dispute;
 mod disputes_auth_matrix;
 mod emergency_controls;
 mod events;
+mod governance_pause_matrix;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
 mod input_bounds_validation;

@@ -1,6 +1,6 @@
 use crate::{
     accumulate_amounts, storage_validation, ttl, Contract, ContractStatus, DataKey, Error,
-    EscrowError, Milestone,
+    EscrowError, Milestone, MAX_SINGLE_AMOUNT_STROOPS,
 };
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
@@ -26,7 +26,7 @@ pub fn validate_deposit(
     // Reject non-positive or over-cap amounts before any state read.
     storage_validation::validate_stroop_amount(env, amount);
 
-    if amount > crate::MAX_SINGLE_AMOUNT_STROOPS {
+    if amount > MAX_SINGLE_AMOUNT_STROOPS {
         env.panic_with_error(EscrowError::InvalidDepositAmount);
     }
 

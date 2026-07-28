@@ -76,6 +76,8 @@ pub enum DataKey {
     PendingReputationCredits(Address),
     Reputation(Address),
     ReputationComment(u32),
+    /// Index of addresses that have reputation records. Used by paginated readers.
+    ReputationIndex,
     // Client migration
     PendingClientMigration(u32),
     // Protocol / governance
@@ -100,6 +102,8 @@ pub enum DataKey {
     ReputationConfigKey,
     // Configurable settlement (batch finalize) limit
     MaxSettlement,
+    // Configurable maximum milestones limit
+    MaxMilestones,
     // Milestone vector (replaces composite (Contract(id), "milestones"))
     Milestones(u32),
     // Reputation schema version marker
@@ -338,6 +342,16 @@ pub struct Reputation {
     pub last_rating: i128,
 }
 
+/// Lightweight reputation entry returned by the paginated reputations view.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReputationEntry {
+    pub account: Address,
+    pub completed_contracts: i128,
+    pub total_rating: i128,
+    pub last_rating: i128,
+}
+
 /// Runtime-configurable reputation validation parameters, stored under
 /// [`DataKey::ReputationConfigKey`].
 ///
@@ -441,14 +455,6 @@ pub struct DisputeInfo {
     pub freelancer_payout: i128,
 }
 
-/// Configuration for reputation calculation.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ReputationConfig {
-    pub min_rating: u32,
-    pub max_rating: u32,
-}
-
 /// Event input data payload.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -463,6 +469,8 @@ pub struct EventInput {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MilestoneEntry {
     pub index: u32,
+    pub status: u32,
     pub amount: i128,
 }
+
 

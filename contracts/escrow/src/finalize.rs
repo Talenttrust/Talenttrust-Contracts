@@ -1,8 +1,8 @@
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
 
 use crate::{
-    safe_subtract_amounts, Contract, ContractStatus, ContractSummary, DataKey, Error, Escrow,
-    EscrowError, Milestone, MilestoneSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    Contract, ContractStatus, ContractSummary, DataKey, Error, Escrow, EscrowError, Milestone,
+    MilestoneSummary,
 };
 
 /// Immutable metadata written when an escrow contract is closed.
@@ -43,6 +43,32 @@ impl Escrow {
         if Self::is_finalized(env, contract_id) {
             env.panic_with_error(Error::AlreadyFinalized);
         }
+    }
+
+    /// Load a contract, verify it's in an active (mutable) state, and extend
+    /// its TTL. Rejects `Cancelled`, `Refunded`, and finalized contracts.
+    ///
+    /// This is the canonical preamble for all lifecycle entrypoints that need a
+    /// live, mutable contract. Calls `load_contract` from `storage.rs`, extends
+    /// the TTL, checks finalization, and rejects terminal statuses.
+    ///
+    /// # Panics
+    /// - `ContractNotFound` when `contract_id` is unknown.
+    /// - `AlreadyFinalized` when the contract has been finalized.
+    /// - `InvalidState` when the contract status is `Cancelled` or `Refunded`.
+    ///
+    /// # Returns
+    /// The loaded `Contract`.
+    pub(crate) fn require_active_contract(env: &Env, contract_id: u32) -> Contract {
+        let contract = crate::storage::load_contract(env, contract_id);
+        crate::ttl::extend_contract_ttl(env, contract_id);
+        Self::require_not_finalized(env, contract_id);
+        if contract.status == ContractStatus::Cancelled
+            || contract.status == ContractStatus::Refunded
+        {
+            env.panic_with_error(Error::InvalidState);
+        }
+        contract
     }
 
     pub(crate) fn require_not_paused(env: &Env) {
