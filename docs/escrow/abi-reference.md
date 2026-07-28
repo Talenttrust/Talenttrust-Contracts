@@ -429,6 +429,24 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: None
 - Errors: None
 
+### set_max_milestones
+
+- Signature: `set_max_milestones(env: Env, admin: Address, max_milestones: u32) -> bool`
+- Kind: Mutating
+- Auth: stored admin
+- Semantics: Admin-controlled setter for the per-contract maximum number of milestones. The value must be within the safe bounds `MIN_MAX_MILESTONES..=MAX_MAX_MILESTONES`.
+- Events: None
+- Errors: `NotInitialized`, `UnauthorizedRole`, `InvalidProtocolParameters`
+
+### get_max_milestones
+
+- Signature: `get_max_milestones(env: Env) -> u32`
+- Kind: Read-only
+- Auth: None
+- Semantics: Returns the configured maximum milestones per contract, or the compile-time default `MAX_MILESTONES` when unset.
+- Events: None
+- Errors: None
+
 ## Error-code cross-reference
 
 The authoritative error enums are in [contracts/escrow/src/lib.rs](../../contracts/escrow/src/lib.rs) and [contracts/escrow/src/types.rs](../../contracts/escrow/src/types.rs). The ABI summary above uses the current live error names and maps them to the same contract-facing error values used by the runtime.
