@@ -60,6 +60,8 @@ mod finalize;
 mod migration;
 pub mod milestones_consts;
 mod rollback;
+mod storage;
+mod storage_validation;
 mod ttl;
 mod types;
 mod utils;
@@ -1834,7 +1836,7 @@ impl Escrow {
     ///   most `10`.
     /// * `max_comment_bytes` must be at least `1` and at most `1_000`.
     ///
-    /// Any violation is rejected with `InvalidReputationParameters` and the
+    /// Any violation is rejected with `InvalidReputationParams` and the
     /// stored configuration is left unchanged.
     ///
     /// # Errors
@@ -1842,7 +1844,7 @@ impl Escrow {
     /// * `UnauthorizedRole` if `admin` is not the stored admin (enforced via
     ///   `require_auth`, so an unauthorized caller's transaction fails before
     ///   any state changes)
-    /// * `InvalidReputationParameters` if any bound above is violated
+    /// * `InvalidReputationParams` if any bound above is violated
     ///
     /// # Events
     /// On a successful update this publishes a `rep_cfg` event:
@@ -1863,14 +1865,12 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
         admin.require_auth();
 
-        if min_rating < 1
-            || max_rating < min_rating
-            || max_rating > 10
-            || max_comment_bytes < 1
-            || max_comment_bytes > 1_000
-        {
-            env.panic_with_error(Error::InvalidReputationParameters);
-        }
+        storage_validation::validate_reputation_config_params(
+            &env,
+            min_rating,
+            max_rating,
+            max_comment_bytes,
+        );
 
         let old_config = Self::get_reputation_config(env.clone());
         let new_config = ReputationConfig {

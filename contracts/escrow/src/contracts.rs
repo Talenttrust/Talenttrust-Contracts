@@ -191,6 +191,7 @@ impl Escrow {
 
     /// Retrieves contract information.
     pub fn get_contract(env: Env, contract_id: u32) -> Contract {
+        Self::validate_contract_id_bounds(&env, contract_id);
         let contract = env
             .storage()
             .persistent()
@@ -251,6 +252,7 @@ impl Escrow {
     /// # Errors
     /// * `ContractNotFound` - If contract doesn't exist
     pub fn get_contract_summary(env: Env, contract_id: u32) -> ContractSummary {
+        Self::validate_contract_id_bounds(&env, contract_id);
         let contract: Contract = env
             .storage()
             .persistent()
@@ -303,6 +305,7 @@ impl Escrow {
 
     /// Retrieves all milestones for a contract.
     pub fn get_milestones(env: Env, contract_id: u32) -> Vec<crate::Milestone> {
+        Self::validate_contract_id_bounds(&env, contract_id);
         let milestone_key = Symbol::new(&env, "milestones");
         let milestones = env
             .storage()
@@ -342,6 +345,7 @@ impl Escrow {
         contract_id: u32,
         milestone_index: u32,
     ) -> Option<crate::Milestone> {
+        Self::validate_contract_id_bounds(&env, contract_id);
         let milestone_key = Symbol::new(&env, "milestones");
         let milestones: Vec<crate::Milestone> = env
             .storage()
@@ -354,6 +358,7 @@ impl Escrow {
 
     /// Returns funded minus released minus refunded for `contract_id`.
     pub fn get_refundable_balance(env: Env, contract_id: u32) -> i128 {
+        Self::validate_contract_id_bounds(&env, contract_id);
         let contract: Contract = env
             .storage()
             .persistent()
@@ -388,6 +393,7 @@ impl Escrow {
     /// Uses `now_seconds(&env)` which is the single source of truth for ledger time.
     /// Time cannot be manipulated by contract callers.
     pub fn is_milestone_overdue(env: Env, contract_id: u32, milestone_index: u32) -> bool {
+        Self::validate_contract_id_bounds(&env, contract_id);
         let _contract: Contract = match env
             .storage()
             .persistent()

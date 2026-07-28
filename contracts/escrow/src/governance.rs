@@ -7,6 +7,7 @@
 //! Money movement for protocol-fee withdrawal remains in the crate root because
 //! it performs settlement-token transfers.
 
+use crate::storage_validation;
 use crate::ttl::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
 use crate::{
     DataKey, Error, Escrow, EscrowArgs, EscrowClient, EscrowError, GovernedParameters,
@@ -38,6 +39,7 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
         admin.require_auth();
 
+        storage_validation::validate_protocol_fee_bps(&env, new_bps);
         if new_bps > 10_000 {
             env.panic_with_error(EscrowError::InvalidProtocolParameters);
         }
@@ -231,6 +233,7 @@ impl Escrow {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
+        storage_validation::validate_escrow_total_cap(&env, max_escrow_total_stroops);
         if max_escrow_total_stroops <= 0 {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }

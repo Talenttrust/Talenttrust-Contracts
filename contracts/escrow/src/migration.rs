@@ -1,3 +1,4 @@
+use crate::storage;
 use crate::ttl::{read_if_live, remove_transient, store_with_ttl, PENDING_MIGRATION_TTL_LEDGERS};
 use crate::{Contract, ContractStatus, DataKey, Error, Escrow, EscrowError};
 use soroban_sdk::{contracttype, Address, Env, Symbol};
@@ -51,6 +52,7 @@ impl Escrow {
         current_client: Address,
         new_client: Address,
     ) -> bool {
+        storage::validate_contract_id_bounds(env, contract_id);
         Self::require_not_paused(&env);
         current_client.require_auth();
 
@@ -95,6 +97,7 @@ impl Escrow {
         contract_id: u32,
         new_client: Address,
     ) -> bool {
+        storage::validate_contract_id_bounds(env, contract_id);
         Self::require_not_paused(&env);
         new_client.require_auth();
 
@@ -129,6 +132,7 @@ impl Escrow {
     /// The current client must authorize the call, be the contract's client, and a live pending migration must exist.
     /// The pending migration entry is removed and a `client_migration_cancelled` event is emitted.
     pub fn cancel_client_migration(env: Env, contract_id: u32, current_client: Address) -> bool {
+        storage::validate_contract_id_bounds(&env, contract_id);
         Self::require_not_paused(&env);
         current_client.require_auth();
 

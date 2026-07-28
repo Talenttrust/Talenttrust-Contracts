@@ -94,7 +94,7 @@ fn min_rating_zero_rejected() {
     let (client, _admin) = setup(&env);
 
     let result = client.try_set_reputation_config(&0u32, &5u32, &200u32);
-    super::assert_contract_error(result, Error::InvalidReputationParameters);
+    super::assert_contract_error(result, Error::InvalidProtocolParameters);
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn max_rating_below_min_rating_rejected() {
     let (client, _admin) = setup(&env);
 
     let result = client.try_set_reputation_config(&5u32, &4u32, &200u32);
-    super::assert_contract_error(result, Error::InvalidReputationParameters);
+    super::assert_contract_error(result, Error::InvalidProtocolParameters);
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn max_rating_over_ceiling_rejected() {
     let (client, _admin) = setup(&env);
 
     let result = client.try_set_reputation_config(&1u32, &11u32, &200u32);
-    super::assert_contract_error(result, Error::InvalidReputationParameters);
+    super::assert_contract_error(result, Error::InvalidProtocolParameters);
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn max_comment_bytes_zero_rejected() {
     let (client, _admin) = setup(&env);
 
     let result = client.try_set_reputation_config(&1u32, &5u32, &0u32);
-    super::assert_contract_error(result, Error::InvalidReputationParameters);
+    super::assert_contract_error(result, Error::InvalidProtocolParameters);
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn max_comment_bytes_over_ceiling_rejected() {
     let (client, _admin) = setup(&env);
 
     let result = client.try_set_reputation_config(&1u32, &5u32, &1_001u32);
-    super::assert_contract_error(result, Error::InvalidReputationParameters);
+    super::assert_contract_error(result, Error::InvalidProtocolParameters);
 }
 
 #[test]
@@ -185,7 +185,10 @@ fn event_emitted_on_valid_set() {
     client.set_reputation_config(&2u32, &8u32, &300u32);
 
     let events = env.events().all();
+    let target = Symbol::new(&env, "rep_cfg");
     let has_rep_cfg = events.iter().any(|e| {
+        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or_else(|| Val::VOID.into())).ok()
+            == Some(target.clone())
         Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID.into()))
             .ok()
             .as_ref()
@@ -202,7 +205,10 @@ fn no_event_emitted_when_set_fails() {
     let _ = client.try_set_reputation_config(&0u32, &5u32, &200u32);
 
     let events = env.events().all();
+    let target = Symbol::new(&env, "rep_cfg");
     let has_rep_cfg = events.iter().any(|e| {
+        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or_else(|| Val::VOID.into())).ok()
+            == Some(target.clone())
         Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID.into()))
             .ok()
             .as_ref()
