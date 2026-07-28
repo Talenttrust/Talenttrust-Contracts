@@ -96,6 +96,9 @@ pub const DEFAULT_MAX_TOTAL_ESCROW_STROOPS: i128 = 10_000_000_000_000;
 /// Backward-compatible alias for the default max milestones.
 pub const MAX_MILESTONES: u32 = DEFAULT_MAX_MILESTONES;
 
+/// Pagination ceiling for read-only enumeration views (per-call max).
+pub const PAGE_CEILING: u32 = DEFAULT_MAX_MILESTONES;
+
 /// Backward-compatible alias for the default max escrow stroops.
 pub const MAX_TOTAL_ESCROW_STROOPS: i128 = DEFAULT_MAX_TOTAL_ESCROW_STROOPS;
 
