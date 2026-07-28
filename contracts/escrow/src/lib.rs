@@ -197,6 +197,10 @@ pub enum EscrowError {
     InvalidProtocolParameters = 44,
     /// The withdrawal amount exceeds the maximum allowed per operation.
     InvalidWithdrawalAmount = 45,
+    /// The specified contract ID is invalid or zero.
+    InvalidContractId = 46,
+    /// The specified batch or operational limit is out of allowed range.
+    LimitOutOfRange = 47,
 }
 
 impl Escrow {
