@@ -26,6 +26,10 @@ pub fn validate_deposit(
         env.panic_with_error(Error::AmountMustBePositive);
     }
 
+    if amount > crate::MAX_SINGLE_AMOUNT_STROOPS {
+        env.panic_with_error(EscrowError::InvalidDepositAmount);
+    }
+
     let contract: Contract = env
         .storage()
         .persistent()

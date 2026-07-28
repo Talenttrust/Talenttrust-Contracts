@@ -9,8 +9,8 @@
 
 use crate::ttl::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
 use crate::{
-    DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, PendingAdminProposal,
-    ReadinessChecklist,
+    DataKey, Error, Escrow, EscrowArgs, EscrowClient, EscrowError, GovernedParameters,
+    PendingAdminProposal, ReadinessChecklist,
 };
 use soroban_sdk::{symbol_short, Address, Env, Symbol};
 
@@ -37,6 +37,10 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
         admin.require_auth();
+
+        if new_bps > 10_000 {
+            env.panic_with_error(EscrowError::InvalidProtocolParameters);
+        }
 
         let old_bps: u32 = env
             .storage()
@@ -223,7 +227,11 @@ impl Escrow {
         }
         admin.require_auth();
 
-        if protocol_fee_bps > 10_000 {
+        if protocol_fee_bps > MAX_FEE_BPS {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        if max_escrow_total_stroops <= 0 {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 

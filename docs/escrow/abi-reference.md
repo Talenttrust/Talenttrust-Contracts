@@ -285,6 +285,15 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: `("dispute", "resolved")`
 - Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `UnauthorizedRole`, `InvalidStatusTransition`, `InvalidDisputeSplit`, `AccountingInvariantViolated`, `PotentialOverflow`, `AlreadyFinalized`
 
+### rollback_dispute
+
+- Signature: `rollback_dispute(env: Env, contract_id: u32) -> bool`
+- Kind: Mutating
+- Auth: Stored admin `require_auth()`
+- Semantics: Restores an unresolved dispute to its recorded `Funded` or `PartiallyFunded` status only when the contract and milestones are unchanged since the dispute opened. Refund, resolution, or finalization permanently closes the rollback window.
+- Events: `("rollback", contract_id)` with `(admin, Disputed, restored_status, timestamp)`
+- Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `AlreadyFinalized`, `RollbackNotAllowed`, `RollbackStateChanged`
+
 ### issue_reputation
 
 - Signature: `issue_reputation(env: Env, contract_id: u32, caller: Address, rating: u32, comment: String) -> bool`
@@ -428,6 +437,15 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Semantics: Returns the stored governance parameters, if present.
 - Events: None
 - Errors: None
+
+### batch_events
+
+- Signature: `batch_events(env: Env, caller: Address, events: Vec<EventInput>) -> u32`
+- Kind: Mutating
+- Auth: `caller.require_auth()`
+- Semantics: Emits a bounded vector of events in order up to `MAX_EVENT_BATCH_SIZE`. Returns the total count of emitted events.
+- Events: Emits each event item per specified topic and contract ID
+- Errors: `ContractPaused`, `EmptyRefundRequest`, `BatchCapExceeded`
 
 ## Error-code cross-reference
 
