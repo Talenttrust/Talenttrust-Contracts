@@ -105,6 +105,11 @@ pub const MIN_MAX_MILESTONES: u32 = 1;
 /// Absolute maximum for the max milestones setting.
 pub const MAX_MAX_MILESTONES: u32 = 100;
 
+/// Maximum number of entries returned by paginated list views in a single call.
+/// This caps per-call memory/host-cost exposure for clients enumerating large
+/// collections.
+pub const PAGE_CEILING: u32 = 100;
+
 /// Absolute minimum for the max escrow stroops setting (0.01 XLM).
 pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
 
@@ -528,6 +533,57 @@ impl Escrow {
             .get(&DataKey::ReadinessChecklist)
             .unwrap_or_default()
     }
+
+        /// Paginated read-only view over milestones for a contract.
+        ///
+        /// - `start`: zero-based start index
+        /// - `limit`: maximum entries to return (clamped to PAGE_CEILING)
+        ///
+        /// Read-only and empty-safe: unknown contracts or out-of-range start values
+        /// return an empty vector rather than panicking.
+        pub fn get_milestones_page(env: Env, contract_id: u32, start: u32, limit: u32) -> Vec<MilestoneEntry> {
+            // Clamp requested limit to the configured ceiling.
+            let capped_limit = core::cmp::min(limit, PAGE_CEILING);
+            if capped_limit == 0 {
+                return Vec::new(&env);
+            }
+
+            let milestone_key = Symbol::new(&env, "milestones");
+            let maybe_milestones: Option<Vec<Milestone>> = env
+                .storage()
+                .persistent()
+                .get(&(DataKey::Contract(contract_id), milestone_key));
+
+            let milestones = match maybe_milestones {
+                Some(m) => m,
+                None => return Vec::new(&env),
+            };
+
+            let len = milestones.len();
+            if start >= len {
+                return Vec::new(&env);
+            }
+
+            // Compute end index safely and clamp to available length.
+            let end = {
+                let sum = start.saturating_add(capped_limit);
+                core::cmp::min(len, sum)
+            };
+
+            let mut page = Vec::new(&env);
+            let mut idx = start;
+            while idx < end {
+                let ms = milestones.get(idx).unwrap();
+                let status = if ms.released { 1u32 } else if ms.refunded { 2u32 } else { 0u32 };
+                page.push_back(MilestoneEntry {
+                    index: idx,
+                    status,
+                    amount: ms.amount,
+                });
+                idx = idx + 1;
+            }
+            page
+        }
 
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
     ///
