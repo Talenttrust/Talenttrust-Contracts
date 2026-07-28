@@ -23,6 +23,7 @@ mod input_sanitization_amounts;
 mod input_sanitization_identities;
 mod input_bounds_validation;
 mod mainnet_readiness;
+mod milestones_auth_matrix;
 mod milestones_events;
 mod participant_index_pagination;
 mod pause_controls;
