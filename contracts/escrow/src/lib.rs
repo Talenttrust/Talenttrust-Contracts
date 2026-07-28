@@ -89,17 +89,54 @@ pub use types::{
     AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
     DepositMode, DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone,
     MilestoneApprovals, MilestoneSummary, PendingAdminProposal, ReadinessChecklist,
-    ReleaseAuthorization, Reputation, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    ReleaseAuthorization, Reputation, ReputationEntry, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
     MAX_PAGINATION_LIMIT,
 };
 
-// Maximum bounds constants - re-export from amount_validation for API visibility
-pub use milestones_consts::{
-    MAX_COMMENT_BYTES, MAX_FEE_BPS, MAX_MILESTONES, MAX_RATING, MIN_COMMENT_BYTES, MIN_FEE_BPS,
-    MIN_RATING, PROTOCOL_FEE_BPS_DENOMINATOR,
-};
-pub const MAX_SINGLE_AMOUNT_STROOPS: i128 = crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
-pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
+/// Default maximum number of milestones allowed per contract.
+pub const DEFAULT_MAX_MILESTONES: u32 = 10;
+
+/// Default hard cap on the total escrow value per contract, in stroops.
+pub const DEFAULT_MAX_TOTAL_ESCROW_STROOPS: i128 = 10_000_000_000_000;
+
+/// Backward-compatible alias for the default max milestones.
+pub const MAX_MILESTONES: u32 = DEFAULT_MAX_MILESTONES;
+
+/// Backward-compatible alias for the default max escrow stroops.
+pub const MAX_TOTAL_ESCROW_STROOPS: i128 = DEFAULT_MAX_TOTAL_ESCROW_STROOPS;
+
+/// Absolute minimum for the max milestones setting.
+pub const MIN_MAX_MILESTONES: u32 = 1;
+
+/// Absolute maximum for the max milestones setting.
+pub const MAX_MAX_MILESTONES: u32 = 100;
+
+/// Maximum number of entries returned by paginated list views in a single call.
+/// This caps per-call memory/host-cost exposure for clients enumerating large
+/// collections.
+pub const PAGE_CEILING: u32 = 100;
+
+/// Absolute minimum for the max escrow stroops setting (0.01 XLM).
+pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
+
+pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
+pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
+
+// ─── Contract data ────────────────────────────────────────────────────────────
+
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowContractData {
+    pub client: Address,
+    pub freelancer: Address,
+    pub arbiter: Option<Address>,
+    pub milestones: Vec<i128>,
+    pub status: ContractStatus,
+    pub total_deposited: i128,
+    pub released_amount: i128,
+    pub refunded_amount: i128,
+    pub reputation_issued: bool,
+}
 
 /// Default maximum number of contracts finalizable in a single batch settlement call.
 pub const DEFAULT_MAX_BATCH_SETTLEMENT: u32 = 10;
@@ -566,6 +603,57 @@ impl Escrow {
             .get(&DataKey::ReadinessChecklist)
             .unwrap_or_default()
     }
+
+        /// Paginated read-only view over milestones for a contract.
+        ///
+        /// - `start`: zero-based start index
+        /// - `limit`: maximum entries to return (clamped to PAGE_CEILING)
+        ///
+        /// Read-only and empty-safe: unknown contracts or out-of-range start values
+        /// return an empty vector rather than panicking.
+        pub fn get_milestones_page(env: Env, contract_id: u32, start: u32, limit: u32) -> Vec<MilestoneEntry> {
+            // Clamp requested limit to the configured ceiling.
+            let capped_limit = core::cmp::min(limit, PAGE_CEILING);
+            if capped_limit == 0 {
+                return Vec::new(&env);
+            }
+
+            let milestone_key = Symbol::new(&env, "milestones");
+            let maybe_milestones: Option<Vec<Milestone>> = env
+                .storage()
+                .persistent()
+                .get(&(DataKey::Contract(contract_id), milestone_key));
+
+            let milestones = match maybe_milestones {
+                Some(m) => m,
+                None => return Vec::new(&env),
+            };
+
+            let len = milestones.len();
+            if start >= len {
+                return Vec::new(&env);
+            }
+
+            // Compute end index safely and clamp to available length.
+            let end = {
+                let sum = start.saturating_add(capped_limit);
+                core::cmp::min(len, sum)
+            };
+
+            let mut page = Vec::new(&env);
+            let mut idx = start;
+            while idx < end {
+                let ms = milestones.get(idx).unwrap();
+                let status = if ms.released { 1u32 } else if ms.refunded { 2u32 } else { 0u32 };
+                page.push_back(MilestoneEntry {
+                    index: idx,
+                    status,
+                    amount: ms.amount,
+                });
+                idx = idx + 1;
+            }
+            page
+        }
 
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
     ///
@@ -2034,10 +2122,23 @@ impl Escrow {
         let rep_key = DataKey::Reputation(contract.freelancer.clone());
         let mut rep: types::Reputation =
             env.storage().persistent().get(&rep_key).unwrap_or_default();
+        let first_write = rep.completed_contracts == 0;
         rep.completed_contracts += 1;
         rep.total_rating += rating as i128;
         rep.last_rating = rating as i128;
         env.storage().persistent().set(&rep_key, &rep);
+
+        // If this is the first reputation record for this address, append it to the
+        // reputations index for enumerations.
+        if first_write {
+            let mut idx: Vec<Address> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::ReputationIndex)
+                .unwrap_or_else(|| Vec::new(&env));
+            idx.push_back(contract.freelancer.clone());
+            env.storage().persistent().set(&DataKey::ReputationIndex, &idx);
+        }
 
         let comment_key = DataKey::ReputationComment(contract_id);
         env.storage().persistent().set(&comment_key, &comment);
@@ -2110,6 +2211,51 @@ impl Escrow {
             .persistent()
             .get(&DataKey::PendingReputationCredits(address))
             .unwrap_or(0)
+    }
+
+    /// Returns a bounded, paginated read view over reputation records.
+    ///
+    /// - `start` is a zero-based index into the reputations index.
+    /// - `limit` is the maximum number of entries to return; it is clamped by PAGE_CEILING.
+    ///
+    /// Empty-safe: returns empty Vec when the index is missing, start is out-of-range,
+    /// or limit is 0. Each returned element includes the account address and the
+    /// stored reputation snapshot.
+    pub fn get_reputations_page(env: Env, start: u32, limit: u32) -> Vec<types::ReputationEntry> {
+        let limit = limit.min(PAGE_CEILING);
+        if limit == 0 {
+            return Vec::new(&env);
+        }
+
+        let idx: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ReputationIndex)
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let total = idx.len();
+        let start_usize = start as usize;
+        if start_usize >= total {
+            return Vec::new(&env);
+        }
+        let end = (start_usize + limit as usize).min(total);
+
+        let mut res: Vec<types::ReputationEntry> = Vec::new(&env);
+        for i in start_usize..end {
+            let acct = idx.get(i as u32).unwrap();
+            let rep: types::Reputation = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Reputation(acct.clone()))
+                .unwrap_or_default();
+            res.push_back(types::ReputationEntry {
+                account: acct.clone(),
+                completed_contracts: rep.completed_contracts,
+                total_rating: rep.total_rating,
+                last_rating: rep.last_rating,
+            });
+        }
+        res
     }
 
     // -----------------------------------------------------------------------

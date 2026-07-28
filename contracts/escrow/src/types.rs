@@ -76,6 +76,8 @@ pub enum DataKey {
     PendingReputationCredits(Address),
     Reputation(Address),
     ReputationComment(u32),
+    /// Index of addresses that have reputation records. Used by paginated readers.
+    ReputationIndex,
     // Client migration
     PendingClientMigration(u32),
     // Protocol / governance
@@ -333,6 +335,16 @@ pub struct PendingAdminProposal {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct Reputation {
+    pub completed_contracts: i128,
+    pub total_rating: i128,
+    pub last_rating: i128,
+}
+
+/// Lightweight reputation entry returned by the paginated reputations view.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReputationEntry {
+    pub account: Address,
     pub completed_contracts: i128,
     pub total_rating: i128,
     pub last_rating: i128,

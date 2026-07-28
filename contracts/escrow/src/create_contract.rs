@@ -8,37 +8,6 @@ use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol, Vec};
 #[contractimpl]
 impl Escrow {
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
-    ///
-    /// This is the single canonical creation path. It enforces:
-    /// - Distinct client and freelancer addresses
-    /// - Arbiter presence when required by the release authorization mode
-    /// - Arbiter distinctness from client and freelancer
-    /// - At least one milestone with all amounts strictly positive
-    /// - The `MAX_MILESTONES` cap
-    /// - The governed total-escrow cap (falls back to `i128::MAX` when unset)
-    /// - No contract-id collision or overflow
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `client` - The address of the client funding the contract
-    /// * `freelancer` - The address of the freelancer performing the work
-    /// * `arbiter` - Optional arbiter address for dispute resolution
-    /// * `milestones` - Vector of milestone amounts (in stroops)
-    /// * `release_authorization` - Authorization mode for milestone releases
-    ///
-    /// # Returns
-    /// The unique contract ID assigned to the new escrow.
-    ///
-    /// # Errors
-    /// * `InvalidParticipant`   - If client and freelancer are the same address
-    /// * `EmptyMilestones`      - If no milestones are provided
-    /// * `InvalidMilestoneAmount` - If any milestone amount is <= 0
-    /// * `MissingArbiter`       - If arbiter is required but not provided
-    /// * `InvalidArbiter`       - If arbiter is same as client or freelancer
-    /// * `TooManyMilestones`    - If the number of milestones exceeds `MAX_MILESTONES`
-    /// * `TotalCapExceeded`     - If the sum of milestone amounts exceeds the governed cap
-    /// * `ContractIdOverflow`   - If the next id would exceed `u32::MAX`
-    /// * `ContractIdCollision`  - If the allocated id slot is already occupied
     pub fn create_contract(
         env: Env,
         client: Address,
@@ -47,19 +16,13 @@ impl Escrow {
         milestones: Vec<i128>,
         release_authorization: ReleaseAuthorization,
     ) -> u32 {
-        // Reject state-changing calls while paused or in emergency mode so every
-        // mutating entrypoint halts uniformly. Runs before auth. See
-        // finalize.rs::require_not_paused.
         Self::require_not_paused(&env);
-
         client.require_auth();
 
-        // Validate that client and freelancer are distinct participants.
         if client == freelancer {
             env.panic_with_error(EscrowError::InvalidParticipant);
         }
 
-        // Validate arbiter requirement based on release authorization mode.
         match release_authorization {
             ReleaseAuthorization::ArbiterOnly | ReleaseAuthorization::ClientAndArbiter
                 if arbiter.is_none() =>
@@ -69,17 +32,20 @@ impl Escrow {
             _ => {}
         }
 
-        // Validate arbiter is distinct from both client and freelancer.
         if let Some(ref arb) = arbiter {
             if arb == &client || arb == &freelancer {
                 env.panic_with_error(EscrowError::InvalidArbiter);
             }
         }
 
-        // Validate milestone count bounds via the centralized helper.
-        storage_validation::validate_milestone_count(&env, milestones.len());
+        if milestones.is_empty() {
+            env.panic_with_error(EscrowError::EmptyMilestones);
+        }
 
-        // Retrieve governed parameters for total escrow cap; allow any total if unset.
+        if milestones.len() > MAX_MILESTONES {
+            env.panic_with_error(EscrowError::TooManyMilestones);
+        }
+
         let max_total = env
             .storage()
             .persistent()
@@ -87,34 +53,19 @@ impl Escrow {
             .map(|params| params.max_escrow_total_stroops)
             .unwrap_or(i128::MAX);
 
-        // Validate milestone amounts and enforce the total cap via the canonical helper.
+        // Validate milestone amounts
         let mut native_milestones = [0_i128; MAX_MILESTONES as usize];
         let len = milestones.len() as usize;
         for i in 0..len {
             native_milestones[i] = milestones.get(i as u32).unwrap();
         }
-        match amount_validation::validate_milestone_amounts(&native_milestones[..len], max_total) {
-            Ok(_) => (),
-            Err(err) => match err {
-                EscrowError::InvalidMilestoneAmount => {
-                    env.panic_with_error(EscrowError::InvalidMilestoneAmount)
-                }
-                EscrowError::TotalCapExceeded => {
-                    env.panic_with_error(EscrowError::TotalCapExceeded)
-                }
-                _ => env.panic_with_error(EscrowError::InvalidMilestoneAmount),
-            },
-        }
+        amount_validation::
+            validate_milestone_amounts(&native_milestones[..len], max_total)
+            .unwrap_or_else(|e| env.panic_with_error(e));
 
-        // Extend TTL for the next-contract-id counter before reading it.
         ttl::extend_next_contract_id_ttl(&env);
-
         let id = next_contract_id(&env);
 
-        let freelancer_addr = freelancer.clone();
-
-        // Construct the contract with all required fields, initialising accounting
-        // counters to zero and reputation_issued to false.
         let contract = Contract {
             client: client.clone(),
             freelancer: freelancer.clone(),
@@ -135,7 +86,7 @@ impl Escrow {
         let mut milestone_vec: Vec<Milestone> = Vec::new(&env);
         for amount in milestones.iter() {
             milestone_vec.push_back(Milestone {
-                amount,
+                amount: *amount,
                 funded_amount: 0,
                 released: false,
                 refunded: false,
@@ -161,8 +112,13 @@ impl Escrow {
         // Emit creation event for indexers and off-chain subscribers.
         env.events().publish(
             (symbol_short!("created"), id),
-            (client, freelancer_addr, env.ledger().timestamp()),
+            (client, freelancer.clone(), env.ledger().timestamp()),
         );
+
+        // Maintain participant and status indexes for paginated readers.
+        status_index::index_new_contract(&env, id, &ContractStatus::Created);
+        status_index::index_participant(&env, id, &contract.client, 0);
+        status_index::index_participant(&env, id, &contract.freelancer, 1);
 
         id
     }
