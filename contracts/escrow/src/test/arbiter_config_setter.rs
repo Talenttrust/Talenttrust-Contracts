@@ -85,10 +85,8 @@ fn event_emitted_on_valid_set() {
 
     let events = env.events().all();
     let has_arbiter_cfg = events.iter().any(|e| {
-        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID))
-            .ok()
-            .as_deref()
-            == Some(&Symbol::new(&env, "arbiter_cfg"))
+        e.1.get(0).and_then(|v| Symbol::try_from_val(&env, &Val::from(v)).ok())
+            == Some(Symbol::new(&env, "arbiter_cfg"))
     });
     assert!(has_arbiter_cfg, "expected arbiter_cfg event to be emitted");
 }

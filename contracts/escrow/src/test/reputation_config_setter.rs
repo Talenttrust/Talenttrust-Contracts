@@ -186,10 +186,8 @@ fn event_emitted_on_valid_set() {
 
     let events = env.events().all();
     let has_rep_cfg = events.iter().any(|e| {
-        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID))
-            .ok()
-            .as_deref()
-            == Some(&Symbol::new(&env, "rep_cfg"))
+        e.1.get(0).and_then(|v| Symbol::try_from_val(&env, &Val::from(v)).ok())
+            == Some(Symbol::new(&env, "rep_cfg"))
     });
     assert!(has_rep_cfg, "expected rep_cfg event to be emitted");
 }
@@ -203,10 +201,8 @@ fn no_event_emitted_when_set_fails() {
 
     let events = env.events().all();
     let has_rep_cfg = events.iter().any(|e| {
-        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID))
-            .ok()
-            .as_deref()
-            == Some(&Symbol::new(&env, "rep_cfg"))
+        e.1.get(0).and_then(|v| Symbol::try_from_val(&env, &Val::from(v)).ok())
+            == Some(Symbol::new(&env, "rep_cfg"))
     });
     assert!(
         !has_rep_cfg,
