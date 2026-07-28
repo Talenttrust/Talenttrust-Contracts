@@ -16,7 +16,7 @@ mod configurable_settlement_limit;
 mod create_contract_bounds;
 mod deposit;
 mod dispute;
-mod dispute_events;
+mod disputes_auth_matrix;
 mod emergency_controls;
 mod events;
 mod input_sanitization_amounts;
