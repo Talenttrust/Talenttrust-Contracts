@@ -4,8 +4,18 @@
 //! of truth, ensuring consistent error handling and reducing code duplication across
 //! entrypoints. All contract loading operations should route through these helpers.
 
-use crate::{Contract, DataKey, Error};
+use crate::{Contract, DataKey, Error, EscrowError};
 use soroban_sdk::{Env, Symbol, Vec};
+
+/// Validate that contract_id is within numeric bounds (non-zero).
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id == 0`
+pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
+    if contract_id == 0 {
+        env.panic_with_error(EscrowError::ContractNotFound);
+    }
+}
 
 /// Check if the contract system has been initialized.
 ///
@@ -34,18 +44,20 @@ pub(crate) fn require_initialized(env: &Env) -> bool {
 /// Load a contract from persistent storage.
 ///
 /// This is the canonical pattern for retrieving a contract. It handles the
-/// storage read with consistent error reporting.
+/// storage read with consistent error reporting and bounds checking.
 ///
 /// # Arguments
 /// * `env` - The contract environment
 /// * `contract_id` - The contract ID to load
 ///
 /// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
 /// - `ContractNotFound` if no contract exists for this ID
 ///
 /// # Returns
 /// The loaded `Contract` or panics with `ContractNotFound`
 pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
+    validate_contract_id_bounds(env, contract_id);
     env.storage()
         .persistent()
         .get(&DataKey::Contract(contract_id))
@@ -62,11 +74,13 @@ pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
 /// * `contract_id` - The contract ID whose milestones to load
 ///
 /// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
 /// - `ContractNotFound` if no milestone vector exists for this contract
 ///
 /// # Returns
 /// The loaded milestone vector or panics with `ContractNotFound`
 pub(crate) fn load_milestones(env: &Env, contract_id: u32) -> Vec<crate::Milestone> {
+    validate_contract_id_bounds(env, contract_id);
     let milestone_key = Symbol::new(env, "milestones");
     env.storage()
         .persistent()
@@ -87,6 +101,7 @@ pub(crate) fn load_milestones(env: &Env, contract_id: u32) -> Vec<crate::Milesto
 /// * `check_finalized` - Whether to verify finalization state
 ///
 /// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
 /// - `ContractPaused` if `check_paused` is true and pause flag is set
 /// - `EmergencyActive` if `check_paused` is true and emergency flag is set
 /// - `ContractNotFound` if no contract exists for this ID
@@ -100,6 +115,7 @@ pub(crate) fn load_contract_checked(
     check_paused: bool,
     check_finalized: bool,
 ) -> Contract {
+    validate_contract_id_bounds(env, contract_id);
     if check_paused {
         require_not_paused(env);
     }
@@ -153,6 +169,7 @@ pub(crate) fn require_not_paused(env: &Env) -> bool {
 /// # Returns
 /// `true` if the contract is finalized
 pub(crate) fn is_finalized(env: &Env, contract_id: u32) -> bool {
+    validate_contract_id_bounds(env, contract_id);
     env.storage()
         .persistent()
         .has(&DataKey::Finalization(contract_id))
@@ -165,11 +182,13 @@ pub(crate) fn is_finalized(env: &Env, contract_id: u32) -> bool {
 /// * `contract_id` - The contract ID to check
 ///
 /// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
 /// - `AlreadyFinalized` if the contract has been finalized
 ///
 /// # Returns
 /// `true` if not finalized, or panics
 pub(crate) fn require_not_finalized(env: &Env, contract_id: u32) -> bool {
+    validate_contract_id_bounds(env, contract_id);
     if is_finalized(env, contract_id) {
         env.panic_with_error(Error::AlreadyFinalized);
     }
@@ -310,9 +329,7 @@ mod tests {
     fn test_require_not_paused_when_paused() {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
-            env.storage()
-                .persistent()
-                .set(&DataKey::Paused, &true);
+            env.storage().persistent().set(&DataKey::Paused, &true);
             require_not_paused(&env);
         });
     }
@@ -322,9 +339,7 @@ mod tests {
     fn test_require_not_paused_when_emergency() {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
-            env.storage()
-                .persistent()
-                .set(&DataKey::Emergency, &true);
+            env.storage().persistent().set(&DataKey::Emergency, &true);
             require_not_paused(&env);
         });
     }
@@ -424,9 +439,7 @@ mod tests {
             env.storage()
                 .persistent()
                 .set(&DataKey::Contract(42), &contract);
-            env.storage()
-                .persistent()
-                .set(&DataKey::Paused, &true);
+            env.storage().persistent().set(&DataKey::Paused, &true);
 
             load_contract_checked(&env, 42, true, true);
         });
@@ -485,9 +498,7 @@ mod tests {
             env.storage()
                 .persistent()
                 .set(&DataKey::Contract(42), &contract);
-            env.storage()
-                .persistent()
-                .set(&DataKey::Paused, &true);
+            env.storage().persistent().set(&DataKey::Paused, &true);
             env.storage()
                 .persistent()
                 .set(&DataKey::Finalization(42), &true);
@@ -495,6 +506,70 @@ mod tests {
             // Should succeed because checks are disabled
             let loaded = load_contract_checked(&env, 42, false, false);
             assert_eq!(loaded.client, client);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidContractId")]
+    fn test_validate_contract_id_bounds_zero_panics() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            validate_contract_id_bounds(&env, 0);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractNotFound")]
+    fn test_load_contract_zero_id_panics() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            load_contract(&env, 0);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractNotFound")]
+    fn test_load_milestones_zero_id_panics() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            load_milestones(&env, 0);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractNotFound")]
+    fn test_load_contract_checked_zero_id_panics() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            load_contract_checked(&env, 0, false, false);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractNotFound")]
+    fn test_is_finalized_zero_id_panics() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            is_finalized(&env, 0);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractNotFound")]
+    fn test_require_not_finalized_zero_id_panics() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            require_not_finalized(&env, 0);
+        });
+    }
+
+    #[test]
+    fn test_validate_contract_id_bounds_valid_range() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            validate_contract_id_bounds(&env, 1);
+            validate_contract_id_bounds(&env, 42);
+            validate_contract_id_bounds(&env, u32::MAX);
         });
     }
 }

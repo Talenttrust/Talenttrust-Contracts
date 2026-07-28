@@ -11,7 +11,7 @@ use soroban_sdk::{symbol_short, Address, Env};
 
 use crate::{
     rollback, safe_add_amounts, ttl, Contract, ContractStatus, DataKey, DisputeConfig,
-    DisputeResolution, Error, Escrow,
+    DisputeInfo, DisputeResolution, Error, Escrow,
 };
 
 /// Read-only getter for the arbiter dispute-split configuration.
@@ -31,18 +31,24 @@ pub fn set_dispute_config(env: &Env, config: DisputeConfig) {
 
 /// Compute the payout split for a dispute resolution.
 ///
-/// Returns `(client_payout, freelancer_payout)` where both values are non-negative
-/// and sum to the available balance. The available balance is computed as:
+/// Returns a [`DisputeInfo`] with named fields so callers can reference
+/// `client_payout`, `freelancer_payout`, and `available_balance` by name
+/// rather than relying on positional tuple index (issue #51).
+///
+/// The available balance is computed as:
 /// `available = funded_amount - released_amount - refunded_amount`.
 ///
+/// # Invariant
+/// `result.client_payout + result.freelancer_payout == result.available_balance`
+///
 /// # Errors
-/// - `AccountingInvariantViolated` if available would be negative (corrupted state)
-/// - `PotentialOverflow` if intermediate calculations overflow
-/// - `InvalidDisputeSplit` for Split variant with negative legs or non-conserving sum
+/// - [`Error::AccountingInvariantViolated`] if available would be negative (corrupted state)
+/// - [`Error::PotentialOverflow`] if intermediate calculations overflow
+/// - [`Error::InvalidDisputeSplit`] for Split variant with negative legs or non-conserving sum
 pub fn resolution_payouts(
     contract: &Contract,
     resolution: &DisputeResolution,
-) -> Result<(i128, i128), Error> {
+) -> Result<DisputeInfo, Error> {
     let available = contract
         .funded_amount
         .checked_sub(contract.released_amount)
@@ -53,16 +59,29 @@ pub fn resolution_payouts(
     }
 
     match resolution {
-        DisputeResolution::FullRefund => Ok((available, 0)),
+        DisputeResolution::FullRefund => Ok(DisputeInfo {
+            available_balance: available,
+            client_payout: available,
+            freelancer_payout: 0,
+        }),
         DisputeResolution::PartialRefund => {
             // freelancer gets floor(available * 30 / 100), client gets remainder
             let freelancer_payout = available
                 .checked_mul(30)
                 .and_then(|value| value.checked_div(100))
                 .ok_or(Error::PotentialOverflow)?;
-            Ok((available - freelancer_payout, freelancer_payout))
+            let client_payout = available - freelancer_payout;
+            Ok(DisputeInfo {
+                available_balance: available,
+                client_payout,
+                freelancer_payout,
+            })
         }
-        DisputeResolution::FullPayout => Ok((0, available)),
+        DisputeResolution::FullPayout => Ok(DisputeInfo {
+            available_balance: available,
+            client_payout: 0,
+            freelancer_payout: available,
+        }),
         DisputeResolution::Split(split) => {
             if split.client_amount < 0 || split.freelancer_amount < 0 {
                 return Err(Error::InvalidDisputeSplit);
@@ -76,7 +95,11 @@ pub fn resolution_payouts(
             if total > available || total != available {
                 return Err(Error::InvalidDisputeSplit);
             }
-            Ok((split.client_amount, split.freelancer_amount))
+            Ok(DisputeInfo {
+                available_balance: available,
+                client_payout: split.client_amount,
+                freelancer_payout: split.freelancer_amount,
+            })
         }
     }
 }
@@ -164,10 +187,11 @@ pub(crate) fn resolve_dispute_impl(
         _ => env.panic_with_error(Error::UnauthorizedRole),
     }
 
-    let (client_payout, freelancer_payout) =
+    // Named fields instead of opaque tuple index (issue #51).
+    let info =
         resolution_payouts(&contract, &resolution).unwrap_or_else(|e| env.panic_with_error(e));
-    contract.refunded_amount += client_payout;
-    contract.released_amount += freelancer_payout;
+    contract.refunded_amount += info.client_payout;
+    contract.released_amount += info.freelancer_payout;
     contract.status = final_status_after_resolution(&contract);
     if contract.status == ContractStatus::Completed {
         Escrow::grant_pending_reputation_credit(env, &contract.freelancer);

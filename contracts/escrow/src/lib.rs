@@ -55,10 +55,13 @@
 mod amount_validation;
 mod approvals;
 mod deposit;
+mod events;
 mod finalize;
 mod migration;
 pub mod milestones_consts;
 mod rollback;
+mod storage;
+mod storage_validation;
 mod ttl;
 mod types;
 mod utils;
@@ -80,13 +83,14 @@ pub use dispute::resolution_payouts;
 pub use migration::PendingClientMigration;
 pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // Keep shared storage keys and escrow domain types centralized in `types.rs`.
-// `DisputeResolution` and `DisputeSplit` are defined once in `types.rs` and
-// re-exported here; `dispute.rs` uses them via `crate::DisputeResolution`.
+// `DisputeResolution`, `DisputeSplit`, and `DisputeInfo` are defined once in
+// `types.rs` and re-exported here; `dispute.rs` uses them via `crate::`.
 pub use types::{
-    Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode, DisputeConfig,
-    DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
-    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    ReputationConfig, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
+    DepositMode, DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone,
+    MilestoneApprovals, MilestoneSummary, PendingAdminProposal, ReadinessChecklist,
+    ReleaseAuthorization, Reputation, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    MAX_PAGINATION_LIMIT,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -189,14 +193,10 @@ pub enum EscrowError {
     EmptyComment = 42,
     /// Reputation feedback comment exceeded the 200-character maximum.
     CommentTooLong = 43,
-    /// Configurable limit is out of the allowed range.
-    LimitOutOfRange = 44,
-    /// The contract ID is invalid (e.g. zero).
-    InvalidContractId = 45,
-    /// The batch settlement vector was empty.
-    BatchSettlementEmpty = 46,
-    /// The batch settlement vector exceeded the configured maximum.
-    BatchSettlementTooLarge = 47,
+    /// The protocol fee basis points exceed the maximum allowed (10_000).
+    InvalidProtocolParameters = 44,
+    /// The withdrawal amount exceeds the maximum allowed per operation.
+    InvalidWithdrawalAmount = 45,
 }
 
 impl Escrow {
@@ -1410,6 +1410,46 @@ impl Escrow {
         Some(ttl::compute_expiry(&env, ttl::PENDING_APPROVAL_TTL_LEDGERS))
     }
 
+    /// Returns a bounded, paginated read view of authorization records for a contract's milestones.
+    ///
+    /// # Arguments
+    /// * `env` - Soroban environment
+    /// * `contract_id` - Contract ID to query
+    /// * `start` - 0-based milestone index to start from
+    /// * `limit` - Maximum number of records to return (capped by pagination ceiling)
+    ///
+    /// # Returns
+    /// A vector of `AuthorizationRecord` elements for the requested slice.
+    /// Empty-safe: returns empty vector for unknown contracts, out-of-range bounds, or limit == 0.
+    pub fn get_authorization_records(
+        env: Env,
+        contract_id: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<AuthorizationRecord> {
+        approvals::get_authorization_records(&env, contract_id, start, limit)
+    }
+
+    /// Alias for [`get_authorization_records`].
+    pub fn get_authorization_records_page(
+        env: Env,
+        contract_id: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<AuthorizationRecord> {
+        Self::get_authorization_records(env, contract_id, start, limit)
+    }
+
+    /// Alias for [`get_authorization_records`].
+    pub fn list_authorization_records(
+        env: Env,
+        contract_id: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<AuthorizationRecord> {
+        Self::get_authorization_records(env, contract_id, start, limit)
+    }
+
     // ── Pause / unpause ──────────────────────────────────────────────────────
 
     /// Pause all state-changing escrow operations.
@@ -1669,7 +1709,7 @@ impl Escrow {
     ///   most `10`.
     /// * `max_comment_bytes` must be at least `1` and at most `1_000`.
     ///
-    /// Any violation is rejected with `InvalidReputationParameters` and the
+    /// Any violation is rejected with `InvalidReputationParams` and the
     /// stored configuration is left unchanged.
     ///
     /// # Errors
@@ -1677,7 +1717,7 @@ impl Escrow {
     /// * `UnauthorizedRole` if `admin` is not the stored admin (enforced via
     ///   `require_auth`, so an unauthorized caller's transaction fails before
     ///   any state changes)
-    /// * `InvalidReputationParameters` if any bound above is violated
+    /// * `InvalidReputationParams` if any bound above is violated
     ///
     /// # Events
     /// On a successful update this publishes a `rep_cfg` event:
@@ -1698,14 +1738,12 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
         admin.require_auth();
 
-        if min_rating < 1
-            || max_rating < min_rating
-            || max_rating > 10
-            || max_comment_bytes < 1
-            || max_comment_bytes > 1_000
-        {
-            env.panic_with_error(Error::InvalidReputationParameters);
-        }
+        storage_validation::validate_reputation_config_params(
+            &env,
+            min_rating,
+            max_rating,
+            max_comment_bytes,
+        );
 
         let old_config = Self::get_reputation_config(env.clone());
         let new_config = ReputationConfig {
@@ -1744,11 +1782,63 @@ impl Escrow {
     /// * `NotCompleted` - If contract status is not `Completed`
     /// * `ReputationAlreadyIssued` - If reputation was already issued
     /// * `SelfRating` - If client and freelancer are the same address
+    /// * `NoPendingReputationCredits` - If the freelancer has no pending reputation credits
+    ///   to consume (internal accounting invariant violation)
     ///
     /// # Security
     /// * Pause/emergency gate runs BEFORE contract state read so paused
     ///   contracts cannot have reputation mutated while paused.
     /// * The comment-byte cap prevents unbounded on-chain storage growth.
+    /// Resets the reputation configuration to its default values.
+    ///
+    /// This function reverts the reputation parameters to the contract defaults:
+    /// - `min_rating`: 1
+    /// - `max_rating`: 5
+    /// - `max_comment_bytes`: 200
+    ///
+    /// # Authorization
+    ///
+    /// Caller must be the current contract admin.
+    ///
+    /// # Events
+    ///
+    /// Emits a `rep_cfg_reset` event with:
+    /// - `old_config` - The configuration before reset
+    /// - `default_config` - The default configuration applied
+    /// - `admin` - The admin who performed the reset
+    /// - `timestamp` - Current ledger timestamp
+    ///
+    /// # Errors
+    ///
+    /// * `NotInitialized` - Contract has not been initialized
+    /// * `Unauthorized` - Caller is not the admin
+    pub fn reset_reputation_config(env: Env) -> bool {
+        Self::require_initialized(&env);
+
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+
+        let old_config = Self::get_reputation_config(env.clone());
+        let default_config = ReputationConfig::default();
+
+        // Only reset if different from default
+        if old_config != default_config {
+            env.storage()
+                .persistent()
+                .set(&DataKey::ReputationConfigKey, &default_config);
+
+            env.events().publish(
+                (Symbol::new(&env, "rep_cfg_reset"),),
+                (old_config, default_config, admin, env.ledger().timestamp()),
+            );
+        }
+
+        true
+    }
     pub fn issue_reputation(
         env: Env,
         contract_id: u32,
@@ -1810,7 +1900,7 @@ impl Escrow {
         let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
         let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
         if pending <= 0 {
-            env.panic_with_error(Error::InvalidState);
+            env.panic_with_error(Error::NoPendingReputationCredits);
         }
         env.storage().persistent().set(&pending_key, &(pending - 1));
 
@@ -2034,6 +2124,53 @@ impl Escrow {
         milestones.get(milestone_index).unwrap().work_evidence
     }
 
+    /// Emit a batch of contract events within a bounded cap.
+    ///
+    /// Validates that the input vector is non-empty and does not exceed
+    /// [`MAX_EVENT_BATCH_SIZE`]. Emits each event item in order and returns
+    /// the total number of events emitted.
+    pub fn batch_events(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+        Self::require_not_paused(&env);
+        if events.is_empty() {
+            env.panic_with_error(Error::EmptyRefundRequest);
+        }
+        if events.len() > MAX_EVENT_BATCH_SIZE {
+            env.panic_with_error(Error::BatchCapExceeded);
+        }
+        caller.require_auth();
+
+        let mut count: u32 = 0;
+        for item in events.iter() {
+            env.events().publish((item.topic.clone(), item.contract_id), item.data.clone());
+            count += 1;
+        }
+        count
+    }
+
+    /// Alias for `batch_events` to support alternative entrypoint naming.
+    pub fn emit_events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+        Self::batch_events(env, caller, events)
+    }
+
+    /// Alias for `batch_events` to support alternative entrypoint naming.
+    pub fn events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+        Self::batch_events(env, caller, events)
+    }
+
+    /// Emit a single contract event.
+    pub fn emit_event(
+        env: Env,
+        caller: Address,
+        topic: Symbol,
+        contract_id: u32,
+        data: Symbol,
+    ) -> bool {
+        Self::require_not_paused(&env);
+        caller.require_auth();
+        env.events().publish((topic, contract_id), data);
+        true
+    }
+
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
@@ -2104,6 +2241,10 @@ impl Escrow {
 
         if amount <= 0 {
             env.panic_with_error(EscrowError::AmountMustBePositive);
+        }
+
+        if amount > crate::MAX_SINGLE_AMOUNT_STROOPS {
+            env.panic_with_error(EscrowError::InvalidWithdrawalAmount);
         }
 
         let accumulated: i128 = env
@@ -2255,7 +2396,67 @@ impl Escrow {
     /// - Blocks milestone releases while disputed
     /// - Respects pause and emergency controls
     pub fn raise_dispute(env: Env, contract_id: u32, caller: Address) -> bool {
-        dispute::raise_dispute_impl(&env, contract_id, caller)
+        /// Gate: contract must have been initialized so pause and emergency rails
+        /// are always in scope before any state mutation can occur.
+        Self::require_initialized(&env);
+        Self::require_not_paused(&env);
+        caller.require_auth();
+
+        let mut contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+
+        ttl::extend_contract_ttl(&env, contract_id);
+        Self::require_not_finalized(&env, contract_id);
+
+        // Verify caller is client or freelancer
+        if caller != contract.client && caller != contract.freelancer {
+            env.panic_with_error(Error::UnauthorizedRole);
+        }
+
+        // Require arbiter assignment
+        if contract.arbiter.is_none() {
+            env.panic_with_error(Error::ArbiterRequired);
+        }
+
+        // Verify contract is in a disputable state (Funded or PartiallyFunded)
+        match contract.status {
+            ContractStatus::Funded | ContractStatus::PartiallyFunded => {}
+            _ => env.panic_with_error(Error::InvalidState),
+        }
+
+        contract.status = ContractStatus::Disputed;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), &contract);
+
+        ttl::extend_contract_ttl(&env, contract_id);
+
+        env.events().publish(
+            (symbol_short!("dispute"), symbol_short!("opened")),
+            (contract_id, caller.clone()),
+        );
+
+        // `dsp_index` / `raised` — dedicated indexer event for dispute state changes.
+        //
+        // Topics : `(symbol_short!("dsp_index"), symbol_short!("raised"))`
+        // Data   : `(contract_id: u32, caller: Address, funded_amount: i128,
+        //            released_amount: i128, refunded_amount: i128, timestamp: u64)`
+        env.events().publish(
+            (symbol_short!("dsp_index"), symbol_short!("raised")),
+            (
+                contract_id,
+                caller,
+                contract.funded_amount,
+                contract.released_amount,
+                contract.refunded_amount,
+                env.ledger().timestamp(),
+            ),
+        );
+
+        true
     }
 
     /// Resolves an open dispute by applying the arbiter-selected resolution.
@@ -2296,7 +2497,76 @@ impl Escrow {
         arbiter: Address,
         resolution: DisputeResolution,
     ) -> bool {
-        dispute::resolve_dispute_impl(&env, contract_id, arbiter, resolution)
+        /// Gate: contract must have been initialized so pause and emergency rails
+        /// are always in scope before any state mutation can occur.
+        Self::require_initialized(&env);
+        Self::require_not_paused(&env);
+        arbiter.require_auth();
+
+        let mut contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+
+        ttl::extend_contract_ttl(&env, contract_id);
+        Self::require_not_finalized(&env, contract_id);
+
+        // Verify contract is in Disputed state
+        if contract.status != ContractStatus::Disputed {
+            env.panic_with_error(Error::InvalidStatusTransition);
+        }
+
+        // Verify caller is the assigned arbiter
+        match &contract.arbiter {
+            Some(contract_arbiter) if *contract_arbiter == arbiter => {}
+            _ => env.panic_with_error(Error::UnauthorizedRole),
+        }
+
+        // Compute payouts based on resolution
+        let (client_payout, freelancer_payout) =
+            dispute::resolution_payouts(&contract, &resolution)
+                .unwrap_or_else(|e| env.panic_with_error(e));
+
+        // Update contract accounting
+        contract.refunded_amount += client_payout;
+        contract.released_amount += freelancer_payout;
+
+        // Set final status
+        contract.status = dispute::final_status_after_resolution(&contract);
+        if contract.status == ContractStatus::Completed {
+            Self::grant_pending_reputation_credit(&env, &contract.freelancer);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), &contract);
+
+        ttl::extend_contract_ttl(&env, contract_id);
+
+        env.events().publish(
+            (symbol_short!("dispute"), symbol_short!("resolved")),
+            (contract_id, resolution.code()),
+        );
+
+        // `dsp_index` / `settled` — dedicated indexer event for dispute resolution.
+        //
+        // Topics : `(symbol_short!("dsp_index"), symbol_short!("settled"))`
+        // Data   : `(contract_id: u32, resolution_code: u32, client_payout: i128,
+        //            freelancer_payout: i128, final_status: ContractStatus, timestamp: u64)`
+        env.events().publish(
+            (symbol_short!("dsp_index"), symbol_short!("settled")),
+            (
+                contract_id,
+                resolution.code(),
+                client_payout,
+                freelancer_payout,
+                contract.status,
+                env.ledger().timestamp(),
+            ),
+        );
+
+        true
     }
 }
 
