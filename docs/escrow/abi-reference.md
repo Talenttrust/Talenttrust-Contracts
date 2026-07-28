@@ -339,6 +339,15 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: None
 - Errors: None
 
+### get_reputations_page
+
+- Signature: `get_reputations_page(env: Env, start: u32, limit: u32) -> Vec<types::ReputationEntry>`
+- Kind: Read-only
+- Auth: None
+- Semantics: Returns a bounded, paginated slice over known reputation records. `start` is a zero-based offset into the reputations index and `limit` is capped by the pagination ceiling to control host cost. Returns an empty vector for missing index, out-of-range offsets, or `limit == 0`.
+- Events: None
+- Errors: None
+
 ### submit_work_evidence
 
 - Signature: `submit_work_evidence(env: Env, contract_id: u32, caller: Address, milestone_index: u32, evidence: String) -> bool`
