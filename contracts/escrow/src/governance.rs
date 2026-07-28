@@ -7,10 +7,11 @@
 //! Money movement for protocol-fee withdrawal remains in the crate root because
 //! it performs settlement-token transfers.
 
+use crate::storage_validation;
 use crate::ttl::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
 use crate::{
-    milestones_consts::MAX_FEE_BPS, DataKey, Error, Escrow, EscrowArgs, EscrowClient,
-    GovernedParameters, PendingAdminProposal, ReadinessChecklist,
+    DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, PendingAdminProposal,
+    ReadinessChecklist, MIN_MAX_MILESTONES, MAX_MAX_MILESTONES,
 };
 use soroban_sdk::{symbol_short, Address, Env, Symbol};
 
@@ -38,6 +39,11 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
         admin.require_auth();
 
+        storage_validation::validate_protocol_fee_bps(&env, new_bps);
+        if new_bps > 10_000 {
+            env.panic_with_error(EscrowError::InvalidProtocolParameters);
+        }
+
         let old_bps: u32 = env
             .storage()
             .persistent()
@@ -64,6 +70,51 @@ impl Escrow {
             .persistent()
             .get::<_, u32>(&DataKey::ProtocolFeeBps)
             .unwrap_or(0)
+    }
+
+    /// Set the maximum allowed milestones per contract (admin-controlled).
+    ///
+    /// Admin must be the stored admin and authorize the call. The provided
+    /// `max_milestones` is validated against compile-time safe bounds and a
+    /// typed `InvalidProtocolParameters` error is returned for invalid values.
+    pub fn set_max_milestones(env: Env, admin: Address, max_milestones: u32) -> bool {
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&crate::DataKey::Initialized)
+            .unwrap_or(false)
+        {
+            env.panic_with_error(Error::NotInitialized);
+        }
+
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
+
+        if admin != stored_admin {
+            env.panic_with_error(Error::UnauthorizedRole);
+        }
+        admin.require_auth();
+
+        if max_milestones < MIN_MAX_MILESTONES || max_milestones > MAX_MAX_MILESTONES {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxMilestones, &max_milestones);
+        true
+    }
+
+    /// Read-only accessor for the configured maximum milestones per contract.
+    /// Returns the stored value or the compile-time default (`MAX_MILESTONES`).
+    pub fn get_max_milestones(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get::<_, u32>(&DataKey::MaxMilestones)
+            .unwrap_or(crate::MAX_MILESTONES)
     }
 
     // ── Two-step admin transfer ───────────────────────────────────────────────
@@ -224,6 +275,11 @@ impl Escrow {
         admin.require_auth();
 
         if protocol_fee_bps > MAX_FEE_BPS {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        storage_validation::validate_escrow_total_cap(&env, max_escrow_total_stroops);
+        if max_escrow_total_stroops <= 0 {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 

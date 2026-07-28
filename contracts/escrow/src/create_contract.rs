@@ -1,12 +1,16 @@
 use crate::{
     amount_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError,
     GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
+    amount_validation, storage_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
+    EscrowArgs, EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization,
+    MAX_MILESTONES,
 };
 use soroban_sdk::{symbol_short, Address, Env, Symbol, Vec};
 
 impl Escrow {
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
     pub(crate) fn create_contract_impl(
+    pub fn create_contract(
         env: Env,
         client: Address,
         freelancer: Address,
@@ -15,7 +19,6 @@ impl Escrow {
         release_authorization: ReleaseAuthorization,
     ) -> u32 {
         Self::require_not_paused(&env);
-
         client.require_auth();
 
         if client == freelancer {
@@ -52,26 +55,17 @@ impl Escrow {
             .map(|params| params.max_escrow_total_stroops)
             .unwrap_or(i128::MAX);
 
+        // Validate milestone amounts
         let mut native_milestones = [0_i128; MAX_MILESTONES as usize];
         let len = milestones.len() as usize;
         for i in 0..len {
             native_milestones[i] = milestones.get(i as u32).unwrap();
         }
-        match amount_validation::validate_milestone_amounts(&native_milestones[..len], max_total) {
-            Ok(_) => (),
-            Err(err) => match err {
-                EscrowError::InvalidMilestoneAmount => {
-                    env.panic_with_error(EscrowError::InvalidMilestoneAmount)
-                }
-                EscrowError::TotalCapExceeded => {
-                    env.panic_with_error(EscrowError::TotalCapExceeded)
-                }
-                _ => env.panic_with_error(EscrowError::InvalidMilestoneAmount),
-            },
-        }
+        amount_validation::
+            validate_milestone_amounts(&native_milestones[..len], max_total)
+            .unwrap_or_else(|e| env.panic_with_error(e));
 
         ttl::extend_next_contract_id_ttl(&env);
-
         let id = next_contract_id(&env);
 
         let freelancer_addr = freelancer.clone();
@@ -95,7 +89,7 @@ impl Escrow {
         let mut milestone_vec: Vec<Milestone> = Vec::new(&env);
         for amount in milestones.iter() {
             milestone_vec.push_back(Milestone {
-                amount,
+                amount: *amount,
                 funded_amount: 0,
                 released: false,
                 refunded: false,
@@ -118,8 +112,13 @@ impl Escrow {
 
         env.events().publish(
             (symbol_short!("created"), id),
-            (client, freelancer_addr, env.ledger().timestamp()),
+            (client, freelancer.clone(), env.ledger().timestamp()),
         );
+
+        // Maintain participant and status indexes for paginated readers.
+        status_index::index_new_contract(&env, id, &ContractStatus::Created);
+        status_index::index_participant(&env, id, &contract.client, 0);
+        status_index::index_participant(&env, id, &contract.freelancer, 1);
 
         id
     }
