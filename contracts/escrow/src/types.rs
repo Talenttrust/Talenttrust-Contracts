@@ -190,6 +190,11 @@ pub enum Error {
     SettlementTokenNotConfigured = 52,
     /// The milestone deadline has not yet passed.
     MilestoneNotOverdue = 53,
+    /// `issue_reputation` was called but the freelancer has no pending reputation
+    /// credits to consume. This indicates an internal accounting inconsistency
+    /// (the contract reached `Completed` without `grant_pending_reputation_credit`
+    /// being called) or a duplicate call after credits were already fully drained.
+    NoPendingReputationCredits = 54,
     /// No safe rollback is available for the contract's current state.
     RollbackNotAllowed = 54,
     /// Contract or milestone state changed after the rollback point was recorded.

@@ -1871,6 +1871,8 @@ impl Escrow {
     /// * `NotCompleted` - If contract status is not `Completed`
     /// * `ReputationAlreadyIssued` - If reputation was already issued
     /// * `SelfRating` - If client and freelancer are the same address
+    /// * `NoPendingReputationCredits` - If the freelancer has no pending reputation credits
+    ///   to consume (internal accounting invariant violation)
     ///
     /// # Security
     /// * Pause/emergency gate runs BEFORE contract state read so paused
@@ -1987,7 +1989,7 @@ impl Escrow {
         let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
         let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
         if pending <= 0 {
-            env.panic_with_error(Error::InvalidState);
+            env.panic_with_error(Error::NoPendingReputationCredits);
         }
         env.storage().persistent().set(&pending_key, &(pending - 1));
 
