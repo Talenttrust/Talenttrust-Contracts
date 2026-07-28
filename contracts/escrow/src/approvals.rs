@@ -11,7 +11,8 @@
 
 use crate::ttl::{PENDING_APPROVAL_BUMP_THRESHOLD, PENDING_APPROVAL_TTL_LEDGERS};
 use crate::types::{
-    Contract, ContractStatus, DataKey, Error, Milestone, MilestoneApprovals, ReleaseAuthorization,
+    AuthorizationRecord, Contract, ContractStatus, DataKey, Error, Milestone, MilestoneApprovals,
+    ReleaseAuthorization, MAX_PAGINATION_LIMIT,
 };
 use soroban_sdk::{Address, Env, Vec};
 
@@ -222,6 +223,77 @@ pub fn check_approvals(
 pub fn clear_approvals(env: &Env, contract_id: u32, milestone_index: u32) {
     let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
     env.storage().temporary().remove(&approval_key);
+}
+
+/// Returns a bounded, paginated read view of authorization records for a contract's milestones.
+///
+/// # Arguments
+/// * `env` - Soroban environment
+/// * `contract_id` - Contract ID
+/// * `start` - 0-based milestone index to start from
+/// * `limit` - Maximum records to return (capped by MAX_PAGINATION_LIMIT)
+///
+/// # Returns
+/// A `Vec<AuthorizationRecord>` slice of authorization records for the specified range.
+/// Empty-safe: returns empty vector for unknown contracts, out-of-range bounds, or limit == 0.
+pub fn get_authorization_records(
+    env: &Env,
+    contract_id: u32,
+    start: u32,
+    limit: u32,
+) -> Vec<AuthorizationRecord> {
+    if limit == 0 {
+        return Vec::new(env);
+    }
+
+    let milestones: Option<Vec<Milestone>> = env
+        .storage()
+        .persistent()
+        .get(&crate::ttl::milestone_storage_key(env, contract_id));
+
+    let milestones = match milestones {
+        Some(m) => m,
+        None => return Vec::new(env),
+    };
+
+    let total = milestones.len();
+    if start >= total {
+        return Vec::new(env);
+    }
+
+    let effective_limit = if limit > MAX_PAGINATION_LIMIT {
+        MAX_PAGINATION_LIMIT
+    } else {
+        limit
+    };
+
+    let end = core::cmp::min(start.saturating_add(effective_limit), total);
+    let mut records = Vec::new(env);
+
+    for index in start..end {
+        let approval_key = DataKey::MilestoneApprovals(contract_id, index);
+        let approvals: Option<MilestoneApprovals> = env.storage().temporary().get(&approval_key);
+
+        let has_approvals = approvals.is_some();
+        let (client_approved, freelancer_approved, arbiter_approved) = match &approvals {
+            Some(app) => (
+                app.client_approved,
+                app.freelancer_approved,
+                app.arbiter_approved,
+            ),
+            None => (false, false, false),
+        };
+
+        records.push_back(AuthorizationRecord {
+            milestone_index: index,
+            has_approvals,
+            client_approved,
+            freelancer_approved,
+            arbiter_approved,
+        });
+    }
+
+    records
 }
 
 #[cfg(test)]
