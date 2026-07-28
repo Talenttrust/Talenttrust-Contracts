@@ -2209,6 +2209,53 @@ impl Escrow {
         milestones.get(milestone_index).unwrap().work_evidence
     }
 
+    /// Emit a batch of contract events within a bounded cap.
+    ///
+    /// Validates that the input vector is non-empty and does not exceed
+    /// [`MAX_EVENT_BATCH_SIZE`]. Emits each event item in order and returns
+    /// the total number of events emitted.
+    pub fn batch_events(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+        Self::require_not_paused(&env);
+        if events.is_empty() {
+            env.panic_with_error(Error::EmptyRefundRequest);
+        }
+        if events.len() > MAX_EVENT_BATCH_SIZE {
+            env.panic_with_error(Error::BatchCapExceeded);
+        }
+        caller.require_auth();
+
+        let mut count: u32 = 0;
+        for item in events.iter() {
+            env.events().publish((item.topic.clone(), item.contract_id), item.data.clone());
+            count += 1;
+        }
+        count
+    }
+
+    /// Alias for `batch_events` to support alternative entrypoint naming.
+    pub fn emit_events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+        Self::batch_events(env, caller, events)
+    }
+
+    /// Alias for `batch_events` to support alternative entrypoint naming.
+    pub fn events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+        Self::batch_events(env, caller, events)
+    }
+
+    /// Emit a single contract event.
+    pub fn emit_event(
+        env: Env,
+        caller: Address,
+        topic: Symbol,
+        contract_id: u32,
+        data: Symbol,
+    ) -> bool {
+        Self::require_not_paused(&env);
+        caller.require_auth();
+        env.events().publish((topic, contract_id), data);
+        true
+    }
+
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------

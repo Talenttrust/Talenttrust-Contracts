@@ -438,6 +438,15 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: None
 - Errors: None
 
+### batch_events
+
+- Signature: `batch_events(env: Env, caller: Address, events: Vec<EventInput>) -> u32`
+- Kind: Mutating
+- Auth: `caller.require_auth()`
+- Semantics: Emits a bounded vector of events in order up to `MAX_EVENT_BATCH_SIZE`. Returns the total count of emitted events.
+- Events: Emits each event item per specified topic and contract ID
+- Errors: `ContractPaused`, `EmptyRefundRequest`, `BatchCapExceeded`
+
 ## Error-code cross-reference
 
 The authoritative error enums are in [contracts/escrow/src/lib.rs](../../contracts/escrow/src/lib.rs) and [contracts/escrow/src/types.rs](../../contracts/escrow/src/types.rs). The ABI summary above uses the current live error names and maps them to the same contract-facing error values used by the runtime.
