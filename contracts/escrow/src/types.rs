@@ -432,3 +432,23 @@ impl Default for DisputeConfig {
         }
     }
 }
+
+/// Named result type returned by [`dispute::resolution_payouts`].
+///
+/// Replaces the opaque `(i128, i128)` tuple so callers can reference fields by
+/// name (`client_payout`, `freelancer_payout`, `available_balance`) rather than
+/// relying on positional index.
+///
+/// # Invariant
+/// `client_payout + freelancer_payout == available_balance`
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeInfo {
+    /// Escrowed balance at the time the resolution was computed:
+    /// `funded_amount - released_amount - refunded_amount`.
+    pub available_balance: i128,
+    /// Amount to be credited back to the client (refund side).
+    pub client_payout: i128,
+    /// Amount to be forwarded to the freelancer (release side).
+    pub freelancer_payout: i128,
+}
