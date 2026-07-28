@@ -50,6 +50,8 @@ pub struct ContractBounds {
     pub max_total_escrow_stroops: i128,
     /// Maximum protocol fee in basis points (10_000 = 100%).
     pub max_fee_bps: u32,
+    /// Maximum number of contracts finalizable in a single batch settlement call.
+    pub max_settlement: u32,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
@@ -86,6 +88,7 @@ pub enum DataKey {
     AccumulatedProtocolFees,
     GovernedParameters,
     ReadinessChecklist,
+    ContractsParameters,
     // Finalization
     Finalization(u32),
     // Settlement token
@@ -95,6 +98,14 @@ pub enum DataKey {
     DisputeConfigKey,
     // Reputation configuration
     ReputationConfigKey,
+    // Configurable settlement (batch finalize) limit
+    MaxSettlement,
+    // Milestone vector (replaces composite (Contract(id), "milestones"))
+    Milestones(u32),
+    // Reputation schema version marker
+    ReputationStorageVersion(Address),
+    // Migration state (test-only)
+    State,
 }
 
 #[contracterror]
@@ -105,6 +116,7 @@ pub enum Error {
     AlreadyReleased = 4,
     EmptyRefundRequest = 6,
     DuplicateMilestoneInRefund = 7,
+    /// The milestone has already been refunded.
     AlreadyRefunded = 8,
     InsufficientFunds = 9,
     ContractNotFound = 10,
@@ -122,6 +134,7 @@ pub enum Error {
     ReputationAlreadyIssued = 23,
     EmptyMilestones = 25,
     InvalidMilestoneAmount = 26,
+    /// A contract with the specified ID already exists.
     ContractIdCollision = 27,
     ContractIdOverflow = 28,
     EmptyComment = 29,
@@ -129,6 +142,9 @@ pub enum Error {
     InvalidParticipant = 31,
     InvalidDepositAmount = 32,
     InvalidMilestone = 33,
+    /// The deposit amount is invalid.
+    InvalidDepositAmount = 32,
+    /// The contract has already been initialized.
     AlreadyInitialized = 34,
     InsufficientAccumulatedFees = 35,
     NotInitialized = 36,
@@ -147,10 +163,21 @@ pub enum Error {
     InvalidProtocolParameters = 49,
     AlreadyCancelled = 50,
     EscrowCapExceeded = 51,
+    /// No settlement token has been bound for custody transfers.
     SettlementTokenNotConfigured = 52,
     MilestoneNotOverdue = 53,
+    /// `issue_reputation` was called but the freelancer has no pending reputation
+    /// credits to consume. This indicates an internal accounting inconsistency
+    /// (the contract reached `Completed` without `grant_pending_reputation_credit`
+    /// being called) or a duplicate call after credits were already fully drained.
+    NoPendingReputationCredits = 54,
+    /// No safe rollback is available for the contract's current state.
     RollbackNotAllowed = 54,
     RollbackStateChanged = 55,
+    /// The provided reputation parameters are out of the allowed bounds.
+    InvalidReputationParameters = 56,
+    /// The provided contracts parameters are out of the allowed bounds.
+    InvalidContractsParameters = 57,
 }
 
 /// Contract lifecycle states
@@ -261,6 +288,22 @@ pub struct GovernedParameters {
     pub max_escrow_total_stroops: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ContractsParameters {
+    pub max_milestones: u32,
+    pub max_escrow_stroops: i128,
+}
+
+impl Default for ContractsParameters {
+    fn default() -> Self {
+        ContractsParameters {
+            max_milestones: crate::contracts::DEFAULT_MAX_MILESTONES,
+            max_escrow_stroops: crate::contracts::DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
+        }
+    }
+}
+
 /// Stores a pending governance admin proposal with the proposed address
 /// and the ledger sequence when it was proposed.
 /// Used for the admin rotation timelock mechanism.
@@ -362,4 +405,24 @@ impl Default for DisputeConfig {
             partial_refund_client_bps: 7000,
         }
     }
+}
+
+/// Named result type returned by [`dispute::resolution_payouts`].
+///
+/// Replaces the opaque `(i128, i128)` tuple so callers can reference fields by
+/// name (`client_payout`, `freelancer_payout`, `available_balance`) rather than
+/// relying on positional index.
+///
+/// # Invariant
+/// `client_payout + freelancer_payout == available_balance`
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeInfo {
+    /// Escrowed balance at the time the resolution was computed:
+    /// `funded_amount - released_amount - refunded_amount`.
+    pub available_balance: i128,
+    /// Amount to be credited back to the client (refund side).
+    pub client_payout: i128,
+    /// Amount to be forwarded to the freelancer (release side).
+    pub freelancer_payout: i128,
 }
