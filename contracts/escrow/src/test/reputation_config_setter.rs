@@ -271,3 +271,100 @@ fn issue_reputation_uses_updated_comment_byte_cap() {
     let result = client.try_issue_reputation(&contract_id, &client_addr, &5u32, &comment);
     super::assert_contract_error(result, Error::CommentTooLong);
 }
+
+// ── reset_reputation_config ──────────────────────────────────────────────────
+
+#[test]
+fn reset_reputation_config_restores_defaults() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+
+    // Set custom config
+    assert!(client.set_reputation_config(&2u32, &8u32, &300u32));
+
+    // Verify custom config is applied
+    let config = client.get_reputation_config();
+    assert_eq!(config.min_rating, 2);
+    assert_eq!(config.max_rating, 8);
+    assert_eq!(config.max_comment_bytes, 300);
+
+    // Reset to defaults
+    assert!(client.reset_reputation_config());
+
+    // Verify defaults are restored
+    let config = client.get_reputation_config();
+    assert_eq!(config.min_rating, 1);
+    assert_eq!(config.max_rating, 5);
+    assert_eq!(config.max_comment_bytes, 200);
+}
+
+#[test]
+fn reset_reputation_config_requires_admin() {
+    let env = Env::default();
+    let escrow_address = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &escrow_address);
+    let admin = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&admin);
+
+    // Override mock to only allow the attacker's auth, not admin's.
+    let attacker = Address::generate(&env);
+    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &attacker,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &escrow_address,
+            fn_name: "reset_reputation_config",
+            args: soroban_sdk::vec![&env],
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_reset_reputation_config();
+    assert!(result.is_err());
+
+    // Storage must remain untouched by the rejected call.
+    let config = client.get_reputation_config();
+    assert_eq!(config, ReputationConfig::default());
+}
+
+#[test]
+fn reset_reputation_config_works_when_already_default() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+
+    // Get initial (default) config
+    let initial_config = client.get_reputation_config();
+
+    // Reset should succeed even if already default
+    assert!(client.reset_reputation_config());
+
+    // Config should remain unchanged
+    let config = client.get_reputation_config();
+    assert_eq!(config, initial_config);
+}
+
+#[test]
+fn reset_reputation_config_emits_event() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+
+    // Set custom config first
+    client.set_reputation_config(&3u32, &7u32, &150u32);
+
+    let snap = env.events().all();
+    let event_count_before = snap.len();
+
+    client.reset_reputation_config();
+
+    let snap_after = env.events().all();
+    assert!(snap_after.len() > event_count_before);
+
+    // Check that the rep_cfg_reset event was emitted
+    let has_rep_cfg_reset = snap_after.iter().any(|e| {
+        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID.into()))
+            .ok()
+            .as_ref()
+            == Some(&Symbol::new(&env, "rep_cfg_reset"))
+    });
+    assert!(has_rep_cfg_reset, "expected rep_cfg_reset event to be emitted");
+}

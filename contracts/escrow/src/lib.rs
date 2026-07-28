@@ -1876,6 +1876,56 @@ impl Escrow {
     /// * Pause/emergency gate runs BEFORE contract state read so paused
     ///   contracts cannot have reputation mutated while paused.
     /// * The comment-byte cap prevents unbounded on-chain storage growth.
+    /// Resets the reputation configuration to its default values.
+    ///
+    /// This function reverts the reputation parameters to the contract defaults:
+    /// - `min_rating`: 1
+    /// - `max_rating`: 5
+    /// - `max_comment_bytes`: 200
+    ///
+    /// # Authorization
+    ///
+    /// Caller must be the current contract admin.
+    ///
+    /// # Events
+    ///
+    /// Emits a `rep_cfg_reset` event with:
+    /// - `old_config` - The configuration before reset
+    /// - `default_config` - The default configuration applied
+    /// - `admin` - The admin who performed the reset
+    /// - `timestamp` - Current ledger timestamp
+    ///
+    /// # Errors
+    ///
+    /// * `NotInitialized` - Contract has not been initialized
+    /// * `Unauthorized` - Caller is not the admin
+    pub fn reset_reputation_config(env: Env) -> bool {
+        Self::require_initialized(&env);
+
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+
+        let old_config = Self::get_reputation_config(env.clone());
+        let default_config = ReputationConfig::default();
+
+        // Only reset if different from default
+        if old_config != default_config {
+            env.storage()
+                .persistent()
+                .set(&DataKey::ReputationConfigKey, &default_config);
+
+            env.events().publish(
+                (Symbol::new(&env, "rep_cfg_reset"),),
+                (old_config, default_config, admin, env.ledger().timestamp()),
+            );
+        }
+
+        true
+    }
     pub fn issue_reputation(
         env: Env,
         contract_id: u32,
