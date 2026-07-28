@@ -159,6 +159,10 @@ pub fn finalize_contract_impl(env: &Env, contract_id: u32, finalizer: Address) -
         .persistent()
         .set(&Escrow::finalization_key(contract_id), &record);
 
+    if contract.status == ContractStatus::Disputed {
+        crate::rollback::clear_dispute_rollback(env, contract_id);
+    }
+
     env.events().publish(
         (symbol_short!("finalized"), contract_id),
         (finalizer, record.timestamp),
