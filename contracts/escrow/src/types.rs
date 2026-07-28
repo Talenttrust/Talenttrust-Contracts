@@ -88,6 +88,7 @@ pub enum DataKey {
     AccumulatedProtocolFees,
     GovernedParameters,
     ReadinessChecklist,
+    ContractsParameters,
     // Finalization
     Finalization(u32),
     // Settlement token
@@ -201,6 +202,8 @@ pub enum Error {
     RollbackStateChanged = 55,
     /// The provided reputation parameters are out of the allowed bounds.
     InvalidReputationParameters = 56,
+    /// The provided contracts parameters are out of the allowed bounds.
+    InvalidContractsParameters = 57,
 }
 
 /// Contract lifecycle states
@@ -309,6 +312,22 @@ impl Default for ReadinessChecklist {
 pub struct GovernedParameters {
     pub protocol_fee_bps: u32,
     pub max_escrow_total_stroops: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ContractsParameters {
+    pub max_milestones: u32,
+    pub max_escrow_stroops: i128,
+}
+
+impl Default for ContractsParameters {
+    fn default() -> Self {
+        ContractsParameters {
+            max_milestones: crate::contracts::DEFAULT_MAX_MILESTONES,
+            max_escrow_stroops: crate::contracts::DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
+        }
+    }
 }
 
 /// Stores a pending governance admin proposal with the proposed address
