@@ -558,3 +558,63 @@ fn deposit_exceeding_total_fails() {
         EscrowError::ExactDepositRequired,
     );
 }
+
+// ─── Storage Input Bounds Validation (#899) ──────────────────────────────
+
+#[test]
+fn storage_entrypoints_reject_zero_contract_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    assert_contract_error(client.try_get_contract(&0u32), EscrowError::ContractNotFound);
+    assert_contract_error(
+        client.try_get_contract_summary(&0u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_milestones(&0u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_milestone(&0u32, &0u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_refundable_balance(&0u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_set_arbiter(&0u32, &admin, &None),
+        EscrowError::ContractNotFound,
+    );
+}
+
+#[test]
+fn storage_entrypoints_boundary_contract_id_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Min valid contract ID 1 (unallocated) returns ContractNotFound, not InvalidContractId.
+    assert_contract_error(client.try_get_contract(&1u32), EscrowError::ContractNotFound);
+    assert_contract_error(
+        client.try_get_contract_summary(&1u32),
+        EscrowError::ContractNotFound,
+    );
+
+    // Max u32 contract ID (unallocated) returns ContractNotFound, not InvalidContractId.
+    assert_contract_error(
+        client.try_get_contract(&u32::MAX),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_contract_summary(&u32::MAX),
+        EscrowError::ContractNotFound,
+    );
+}
+

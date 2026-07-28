@@ -14,23 +14,6 @@ pub struct MilestoneSummary {
     pub refunded: bool,
 }
 
-/// Lightweight milestone entry returned by the paginated milestones view.
-///
-/// Carries only the fields needed for a UI listing: zero-based `index`,
-/// a compact `status` code, and the milestone `amount` in stroops.
-///
-/// Status codes:
-/// - `0` - Pending (not yet released or refunded)
-/// - `1` - Released
-/// - `2` - Refunded
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MilestoneEntry {
-    pub index: u32,
-    pub status: u32,
-    pub amount: i128,
-}
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractSummary {
@@ -67,6 +50,8 @@ pub struct ContractBounds {
     pub max_total_escrow_stroops: i128,
     /// Maximum protocol fee in basis points (10_000 = 100%).
     pub max_fee_bps: u32,
+    /// Maximum number of contracts finalizable in a single batch settlement call.
+    pub max_settlement: u32,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
@@ -103,114 +88,96 @@ pub enum DataKey {
     AccumulatedProtocolFees,
     GovernedParameters,
     ReadinessChecklist,
-    // Configurable limits
-    MaxMilestones,
-    MaxEscrowStroops,
+    ContractsParameters,
+    // Finalization
+    Finalization(u32),
+    // Settlement token
+    SettlementToken,
+    DisputeRollback(u32),
+    // Dispute / arbiter configuration
+    DisputeConfigKey,
+    // Reputation configuration
+    ReputationConfigKey,
+    // Configurable settlement (batch finalize) limit
+    MaxSettlement,
+    // Milestone vector (replaces composite (Contract(id), "milestones"))
+    Milestones(u32),
+    // Reputation schema version marker
+    ReputationStorageVersion(Address),
+    // Migration state (test-only)
+    State,
 }
 
-/// Canonical contract error type for all entrypoint-facing errors.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    /// The specified milestone index is out of bounds.
     IndexOutOfBounds = 3,
-    /// The milestone has already been released.
     AlreadyReleased = 4,
-    /// The refund request is empty.
     EmptyRefundRequest = 6,
-    /// Duplicate milestone indices specified in the refund request.
     DuplicateMilestoneInRefund = 7,
     /// The milestone has already been refunded.
     AlreadyRefunded = 8,
-    /// Insufficient funds available to perform the operation.
     InsufficientFunds = 9,
-    /// The requested contract was not found.
     ContractNotFound = 10,
-    /// The caller is not authorized for this operation.
     UnauthorizedRole = 11,
-    /// The contract requires an arbiter address but none was provided.
     MissingArbiter = 12,
-    /// The provided arbiter address is invalid (e.g. same as client or freelancer).
     InvalidArbiter = 13,
-    /// The client and freelancer addresses are identical or invalid.
     InvalidParticipants = 14,
-    /// The amount must be strictly greater than zero.
     AmountMustBePositive = 15,
-    /// The contract is in an invalid state for this operation.
     InvalidState = 16,
-    /// The milestone has already been released.
     MilestoneAlreadyReleased = 17,
-    /// The milestone has already been approved.
     AlreadyApproved = 18,
-    /// The milestone has not received sufficient approvals to release.
     InsufficientApprovals = 20,
-    /// The freelancer address does not match the stored freelancer.
     FreelancerMismatch = 21,
-    /// The rating value is outside the allowed range (1 to 5).
     InvalidRating = 22,
-    /// Reputation has already been issued for this contract.
     ReputationAlreadyIssued = 23,
-    /// The milestone list cannot be empty.
     EmptyMilestones = 25,
-    /// The milestone amount is invalid.
     InvalidMilestoneAmount = 26,
     /// A contract with the specified ID already exists.
     ContractIdCollision = 27,
-    /// The contract ID has overflowed the maximum limit.
     ContractIdOverflow = 28,
-    /// The comment string is empty.
     EmptyComment = 29,
-    /// The comment string exceeds the maximum length limit.
     CommentTooLong = 30,
-    /// The participant address is invalid.
     InvalidParticipant = 31,
+    InvalidDepositAmount = 32,
+    InvalidMilestone = 33,
     /// The deposit amount is invalid.
     InvalidDepositAmount = 32,
-    /// The milestone configuration is invalid.
-    InvalidMilestone = 33,
     /// The contract has already been initialized.
     AlreadyInitialized = 34,
-    /// Insufficient accumulated fees available for extraction.
     InsufficientAccumulatedFees = 35,
-    /// The contract has not been initialized.
     NotInitialized = 36,
-    /// The contract is currently paused.
     ContractPaused = 37,
-    /// Emergency mode is currently active.
     EmergencyActive = 38,
-    /// Self-rating is not allowed.
     SelfRating = 39,
-    /// The contract has not been completed.
     NotCompleted = 40,
-    /// The requested contract status transition is invalid.
     InvalidStatusTransition = 41,
-    /// An arbiter is required for this operation.
     ArbiterRequired = 42,
-    /// The dispute split percentage is invalid.
     InvalidDisputeSplit = 43,
-    /// The operation would violate the core accounting invariant.
     AccountingInvariantViolated = 44,
-    /// Checked arithmetic operation resulted in an overflow.
     PotentialOverflow = 45,
-    /// The contract has already been finalized.
     AlreadyFinalized = 46,
-    /// The contract has already been cancelled.
-    AlreadyCancelled = 50,
-    /// The work evidence string exceeds the maximum length limit.
     EvidenceTooLong = 47,
-    /// The governance admin rotation timelock has not elapsed.
     TimelockNotElapsed = 48,
-    /// The provided protocol parameters are invalid.
     InvalidProtocolParameters = 49,
-    /// The escrow cap would be exceeded by this operation.
+    AlreadyCancelled = 50,
     EscrowCapExceeded = 51,
     /// No settlement token has been bound for custody transfers.
     SettlementTokenNotConfigured = 52,
-    /// The milestone deadline has not yet passed.
     MilestoneNotOverdue = 53,
-    /// The contract ID is out of valid bounds.
-    InvalidContractId = 54,
+    /// `issue_reputation` was called but the freelancer has no pending reputation
+    /// credits to consume. This indicates an internal accounting inconsistency
+    /// (the contract reached `Completed` without `grant_pending_reputation_credit`
+    /// being called) or a duplicate call after credits were already fully drained.
+    NoPendingReputationCredits = 54,
+    /// No safe rollback is available for the contract's current state.
+    RollbackNotAllowed = 54,
+    RollbackStateChanged = 55,
+    /// The provided reputation parameters are out of the allowed bounds.
+    InvalidReputationParameters = 56,
+    /// The provided contracts parameters are out of the allowed bounds.
+    InvalidContractsParameters = 57,
 }
 
 /// Contract lifecycle states
@@ -283,6 +250,20 @@ pub struct MilestoneApprovals {
     pub arbiter_approved: bool,
 }
 
+/// Maximum records returned per pagination request across view entrypoints.
+pub const MAX_PAGINATION_LIMIT: u32 = 50;
+
+/// Bounded pagination record for milestone release authorization status.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizationRecord {
+    pub milestone_index: u32,
+    pub has_approvals: bool,
+    pub client_approved: bool,
+    pub freelancer_approved: bool,
+    pub arbiter_approved: bool,
+}
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DepositMode {
@@ -321,6 +302,22 @@ pub struct GovernedParameters {
     pub max_escrow_total_stroops: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ContractsParameters {
+    pub max_milestones: u32,
+    pub max_escrow_stroops: i128,
+}
+
+impl Default for ContractsParameters {
+    fn default() -> Self {
+        ContractsParameters {
+            max_milestones: crate::contracts::DEFAULT_MAX_MILESTONES,
+            max_escrow_stroops: crate::contracts::DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
+        }
+    }
+}
+
 /// Stores a pending governance admin proposal with the proposed address
 /// and the ledger sequence when it was proposed.
 /// Used for the admin rotation timelock mechanism.
@@ -339,6 +336,36 @@ pub struct Reputation {
     pub completed_contracts: i128,
     pub total_rating: i128,
     pub last_rating: i128,
+}
+
+/// Runtime-configurable reputation validation parameters, stored under
+/// [`DataKey::ReputationConfigKey`].
+///
+/// These were compile-time constants (`MIN_RATING`, `MAX_RATING`,
+/// `MAX_COMMENT_BYTES`) until issue #1119 added
+/// `Escrow::set_reputation_config`, which lets the admin retune them within
+/// bounds without redeploying the contract. `issue_reputation` reads this
+/// config (falling back to [`ReputationConfig::default`], which matches the
+/// original constants) instead of the raw constants directly.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReputationConfig {
+    /// Minimum valid rating (inclusive).
+    pub min_rating: u32,
+    /// Maximum valid rating (inclusive).
+    pub max_rating: u32,
+    /// Maximum byte length of a reputation feedback comment (inclusive).
+    pub max_comment_bytes: u32,
+}
+
+impl Default for ReputationConfig {
+    fn default() -> Self {
+        ReputationConfig {
+            min_rating: 1,
+            max_rating: 5,
+            max_comment_bytes: 200,
+        }
+    }
 }
 
 // ── Dispute Resolution ───────────────────────────────────────────────────────
@@ -370,4 +397,46 @@ impl DisputeResolution {
             Self::Split(_) => 3,
         }
     }
+}
+
+/// Configuration for the arbiter's partial-refund split, stored under
+/// [`DataKey::DisputeConfigKey`].
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeConfig {
+    /// Share of remaining funds allocated to the freelancer in partial refunds
+    /// (basis points, `3000` = 30%).
+    pub partial_refund_freelancer_bps: u32,
+    /// Share of remaining funds allocated to the client in partial refunds
+    /// (basis points, `7000` = 70%).
+    pub partial_refund_client_bps: u32,
+}
+
+impl Default for DisputeConfig {
+    fn default() -> Self {
+        DisputeConfig {
+            partial_refund_freelancer_bps: 3000,
+            partial_refund_client_bps: 7000,
+        }
+    }
+}
+
+/// Named result type returned by [`dispute::resolution_payouts`].
+///
+/// Replaces the opaque `(i128, i128)` tuple so callers can reference fields by
+/// name (`client_payout`, `freelancer_payout`, `available_balance`) rather than
+/// relying on positional index.
+///
+/// # Invariant
+/// `client_payout + freelancer_payout == available_balance`
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeInfo {
+    /// Escrowed balance at the time the resolution was computed:
+    /// `funded_amount - released_amount - refunded_amount`.
+    pub available_balance: i128,
+    /// Amount to be credited back to the client (refund side).
+    pub client_payout: i128,
+    /// Amount to be forwarded to the freelancer (release side).
+    pub freelancer_payout: i128,
 }
