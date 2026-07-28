@@ -28,29 +28,6 @@ pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contr
             contract.total_deposited,
         ),
     );
-
-    let next_id: u32 = env
-        .storage()
-        .persistent()
-        .get(&DataKey::NextEventId)
-        .unwrap_or(0);
-
-    let entry = EventEntry {
-        contract_id,
-        status: contract.status as u32,
-        funded_amount: contract.funded_amount,
-        released_amount: contract.released_amount,
-        refunded_amount: contract.refunded_amount,
-        total_deposited: contract.total_deposited,
-    };
-
-    env.storage()
-        .persistent()
-        .set(&DataKey::Event(next_id), &entry);
-
-    env.storage()
-        .persistent()
-        .set(&DataKey::NextEventId, &(next_id + 1));
 }
 
 /// Validate that event payload amounts are non-negative.
@@ -67,31 +44,50 @@ pub(crate) fn validate_event_amounts(
     Ok(())
 }
 
-/// Emits an `mlstn_idx` indexed event for off-chain milestone-history
-/// reconstruction.
-///
-/// This event fires on every milestone state change: creation, release,
-/// and both refund entrypoints.
+/// Emits an indexed event when a dispute is opened on a contract.
 ///
 /// # Event Specification
-/// - **Topic**: `(symbol_short!("mlstn_idx"), contract_id: u32, milestone_index: u32)`
-/// - **Payload**: [`MilestoneIndexEvent`] — a named struct replacing the previous
-///   opaque `(amount, released, refunded, timestamp)` tuple.
-pub fn emit_milestone_index_event(
+/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("opened"))`
+/// - **Payload**: `(contract_id: u32, caller: Address, funded_amount: i128, released_amount: i128, refunded_amount: i128)`
+pub fn emit_dispute_opened_event(
     env: &Env,
     contract_id: u32,
-    milestone_index: u32,
-    amount: i128,
-    released: bool,
-    refunded: bool,
+    caller: &Address,
+    contract: &Contract,
 ) {
     env.events().publish(
-        (symbol_short!("mlstn_idx"), contract_id, milestone_index),
-        MilestoneIndexEvent {
-            amount,
-            released,
-            refunded,
-            timestamp: env.ledger().timestamp(),
-        },
+        (symbol_short!("dispute"), symbol_short!("opened")),
+        (
+            contract_id,
+            caller.clone(),
+            contract.funded_amount,
+            contract.released_amount,
+            contract.refunded_amount,
+        ),
+    );
+}
+
+/// Emits an indexed event when a dispute is resolved.
+///
+/// # Event Specification
+/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("resolved"))`
+/// - **Payload**: `(contract_id: u32, client_payout: i128, freelancer_payout: i128, resolution_code: u32, final_status: u32)`
+pub fn emit_dispute_resolved_event(
+    env: &Env,
+    contract_id: u32,
+    client_payout: i128,
+    freelancer_payout: i128,
+    resolution_code: u32,
+    final_status: ContractStatus,
+) {
+    env.events().publish(
+        (symbol_short!("dispute"), symbol_short!("resolved")),
+        (
+            contract_id,
+            client_payout,
+            freelancer_payout,
+            resolution_code,
+            final_status as u32,
+        ),
     );
 }

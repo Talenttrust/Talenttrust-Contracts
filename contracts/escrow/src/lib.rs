@@ -55,6 +55,7 @@
 mod amount_validation;
 mod approvals;
 mod deposit;
+mod events;
 mod finalize;
 mod migration;
 pub mod milestones_consts;
