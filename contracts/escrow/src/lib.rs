@@ -2263,7 +2263,24 @@ impl Escrow {
 
         env.events().publish(
             (symbol_short!("dispute"), symbol_short!("opened")),
-            (contract_id, caller),
+            (contract_id, caller.clone()),
+        );
+
+        // `dsp_index` / `raised` — dedicated indexer event for dispute state changes.
+        //
+        // Topics : `(symbol_short!("dsp_index"), symbol_short!("raised"))`
+        // Data   : `(contract_id: u32, caller: Address, funded_amount: i128,
+        //            released_amount: i128, refunded_amount: i128, timestamp: u64)`
+        env.events().publish(
+            (symbol_short!("dsp_index"), symbol_short!("raised")),
+            (
+                contract_id,
+                caller,
+                contract.funded_amount,
+                contract.released_amount,
+                contract.refunded_amount,
+                env.ledger().timestamp(),
+            ),
         );
 
         true
@@ -2357,6 +2374,23 @@ impl Escrow {
         env.events().publish(
             (symbol_short!("dispute"), symbol_short!("resolved")),
             (contract_id, resolution.code()),
+        );
+
+        // `dsp_index` / `settled` — dedicated indexer event for dispute resolution.
+        //
+        // Topics : `(symbol_short!("dsp_index"), symbol_short!("settled"))`
+        // Data   : `(contract_id: u32, resolution_code: u32, client_payout: i128,
+        //            freelancer_payout: i128, final_status: ContractStatus, timestamp: u64)`
+        env.events().publish(
+            (symbol_short!("dsp_index"), symbol_short!("settled")),
+            (
+                contract_id,
+                resolution.code(),
+                client_payout,
+                freelancer_payout,
+                contract.status,
+                env.ledger().timestamp(),
+            ),
         );
 
         true
