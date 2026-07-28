@@ -282,6 +282,20 @@ pub struct MilestoneApprovals {
     pub arbiter_approved: bool,
 }
 
+/// Maximum records returned per pagination request across view entrypoints.
+pub const MAX_PAGINATION_LIMIT: u32 = 50;
+
+/// Bounded pagination record for milestone release authorization status.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizationRecord {
+    pub milestone_index: u32,
+    pub has_approvals: bool,
+    pub client_approved: bool,
+    pub freelancer_approved: bool,
+    pub arbiter_approved: bool,
+}
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DepositMode {
