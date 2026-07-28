@@ -492,3 +492,39 @@ fn pause_blocks_issue_reputation() {
         Error::ContractPaused,
     );
 }
+
+#[test]
+fn unpause_restores_issue_reputation() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+    let (client_addr, _freelancer_addr, id) = setup_completed_contract(&env, &client);
+    client.pause();
+    client.unpause();
+
+    let comment = String::from_str(&env, "Great work");
+    client.issue_reputation(&id, &client_addr, &5_u32, &comment);
+}
+
+// --- set_reputation_config ---
+
+#[test]
+fn pause_blocks_set_reputation_config() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+    client.pause();
+
+    super::assert_contract_error(
+        client.try_set_reputation_config(&2_u32, &8_u32, &300_u32),
+        EscrowError::ContractPaused,
+    );
+}
+
+#[test]
+fn unpause_restores_set_reputation_config() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+    client.pause();
+    client.unpause();
+
+    client.set_reputation_config(&2_u32, &8_u32, &300_u32);
+}
