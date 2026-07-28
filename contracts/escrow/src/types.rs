@@ -100,6 +100,12 @@ pub enum DataKey {
     ReputationConfigKey,
     // Configurable settlement (batch finalize) limit
     MaxSettlement,
+    // Milestone vector (replaces composite (Contract(id), "milestones"))
+    Milestones(u32),
+    // Reputation schema version marker
+    ReputationStorageVersion(Address),
+    // Migration state (test-only)
+    State,
 }
 
 /// Canonical contract error type for all entrypoint-facing errors.
