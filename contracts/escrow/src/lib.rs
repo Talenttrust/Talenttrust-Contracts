@@ -87,11 +87,13 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // `types.rs` and re-exported here; `dispute.rs` uses them via `crate::`.
 pub use types::{
     AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
-    DepositMode, DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone,
-    MilestoneApprovals, MilestoneSummary, PendingAdminProposal, ReadinessChecklist,
-    ReleaseAuthorization, Reputation, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
-    MAX_PAGINATION_LIMIT,
+    DepositMode, DisputeConfig, DisputeInfo, DisputeResolution, DisputeSplit, Error, EventInput,
+    GovernedParameters, Milestone, MilestoneApprovals, MilestoneEntry, MilestoneSummary,
+    PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig,
+    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, MAX_PAGINATION_LIMIT,
 };
+pub use events::MAX_EVENT_BATCH_SIZE;
+
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
 pub use milestones_consts::{

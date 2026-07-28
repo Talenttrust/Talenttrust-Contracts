@@ -440,3 +440,29 @@ pub struct DisputeInfo {
     /// Amount to be forwarded to the freelancer (release side).
     pub freelancer_payout: i128,
 }
+
+/// Configuration for reputation calculation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReputationConfig {
+    pub min_rating: u32,
+    pub max_rating: u32,
+}
+
+/// Event input data payload.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventInput {
+    pub topic: soroban_sdk::Symbol,
+    pub contract_id: u32,
+    pub data: soroban_sdk::Symbol,
+}
+
+/// Milestone index entry for pagination.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneEntry {
+    pub index: u32,
+    pub amount: i128,
+}
+
