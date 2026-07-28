@@ -58,6 +58,7 @@ mod deposit;
 mod finalize;
 mod migration;
 pub mod milestones_consts;
+mod simulate;
 mod rollback;
 mod ttl;
 mod types;
@@ -86,7 +87,8 @@ pub use types::{
     Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode, DisputeConfig,
     DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
     MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    ReputationConfig, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    ReputationConfig, SimulateCreateContractOutcome, SimulatedDeposit, SimulatedRefund,
+    SimulatedRelease, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -1131,7 +1133,7 @@ impl Escrow {
             }
 
             // SECURITY: Check timeout refund conditions - milestone must be overdue if deadline is set
-            if let Some(deadline) = milestone.deadline {
+            if let Some(_deadline) = milestone.deadline {
                 // Milestone has a deadline - check if it's overdue
                 if !Self::is_milestone_overdue(env.clone(), contract_id, idx) {
                     // Deadline set but milestone not yet overdue

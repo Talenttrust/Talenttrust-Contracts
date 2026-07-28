@@ -6,7 +6,7 @@
 /// 3. Simulate makes no storage mutations
 /// 4. Simulate requires no authorization
 /// 5. Edge cases and error conditions are handled correctly
-use soroban_sdk::vec;
+use soroban_sdk::{testutils::Address as _, vec};
 
 use crate::{ContractStatus, ReleaseAuthorization, SimulateCreateContractOutcome};
 

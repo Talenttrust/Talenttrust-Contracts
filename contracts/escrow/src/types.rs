@@ -1,3 +1,5 @@
+use core::cmp::Ordering;
+
 use soroban_sdk::{contracterror, contracttype, Address, String, Vec};
 
 // ── Indexer summary types ────────────────────────────────────────────────────
@@ -156,8 +158,6 @@ pub enum Error {
     InvalidParticipant = 31,
     /// The deposit amount is invalid.
     InvalidDepositAmount = 32,
-    /// The milestone configuration is invalid.
-    InvalidMilestone = 33,
     /// The contract has already been initialized.
     AlreadyInitialized = 34,
     /// Insufficient accumulated fees available for extraction.
@@ -218,6 +218,77 @@ pub enum ContractStatus {
     Cancelled = 5,
     Refunded = 6,
     PartiallyFunded = 7,
+}
+
+// ── Simulate / dry-run result types ───────────────────────────────────────────
+
+/// Projected outcome of a `release_milestone` dry-run.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatedRelease {
+    /// Whether the release would succeed (all validation checks pass).
+    pub would_succeed: bool,
+    /// If `would_succeed` is false, the numeric error code that would be emitted.
+    pub error_code: Option<u32>,
+    /// The gross milestone amount before any deduction.
+    pub gross_amount: i128,
+    /// The net amount that would be transferred to the freelancer (gross minus fee).
+    pub net_amount: i128,
+    /// The protocol fee that would be retained from this release.
+    pub protocol_fee: i128,
+    /// The projected `released_amount` on the contract after release.
+    pub projected_released_amount: i128,
+    /// Whether releasing this milestone would complete the contract.
+    pub would_complete_contract: bool,
+}
+
+/// Projected outcome of a `deposit_funds` dry-run.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatedDeposit {
+    /// The `funded_amount` before the deposit.
+    pub current_funded_amount: i128,
+    /// The projected `funded_amount` after the deposit.
+    pub new_funded_amount: i128,
+    /// The projected contract status after the deposit.
+    pub projected_status: ContractStatus,
+    /// The total value of all milestones (used to determine Funded vs PartiallyFunded).
+    pub total_milestone_amount: i128,
+}
+
+/// Projected outcome of a `create_contract` dry-run.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulateCreateContractOutcome {
+    /// The contract ID that would be assigned.
+    pub contract_id: u32,
+    pub client: Address,
+    pub freelancer: Address,
+    pub arbiter: Option<Address>,
+    pub release_authorization: ReleaseAuthorization,
+    /// Milestone amounts as submitted.
+    pub milestones: Vec<i128>,
+    /// The sum of all milestone amounts.
+    pub total_amount: i128,
+}
+
+/// Projected outcome of a `refund_unreleased_milestones` dry-run.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatedRefund {
+    /// Whether the refund would succeed (all validation checks pass).
+    pub would_succeed: bool,
+    /// If `would_succeed` is false, the numeric error code that would be emitted.
+    pub error_code: Option<u32>,
+    /// The total amount that would be refunded to the client.
+    pub total_refund_amount: i128,
+    /// The projected contract status after the refund.
+    pub projected_status: ContractStatus,
+    /// The projected `refunded_amount` on the contract after the refund.
+    pub projected_refunded_amount: i128,
+    /// Whether refunding these milestones would cause all milestones to be
+    /// either released or refunded (i.e., the contract would become terminal).
+    pub would_complete_contract: bool,
 }
 
 /// Main escrow contract state

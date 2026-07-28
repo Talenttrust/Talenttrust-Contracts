@@ -1,6 +1,9 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Events as _, Address, Env, String, Symbol, TryFromVal, Val};
+use soroban_sdk::{
+    testutils::{Address as _, Events as _},
+    Address, Env, String, Symbol, TryFromVal, Val,
+};
 
 use crate::{Error, Escrow, EscrowClient, ReputationConfig};
 
