@@ -1817,6 +1817,7 @@ impl Escrow {
         max_comment_bytes: u32,
     ) -> bool {
         Self::require_initialized(&env);
+        Self::require_not_paused(&env);
 
         let admin: Address = env
             .storage()
