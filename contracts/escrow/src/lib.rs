@@ -84,14 +84,15 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // `DisputeResolution` and `DisputeSplit` are defined once in `types.rs` and
 // re-exported here; `dispute.rs` uses them via `crate::DisputeResolution`.
 pub use types::{
-    Contract, ContractStatus, ContractSummary, DataKey, DepositMode, DisputeResolution,
-    DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals, MilestoneSummary,
-    PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, SplitAmounts,
-    CONTRACT_SUMMARY_SCHEMA_VERSION,
+    Contract, ContractStatus, ContractSummary, DataKey, DepositMode, DisputeConfig,
+    DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
+    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
+    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
 pub const MAX_MILESTONES: u32 = 10;
+pub const MAX_FEE_BPS: u32 = 10_000;
 pub const MAX_SINGLE_AMOUNT_STROOPS: i128 = crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
 
