@@ -9,6 +9,7 @@ use crate::{
 
 // --- Submodules ---
 mod approval_expiry;
+mod milestones_bounds_validation;
 mod authorization_pagination;
 mod cancel_contract;
 mod client_migration;

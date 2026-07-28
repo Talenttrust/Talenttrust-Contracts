@@ -90,6 +90,12 @@ pub const MAX_COMMENT_BYTES: u32 = 200;
 /// with `Error::EmptyComment`.  A comment must contain at least one byte.
 pub const MIN_COMMENT_BYTES: u32 = 1;
 
+/// Maximum byte length for a work evidence string (inclusive).
+pub const MAX_WORK_EVIDENCE_BYTES: u32 = 1_000;
+
+/// Minimum byte length for a work evidence string (inclusive).
+pub const MIN_WORK_EVIDENCE_BYTES: u32 = 1;
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -138,6 +138,13 @@ pub struct EscrowContractData {
     pub reputation_issued: bool,
 }
 
+// Maximum bounds constants - re-export from amount_validation for API visibility
+pub use milestones_consts::{
+    MAX_COMMENT_BYTES, MAX_FEE_BPS, MAX_RATING, MAX_WORK_EVIDENCE_BYTES, MIN_COMMENT_BYTES, MIN_FEE_BPS,
+    MIN_RATING, MIN_WORK_EVIDENCE_BYTES, PROTOCOL_FEE_BPS_DENOMINATOR,
+};
+pub const MAX_SINGLE_AMOUNT_STROOPS: i128 = crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
+
 /// Default maximum number of contracts finalizable in a single batch settlement call.
 pub const DEFAULT_MAX_BATCH_SETTLEMENT: u32 = 10;
 
