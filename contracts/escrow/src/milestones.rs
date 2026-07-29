@@ -283,7 +283,7 @@ impl Escrow {
         };
 
         if milestone_index >= milestones.len() {
-            return false;
+            env.panic_with_error(Error::IndexOutOfBounds);
         }
 
         let milestone = milestones.get(milestone_index).unwrap();
@@ -440,6 +440,11 @@ impl Escrow {
             .get(&(DataKey::Contract(contract_id), milestone_key))
             .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
         ttl::extend_milestone_ttl(env, contract_id);
+        
+        if milestone_index >= milestones.len() {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
+
         milestones.get(milestone_index)
     }
 
@@ -448,6 +453,15 @@ impl Escrow {
         contract_id: u32,
         milestone_index: u32,
     ) -> Option<MilestoneApprovals> {
+        let milestones: Vec<Milestone> = env
+            .storage()
+            .persistent()
+            .get(&(DataKey::Contract(contract_id), Symbol::new(env, "milestones")))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+        if milestone_index >= milestones.len() {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
+
         let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
         let approvals = env.storage().temporary().get(&approval_key);
         if approvals.is_some() {
@@ -465,6 +479,15 @@ impl Escrow {
         contract_id: u32,
         milestone_index: u32,
     ) -> Option<u32> {
+        let milestones: Vec<Milestone> = env
+            .storage()
+            .persistent()
+            .get(&(DataKey::Contract(contract_id), Symbol::new(env, "milestones")))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+        if milestone_index >= milestones.len() {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
+
         let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
         env.storage().temporary().get_ttl(&approval_key)
     }
@@ -489,7 +512,11 @@ impl Escrow {
         }
         contract.freelancer.require_auth();
 
-        if evidence.len() > 1000 {
+        let evidence_len = evidence.len();
+        if evidence_len < crate::MIN_WORK_EVIDENCE_BYTES {
+            env.panic_with_error(Error::EmptyEvidence);
+        }
+        if evidence_len > crate::MAX_WORK_EVIDENCE_BYTES {
             env.panic_with_error(Error::EvidenceTooLong);
         }
 
@@ -540,7 +567,7 @@ impl Escrow {
         ttl::extend_milestone_ttl(env, contract_id);
 
         if milestone_index >= milestones.len() {
-            return None;
+            env.panic_with_error(Error::IndexOutOfBounds);
         }
 
         milestones.get(milestone_index).unwrap().work_evidence

@@ -180,6 +180,7 @@ pub enum Error {
     InvalidReputationParameters = 56,
     /// The provided contracts parameters are out of the allowed bounds.
     InvalidContractsParameters = 57,
+    EmptyEvidence = 58,
 }
 
 /// Contract lifecycle states
