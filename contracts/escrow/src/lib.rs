@@ -2494,25 +2494,44 @@ impl Escrow {
     ///
     /// Only the contract's freelancer may call this. The contract must be in
     /// `Funded` status and the target milestone must not yet be released or
-    /// refunded. Evidence may be overwritten before release.
+    /// refunded. Evidence may be overwritten before release but is permanently
+    /// locked once the milestone is released or refunded to prevent
+    /// retroactive rewriting of the on-chain audit trail.
+    ///
+    /// # Caller gate
+    /// `caller` must equal `contract.freelancer`. The call is rejected with
+    /// `UnauthorizedRole` for the client, any arbiter, and all third parties.
+    ///
+    /// # Contract-state gate
+    /// Only `Funded` contracts may receive evidence submissions. Any other
+    /// terminal or transitional state (`Cancelled`, `Disputed`, `Completed`,
+    /// `Refunded`, `Created`, `Accepted`, `PartiallyFunded`) is rejected with
+    /// `InvalidState`. This prevents rewriting the audit trail of a settled
+    /// payment.
+    ///
+    /// # Milestone-state gate
+    /// A milestone that has already been `released` or `refunded` is rejected
+    /// with `MilestoneAlreadyReleased` or `AlreadyRefunded` respectively.
     ///
     /// # Arguments
-    /// * `contract_id` - The escrow contract to update
-    /// * `caller`      - Must equal the stored `freelancer`; requires auth
-    /// * `milestone_index` - Zero-based index of the milestone
-    /// * `evidence`    - Deliverable reference; max 256 bytes
+    /// * `contract_id`     - The escrow contract to update
+    /// * `caller`          - Must equal the stored `freelancer`; requires auth
+    /// * `milestone_index` - Zero-based index of the target milestone
+    /// * `evidence`        - Non-empty deliverable reference (e.g. IPFS CID
+    ///                       or URL hash); 1–256 bytes
     ///
     /// # Errors
-    /// * `NotInitialized`     — `initialize` has not been called
-    /// * `ContractPaused` / `EmergencyActive` — pause/emergency gate
-    /// * `ContractNotFound`   — unknown `contract_id`
-    /// * `AlreadyFinalized`   — contract has been finalized
-    /// * `UnauthorizedRole`   — `caller` is not the freelancer
-    /// * `InvalidState`       — contract is not `Funded`
-    /// * `IndexOutOfBounds`   — `milestone_index` exceeds milestone count
-    /// * `MilestoneAlreadyReleased` — milestone is already released
-    /// * `AlreadyRefunded`    — milestone has been refunded
-    /// * `EvidenceTooLong`    — evidence string exceeds 256 bytes
+    /// * `NotInitialized`          — `initialize` has not been called
+    /// * `ContractPaused`          — pause or emergency gate is active
+    /// * `ContractNotFound`        — unknown `contract_id`
+    /// * `AlreadyFinalized`        — contract has been finalized
+    /// * `UnauthorizedRole`        — `caller` is not the contract's freelancer
+    /// * `InvalidState`            — contract is not in `Funded` state
+    /// * `EmptyEvidence`           — evidence string is empty
+    /// * `EvidenceTooLong`         — evidence string exceeds 256 bytes
+    /// * `IndexOutOfBounds`        — `milestone_index` exceeds milestone count
+    /// * `MilestoneAlreadyReleased`— milestone is already released
+    /// * `AlreadyRefunded`         — milestone has already been refunded
     pub fn submit_work_evidence(
         env: Env,
         contract_id: u32,
@@ -2520,23 +2539,37 @@ impl Escrow {
         milestone_index: u32,
         evidence: String,
     ) -> bool {
-        /// Gate: contract must have been initialized so pause and emergency rails
-        /// are always in scope before any state mutation can occur.
+        // Gate: contract must have been initialized so pause and emergency rails
+        // are always in scope before any state mutation can occur.
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
         caller.require_auth();
 
         let contract: Contract = Self::require_active_contract(&env, contract_id);
 
+        // ── Caller gate ──────────────────────────────────────────────────────
+        // Only the contract's freelancer may submit evidence. Reject the
+        // client, any arbiter, and all third parties outright.
         if caller != contract.freelancer {
             env.panic_with_error(EscrowError::UnauthorizedRole);
         }
 
+        // ── Contract-state gate ──────────────────────────────────────────────
+        // Evidence submissions are only meaningful while the contract is
+        // actively funded and awaiting milestone release. Any settled,
+        // cancelled, or otherwise terminal state must be rejected so that the
+        // audit trail of a completed payment cannot be retroactively rewritten.
         if contract.status != ContractStatus::Funded {
             env.panic_with_error(EscrowError::InvalidState);
         }
 
-        // Bound evidence to 256 bytes to prevent storage bloat.
+        // ── Evidence string validation ───────────────────────────────────────
+        // Reject empty strings — a zero-length evidence reference has no
+        // semantic value and is likely a caller bug.
+        if evidence.len() == 0 {
+            env.panic_with_error(Error::EmptyEvidence);
+        }
+        // Bound evidence to 256 bytes to prevent unbounded storage growth.
         if evidence.len() > 256 {
             env.panic_with_error(Error::EvidenceTooLong);
         }

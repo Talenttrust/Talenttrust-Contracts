@@ -197,11 +197,8 @@ pub enum Error {
     /// No settlement token has been bound for custody transfers.
     SettlementTokenNotConfigured = 52,
     MilestoneNotOverdue = 53,
-    /// `issue_reputation` was called but the freelancer has no pending reputation
-    /// credits to consume. This indicates an internal accounting inconsistency
-    /// (the contract reached `Completed` without `grant_pending_reputation_credit`
-    /// being called) or a duplicate call after credits were already fully drained.
-    NoPendingReputationCredits = 54,
+    /// The work evidence string is empty; at least one byte is required.
+    EmptyEvidence = 54,
     /// No safe rollback is available for the contract's current state.
     RollbackNotAllowed = 54,
     RollbackStateChanged = 55,
