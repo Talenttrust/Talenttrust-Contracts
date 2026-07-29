@@ -343,6 +343,26 @@ pub enum DisputeResolution {
     Split(DisputeSplit),
 }
 
+/// Projected outcome of a dispute resolution for dry-run simulation.
+///
+/// This type is returned by `simulate_dispute_resolution`, the read-only
+/// dry-run variant of `resolve_dispute`. It carries the projected accounting
+/// changes and final status without writing storage or emitting events.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulateDisputeOutcome {
+    /// Amount that would be refunded to the client.
+    pub client_payout: i128,
+    /// Amount that would be released to the freelancer.
+    pub freelancer_payout: i128,
+    /// Projected final contract status after applying the resolution.
+    pub final_status: ContractStatus,
+    /// Projected `refunded_amount` after the resolution.
+    pub new_refunded_amount: i128,
+    /// Projected `released_amount` after the resolution.
+    pub new_released_amount: i128,
+}
+
 impl DisputeResolution {
     pub fn code(&self) -> u32 {
         match self {

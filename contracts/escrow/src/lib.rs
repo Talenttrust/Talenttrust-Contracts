@@ -83,7 +83,7 @@ pub use types::{
     Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode,
     DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
     MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    SimulateDisputeOutcome, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -2319,6 +2319,108 @@ impl Escrow {
         );
 
         true
+    }
+
+    /// Simulates dispute resolution and returns the projected outcome without
+    /// writing storage or emitting events.
+    ///
+    /// This is the read-only dry-run counterpart to `resolve_dispute`. It
+    /// performs every pre-condition check that `resolve_dispute` performs —
+    /// initialization, pause gate, arbiter authorization, contract existence,
+    /// finalization guard, `Disputed`-state requirement, arbiter matching,
+    /// and payout arithmetic validation — and then returns the projected
+    /// payout split and final status **without** mutating persistent storage,
+    /// extending TTL, executing token transfers, or publishing events.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `contract_id` - The contract ID
+    /// * `arbiter` - The arbiter address (must match contract's assigned arbiter)
+    /// * `resolution` - The resolution decision (FullRefund, PartialRefund, FullPayout, or Split)
+    ///
+    /// # Returns
+    /// A [`SimulateDisputeOutcome`] containing:
+    /// - `client_payout` — amount that would be refunded to the client
+    /// - `freelancer_payout` — amount that would be released to the freelancer
+    /// - `final_status` — projected contract status after applying the resolution
+    /// - `new_refunded_amount` — projected `refunded_amount`
+    /// - `new_released_amount` — projected `released_amount`
+    ///
+    /// # Errors
+    /// * `NotInitialized` - If `initialize` has not been called
+    /// * `ContractNotFound` - If contract doesn't exist
+    /// * `UnauthorizedRole` - If caller is not the assigned arbiter
+    /// * `InvalidStatusTransition` - If contract is not in Disputed state
+    /// * `InvalidDisputeSplit` - If custom split doesn't match available balance
+    /// * `AccountingInvariantViolated` - If accounting state is inconsistent
+    /// * `PotentialOverflow` - If amount calculations would overflow
+    /// * `ContractPaused` - If pause or emergency controls are active
+    /// * `AlreadyFinalized` - If contract has been finalized
+    ///
+    /// # Security
+    /// This entrypoint is read-only: it performs no storage writes, no TTL
+    /// extensions, no token transfers, and emits no events. It does not
+    /// contribute to keeping contract state alive and cannot be used as a
+    /// state-mutation vector.
+    pub fn simulate_dispute_resolution(
+        env: Env,
+        contract_id: u32,
+        arbiter: Address,
+        resolution: DisputeResolution,
+    ) -> SimulateDisputeOutcome {
+        // Identical pre-condition checks as `resolve_dispute`.
+        Self::require_initialized(&env);
+        Self::require_not_paused(&env);
+        arbiter.require_auth();
+
+        let contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+
+        // NOTE: No TTL extension — this is a read-only simulation.
+
+        Self::require_not_finalized(&env, contract_id);
+
+        if contract.status != ContractStatus::Disputed {
+            env.panic_with_error(Error::InvalidStatusTransition);
+        }
+
+        match &contract.arbiter {
+            Some(contract_arbiter) if *contract_arbiter == arbiter => {}
+            _ => env.panic_with_error(Error::UnauthorizedRole),
+        }
+
+        let (client_payout, freelancer_payout) =
+            dispute::resolution_payouts(&contract, &resolution)
+                .unwrap_or_else(|e| env.panic_with_error(e));
+
+        let new_refunded_amount = contract
+            .refunded_amount
+            .checked_add(client_payout)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+        let new_released_amount = contract
+            .released_amount
+            .checked_add(freelancer_payout)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+
+        // Compute projected final status using dispute helper.
+        // Build a projected contract view without mutating the original.
+        let projected = Contract {
+            refunded_amount: new_refunded_amount,
+            released_amount: new_released_amount,
+            ..contract
+        };
+        let final_status = dispute::final_status_after_resolution(&projected);
+
+        SimulateDisputeOutcome {
+            client_payout,
+            freelancer_payout,
+            final_status,
+            new_refunded_amount,
+            new_released_amount,
+        }
     }
 }
 

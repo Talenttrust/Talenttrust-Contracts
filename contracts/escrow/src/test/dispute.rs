@@ -26,7 +26,7 @@
 
 use crate::{
     Contract, ContractStatus, DisputeResolution, DisputeSplit, Error, Escrow, EscrowClient,
-    ReleaseAuthorization,
+    ReleaseAuthorization, SimulateDisputeOutcome,
 };
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
@@ -762,4 +762,375 @@ fn resolve_after_finalize_is_rejected() {
         client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
         Error::AlreadyFinalized,
     );
+}
+
+// ---------------------------------------------------------------------------
+// Simulate / dry-run dispute resolution tests
+// ---------------------------------------------------------------------------
+
+/// Simulate FullRefund returns projected outcome (all refunded) without mutating state.
+#[test]
+fn simulate_full_refund_matches_real_outcome_and_is_read_only() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    // Read pre-simulation state.
+    let before = client.get_contract(&contract_id);
+    assert_eq!(before.status, ContractStatus::Disputed);
+
+    let outcome = client.simulate_dispute_resolution(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::FullRefund,
+    );
+
+    assert_eq!(outcome.client_payout, 100);
+    assert_eq!(outcome.freelancer_payout, 0);
+    assert_eq!(outcome.final_status, ContractStatus::Refunded);
+    assert_eq!(outcome.new_refunded_amount, 100);
+    assert_eq!(outcome.new_released_amount, 0);
+
+    // Verify state did NOT change.
+    let after = client.get_contract(&contract_id);
+    assert_eq!(after.status, ContractStatus::Disputed);
+    assert_eq!(after.refunded_amount, 0);
+    assert_eq!(after.released_amount, 0);
+}
+
+/// Simulate FullPayout returns projected outcome (all released) without mutating state.
+#[test]
+fn simulate_full_payout_matches_real_outcome_and_is_read_only() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    let outcome = client.simulate_dispute_resolution(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::FullPayout,
+    );
+
+    assert_eq!(outcome.client_payout, 0);
+    assert_eq!(outcome.freelancer_payout, 100);
+    assert_eq!(outcome.final_status, ContractStatus::Completed);
+    assert_eq!(outcome.new_refunded_amount, 0);
+    assert_eq!(outcome.new_released_amount, 100);
+
+    // State unchanged.
+    let after = client.get_contract(&contract_id);
+    assert_eq!(after.status, ContractStatus::Disputed);
+    assert_eq!(after.refunded_amount, 0);
+    assert_eq!(after.released_amount, 0);
+}
+
+/// Simulate PartialRefund returns projected 70/30 outcome without mutating state.
+#[test]
+fn simulate_partial_refund_matches_real_outcome_and_is_read_only() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    let outcome = client.simulate_dispute_resolution(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::PartialRefund,
+    );
+
+    // 70% client, 30% freelancer (floor): 100 * 30/100 = 30
+    assert_eq!(outcome.client_payout, 70);
+    assert_eq!(outcome.freelancer_payout, 30);
+    assert_eq!(outcome.client_payout + outcome.freelancer_payout, 100);
+    assert_eq!(outcome.final_status, ContractStatus::Completed);
+    assert_eq!(outcome.new_refunded_amount, 70);
+    assert_eq!(outcome.new_released_amount, 30);
+
+    // State unchanged.
+    let after = client.get_contract(&contract_id);
+    assert_eq!(after.status, ContractStatus::Disputed);
+    assert_eq!(after.refunded_amount, 0);
+    assert_eq!(after.released_amount, 0);
+}
+
+/// Simulate Split returns projected split outcome without mutating state.
+#[test]
+fn simulate_split_matches_real_outcome_and_is_read_only() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    let split = DisputeSplit {
+        client_amount: 35,
+        freelancer_amount: 65,
+    };
+    let outcome = client.simulate_dispute_resolution(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::Split(split),
+    );
+
+    assert_eq!(outcome.client_payout, 35);
+    assert_eq!(outcome.freelancer_payout, 65);
+    assert_eq!(outcome.client_payout + outcome.freelancer_payout, 100);
+    assert_eq!(outcome.final_status, ContractStatus::Completed);
+    assert_eq!(outcome.new_refunded_amount, 35);
+    assert_eq!(outcome.new_released_amount, 65);
+
+    // State unchanged.
+    let after = client.get_contract(&contract_id);
+    assert_eq!(after.status, ContractStatus::Disputed);
+    assert_eq!(after.refunded_amount, 0);
+    assert_eq!(after.released_amount, 0);
+}
+
+/// Simulate outcome exactly matches what a real resolve produces.
+#[test]
+fn simulate_matches_real_resolve_outcome() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr, contract_id) =
+        funded_contract_with_arbiter(&env, &client);
+
+    // Simulate first, verify output.
+    assert!(client.raise_dispute(&contract_id, &client_addr));
+    let sim = client.simulate_dispute_resolution(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::FullRefund,
+    );
+    assert_eq!(sim.client_payout, 100);
+    assert_eq!(sim.freelancer_payout, 0);
+    assert_eq!(sim.final_status, ContractStatus::Refunded);
+
+    // Now resolve for real (still in Disputed state because simulate didn't mutate).
+    assert!(client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund));
+    let contract = client.get_contract(&contract_id);
+    assert_eq!(contract.status, ContractStatus::Refunded);
+    assert_eq!(contract.refunded_amount, 100);
+    assert_eq!(contract.released_amount, 0);
+}
+
+/// Simulate is rejected when called by a non-arbiter.
+#[test]
+fn simulate_rejects_non_arbiter() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (client_addr, _, _, contract_id) = disputed_contract(&env, &client);
+    let outsider = Address::generate(&env);
+
+    // Client is a party but not the arbiter → rejected.
+    super::assert_contract_error(
+        client.try_simulate_dispute_resolution(
+            &contract_id,
+            &client_addr,
+            &DisputeResolution::FullRefund,
+        ),
+        Error::UnauthorizedRole,
+    );
+    // Random outsider → rejected.
+    super::assert_contract_error(
+        client.try_simulate_dispute_resolution(
+            &contract_id,
+            &outsider,
+            &DisputeResolution::FullRefund,
+        ),
+        Error::UnauthorizedRole,
+    );
+}
+
+/// Simulate is rejected when the contract is not in Disputed state.
+#[test]
+fn simulate_rejects_non_disputed_state() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (client_addr, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    // Resolve first.
+    assert!(client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund));
+
+    // Now simulate should fail because contract is Refunded (not Disputed).
+    super::assert_contract_error(
+        client.try_simulate_dispute_resolution(
+            &contract_id,
+            &arbiter_addr,
+            &DisputeResolution::FullPayout,
+        ),
+        Error::InvalidStatusTransition,
+    );
+}
+
+/// Simulate is rejected after the contract has been finalized.
+#[test]
+fn simulate_rejects_after_finalize() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (client_addr, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    assert!(client.finalize_contract(&contract_id, &client_addr));
+
+    super::assert_contract_error(
+        client.try_simulate_dispute_resolution(
+            &contract_id,
+            &arbiter_addr,
+            &DisputeResolution::FullRefund,
+        ),
+        Error::AlreadyFinalized,
+    );
+}
+
+/// Simulate rejects a non-existent contract.
+#[test]
+fn simulate_rejects_contract_not_found() {
+    let env = make_env();
+    let client = make_client(&env);
+    let arbiter = Address::generate(&env);
+    let nonexistent_id = 9999u32;
+
+    super::assert_contract_error(
+        client.try_simulate_dispute_resolution(
+            &nonexistent_id,
+            &arbiter,
+            &DisputeResolution::FullRefund,
+        ),
+        Error::ContractNotFound,
+    );
+}
+
+/// Simulate rejects invalid split (non-conserving amounts).
+#[test]
+fn simulate_rejects_invalid_split() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    let bad_split = DisputeSplit {
+        client_amount: 40,
+        freelancer_amount: 59, // 40 + 59 = 99 ≠ 100
+    };
+    super::assert_contract_error(
+        client.try_simulate_dispute_resolution(
+            &contract_id,
+            &arbiter_addr,
+            &DisputeResolution::Split(bad_split),
+        ),
+        Error::InvalidDisputeSplit,
+    );
+}
+
+/// Simulate can be called multiple times without affecting state — idempotent reads.
+#[test]
+fn simulate_is_idempotent() {
+    let env = make_env();
+    let client = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+
+    let first = client.simulate_dispute_resolution(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::PartialRefund,
+    );
+    let second = client.simulate_dispute_resolution(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::PartialRefund,
+    );
+    assert_eq!(first, second);
+
+    // Still Disputed after multiple simulations.
+    assert_eq!(
+        client.get_contract(&contract_id).status,
+        ContractStatus::Disputed
+    );
+}
+
+/// Table-driven test: simulate matches what resolve would produce for all resolution variants.
+#[test]
+fn simulate_matches_resolve_for_all_variants() {
+    let env = make_env();
+
+    struct Case {
+        resolution: DisputeResolution,
+        expected_client: i128,
+        expected_freelancer: i128,
+        expected_status: ContractStatus,
+        label: &'static str,
+    }
+
+    let cases = &[
+        Case {
+            resolution: DisputeResolution::FullRefund,
+            expected_client: 200,
+            expected_freelancer: 0,
+            expected_status: ContractStatus::Refunded,
+            label: "FullRefund",
+        },
+        Case {
+            resolution: DisputeResolution::FullPayout,
+            expected_client: 0,
+            expected_freelancer: 200,
+            expected_status: ContractStatus::Completed,
+            label: "FullPayout",
+        },
+        Case {
+            resolution: DisputeResolution::PartialRefund,
+            expected_client: 140,    // 200 * 70%
+            expected_freelancer: 60, // 200 * 30%
+            expected_status: ContractStatus::Completed,
+            label: "PartialRefund",
+        },
+    ];
+
+    for case in cases {
+        // Fresh contract per case so simulate doesn't affect resolve.
+        let client = make_client(&env);
+        let client_addr = Address::generate(&env);
+        let freelancer_addr = Address::generate(&env);
+        let arbiter_addr = Address::generate(&env);
+        let milestones = soroban_sdk::vec![&env, 100_i128, 100_i128];
+        let contract_id = client.create_contract(
+            &client_addr,
+            &freelancer_addr,
+            &Some(arbiter_addr.clone()),
+            &milestones,
+            &ReleaseAuthorization::ClientOnly,
+        );
+        client.deposit_funds(&contract_id, &client_addr, &200_i128);
+        client.raise_dispute(&contract_id, &client_addr);
+
+        // Simulate.
+        let sim = client.simulate_dispute_resolution(
+            &contract_id,
+            &arbiter_addr,
+            &case.resolution.clone(),
+        );
+        assert_eq!(
+            sim.client_payout, case.expected_client,
+            "{}: client payout mismatch",
+            case.label
+        );
+        assert_eq!(
+            sim.freelancer_payout, case.expected_freelancer,
+            "{}: freelancer payout mismatch",
+            case.label
+        );
+        assert_eq!(
+            sim.client_payout + sim.freelancer_payout,
+            200,
+            "{}: conservation violated",
+            case.label
+        );
+        assert_eq!(
+            sim.final_status, case.expected_status,
+            "{}: status mismatch",
+            case.label
+        );
+
+        // After simulate, still Disputed.
+        assert_eq!(
+            client.get_contract(&contract_id).status,
+            ContractStatus::Disputed,
+            "{}: simulate mutated state",
+            case.label
+        );
+    }
 }
