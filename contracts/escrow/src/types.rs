@@ -1,6 +1,4 @@
-use core::cmp::Ordering;
-
-use soroban_sdk::{contracterror, contracttype, Address, String, Vec};
+use soroban_sdk::{contracterror, contracttype, Address, BytesN, String, Vec};
 
 // ── Indexer summary types ────────────────────────────────────────────────────
 
@@ -102,6 +100,8 @@ pub enum DataKey {
     DisputeRollback(u32),
     // Dispute / arbiter configuration
     DisputeConfigKey,
+    // Dispute metadata per contract
+    Dispute(u32),
     // Reputation configuration
     ReputationConfigKey,
     // Configurable settlement (batch finalize) limit
@@ -204,9 +204,10 @@ pub enum Error {
     RollbackStateChanged = 55,
     /// The provided reputation parameters are out of the allowed bounds.
     InvalidReputationParameters = 56,
-    /// The provided contracts parameters are out of the allowed bounds.
-    InvalidContractsParameters = 57,
-    EmptyEvidence = 58,
+    /// No dispute record exists for the requested contract.
+    DisputeNotFound = 57,
+    /// The stored dispute metadata version is not supported.
+    UnsupportedDisputeStorageVersion = 58,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
@@ -530,42 +531,29 @@ impl Default for DisputeConfig {
         }
     }
 }
-}
 
-/// Named result type returned by [`dispute::resolution_payouts`].
-///
-/// Replaces the opaque `(i128, i128)` tuple so callers can reference fields by
-/// name (`client_payout`, `freelancer_payout`, `available_balance`) rather than
-/// relying on positional index.
-///
-/// # Invariant
-/// `client_payout + freelancer_payout == available_balance`
+/// Current schema version for persisted dispute metadata.
+pub const DISPUTE_STORAGE_VERSION: u32 = 1;
+
+/// Persisted metadata for an on-chain dispute.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeInfo {
-    /// Escrowed balance at the time the resolution was computed:
-    /// `funded_amount - released_amount - refunded_amount`.
-    pub available_balance: i128,
-    /// Amount to be credited back to the client (refund side).
-    pub client_payout: i128,
-    /// Amount to be forwarded to the freelancer (release side).
-    pub freelancer_payout: i128,
+pub struct DisputeMetadata {
+    /// Schema version for forward-compatible reads.
+    pub schema_version: u32,
+    /// Address that raised the dispute (client or freelancer).
+    pub raised_by: Address,
+    /// Optional 32-byte hash of the dispute reason.
+    pub reason_hash: BytesN<32>,
+    /// Ledger timestamp when the dispute was raised.
+    pub raised_at: u64,
 }
 
-/// Event input data payload.
+/// V0 dispute metadata (pre-migration schema).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EventInput {
-    pub topic: soroban_sdk::Symbol,
-    pub contract_id: u32,
-    pub data: soroban_sdk::Symbol,
-}
-
-/// Milestone index entry for pagination.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MilestoneEntry {
-    pub index: u32,
-    pub status: u32,
-    pub amount: i128,
+pub struct DisputeMetadataV0 {
+    pub raised_by: Address,
+    pub reason_hash: BytesN<32>,
+    pub raised_at: u64,
 }

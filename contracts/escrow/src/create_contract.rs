@@ -1,8 +1,8 @@
 use crate::{
-    amount_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError,
+    amount_validation, ttl, Contract, ContractStatus, DataKey, Error, EscrowError,
     GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
-    amount_validation, storage_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
-    EscrowError, GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
+    amount_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowArgs,
+    EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
 };
 use soroban_sdk::{symbol_short, Address, Env, Symbol, Vec};
 
@@ -75,6 +75,14 @@ impl Escrow {
         let contract = Contract {
             client: client.clone(),
             freelancer: freelancer.clone(),
+            arbiter: arbiter.clone(),
+        let freelancer_addr = freelancer.clone();
+
+        // Construct the contract with all required fields, initialising accounting
+        // counters to zero and reputation_issued to false.
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
             arbiter,
             status: ContractStatus::Created,
             total_deposited: 0,
@@ -118,6 +126,22 @@ impl Escrow {
             (client, freelancer.clone(), env.ledger().timestamp()),
         );
 
+        id
+    }
+
+    /// Returns the next available contract ID and asserts it is not already occupied.
+    ///
+    /// # Errors
+    /// * `ContractIdCollision` - If the allocated id slot is already occupied
+    pub(crate) fn next_contract_id(env: &Env) -> u32 {
+        let id: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::NextContractId)
+            .unwrap_or(1);
+            (client, freelancer_addr, env.ledger().timestamp()),
+        );
+
         status_index::index_new_contract(&env, id, &ContractStatus::Created);
         status_index::index_participant(&env, id, &contract.client, 0);
         status_index::index_participant(&env, id, &contract.freelancer, 1);
@@ -126,22 +150,15 @@ impl Escrow {
     }
 }
 
-/// Returns the next available contract ID and asserts it is not already occupied.
-pub(crate) fn next_contract_id(env: &Env) -> u32 {
-    let id: u32 = env
-        .storage()
-        .persistent()
-        .get(&DataKey::NextContractId)
-        .unwrap_or(1);
+        if env
+            .storage()
+            .persistent()
+            .get::<_, Contract>(&DataKey::Contract(id))
+            .is_some()
+        {
+            env.panic_with_error(Error::ContractIdCollision);
+        }
 
-    if env
-        .storage()
-        .persistent()
-        .get::<_, Contract>(&DataKey::Contract(id))
-        .is_some()
-    {
-        env.panic_with_error(Error::ContractIdCollision);
+        id
     }
-
-    id
 }

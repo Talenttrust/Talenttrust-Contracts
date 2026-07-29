@@ -69,8 +69,8 @@ mod utils;
 
 use crate::utils::now_seconds;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, log, symbol_short, token, Address, Env, String, Symbol,
-    Vec,
+    contract, contracterror, contractimpl, log, symbol_short, token, Address, BytesN, Env, String,
+    Symbol, Vec,
 };
 
 pub use amount_validation::accumulate_amounts;
@@ -89,11 +89,12 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 pub use events::MAX_EVENT_BATCH_SIZE;
 pub use types::{
     Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode, DisputeConfig,
-    DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
-    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    ReputationConfig, SimulateCreateContractOutcome, SimulatedDeposit, SimulatedRefund,
-    SimulatedRelease, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    DisputeMetadata, DisputeMetadataV0, DisputeResolution, DisputeSplit, Error, GovernedParameters,
+    Milestone, MilestoneApprovals, MilestoneSummary, PendingAdminProposal, ReadinessChecklist,
+    ReleaseAuthorization, Reputation, ReputationConfig, SplitAmounts,
+    CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
+pub use types::DISPUTE_STORAGE_VERSION;
 
 /// Default maximum number of milestones allowed per contract.
 pub const DEFAULT_MAX_MILESTONES: u32 = 10;
@@ -103,9 +104,6 @@ pub const DEFAULT_MAX_TOTAL_ESCROW_STROOPS: i128 = 10_000_000_000_000;
 
 /// Backward-compatible alias for the default max milestones.
 pub const MAX_MILESTONES: u32 = DEFAULT_MAX_MILESTONES;
-
-/// Pagination ceiling for read-only enumeration views (per-call max).
-pub const PAGE_CEILING: u32 = DEFAULT_MAX_MILESTONES;
 
 /// Backward-compatible alias for the default max escrow stroops.
 pub const MAX_TOTAL_ESCROW_STROOPS: i128 = DEFAULT_MAX_TOTAL_ESCROW_STROOPS;
@@ -121,6 +119,7 @@ pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
 
 pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
 pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
+pub const PAGE_CEILING: u32 = 100;
 
 // ─── Contract data ────────────────────────────────────────────────────────────
 
@@ -138,17 +137,49 @@ pub struct EscrowContractData {
     pub reputation_issued: bool,
 }
 
-/// Default maximum number of contracts finalizable in a single batch settlement call.
-pub const DEFAULT_MAX_BATCH_SETTLEMENT: u32 = 10;
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneApprovals {
+    pub client_approved: bool,
+    pub freelancer_approved: bool,
+    pub arbiter_approved: bool,
+}
 
-/// Absolute minimum for the max batch settlement setting.
-pub const MIN_MAX_BATCH_SETTLEMENT: u32 = 1;
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReputationRecord {
+    pub completed_contracts: u32,
+    pub total_rating: i128,
+    pub last_rating: i128,
+}
 
-/// Absolute maximum for the max batch settlement setting.
-pub const MAX_MAX_BATCH_SETTLEMENT: u32 = 100;
+impl Default for ReputationRecord {
+    fn default() -> Self {
+        ReputationRecord {
+            completed_contracts: 0,
+            total_rating: 0,
+            last_rating: 0,
+        }
+    }
+}
 
-/// Backward-compatible alias for the default max batch settlement.
-pub const MAX_BATCH_SETTLEMENT: u32 = DEFAULT_MAX_BATCH_SETTLEMENT;
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MainnetReadinessInfo {
+    pub initialized: bool,
+    pub governed_params_set: bool,
+    pub emergency_controls_enabled: bool,
+    pub caps_set: bool,
+    pub protocol_version: u32,
+    pub max_escrow_total_stroops: i128,
+}
+// Maximum bounds constants - re-export from amount_validation for API visibility
+pub use milestones_consts::{
+    MAX_COMMENT_BYTES, MAX_FEE_BPS, MAX_MILESTONES, MAX_RATING, MIN_COMMENT_BYTES, MIN_FEE_BPS,
+    MIN_RATING, PROTOCOL_FEE_BPS_DENOMINATOR,
+};
+pub const MAX_SINGLE_AMOUNT_STROOPS: i128 = crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
+pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
 
 #[contract]
 pub struct Escrow;
@@ -1686,6 +1717,72 @@ impl Escrow {
             .unwrap_or(1)
     }
 
+    /// Returns a bounded, read-only page of existing contract IDs.
+    ///
+    /// The page is empty-safe: callers always receive an empty vector when no
+    /// contracts exist, when `start` is beyond the last allocated ID, or when a
+    /// request uses a zero `limit`. The implementation caps each request to
+    /// [`PAGE_CEILING`] entries per call and walks the allocated ID range in
+    /// ascending order.
+    pub fn get_contracts_page(env: Env, start: u32, limit: u32) -> Vec<u32> {
+        let capped_limit = core::cmp::min(limit, PAGE_CEILING);
+        if capped_limit == 0 {
+            return Vec::new(&env);
+        }
+
+        let total = Self::get_next_contract_id(env.clone()) as u64;
+        if start as u64 >= total {
+            return Vec::new(&env);
+        }
+
+        let mut result = Vec::new(&env);
+        let mut count = 0u32;
+        let mut current = start;
+        while current < total as u32 && count < capped_limit {
+            if env.storage().persistent().has(&DataKey::Contract(current)) {
+                result.push_back(current);
+                count += 1;
+            }
+            current += 1;
+        }
+
+        result
+    }
+
+    /// Returns a bounded, read-only page of dispute metadata records.
+    ///
+    /// Iterates over allocated contract IDs and returns entries for contracts
+    /// that have a stored dispute record. The page is empty-safe: callers always
+    /// receive an empty vector when no disputes exist, when `start` is beyond
+    /// the last allocated ID, or when a request uses a zero `limit`. The
+    /// implementation caps each request to [`PAGE_CEILING`] entries per call and
+    /// walks the allocated ID range in ascending order.
+    pub fn get_disputes_page(env: Env, start: u32, limit: u32) -> Vec<DisputeMetadata> {
+        let capped_limit = core::cmp::min(limit, PAGE_CEILING);
+        if capped_limit == 0 {
+            return Vec::new(&env);
+        }
+
+        let total = Self::get_next_contract_id(env.clone()) as u64;
+        if start as u64 >= total {
+            return Vec::new(&env);
+        }
+
+        let mut result = Vec::new(&env);
+        let mut count = 0u32;
+        let mut current = start;
+        while current < total as u32 && count < capped_limit {
+            let key = DataKey::Dispute(current);
+            if let Some(meta) = env.storage().persistent().get::<_, DisputeMetadata>(&key) {
+                result.push_back(meta);
+                count += 1;
+            }
+            current += 1;
+        }
+
+        result
+    }
+
     /// Returns a structured summary of the contract and its milestones.
     ///
     /// Extends contract and milestone TTL on read without requiring caller auth.
@@ -2053,6 +2150,107 @@ impl Escrow {
     }
 
     // ── Cancel contract ──────────────────────────────────────────────────────
+
+    pub fn get_mainnet_readiness_info(env: Env) -> MainnetReadinessInfo {
+        let checklist = Self::load_checklist(&env);
+        MainnetReadinessInfo {
+            initialized: checklist.initialized,
+            governed_params_set: checklist.governed_params_set,
+            emergency_controls_enabled: checklist.emergency_controls_enabled,
+            caps_set: MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS > 0,
+            protocol_version: MAINNET_PROTOCOL_VERSION,
+            max_escrow_total_stroops: MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS,
+        }
+    }
+
+    fn load_checklist(env: &Env) -> ReadinessChecklist {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ReadinessChecklist)
+            .unwrap_or_default()
+    }
+
+    // ─── Configurable limits ──────────────────────────────────────────────────
+
+    /// Returns the effective max milestones, falling back to the default.
+    fn effective_max_milestones(env: &Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MaxMilestones)
+            .unwrap_or(DEFAULT_MAX_MILESTONES)
+    }
+
+    /// Returns the effective max escrow stroops, falling back to the default.
+    fn effective_max_escrow_stroops(env: &Env) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MaxEscrowStroops)
+            .unwrap_or(DEFAULT_MAX_TOTAL_ESCROW_STROOPS)
+    }
+
+    /// Set the max milestones limit. Admin only. Rejects out-of-range values.
+    pub fn set_max_milestones(env: Env, max_milestones: u32) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+
+        if max_milestones < MIN_MAX_MILESTONES || max_milestones > MAX_MAX_MILESTONES {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxMilestones, &max_milestones);
+
+        env.events().publish(
+            (symbol_short!("limits"), Symbol::new(&env, "max_milestones")),
+            (max_milestones, env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Returns the current max milestones limit (or the default if not set).
+    pub fn get_max_milestones(env: Env) -> u32 {
+        Self::effective_max_milestones(&env)
+    }
+
+    /// Set the max escrow stroops limit. Admin only. Rejects out-of-range values.
+    pub fn set_max_escrow_stroops(env: Env, max_escrow_stroops: i128) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+
+        if max_escrow_stroops < MIN_MAX_ESCROW_STROOPS
+            || max_escrow_stroops > MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS
+        {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxEscrowStroops, &max_escrow_stroops);
+
+        env.events().publish(
+            (symbol_short!("limits"), Symbol::new(&env, "max_escrow")),
+            (max_escrow_stroops, env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Returns the current max escrow stroops limit (or the default if not set).
+    pub fn get_max_escrow_stroops(env: Env) -> i128 {
+        Self::effective_max_escrow_stroops(&env)
+    }
+
+    // ─── Contract lifecycle ───────────────────────────────────────────────────
 
     /// Cancels a contract before any milestone has been released.
     ///
@@ -3002,6 +3200,17 @@ impl Escrow {
             _ => env.panic_with_error(Error::InvalidState),
         }
 
+        let milestones = ttl::load_milestones(&env, contract_id);
+        rollback::store_dispute_rollback(&env, contract_id, &contract, &milestones);
+
+        let metadata = DisputeMetadata {
+            schema_version: DISPUTE_STORAGE_VERSION,
+            raised_by: caller.clone(),
+            reason_hash: BytesN::from_array(&env, &[0u8; 32]),
+            raised_at: env.ledger().timestamp(),
+        };
+        dispute::store_dispute_metadata(&env, contract_id, &metadata);
+
         contract.status = ContractStatus::Disputed;
         env.storage()
             .persistent()
@@ -3116,6 +3325,8 @@ impl Escrow {
         env.storage()
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);
+        rollback::clear_dispute_rollback(&env, contract_id);
+        dispute::clear_dispute_metadata(&env, contract_id);
 
         ttl::extend_contract_ttl(&env, contract_id);
 
@@ -3144,106 +3355,16 @@ impl Escrow {
         true
     }
 
-    /// Simulates dispute resolution and returns the projected outcome without
-    /// writing storage or emitting events.
+    /// Returns the stored dispute metadata for a contract, or `None` if no
+    /// dispute has been raised.
     ///
-    /// This is the read-only dry-run counterpart to `resolve_dispute`. It
-    /// performs every pre-condition check that `resolve_dispute` performs —
-    /// initialization, pause gate, arbiter authorization, contract existence,
-    /// finalization guard, `Disputed`-state requirement, arbiter matching,
-    /// and payout arithmetic validation — and then returns the projected
-    /// payout split and final status **without** mutating persistent storage,
-    /// extending TTL, executing token transfers, or publishing events.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `contract_id` - The contract ID
-    /// * `arbiter` - The arbiter address (must match contract's assigned arbiter)
-    /// * `resolution` - The resolution decision (FullRefund, PartialRefund, FullPayout, or Split)
-    ///
-    /// # Returns
-    /// A [`SimulateDisputeOutcome`] containing:
-    /// - `client_payout` — amount that would be refunded to the client
-    /// - `freelancer_payout` — amount that would be released to the freelancer
-    /// - `final_status` — projected contract status after applying the resolution
-    /// - `new_refunded_amount` — projected `refunded_amount`
-    /// - `new_released_amount` — projected `released_amount`
-    ///
-    /// # Errors
-    /// * `NotInitialized` - If `initialize` has not been called
-    /// * `ContractNotFound` - If contract doesn't exist
-    /// * `UnauthorizedRole` - If caller is not the assigned arbiter
-    /// * `InvalidStatusTransition` - If contract is not in Disputed state
-    /// * `InvalidDisputeSplit` - If custom split doesn't match available balance
-    /// * `AccountingInvariantViolated` - If accounting state is inconsistent
-    /// * `PotentialOverflow` - If amount calculations would overflow
-    /// * `ContractPaused` - If pause or emergency controls are active
-    /// * `AlreadyFinalized` - If contract has been finalized
-    ///
-    /// # Security
-    /// This entrypoint is read-only: it performs no storage writes, no TTL
-    /// extensions, no token transfers, and emits no events. It does not
-    /// contribute to keeping contract state alive and cannot be used as a
-    /// state-mutation vector.
-    pub fn simulate_dispute_resolution(
-        env: Env,
-        contract_id: u32,
-        arbiter: Address,
-        resolution: DisputeResolution,
-    ) -> SimulateDisputeOutcome {
-        // Identical pre-condition checks as `resolve_dispute`.
-        Self::require_initialized(&env);
-        Self::require_not_paused(&env);
-        arbiter.require_auth();
-
-        let contract: Contract = env
-            .storage()
+    /// Read-only operation — does not extend TTL or mutate state. Returns
+    /// `None` for non-existent contracts as well as contracts without an
+    /// active dispute, making it safe for indexers iterating over ID ranges.
+    pub fn get_dispute(env: Env, contract_id: u32) -> Option<DisputeMetadata> {
+        env.storage()
             .persistent()
-            .get(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
-
-        // NOTE: No TTL extension — this is a read-only simulation.
-
-        Self::require_not_finalized(&env, contract_id);
-
-        if contract.status != ContractStatus::Disputed {
-            env.panic_with_error(Error::InvalidStatusTransition);
-        }
-
-        match &contract.arbiter {
-            Some(contract_arbiter) if *contract_arbiter == arbiter => {}
-            _ => env.panic_with_error(Error::UnauthorizedRole),
-        }
-
-        let (client_payout, freelancer_payout) =
-            dispute::resolution_payouts(&contract, &resolution)
-                .unwrap_or_else(|e| env.panic_with_error(e));
-
-        let new_refunded_amount = contract
-            .refunded_amount
-            .checked_add(client_payout)
-            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-        let new_released_amount = contract
-            .released_amount
-            .checked_add(freelancer_payout)
-            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-
-        // Compute projected final status using dispute helper.
-        // Build a projected contract view without mutating the original.
-        let projected = Contract {
-            refunded_amount: new_refunded_amount,
-            released_amount: new_released_amount,
-            ..contract
-        };
-        let final_status = dispute::final_status_after_resolution(&projected);
-
-        SimulateDisputeOutcome {
-            client_payout,
-            freelancer_payout,
-            final_status,
-            new_refunded_amount,
-            new_released_amount,
-        }
+            .get(&DataKey::Dispute(contract_id))
     }
 }
 

@@ -7,11 +7,11 @@
 //! this module owns dispute authorization, state changes, events, and writes to
 //! `DataKey::Contract(contract_id)`.
 
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{Address, BytesN, Env};
 
 use crate::{
-    rollback, safe_add_amounts, ttl, Contract, ContractStatus, DataKey, DisputeConfig, DisputeInfo,
-    DisputeResolution, Error, Escrow,
+    safe_add_amounts, Contract, ContractStatus, DataKey, DisputeConfig, DisputeMetadata,
+    DisputeMetadataV0, DisputeResolution, Error, DISPUTE_STORAGE_VERSION,
 };
 
 /// Read-only getter for the arbiter dispute-split configuration.
@@ -116,14 +116,78 @@ pub fn final_status_after_resolution(contract: &Contract) -> ContractStatus {
     }
 }
 
-/// Open a dispute after enforcing lifecycle, role, and arbiter guards.
+// ---------------------------------------------------------------------------
+// Dispute metadata storage helpers
+// ---------------------------------------------------------------------------
+
+/// Persist dispute metadata for a contract.
+pub fn store_dispute_metadata(env: &Env, contract_id: u32, metadata: &DisputeMetadata) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Dispute(contract_id), metadata);
+}
+
+/// Remove dispute metadata for a contract.
+pub fn clear_dispute_metadata(env: &Env, contract_id: u32) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::Dispute(contract_id));
+}
+
+/// Return the schema version of the stored dispute metadata, or 0 if none exists.
+pub fn get_dispute_storage_version(env: &Env, contract_id: u32) -> u32 {
+    if env
+        .storage()
+        .persistent()
+        .has(&DataKey::Dispute(contract_id))
+    {
+        DISPUTE_STORAGE_VERSION
+    } else {
+        0
+    }
+}
+
+/// Read dispute metadata with automatic v0 → v1 migration.
 ///
-/// The public Soroban entrypoint remains on [`Escrow`] so its ABI stays stable;
-/// this helper keeps the complete dispute workflow in this module.
-pub(crate) fn raise_dispute_impl(env: &Env, contract_id: u32, caller: Address) -> bool {
-    Escrow::require_initialized(env);
-    Escrow::require_not_paused(env);
-    caller.require_auth();
+/// Panics with `DisputeNotFound` when no record exists.
+pub fn load_dispute_metadata(env: &Env, contract_id: u32) -> DisputeMetadata {
+    if let Some(meta) = env
+        .storage()
+        .persistent()
+        .get::<_, DisputeMetadata>(&DataKey::Dispute(contract_id))
+    {
+        if meta.schema_version > DISPUTE_STORAGE_VERSION {
+            env.panic_with_error(Error::UnsupportedDisputeStorageVersion);
+        }
+        return meta;
+    }
+    // Try v0 → v1 migration
+    if let Some(v0) = env
+        .storage()
+        .persistent()
+        .get::<_, DisputeMetadataV0>(&DataKey::Dispute(contract_id))
+    {
+        let v1 = migrate_dispute_metadata_v0_to_v1(v0);
+        store_dispute_metadata(env, contract_id, &v1);
+        return v1;
+    }
+
+    env.panic_with_error(Error::DisputeNotFound)
+}
+
+/// Migrate a v0 metadata record to the current schema version.
+pub fn migrate_dispute_metadata_v0_to_v1(v0: DisputeMetadataV0) -> DisputeMetadata {
+    DisputeMetadata {
+        schema_version: DISPUTE_STORAGE_VERSION,
+        raised_by: v0.raised_by,
+        reason_hash: v0.reason_hash,
+        raised_at: v0.raised_at,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// raise_dispute / resolve_dispute entrypoints
+// ---------------------------------------------------------------------------
 
     let mut contract: Contract = env
         .storage()
