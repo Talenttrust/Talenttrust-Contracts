@@ -13,6 +13,7 @@ mod authorization_pagination;
 mod cancel_contract;
 mod client_migration;
 mod configurable_settlement_limit;
+mod contracts_events;
 mod create_contract_bounds;
 mod deposit;
 mod dispute;
