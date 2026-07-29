@@ -58,7 +58,7 @@ fn over_cap_batch_rejected() {
     }
 
     let res = client.try_batch_events(&caller, &events);
-    assert_contract_error(res, Error::BatchCapExceeded);
+    assert_contract_error(res, Error::InvalidProtocolParameters);
 }
 
 #[test]

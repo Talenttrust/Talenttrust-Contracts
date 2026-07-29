@@ -80,6 +80,15 @@ pub const MAX_BATCH_SETTLEMENT: u32 = DEFAULT_MAX_BATCH_SETTLEMENT;
 pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
 pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
 
+/// Default maximum number of arbiters allowed per contract.
+pub const DEFAULT_MAX_ARBITERS: u32 = 1;
+
+/// Absolute minimum for the max arbiters setting.
+pub const MIN_MAX_ARBITERS: u32 = 1;
+
+/// Absolute maximum for the max arbiters setting.
+pub const MAX_MAX_ARBITERS: u32 = 10;
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 #[soroban_sdk::contracttype]
@@ -129,8 +138,114 @@ pub struct MainnetReadinessInfo {
 
 #[contractimpl]
 impl Escrow {
-    // ── Private helpers ──────────────────────────────────────────────────────
+    pub fn set_arbiter(
+        env: Env,
+        contract_id: u32,
+        admin: Address,
+        new_arbiter: Option<Address>,
+    ) -> bool {
+        Self::require_initialized(&env);
+        Self::require_not_paused(&env);
+        Self::validate_contract_id_bounds(&env, contract_id);
 
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        if admin != stored_admin {
+            env.panic_with_error(EscrowError::UnauthorizedRole);
+        }
+        admin.require_auth();
+
+        let mut contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+
+        ttl::extend_contract_ttl(&env, contract_id);
+        Self::require_not_finalized(&env, contract_id);
+
+        if let Some(ref arb) = new_arbiter {
+            if *arb == contract.client || *arb == contract.freelancer {
+                env.panic_with_error(EscrowError::InvalidArbiter);
+            }
+        }
+
+        if new_arbiter.is_none() {
+            match contract.release_authorization {
+                ReleaseAuthorization::ArbiterOnly | ReleaseAuthorization::ClientAndArbiter => {
+                    env.panic_with_error(EscrowError::MissingArbiter);
+                }
+                _ => {}
+            }
+        }
+
+        let old_arbiter = contract.arbiter.clone();
+        contract.arbiter = new_arbiter.clone();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), &contract);
+
+        ttl::extend_contract_ttl(&env, contract_id);
+
+        env.events().publish(
+            (symbol_short!("arbiter"), contract_id),
+            (old_arbiter, new_arbiter, env.ledger().timestamp()),
+        );
+
+        true
+    }
+
+    pub fn set_contracts_parameters(
+        env: Env,
+        max_milestones: u32,
+        max_escrow_stroops: i128,
+    ) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+
+        if max_milestones < MIN_MAX_MILESTONES || max_milestones > MAX_MAX_MILESTONES {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+        if max_escrow_stroops < MIN_MAX_ESCROW_STROOPS
+            || max_escrow_stroops > MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS
+        {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+
+        let params = crate::types::ContractsParameters {
+            max_milestones,
+            max_escrow_stroops,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::ContractsParameters, &params);
+
+        env.events().publish(
+            (symbol_short!("contracts"), Symbol::new(&env, "params")),
+            (params, env.ledger().timestamp()),
+        );
+        true
+    }
+
+    pub fn get_contracts_parameters(env: Env) -> crate::types::ContractsParameters {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ContractsParameters)
+            .unwrap_or_default()
+    }
+}
+
+impl Escrow {
     pub(crate) fn load_checklist(env: &Env) -> crate::ReadinessChecklist {
         env.storage()
             .persistent()
@@ -139,6 +254,14 @@ impl Escrow {
     }
 
     pub(crate) fn effective_max_milestones(env: &Env) -> u32 {
+        // Prefer the dedicated admin override key written by `set_max_milestones`.
+        if let Some(v) = env
+            .storage()
+            .persistent()
+            .get::<_, u32>(&DataKey::MaxMilestones)
+        {
+            return v;
+        }
         env.storage()
             .persistent()
             .get::<_, crate::types::ContractsParameters>(&DataKey::ContractsParameters)
@@ -147,18 +270,19 @@ impl Escrow {
     }
 
     pub(crate) fn effective_max_escrow_stroops(env: &Env) -> i128 {
+        // Prefer the dedicated admin override key written by `set_max_escrow_stroops`.
+        if let Some(v) = env
+            .storage()
+            .persistent()
+            .get::<_, i128>(&DataKey::MaxEscrowStroops)
+        {
+            return v;
+        }
         env.storage()
             .persistent()
             .get::<_, crate::types::ContractsParameters>(&DataKey::ContractsParameters)
             .unwrap_or_default()
             .max_escrow_stroops
-    }
-
-    pub(crate) fn effective_max_settlement(env: &Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::MaxSettlement)
-            .unwrap_or(DEFAULT_MAX_BATCH_SETTLEMENT)
     }
 
     /// Validates that the given contract_id is within the valid range.

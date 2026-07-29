@@ -9,8 +9,8 @@
 //! top of the corresponding entrypoint, before any state mutation occurs.
 
 use crate::milestones_consts::{
-    MAX_FEE_BPS, MAX_MILESTONES, MAX_RATING, MAX_REPUTATION_CONFIG_RATING_CEILING,
-    MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING, MIN_COMMENT_BYTES, MIN_RATING,
+    MAX_FEE_BPS, MAX_MILESTONES, MAX_RATING, MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING,
+    MAX_REPUTATION_CONFIG_RATING_CEILING, MIN_COMMENT_BYTES, MIN_RATING,
 };
 use crate::{Error, EscrowError};
 use soroban_sdk::Env;

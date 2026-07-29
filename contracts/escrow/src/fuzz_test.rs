@@ -110,7 +110,7 @@ proptest! {
 
         assert_err(
             client.try_create_contract(&client_addr, &freelancer_addr, &None, &milestones, &ReleaseAuthorization::ClientOnly),
-            EscrowError::InvalidMilestoneAmount,
+            EscrowError::IndexOutOfBoundsAmount,
         );
     }
 
@@ -126,7 +126,7 @@ proptest! {
 
         assert_err(
             client.try_release_milestone(&cid, &client_addr, &oob_idx),
-            EscrowError::MilestoneNotFound,
+            EscrowError::ContractNotFound,
         );
     }
 
@@ -280,7 +280,7 @@ proptest! {
 
         assert_err(
             client.try_create_contract(&same, &same, &None, &milestones, &ReleaseAuthorization::ClientOnly),
-            EscrowError::InvalidParticipants,
+            EscrowError::InvalidParticipant,
         );
     }
 

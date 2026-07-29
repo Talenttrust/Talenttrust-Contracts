@@ -124,6 +124,7 @@ pub enum DataKey {
     MaxMilestones,
     MaxEscrowStroops,
     MaxArbiters,
+    ContractsParameters,
     MaxSettlement,
     // Finalization
     Finalization(u32),
@@ -164,11 +165,14 @@ pub struct MilestoneIndexEvent {
 // ── Canonical Errors ─────────────────────────────────────────────────────────
 
 /// Canonical contract error type for all entrypoint-facing errors.
-#[contracterror]
+#[contracterror(export = false)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
+    TooManyMilestones = 1,
+    LimitOutOfRange = 2,
     IndexOutOfBounds = 3,
+    InvalidContractId = 4,
     /// The refund request is empty.
     EmptyRefundRequest = 6,
     DuplicateMilestoneInRefund = 7,
@@ -179,13 +183,12 @@ pub enum Error {
     UnauthorizedRole = 11,
     MissingArbiter = 12,
     InvalidArbiter = 13,
-    InvalidParticipants = 14,
     AmountMustBePositive = 15,
     InvalidState = 16,
     MilestoneAlreadyReleased = 17,
     AlreadyApproved = 18,
+    InvalidParticipant = 19,
     InsufficientApprovals = 20,
-    FreelancerMismatch = 21,
     InvalidRating = 22,
     ReputationAlreadyIssued = 23,
     EmptyMilestones = 25,
@@ -195,15 +198,12 @@ pub enum Error {
     ContractIdOverflow = 28,
     EmptyComment = 29,
     CommentTooLong = 30,
-    /// The deposit amount is invalid.
-    InvalidDepositAmount = 32,
     /// The contract has already been initialized.
     AlreadyInitialized = 34,
     InsufficientAccumulatedFees = 35,
     NotInitialized = 36,
     ContractPaused = 37,
     EmergencyActive = 38,
-    SelfRating = 39,
     NotCompleted = 40,
     InvalidStatusTransition = 41,
     ArbiterRequired = 42,
@@ -215,10 +215,6 @@ pub enum Error {
     EvidenceTooLong = 47,
     TimelockNotElapsed = 48,
     InvalidProtocolParameters = 49,
-    /// The contract has already been cancelled.
-    AlreadyCancelled = 50,
-    /// The escrow cap would be exceeded by this operation.
-    EscrowCapExceeded = 51,
     /// No settlement token has been bound for custody transfers.
     SettlementTokenNotConfigured = 52,
     MilestoneNotOverdue = 53,
@@ -226,18 +222,12 @@ pub enum Error {
     EmptyEvidence = 54,
     /// No safe rollback is available for the contract's current state.
     RollbackNotAllowed = 55,
-    RollbackStateChanged = 56,
     RoleOverlap = 57,
-    BatchCapExceeded = 58,
-    NoPendingReputationCredits = 59,
-    // `InvalidReputationParameters` was retired during the PR #1243 conflict
-    // resolution so the contract stays under the Soroban SDK's 50-variant
-    // limit on `#[contracterror]` enums. Use `InvalidProtocolParameters`
-    // (code 49) for all reputation-parameter rejections.
     /// No dispute record exists for the requested contract.
-    DisputeNotFound = 56,
-    /// The stored dispute metadata version is not supported.
-    UnsupportedDisputeStorageVersion = 57,
+    DisputeNotFound = 60,
+    SettlementTokenAlreadyBound = 61,
+    ContractCancelled = 62,
+    InvalidDepositAmount = 65,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
@@ -574,25 +564,6 @@ pub struct DisputeSummary {
     pub funded_amount: i128,
     pub released_amount: i128,
     pub refunded_amount: i128,
-}
-
-pub const DISPUTE_STORAGE_VERSION: u32 = 1;
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeMetadataV0 {
-    pub contract_id: u32,
-    pub arbiter: soroban_sdk::Address,
-    pub schema_version: u32,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeMetadata {
-    pub contract_id: u32,
-    pub arbiter: soroban_sdk::Address,
-    pub schema_version: u32,
-    pub timestamp: u64,
 }
 
 /// Configuration for the arbiter's partial-refund split, stored under

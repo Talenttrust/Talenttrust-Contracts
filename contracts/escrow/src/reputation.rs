@@ -121,7 +121,7 @@ pub(crate) fn issue_reputation(
         env.panic_with_error(Error::ReputationAlreadyIssued);
     }
     if contract.client == contract.freelancer {
-        env.panic_with_error(Error::SelfRating);
+        env.panic_with_error(Error::UnauthorizedRole);
     }
 
     caller.require_auth();
@@ -141,7 +141,7 @@ pub(crate) fn issue_reputation(
     let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
     let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
     if pending <= 0 {
-        env.panic_with_error(Error::NoPendingReputationCredits);
+        env.panic_with_error(Error::NotCompleted);
     }
     let new_pending = pending
         .checked_sub(1)

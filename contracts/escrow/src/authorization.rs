@@ -123,14 +123,9 @@ pub fn require_release_authorization(env: &Env, caller: &Address, contract: &Con
 ///
 /// # Panics
 /// * `UnauthorizedRole` - If caller is not a participant
-pub fn require_participant(
-    env: &Env,
-    caller: &Address,
-    contract: &Contract,
-) -> ParticipantRole {
+pub fn require_participant(env: &Env, caller: &Address, contract: &Contract) -> ParticipantRole {
     get_caller_role(caller, contract).unwrap_or_else(|| {
         env.panic_with_error(Error::UnauthorizedRole);
-        unreachable!()
     })
 }
 
@@ -154,6 +149,8 @@ pub fn require_admin(env: &Env, caller: &Address, stored_admin: &Address) {
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
+
     use super::*;
     use soroban_sdk::testutils::Address as _;
 
@@ -197,7 +194,10 @@ mod tests {
             ReleaseAuthorization::ClientOnly,
         );
 
-        assert_eq!(get_caller_role(&client, &contract), Some(ParticipantRole::Client));
+        assert_eq!(
+            get_caller_role(&client, &contract),
+            Some(ParticipantRole::Client)
+        );
     }
 
     #[test]
@@ -214,7 +214,10 @@ mod tests {
             ReleaseAuthorization::ClientOnly,
         );
 
-        assert_eq!(get_caller_role(&freelancer, &contract), Some(ParticipantRole::Freelancer));
+        assert_eq!(
+            get_caller_role(&freelancer, &contract),
+            Some(ParticipantRole::Freelancer)
+        );
     }
 
     #[test]
@@ -232,7 +235,10 @@ mod tests {
             ReleaseAuthorization::ArbiterOnly,
         );
 
-        assert_eq!(get_caller_role(&arbiter, &contract), Some(ParticipantRole::Arbiter));
+        assert_eq!(
+            get_caller_role(&arbiter, &contract),
+            Some(ParticipantRole::Arbiter)
+        );
     }
 
     #[test]
@@ -312,7 +318,10 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             require_release_authorization(&env, &freelancer, &contract);
         }));
-        assert!(result.is_err(), "Freelancer should not be authorized in ClientOnly mode");
+        assert!(
+            result.is_err(),
+            "Freelancer should not be authorized in ClientOnly mode"
+        );
     }
 
     #[test]
@@ -354,7 +363,10 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             require_release_authorization(&env, &client, &contract);
         }));
-        assert!(result.is_err(), "Client should not be authorized in ArbiterOnly mode");
+        assert!(
+            result.is_err(),
+            "Client should not be authorized in ArbiterOnly mode"
+        );
     }
 
     #[test]
@@ -397,7 +409,10 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             require_release_authorization(&env, &freelancer, &contract);
         }));
-        assert!(result.is_err(), "Freelancer should not be authorized in ClientAndArbiter mode");
+        assert!(
+            result.is_err(),
+            "Freelancer should not be authorized in ClientAndArbiter mode"
+        );
     }
 
     #[test]

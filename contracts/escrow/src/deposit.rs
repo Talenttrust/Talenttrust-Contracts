@@ -1,6 +1,6 @@
 use crate::{
-    accumulate_amounts, amount_validation::validate_single_amount, ttl, Contract, ContractStatus,
-    DataKey, Error, EscrowError, Milestone,
+    accumulate_amounts, amount_validation::validate_single_amount, keys, ttl, Contract,
+    ContractStatus, DataKey, Error, EscrowError, Milestone,
 };
 use soroban_sdk::{Address, Env, Vec};
 
@@ -35,7 +35,7 @@ pub fn validate_deposit(
     crate::storage_validation::validate_stroop_amount(env, amount);
 
     if amount > crate::MAX_SINGLE_AMOUNT_STROOPS {
-        env.panic_with_error(EscrowError::InvalidDepositAmount);
+        env.panic_with_error(EscrowError::AmountMustBePositive);
     }
 
     let contract: Contract = env
@@ -54,7 +54,7 @@ pub fn validate_deposit(
         env.panic_with_error(EscrowError::ContractCancelled);
     }
     if contract.status == ContractStatus::Refunded {
-        env.panic_with_error(EscrowError::ContractRefunded);
+        env.panic_with_error(EscrowError::ContractCancelled);
     }
 
     if contract.status != ContractStatus::Created
@@ -82,7 +82,7 @@ pub fn validate_deposit(
         .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
     if new_funded_amount > total_amount {
-        env.panic_with_error(Error::InvalidDepositAmount);
+        env.panic_with_error(Error::AmountMustBePositive);
     }
 
     ValidatedDeposit {

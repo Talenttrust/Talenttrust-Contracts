@@ -306,7 +306,7 @@ fn simulate_rejects_refunded_contract() {
 
     assert_contract_error(
         client.try_simulate_deposit_funds(&id, &client_addr, &100_i128),
-        EscrowError::ContractRefunded,
+        EscrowError::InvalidState,
     );
 }
 
@@ -339,7 +339,7 @@ fn simulate_rejects_overfunding() {
 
     assert_contract_error(
         client.try_simulate_deposit_funds(&id, &client_addr, &(total + 1)),
-        Error::InvalidDepositAmount,
+        Error::AmountMustBePositive,
     );
 }
 

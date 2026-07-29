@@ -131,7 +131,7 @@ fn test_issue_reputation_rejects_freelancer_mismatch() {
         &5,
         &soroban_sdk::String::from_str(&env, "test"),
     );
-    super::assert_contract_error(result, Error::FreelancerMismatch);
+    super::assert_contract_error(result, Error::UnauthorizedRole);
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn test_create_rejects_same_client_and_freelancer() {
         &default_milestones(&env),
         &ReleaseAuthorization::ClientOnly,
     );
-    super::assert_contract_error(result, Error::InvalidParticipants);
+    super::assert_contract_error(result, Error::InvalidParticipant);
 }
 
 #[test]

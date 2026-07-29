@@ -79,7 +79,7 @@ pub(crate) fn rollback_dispute_impl(env: &Env, contract_id: u32) -> bool {
     expected_contract.status = ContractStatus::Disputed;
     let milestones = ttl::load_milestones(env, contract_id);
     if contract != expected_contract || milestones != record.milestones {
-        env.panic_with_error(Error::RollbackStateChanged);
+        env.panic_with_error(Error::RollbackNotAllowed);
     }
 
     let restored_status = record.contract.status;
