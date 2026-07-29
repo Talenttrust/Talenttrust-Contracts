@@ -57,7 +57,6 @@ pub fn validate_single_amount(amount: i128) -> Result<(), crate::EscrowError> {
 ///
 /// # Returns
 /// `Ok(total)` with sum of all amounts if valid, `Err(AmountValidationError)` if invalid
-#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_amount_array(amounts: &[i128]) -> Result<i128, crate::EscrowError> {
     let mut total: i128 = 0;
 
@@ -84,7 +83,6 @@ pub fn validate_amount_array(amounts: &[i128]) -> Result<i128, crate::EscrowErro
 ///
 /// # Returns
 /// `Ok(())` if valid, `Err(AmountValidationError)` if invalid
-#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_contract_total(
     total_amount: i128,
     max_contract_total: i128,
@@ -104,7 +102,6 @@ pub fn validate_contract_total(
 ///
 /// # Returns
 /// `Ok(total)` with sum of all milestones if valid, `Err(AmountValidationError)` if invalid
-#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_milestone_amounts(
     milestone_amounts: &[i128],
     max_contract_total: i128,
@@ -118,12 +115,11 @@ pub fn validate_milestone_amounts(
     Ok(total)
 }
 
-/// Validates deposit amount against remaining contract capacity
+/// Validates deposit amount against remaining contract capacity.
 ///
-/// This function is critical for preventing stuck or overfunded escrows. It validates:
-/// 1. The deposit amount itself is positive and within bounds
-/// 2. Adding the deposit to current_deposited won't overflow
-/// 3. The resulting total won't exceed the contract's maximum capacity
+/// This is the canonical validation path for all deposit entrypoints. It rejects
+/// any amount that is not strictly positive or that exceeds the distributed
+/// single-milestone ceiling enforced across the escrow contract.
 ///
 /// # Decision Boundaries
 ///
@@ -143,31 +139,11 @@ pub fn validate_milestone_amounts(
 /// * `Err(EscrowError::InvalidMilestoneAmount)` - Deposit would exceed capacity or single amount is too large
 /// * `Err(EscrowError::PotentialOverflow)` - Adding deposit to current would overflow i128
 ///
-/// # Examples
-///
-/// ```ignore
-/// // Valid: deposit exactly fills remaining capacity
-/// assert!(validate_deposit_amount(500, 500, 1000).is_ok());
-///
-/// // Invalid: deposit exceeds remaining by 1 stroop
-/// assert_eq!(
-///     validate_deposit_amount(501, 500, 1000),
-///     Err(EscrowError::InvalidMilestoneAmount)
-/// );
-///
-/// // Invalid: contract already fully funded
-/// assert_eq!(
-///     validate_deposit_amount(1, 1000, 1000),
-///     Err(EscrowError::InvalidMilestoneAmount)
-/// );
-/// ```
-///
 /// # Security
 ///
 /// - Uses checked arithmetic to prevent integer overflow panics
 /// - Rejects any deposit when contract is already fully funded
 /// - Validates deposit amount bounds before checking capacity
-#[allow(dead_code)] // available for callers; not used by the contract directly
 pub fn validate_deposit_amount(
     deposit_amount: i128,
     current_deposited: i128,

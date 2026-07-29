@@ -1,5 +1,6 @@
 use crate::{
-    accumulate_amounts, keys, ttl, Contract, ContractStatus, DataKey, Error, EscrowError, Milestone,
+    accumulate_amounts, amount_validation::validate_single_amount, ttl, Contract, ContractStatus,
+    DataKey, Error, EscrowError, Milestone,
 };
 use soroban_sdk::{Address, Env, Vec};
 
@@ -16,18 +17,21 @@ pub struct ValidatedDeposit {
 /// This preflight must run before the SAC transfer in `deposit_funds` so an
 /// invalid deposit cannot debit the client and then fail during escrow state
 /// validation.
+///
+/// # Security
+///
+/// Uses `validate_single_amount` to enforce centralized bounds for all
+/// money-like values in the escrow contract. This ensures that:
+///
+/// - The deposit amount is strictly positive (minimum 1 stroop).
+/// - The deposit amount does not exceed `MAX_SINGLE_AMOUNT_STROOPS` (1M tokens).
 pub fn validate_deposit(
     env: &Env,
     contract_id: u32,
     caller: &Address,
     amount: i128,
 ) -> ValidatedDeposit {
-    // Reject non-positive or over-cap amounts before any state read.
-    storage_validation::validate_stroop_amount(env, amount);
-
-    if amount > MAX_SINGLE_AMOUNT_STROOPS {
-        env.panic_with_error(EscrowError::InvalidDepositAmount);
-    }
+    validate_single_amount(amount).unwrap_or_else(|err| env.panic_with_error(err));
 
     let contract: Contract = env
         .storage()
