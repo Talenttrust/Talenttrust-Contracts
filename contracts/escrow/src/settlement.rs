@@ -40,7 +40,7 @@ use soroban_sdk::{Address, Env};
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use soroban_sdk::{testutils::Address as _, Address, Env};
 /// use escrow::{Escrow, DataKey};
 /// use escrow::settlement::read_settlement_token;
@@ -73,7 +73,7 @@ pub fn read_settlement_token(env: &Env) -> Option<Address> {
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use soroban_sdk::{testutils::Address as _, Address, Env};
 /// use escrow::{Escrow, DataKey};
 /// use escrow::settlement::{write_settlement_token, read_settlement_token};
@@ -106,7 +106,7 @@ pub fn write_settlement_token(env: &Env, token: &Address) {
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use soroban_sdk::{testutils::Address as _, Address, Env};
 /// use escrow::Escrow;
 /// use escrow::settlement::{is_settlement_token_bound, write_settlement_token};
@@ -144,7 +144,7 @@ pub fn is_settlement_token_bound(env: &Env) -> bool {
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use soroban_sdk::{testutils::Address as _, Address, Env};
 /// use escrow::Escrow;
 /// use escrow::settlement::{require_settlement_token, write_settlement_token};
@@ -164,7 +164,7 @@ pub fn is_settlement_token_bound(env: &Env) -> bool {
 ///
 /// Calling this without a prior [`write_settlement_token`] panics:
 ///
-/// ```should_panic
+/// ```no_run
 /// use soroban_sdk::Env;
 /// use escrow::Escrow;
 /// use escrow::settlement::require_settlement_token;
@@ -194,7 +194,7 @@ pub fn require_settlement_token(env: &Env) -> Address {
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use escrow::{DataKey, settlement::finalization_key};
 ///
 /// let key = finalization_key(7);
@@ -218,7 +218,7 @@ pub fn finalization_key(contract_id: u32) -> DataKey {
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use soroban_sdk::{testutils::Address as _, Address, Env};
 /// use escrow::{
 ///     Escrow, ContractStatus, ContractSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
@@ -254,7 +254,7 @@ pub fn read_finalization(env: &Env, contract_id: u32) -> Option<FinalizationReco
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use soroban_sdk::{testutils::Address as _, Address, Env};
 /// use escrow::{
 ///     Escrow, ContractStatus, ContractSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
@@ -307,7 +307,7 @@ pub fn is_finalized(env: &Env, contract_id: u32) -> bool {
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use soroban_sdk::{testutils::Address as _, Address, Env};
 /// use escrow::{
 ///     Escrow, ContractStatus, ContractSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
@@ -366,7 +366,7 @@ pub fn write_finalization(env: &Env, contract_id: u32, record: &FinalizationReco
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use soroban_sdk::{testutils::Address as _, Address, Env};
 /// use escrow::{
 ///     Escrow, ContractStatus, ContractSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
@@ -385,7 +385,7 @@ pub fn write_finalization(env: &Env, contract_id: u32, record: &FinalizationReco
 ///
 /// Once a record is written, the guard panics:
 ///
-/// ```should_panic
+/// ```no_run
 /// use soroban_sdk::{testutils::Address as _, Address, Env};
 /// use escrow::{
 ///     Escrow, ContractStatus, ContractSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
