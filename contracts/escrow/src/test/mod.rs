@@ -11,8 +11,7 @@ use crate::{
 // --- Submodules ---
 mod access_control;
 mod approval_expiry;
-mod arbiter_config_setter;
-mod arbiter_config_view;
+mod budget;
 mod cancel_contract;
 mod client_migration;
 mod configurable_limits;
@@ -28,6 +27,7 @@ mod mainnet_readiness;
 mod milestones_events;
 mod participant_index_pagination;
 mod pause_controls;
+mod performance;
 mod persistence;
 mod refund;
 mod release;
