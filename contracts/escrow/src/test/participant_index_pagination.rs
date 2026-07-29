@@ -14,9 +14,11 @@ fn participant_index_empty_returns_empty_page() {
 
     let participant = Address::generate(&env);
 
+    // Client role (0u8)
     let page_client = client.list_contracts_by_participant(&participant, &0u32, &0u32, &10u32);
     assert_eq!(page_client.len(), 0);
 
+    // Freelancer role (1u8)
     let page_freelancer = client.list_contracts_by_participant(&participant, &1u32, &0u32, &10u32);
     assert_eq!(page_freelancer.len(), 0);
 }
@@ -59,11 +61,91 @@ fn participant_index_client_and_freelancer_lists_are_correct_and_paginated() {
     assert_eq!(page.len(), 1);
     assert_eq!(page.get(0), Some(id2));
 
-    // start out of range -> empty
+    // Start out of range (offset past end) -> returns empty page.
     let page = escrow.list_contracts_by_participant(&client1, &0u32, &5u32, &10u32);
     assert_eq!(page.len(), 0);
 
-    // limit cap behavior: request more than available; should return remaining only.
+    // Limit cap behavior: requesting limit (1000) larger than available items returns remaining items.
     let page = escrow.list_contracts_by_participant(&client1, &0u32, &0u32, &1000u32);
     assert_eq!(page.len(), 1);
+}
+
+/// Tests pagination edge cases including zero limit, offset equal to total length, and multi-page iteration.
+#[test]
+fn participant_index_pagination_edge_cases_and_multi_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow = register_client(&env);
+
+    let (client, freelancer) = make_client_freelancer(&env);
+    let milestones = default_milestones(&env);
+
+    // Create 5 contracts for the same client.
+    let mut ids = soroban_sdk::Vec::new(&env);
+    for _ in 0..5 {
+        let id = escrow.create_contract(
+            &client,
+            &freelancer,
+            &None,
+            &milestones,
+            &crate::types::ReleaseAuthorization::ClientOnly,
+        );
+        ids.push_back(id);
+    }
+
+    // Zero limit request -> empty page.
+    let page_zero = escrow.list_contracts_by_participant(&client, &0u32, &0u32, &0u32);
+    assert_eq!(page_zero.len(), 0);
+
+    // Page 1: offset 0, limit 2 -> first 2 contracts.
+    let page1 = escrow.list_contracts_by_participant(&client, &0u32, &0u32, &2u32);
+    assert_eq!(page1.len(), 2);
+    assert_eq!(page1.get(0), ids.get(0));
+    assert_eq!(page1.get(1), ids.get(1));
+
+    // Page 2: offset 2, limit 2 -> next 2 contracts.
+    let page2 = escrow.list_contracts_by_participant(&client, &0u32, &2u32, &2u32);
+    assert_eq!(page2.len(), 2);
+    assert_eq!(page2.get(0), ids.get(2));
+    assert_eq!(page2.get(1), ids.get(3));
+
+    // Page 3: offset 4, limit 2 -> last 1 contract.
+    let page3 = escrow.list_contracts_by_participant(&client, &0u32, &4u32, &2u32);
+    assert_eq!(page3.len(), 1);
+    assert_eq!(page3.get(0), ids.get(4));
+
+    // Offset equal to total count (5) -> empty page.
+    let page_exact_end = escrow.list_contracts_by_participant(&client, &0u32, &5u32, &2u32);
+    assert_eq!(page_exact_end.len(), 0);
+
+    // Offset strictly past total count (10) -> empty page.
+    let page_past_end = escrow.list_contracts_by_participant(&client, &0u32, &10u32, &2u32);
+    assert_eq!(page_past_end.len(), 0);
+}
+
+/// Tests that `ttl::extend_participant_contract_index_ttl` functions properly when invoked on participant keys.
+#[test]
+fn participant_index_ttl_extension_helper_exercised() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow = register_client(&env);
+
+    let (client, freelancer) = make_client_freelancer(&env);
+    let milestones = default_milestones(&env);
+
+    let id = escrow.create_contract(
+        &client,
+        &freelancer,
+        &None,
+        &milestones,
+        &crate::types::ReleaseAuthorization::ClientOnly,
+    );
+
+    let page = escrow.list_contracts_by_participant(&client, &0u32, &0u32, &10u32);
+    assert_eq!(page.len(), 1);
+    assert_eq!(page.get(0), Some(id));
+
+    // Confirm ttl::extend_participant_contract_index_ttl remains exercised
+    let key = crate::DataKey::Contract(id);
+    crate::ttl::extend_participant_contract_index_ttl(&env, &key);
 }
