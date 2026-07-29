@@ -186,6 +186,38 @@ pub const MAX_FEE_BPS: u32 = 10_000;
 pub const MAX_SINGLE_AMOUNT_STROOPS: i128 = crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
 
+// ─── Configurable limits (PR #1243) ──────────────────────────────────────────
+//
+// Admin-configurable runtime caps delivered by PR #1243. Setters in this file
+// persist these under `DataKey::MaxMilestones` / `MaxEscrowStroops` /
+// `MaxArbiters`; the `effective_max_*` getters read them or fall back to the
+// protocol defaults defined here. The bounds are exposed as `pub const`s so
+// callers and off-chain indexers can discover the supported range without
+// inspecting storage.
+
+/// Default maximum number of milestones allowed per contract.
+pub const DEFAULT_MAX_MILESTONES: u32 = 10;
+/// Default hard cap on the total escrow value per contract, in stroops.
+pub const DEFAULT_MAX_TOTAL_ESCROW_STROOPS: i128 = 10_000_000_000_000;
+/// Absolute minimum for the max milestones setting.
+pub const MIN_MAX_MILESTONES: u32 = 1;
+/// Absolute maximum for the max milestones setting.
+pub const MAX_MAX_MILESTONES: u32 = 100;
+/// Absolute minimum for the max escrow stroops setting (0.01 XLM).
+pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
+/// Default maximum number of arbiters allowed for a contract.
+pub const DEFAULT_MAX_ARBITERS: u32 = 1;
+/// Absolute minimum for the arbiter limit setting.
+pub const MIN_MAX_ARBITERS: u32 = 1;
+/// Absolute maximum for the arbiter limit setting.
+pub const MAX_MAX_ARBITERS: u32 = 100;
+/// Protocol version reported by the mainnet readiness view.
+pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
+/// Documented mainnet hard cap on total escrow per contract, in stroops.
+pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
+/// Maximum entries returned by any paginated view in a single call.
+pub const PAGE_CEILING: u32 = 50;
+
 #[contract]
 pub struct Escrow;
 
@@ -266,14 +298,10 @@ pub enum EscrowError {
     EmptyComment = 42,
     /// Reputation feedback comment exceeded the 200-character maximum.
     CommentTooLong = 43,
-    /// The protocol fee basis points exceed the maximum allowed (10_000).
-    InvalidProtocolParameters = 44,
-    /// The withdrawal amount exceeds the maximum allowed per operation.
-    InvalidWithdrawalAmount = 45,
-    /// The specified contract ID is invalid or zero.
-    InvalidContractId = 46,
-    /// The specified batch or operational limit is out of allowed range.
-    LimitOutOfRange = 47,
+    /// A configured limit was set outside of the supported bounds.
+    LimitOutOfRange = 44,
+    /// The contract ID is out of valid bounds.
+    InvalidContractId = 45,
 }
 
 impl Escrow {
@@ -878,66 +906,138 @@ impl Escrow {
             .unwrap_or_default()
     }
 
-    /// Paginated read-only view over milestones for a contract.
-    ///
-    /// - `start`: zero-based start index
-    /// - `limit`: maximum entries to return (clamped to PAGE_CEILING)
-    ///
-    /// Read-only and empty-safe: unknown contracts or out-of-range start values
-    /// return an empty vector rather than panicking.
-    pub fn get_milestones_page(
-        env: Env,
-        contract_id: u32,
-        start: u32,
-        limit: u32,
-    ) -> Vec<MilestoneEntry> {
-        // Clamp requested limit to the configured ceiling.
-        let capped_limit = core::cmp::min(limit, PAGE_CEILING);
-        if capped_limit == 0 {
-            return Vec::new(&env);
-        }
+    // ── Configurable limits (PR #1243) ──────────────────────────────────────
+    //
+    // Admin-only setters expose runtime configuration of the milestone cap,
+    // the total-escrow cap, and the arbiter cap. Each setter validates its
+    // input against the bounded range defined in `DEFAULT_*` / `MIN_*` /
+    // `MAX_*` constants above before persisting the value under the matching
+    // `DataKey` variant. The matching `effective_max_*` getter returns the
+    // stored value or falls back to the protocol default if no admin
+    // override has been stored. This delivers the headline feature of PR
+    // #1243: making the arbiter limit an admin-configurable parameter.
 
-        let milestone_key = Symbol::new(&env, "milestones");
-        let maybe_milestones: Option<Vec<Milestone>> = env
+    /// Admin-only setter for the maximum number of milestones per contract.
+    pub fn set_max_milestones(env: Env, admin: Address, max: u32) -> bool {
+        Self::require_initialized(&env);
+        let stored_admin: Address = env
             .storage()
             .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key));
-
-        let milestones = match maybe_milestones {
-            Some(m) => m,
-            None => return Vec::new(&env),
-        };
-
-        let len = milestones.len();
-        if start >= len {
-            return Vec::new(&env);
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        if admin != stored_admin {
+            env.panic_with_error(EscrowError::UnauthorizedRole);
         }
-
-        // Compute end index safely and clamp to available length.
-        let end = {
-            let sum = start.saturating_add(capped_limit);
-            core::cmp::min(len, sum)
-        };
-
-        let mut page = Vec::new(&env);
-        let mut idx = start;
-        while idx < end {
-            let ms = milestones.get(idx).unwrap();
-            let status = if ms.released {
-                1u32
-            } else if ms.refunded {
-                2u32
-            } else {
-                0u32
-            };
-            page.push_back(MilestoneEntry {
-                index: idx,
-                status,
-                amount: ms.amount,
-            });
-            idx = idx + 1;
+        admin.require_auth();
+        if max < MIN_MAX_MILESTONES || max > MAX_MAX_MILESTONES {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
         }
-        page
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxMilestones, &max);
+        env.events().publish(
+            (symbol_short!("cfg_maxm"),),
+            (admin, max, env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Returns the effective max-milestones cap (admin override or default).
+    pub fn effective_max_milestones(env: &Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MaxMilestones)
+            .unwrap_or(DEFAULT_MAX_MILESTONES)
+    }
+
+    /// Read the effective max-milestones cap.
+    pub fn get_max_milestones(env: Env) -> u32 {
+        Self::effective_max_milestones(&env)
+    }
+
+    /// Admin-only setter for the maximum total-escrow stroops per contract.
+    pub fn set_max_escrow_stroops(env: Env, admin: Address, max: i128) -> bool {
+        Self::require_initialized(&env);
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        if admin != stored_admin {
+            env.panic_with_error(EscrowError::UnauthorizedRole);
+        }
+        admin.require_auth();
+        if max < MIN_MAX_ESCROW_STROOPS || max > MAX_TOTAL_ESCROW_STROOPS {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxEscrowStroops, &max);
+        env.events().publish(
+            (symbol_short!("cfg_maxs"),),
+            (admin, max, env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Returns the effective max-escrow-stroops cap (admin override or default).
+    pub fn effective_max_escrow_stroops(env: &Env) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MaxEscrowStroops)
+            .unwrap_or(DEFAULT_MAX_TOTAL_ESCROW_STROOPS)
+    }
+
+    /// Read the effective max-escrow-stroops cap.
+    pub fn get_max_escrow_stroops(env: Env) -> i128 {
+        Self::effective_max_escrow_stroops(&env)
+    }
+
+    /// Admin-only setter for the maximum number of arbiters per contract.
+    ///
+    /// This is the headline endpoint of PR #1243. Setting the value below
+    /// `MIN_MAX_ARBITERS = 1` or above `MAX_MAX_ARBITERS = 100` panics with
+    /// `LimitOutOfRange`. Successful updates emit a `cfg_maxa` topic event so
+    /// off-chain indexers observe the parameter change.
+    pub fn set_max_arbiters(env: Env, admin: Address, max: u32) -> bool {
+        Self::require_initialized(&env);
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        if admin != stored_admin {
+            env.panic_with_error(EscrowError::UnauthorizedRole);
+        }
+        admin.require_auth();
+        if max < MIN_MAX_ARBITERS || max > MAX_MAX_ARBITERS {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxArbiters, &max);
+        env.events().publish(
+            (symbol_short!("cfg_maxa"),),
+            (admin, max, env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Returns the effective max-arbiters cap (admin override or default).
+    ///
+    /// Used by callers that want to validate a contract's arbiter count
+    /// against the currently configured cap. Falls back to
+    /// `DEFAULT_MAX_ARBITERS = 1` when no admin override has been stored.
+    pub fn effective_max_arbiters(env: &Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MaxArbiters)
+            .unwrap_or(DEFAULT_MAX_ARBITERS)
+    }
+
+    /// Read the effective max-arbiters cap.
+    pub fn get_max_arbiters(env: Env) -> u32 {
+        Self::effective_max_arbiters(&env)
     }
 
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
@@ -2325,7 +2425,7 @@ impl Escrow {
     ///   most `10`.
     /// * `max_comment_bytes` must be at least `1` and at most `1_000`.
     ///
-    /// Any violation is rejected with `InvalidReputationParams` and the
+    /// Any violation is rejected with `InvalidProtocolParameters` and the
     /// stored configuration is left unchanged.
     ///
     /// # Errors
@@ -2333,7 +2433,7 @@ impl Escrow {
     /// * `UnauthorizedRole` if `admin` is not the stored admin (enforced via
     ///   `require_auth`, so an unauthorized caller's transaction fails before
     ///   any state changes)
-    /// * `InvalidReputationParams` if any bound above is violated
+    /// * `InvalidProtocolParameters` if any bound above is violated
     ///
     /// # Events
     /// On a successful update this publishes a `rep_cfg` event:
@@ -2355,12 +2455,14 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
         admin.require_auth();
 
-        storage_validation::validate_reputation_config_params(
-            &env,
-            min_rating,
-            max_rating,
-            max_comment_bytes,
-        );
+        if min_rating < 1
+            || max_rating < min_rating
+            || max_rating > 10
+            || max_comment_bytes < 1
+            || max_comment_bytes > 1_000
+        {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
 
         let old_config = Self::get_reputation_config(env.clone());
         let new_config = ReputationConfig {

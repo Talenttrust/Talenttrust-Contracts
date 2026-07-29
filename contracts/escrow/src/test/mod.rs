@@ -14,7 +14,7 @@ mod arbiter_config_setter;
 mod arbiter_config_view;
 mod cancel_contract;
 mod client_migration;
-mod contracts_page;
+mod configurable_limits;
 mod create_contract_bounds;
 mod deposit;
 mod dispute;

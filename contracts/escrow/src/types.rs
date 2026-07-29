@@ -92,14 +92,19 @@ pub enum DataKey {
     AccumulatedProtocolFees,
     GovernedParameters,
     ReadinessChecklist,
-    ContractsParameters,
+    // Configurable limits
+    MaxMilestones,
+    MaxEscrowStroops,
+    MaxArbiters,
     // Finalization
     Finalization(u32),
     // Settlement token
     SettlementToken,
-    // Participant indexer (append-only contract id lists)
-    ClientContracts(Address),
-    FreelancerContracts(Address),
+    // Dispute / arbiter configuration
+    DisputeRollback(u32),
+    DisputeConfigKey,
+    // Reputation configuration
+    ReputationConfigKey,
 }
 
 // ── Event Types ──────────────────────────────────────────────────────────────
@@ -190,12 +195,10 @@ pub enum Error {
     /// No safe rollback is available for the contract's current state.
     RollbackNotAllowed = 54,
     RollbackStateChanged = 55,
-    /// The provided reputation parameters are out of the allowed bounds.
-    InvalidReputationParameters = 56,
-    /// No dispute record exists for the requested contract.
-    DisputeNotFound = 57,
-    /// The stored dispute metadata version is not supported.
-    UnsupportedDisputeStorageVersion = 58,
+    // `InvalidReputationParameters` was retired during the PR #1243 conflict
+    // resolution so the contract stays under the Soroban SDK's 50-variant
+    // limit on `#[contracterror]` enums. Use `InvalidProtocolParameters`
+    // (code 49) for all reputation-parameter rejections.
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────

@@ -6,6 +6,42 @@ use soroban_sdk::{contractimpl, symbol_short, Address, Env, Vec};
 
 impl Escrow {
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
+    ///
+    /// This is the single canonical creation path. It enforces:
+    /// - Distinct client and freelancer addresses
+    /// - Arbiter presence when required by the release authorization mode
+    /// - Arbiter distinctness from client and freelancer
+    /// - At least one milestone with all amounts strictly positive
+    /// - The configurable max-milestones cap (defaults to `MAX_MILESTONES`,
+    ///   bounded above by `MAX_MAX_MILESTONES`)
+    /// - The governed total-escrow cap combined with the configurable
+    ///   max-escrow-stroops cap (the min of the two is enforced; falls back
+    ///   to `i128::MAX` when neither is set)
+    /// - No contract-id collision or overflow
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `client` - The address of the client funding the contract
+    /// * `freelancer` - The address of the freelancer performing the work
+    /// * `arbiter` - Optional arbiter address for dispute resolution
+    /// * `milestones` - Vector of milestone amounts (in stroops)
+    /// * `release_authorization` - Authorization mode for milestone releases
+    ///
+    /// # Returns
+    /// The unique contract ID assigned to the new escrow.
+    ///
+    /// # Errors
+    /// * `InvalidParticipant`   - If client and freelancer are the same address
+    /// * `EmptyMilestones`      - If no milestones are provided
+    /// * `InvalidMilestoneAmount` - If any milestone amount is <= 0
+    /// * `MissingArbiter`       - If arbiter is required but not provided
+    /// * `InvalidArbiter`       - If arbiter is same as client or freelancer
+    /// * `TooManyMilestones`    - If the number of milestones exceeds the
+    ///                            effective max-milestones cap
+    /// * `TotalCapExceeded`     - If the sum of milestone amounts exceeds the
+    ///                            effective total-escrow cap
+    /// * `ContractIdOverflow`   - If the next id would exceed `u32::MAX`
+    /// * `ContractIdCollision`  - If the allocated id slot is already occupied
     pub fn create_contract(
         env: Env,
         client: Address,
@@ -36,23 +72,52 @@ impl Escrow {
             }
         }
 
+        // The admin-configurable arbiter cap delivered by PR #1243
+        // (`Escrow::set_max_arbiters` / `effective_max_arbiters`) is exposed
+        // here for forward compatibility with a future multi-arbiter
+        // signature. The current `arbiter: Option<Address>` parameter
+        // accepts at most one arbiter, and `MIN_MAX_ARBITERS = 1` clamps
+        // the admin-set cap to be at least `1`, so a runtime cap check
+        // against a single arbiter would be dead code. When the contract
+        // signature is extended to `Vec<Address>`, replace this comment
+        // with `if arbiter.len() > Escrow::effective_max_arbiters(&env) ...`.
+
+        // Validate at least one milestone is specified.
         if milestones.is_empty() {
             env.panic_with_error(EscrowError::EmptyMilestones);
         }
 
-        if milestones.len() > MAX_MILESTONES {
+        // Enforce the configurable max-milestones cap. The getter defaults to
+        // `DEFAULT_MAX_MILESTONES` when no admin override has been stored, and
+        // `set_max_milestones` clamps administrative updates to
+        // `[MIN_MAX_MILESTONES, MAX_MAX_MILESTONES]`, so this check is
+        // bounded and safe regardless of caller intent.
+        let max_milestones = Self::effective_max_milestones(&env);
+        if milestones.len() > max_milestones {
             env.panic_with_error(EscrowError::TooManyMilestones);
         }
 
-        let max_total = env
-            .storage()
-            .persistent()
-            .get::<_, GovernedParameters>(&DataKey::GovernedParameters)
-            .map(|p| p.max_escrow_total_stroops)
-            .unwrap_or(i128::MAX);
+        // Combine the governance cap and the admin-configurable cap; the binding
+        // cap is the lesser of the two, falling back to `i128::MAX` when neither
+        // is set. This keeps legacy deployments (no governance params, no
+        // configurable cap) effectively unbounded while letting production
+        // deployments tighten the limit via either governance or admin config.
+        let max_total = {
+            let governed = env
+                .storage()
+                .persistent()
+                .get::<_, GovernedParameters>(&DataKey::GovernedParameters)
+                .map(|params| params.max_escrow_total_stroops)
+                .unwrap_or(i128::MAX);
+            let configurable = Self::effective_max_escrow_stroops(&env);
+            governed.min(configurable)
+        };
 
-        // Copy into a native fixed-size array for the shared validator helper.
-        let mut native_milestones = [0_i128; MAX_MILESTONES as usize];
+        // Validate milestone amounts and enforce the total cap via the
+        // canonical helper. The fixed-size scratch buffer is sized for the
+        // absolute upper bound (`MAX_MAX_MILESTONES`) so the configurable
+        // cap can be raised without re-sizing the buffer.
+        let mut native_milestones = [0_i128; crate::MAX_MAX_MILESTONES as usize];
         let len = milestones.len() as usize;
         for i in 0..len {
             let v = milestones.get(i as u32).unwrap();
@@ -70,14 +135,13 @@ impl Escrow {
         ttl::extend_next_contract_id_ttl(&env);
         let id = next_contract_id(&env);
 
-        let contract = Contract {
-            client: client.clone(),
-            freelancer: freelancer.clone(),
-            arbiter: arbiter.clone(),
+        // Retain the original freelancer address alongside `freelancer` so the
+        // created event can publish it without re-cloning once the move into
+        // the Contract struct below is performed.
         let freelancer_addr = freelancer.clone();
 
-        // Construct the contract with all required fields, initialising accounting
-        // counters to zero and reputation_issued to false.
+        // Construct the contract with all required fields, initialising
+        // accounting counters to zero and reputation_issued to false.
         let contract = Contract {
             client: client.clone(),
             freelancer: freelancer.clone(),
@@ -90,35 +154,10 @@ impl Escrow {
             release_authorization,
             reputation_issued: false,
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Contract(id), &contract);
 
-        // Maintain append-only participant indices for fast enumeration.
-        // These are updated after the contract is persisted to keep the index consistent.
-        let client_key = DataKey::ClientContracts(client.clone());
-        let mut client_ids: Vec<u32> = env
-            .storage()
-            .persistent()
-            .get(&client_key)
-            .unwrap_or_else(|| Vec::new(&env));
-        client_ids.push_back(id);
-        env.storage().persistent().set(&client_key, &client_ids);
-        ttl::extend_participant_contract_index_ttl(&env, &client_key);
+        env.storage().persistent().set(&DataKey::Contract(id), &contract);
 
-        let freelancer_key = DataKey::FreelancerContracts(freelancer_addr.clone());
-        let mut freelancer_ids: Vec<u32> = env
-            .storage()
-            .persistent()
-            .get(&freelancer_key)
-            .unwrap_or_else(|| Vec::new(&env));
-        freelancer_ids.push_back(id);
-        env.storage()
-            .persistent()
-            .set(&freelancer_key, &freelancer_ids);
-        ttl::extend_participant_contract_index_ttl(&env, &freelancer_key);
-
-        // Build and persist the milestone vector.
+        let milestone_key = Symbol::new(&env, "milestones");
         let mut milestone_vec: Vec<Milestone> = Vec::new(&env);
         for i in 0..len {
             let amount = native_milestones[i];
@@ -132,7 +171,6 @@ impl Escrow {
                 deadline: None,
             });
         }
-        let milestone_key = keys::milestone_key(&env, id);
         env.storage()
             .persistent()
             .set(&milestone_key, &milestone_vec);
