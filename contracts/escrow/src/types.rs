@@ -144,10 +144,9 @@ pub enum Error {
     EmptyComment = 29,
     CommentTooLong = 30,
     InvalidParticipant = 31,
-    InvalidDepositAmount = 32,
-    InvalidMilestone = 33,
     /// The deposit amount is invalid.
     InvalidDepositAmount = 32,
+    InvalidMilestone = 33,
     /// The contract has already been initialized.
     AlreadyInitialized = 34,
     InsufficientAccumulatedFees = 35,
