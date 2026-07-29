@@ -3268,8 +3268,14 @@ impl Escrow {
                 .unwrap_or_else(|e| env.panic_with_error(e));
 
         // Update contract accounting
-        contract.refunded_amount += client_payout;
-        contract.released_amount += freelancer_payout;
+        contract.refunded_amount = contract
+            .refunded_amount
+            .checked_add(client_payout)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+        contract.released_amount = contract
+            .released_amount
+            .checked_add(freelancer_payout)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
         // Set final status
         contract.status = dispute::final_status_after_resolution(&contract);

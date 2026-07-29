@@ -247,8 +247,14 @@ pub(crate) fn resolve_dispute_impl(
     // Named fields instead of opaque tuple index (issue #51).
     let info =
         resolution_payouts(&contract, &resolution).unwrap_or_else(|e| env.panic_with_error(e));
-    contract.refunded_amount += info.client_payout;
-    contract.released_amount += info.freelancer_payout;
+    contract.refunded_amount = contract
+        .refunded_amount
+        .checked_add(info.client_payout)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    contract.released_amount = contract
+        .released_amount
+        .checked_add(info.freelancer_payout)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
     contract.status = final_status_after_resolution(&contract);
     if contract.status == ContractStatus::Completed {
         Escrow::grant_pending_reputation_credit(env, &contract.freelancer);
