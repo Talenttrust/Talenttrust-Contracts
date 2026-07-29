@@ -28,6 +28,35 @@ use soroban_sdk::{Address, Env};
 ///
 /// Returns `None` when no token has been bound yet (`bind_settlement_token`
 /// has not been called).
+///
+/// # Arguments
+///
+/// * `env` – The Soroban environment.
+///
+/// # Returns
+///
+/// `Some(Address)` of the bound SAC token, or `None` if the token has not
+/// been bound yet.
+///
+/// # Example
+///
+/// ```
+/// use soroban_sdk::{testutils::Address as _, Address, Env};
+/// use escrow::{Escrow, DataKey};
+/// use escrow::settlement::read_settlement_token;
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+/// env.as_contract(&contract, || {
+///     // Before any binding, the result is None.
+///     assert!(read_settlement_token(&env).is_none());
+///
+///     // After writing a token address it is returned.
+///     let token = Address::generate(&env);
+///     env.storage().persistent().set(&DataKey::SettlementToken, &token);
+///     assert_eq!(read_settlement_token(&env), Some(token));
+/// });
+/// ```
 pub fn read_settlement_token(env: &Env) -> Option<Address> {
     env.storage().persistent().get(&DataKey::SettlementToken)
 }
@@ -36,6 +65,28 @@ pub fn read_settlement_token(env: &Env) -> Option<Address> {
 ///
 /// Callers must ensure write-once semantics: a second bind must be
 /// rejected *before* calling this helper.
+///
+/// # Arguments
+///
+/// * `env`   – The Soroban environment.
+/// * `token` – The SAC token [`Address`] to bind.
+///
+/// # Example
+///
+/// ```
+/// use soroban_sdk::{testutils::Address as _, Address, Env};
+/// use escrow::{Escrow, DataKey};
+/// use escrow::settlement::{write_settlement_token, read_settlement_token};
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+/// let token = Address::generate(&env);
+///
+/// env.as_contract(&contract, || {
+///     write_settlement_token(&env, &token);
+///     assert_eq!(read_settlement_token(&env), Some(token));
+/// });
+/// ```
 pub fn write_settlement_token(env: &Env, token: &Address) {
     env.storage()
         .persistent()
@@ -43,12 +94,87 @@ pub fn write_settlement_token(env: &Env, token: &Address) {
 }
 
 /// Return `true` when a settlement token has been bound.
+///
+/// # Arguments
+///
+/// * `env` – The Soroban environment.
+///
+/// # Returns
+///
+/// `true` if a token address is present in persistent storage, `false`
+/// otherwise.
+///
+/// # Example
+///
+/// ```
+/// use soroban_sdk::{testutils::Address as _, Address, Env};
+/// use escrow::Escrow;
+/// use escrow::settlement::{is_settlement_token_bound, write_settlement_token};
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+///
+/// env.as_contract(&contract, || {
+///     assert!(!is_settlement_token_bound(&env));
+///
+///     let token = Address::generate(&env);
+///     write_settlement_token(&env, &token);
+///     assert!(is_settlement_token_bound(&env));
+/// });
+/// ```
 pub fn is_settlement_token_bound(env: &Env) -> bool {
     read_settlement_token(env).is_some()
 }
 
-/// Read the bound settlement token, panicking with `SettlementTokenNotConfigured`
+/// Read the bound settlement token, panicking with [`Error::SettlementTokenNotConfigured`]
 /// when absent.  Use this in money-flow paths that require a bound token.
+///
+/// # Arguments
+///
+/// * `env` – The Soroban environment.
+///
+/// # Returns
+///
+/// The [`Address`] of the bound settlement token.
+///
+/// # Errors
+///
+/// Panics with [`Error::SettlementTokenNotConfigured`] when no token has
+/// been bound via [`write_settlement_token`].
+///
+/// # Example
+///
+/// ```
+/// use soroban_sdk::{testutils::Address as _, Address, Env};
+/// use escrow::Escrow;
+/// use escrow::settlement::{require_settlement_token, write_settlement_token};
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+/// let token = Address::generate(&env);
+///
+/// env.as_contract(&contract, || {
+///     write_settlement_token(&env, &token);
+///
+///     // Returns the bound address when one is present.
+///     let bound = require_settlement_token(&env);
+///     assert_eq!(bound, token);
+/// });
+/// ```
+///
+/// Calling this without a prior [`write_settlement_token`] panics:
+///
+/// ```should_panic
+/// use soroban_sdk::Env;
+/// use escrow::Escrow;
+/// use escrow::settlement::require_settlement_token;
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+/// env.as_contract(&contract, || {
+///     let _ = require_settlement_token(&env); // panics: SettlementTokenNotConfigured
+/// });
+/// ```
 pub fn require_settlement_token(env: &Env) -> Address {
     read_settlement_token(env)
         .unwrap_or_else(|| env.panic_with_error(Error::SettlementTokenNotConfigured))
@@ -56,12 +182,58 @@ pub fn require_settlement_token(env: &Env) -> Address {
 
 // ── Finalization record ─────────────────────────────────────────────────────
 
-/// Construct the canonical `DataKey` for a finalization record.
+/// Construct the canonical [`DataKey`] for a finalization record.
+///
+/// # Arguments
+///
+/// * `contract_id` – The numeric contract identifier.
+///
+/// # Returns
+///
+/// `DataKey::Finalization(contract_id)`.
+///
+/// # Example
+///
+/// ```
+/// use escrow::{DataKey, settlement::finalization_key};
+///
+/// let key = finalization_key(7);
+/// assert_eq!(key, DataKey::Finalization(7));
+/// ```
 pub fn finalization_key(contract_id: u32) -> DataKey {
     DataKey::Finalization(contract_id)
 }
 
 /// Read a finalization record for `contract_id`, if it exists.
+///
+/// # Arguments
+///
+/// * `env`         – The Soroban environment.
+/// * `contract_id` – The numeric contract identifier.
+///
+/// # Returns
+///
+/// `Some(FinalizationRecord)` when the contract has been finalized, `None`
+/// otherwise.
+///
+/// # Example
+///
+/// ```
+/// use soroban_sdk::{testutils::Address as _, Address, Env};
+/// use escrow::{
+///     Escrow, ContractStatus, ContractSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
+///     settlement::{read_finalization, write_finalization},
+/// };
+/// use escrow::finalize::FinalizationRecord;
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+///
+/// env.as_contract(&contract, || {
+///     // Returns None before any record is written.
+///     assert!(read_finalization(&env, 1).is_none());
+/// });
+/// ```
 pub fn read_finalization(env: &Env, contract_id: u32) -> Option<FinalizationRecord> {
     env.storage()
         .persistent()
@@ -69,6 +241,55 @@ pub fn read_finalization(env: &Env, contract_id: u32) -> Option<FinalizationReco
 }
 
 /// Return `true` when a finalization record already exists for `contract_id`.
+///
+/// # Arguments
+///
+/// * `env`         – The Soroban environment.
+/// * `contract_id` – The numeric contract identifier.
+///
+/// # Returns
+///
+/// `true` if a [`FinalizationRecord`] is stored for `contract_id`, `false`
+/// otherwise.
+///
+/// # Example
+///
+/// ```
+/// use soroban_sdk::{testutils::Address as _, Address, Env};
+/// use escrow::{
+///     Escrow, ContractStatus, ContractSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
+///     settlement::{is_finalized, write_finalization},
+/// };
+/// use escrow::finalize::FinalizationRecord;
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+///
+/// env.as_contract(&contract, || {
+///     assert!(!is_finalized(&env, 42));
+///
+///     let record = FinalizationRecord {
+///         finalizer: Address::generate(&env),
+///         timestamp: 9999,
+///         summary: ContractSummary {
+///             schema_version: CONTRACT_SUMMARY_SCHEMA_VERSION,
+///             client: Address::generate(&env),
+///             freelancer: Address::generate(&env),
+///             arbiter: None,
+///             status: ContractStatus::Completed,
+///             reputation_issued: false,
+///             total_amount: 500,
+///             funded_amount: 500,
+///             released_amount: 500,
+///             refundable_balance: 0,
+///             released_milestone_count: 1,
+///             milestones: soroban_sdk::Vec::new(&env),
+///         },
+///     };
+///     write_finalization(&env, 42, &record);
+///     assert!(is_finalized(&env, 42));
+/// });
+/// ```
 pub fn is_finalized(env: &Env, contract_id: u32) -> bool {
     env.storage()
         .persistent()
@@ -76,14 +297,128 @@ pub fn is_finalized(env: &Env, contract_id: u32) -> bool {
 }
 
 /// Persist a finalization record.  Callers must guard against double-
-/// finalization (`is_finalized`) before calling this helper.
+/// finalization ([`is_finalized`]) before calling this helper.
+///
+/// # Arguments
+///
+/// * `env`         – The Soroban environment.
+/// * `contract_id` – The numeric contract identifier.
+/// * `record`      – The [`FinalizationRecord`] to persist.
+///
+/// # Example
+///
+/// ```
+/// use soroban_sdk::{testutils::Address as _, Address, Env};
+/// use escrow::{
+///     Escrow, ContractStatus, ContractSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
+///     settlement::{read_finalization, write_finalization},
+/// };
+/// use escrow::finalize::FinalizationRecord;
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+/// let finalizer = Address::generate(&env);
+///
+/// env.as_contract(&contract, || {
+///     let record = FinalizationRecord {
+///         finalizer: finalizer.clone(),
+///         timestamp: 1_000_000,
+///         summary: ContractSummary {
+///             schema_version: CONTRACT_SUMMARY_SCHEMA_VERSION,
+///             client: Address::generate(&env),
+///             freelancer: Address::generate(&env),
+///             arbiter: None,
+///             status: ContractStatus::Completed,
+///             reputation_issued: false,
+///             total_amount: 1_000,
+///             funded_amount: 1_000,
+///             released_amount: 1_000,
+///             refundable_balance: 0,
+///             released_milestone_count: 1,
+///             milestones: soroban_sdk::Vec::new(&env),
+///         },
+///     };
+///     write_finalization(&env, 5, &record);
+///
+///     let loaded = read_finalization(&env, 5).unwrap();
+///     assert_eq!(loaded.finalizer, finalizer);
+///     assert_eq!(loaded.timestamp, 1_000_000);
+/// });
+/// ```
 pub fn write_finalization(env: &Env, contract_id: u32, record: &FinalizationRecord) {
     env.storage()
         .persistent()
         .set(&finalization_key(contract_id), record);
 }
 
-/// Panic with `AlreadyFinalized` if a record already exists for `contract_id`.
+/// Panic with [`Error::AlreadyFinalized`] if a record already exists for
+/// `contract_id`.
+///
+/// # Arguments
+///
+/// * `env`         – The Soroban environment.
+/// * `contract_id` – The numeric contract identifier to guard.
+///
+/// # Errors
+///
+/// Panics with [`Error::AlreadyFinalized`] when [`is_finalized`] returns
+/// `true` for the given `contract_id`.
+///
+/// # Example
+///
+/// ```
+/// use soroban_sdk::{testutils::Address as _, Address, Env};
+/// use escrow::{
+///     Escrow, ContractStatus, ContractSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
+///     settlement::{require_not_finalized, write_finalization},
+/// };
+/// use escrow::finalize::FinalizationRecord;
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+///
+/// env.as_contract(&contract, || {
+///     // No record yet — guard passes silently.
+///     require_not_finalized(&env, 10);
+/// });
+/// ```
+///
+/// Once a record is written, the guard panics:
+///
+/// ```should_panic
+/// use soroban_sdk::{testutils::Address as _, Address, Env};
+/// use escrow::{
+///     Escrow, ContractStatus, ContractSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
+///     settlement::{require_not_finalized, write_finalization},
+/// };
+/// use escrow::finalize::FinalizationRecord;
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+///
+/// env.as_contract(&contract, || {
+///     let record = FinalizationRecord {
+///         finalizer: Address::generate(&env),
+///         timestamp: 1,
+///         summary: ContractSummary {
+///             schema_version: CONTRACT_SUMMARY_SCHEMA_VERSION,
+///             client: Address::generate(&env),
+///             freelancer: Address::generate(&env),
+///             arbiter: None,
+///             status: ContractStatus::Completed,
+///             reputation_issued: false,
+///             total_amount: 0,
+///             funded_amount: 0,
+///             released_amount: 0,
+///             refundable_balance: 0,
+///             released_milestone_count: 0,
+///             milestones: soroban_sdk::Vec::new(&env),
+///         },
+///     };
+///     write_finalization(&env, 10, &record);
+///     require_not_finalized(&env, 10); // panics: AlreadyFinalized
+/// });
+/// ```
 pub fn require_not_finalized(env: &Env, contract_id: u32) {
     if is_finalized(env, contract_id) {
         env.panic_with_error(Error::AlreadyFinalized);
