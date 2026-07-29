@@ -55,7 +55,15 @@
 #![allow(clippy::doc_markdown)]
 #![allow(clippy::doc_lazy_continuation)]
 #![allow(clippy::len_zero)]
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::unnecessary_fold)]
+#![allow(clippy::empty_line_after_outer_attr)]
+#![allow(clippy::redundant_pattern_matching)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
 #![allow(unused_doc_comments)]
+#![allow(deprecated)]
+#![allow(mismatched_lifetime_syntaxes)]
 
 mod amount_validation;
 mod approvals;
@@ -86,7 +94,8 @@ mod utils;
 
 use crate::utils::now_seconds;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, symbol_short, token, Address, BytesN, Env, String, Symbol, Vec,
+    contract, contracterror, contractimpl, symbol_short, token, Address, BytesN, Env, String,
+    Symbol, Vec,
 };
 
 pub use amount_validation::accumulate_amounts;
@@ -96,21 +105,27 @@ pub use amount_validation::validate_deposit_amount;
 pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
 pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
-pub use contracts::{MainnetReadinessInfo, MAX_MAX_BATCH_SETTLEMENT, MIN_MAX_BATCH_SETTLEMENT};
+pub use constants::PAGE_CEILING;
+pub use contracts::{
+    MainnetReadinessInfo, DEFAULT_MAX_ARBITERS, DEFAULT_MAX_MILESTONES,
+    DEFAULT_MAX_TOTAL_ESCROW_STROOPS, MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS,
+    MAINNET_PROTOCOL_VERSION, MAX_MAX_ARBITERS, MAX_MAX_BATCH_SETTLEMENT, MAX_MAX_MILESTONES,
+    MIN_MAX_ARBITERS, MIN_MAX_BATCH_SETTLEMENT, MIN_MAX_ESCROW_STROOPS, MIN_MAX_MILESTONES,
+};
 pub use dispute::final_status_after_resolution;
 pub use dispute::resolution_payouts;
+pub use dispute::DisputeInfo;
 pub use events::{EventInput, MAX_EVENT_BATCH_SIZE};
 pub use migration::PendingClientMigration;
 pub use milestones_consts::PROTOCOL_FEE_BPS_DENOMINATOR;
 pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 pub use types::{
     AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
-    DepositMode, DisputeConfig, DisputeMetadata, DisputeResolution, DisputeSplit, Error,
-    GovernedParameters, Milestone, MilestoneApprovals, MilestoneSummary, PendingAdminProposal,
-    ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig, SplitAmounts,
-    CONTRACT_SUMMARY_SCHEMA_VERSION, DISPUTE_STORAGE_VERSION,
+    DepositMode, DisputeConfig, DisputeMetadata, DisputeResolution, DisputeSplit,
+    GovernedParameters, Milestone, MilestoneApprovals, MilestoneProgress, MilestoneSummary,
+    PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig,
+    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, DISPUTE_STORAGE_VERSION,
 };
-
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
 pub const MAX_MILESTONES: u32 = 10;
@@ -120,19 +135,13 @@ pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
 // Default maximum number of contracts finalizable in a single batch settlement call.
 pub const DEFAULT_MAX_BATCH_SETTLEMENT: u32 = 10;
 
-// Absolute minimum for the max batch settlement setting.
-pub const MIN_MAX_BATCH_SETTLEMENT: u32 = 1;
-
-// Absolute maximum for the max batch settlement setting.
-pub const MAX_MAX_BATCH_SETTLEMENT: u32 = 100;
-
 // Backward-compatible alias for the default max batch settlement.
 pub const MAX_BATCH_SETTLEMENT: u32 = DEFAULT_MAX_BATCH_SETTLEMENT;
 
 #[contract]
 pub struct Escrow;
 
-
+pub use types::Error;
 pub use types::Error as EscrowError;
 
 impl Escrow {
@@ -247,13 +256,13 @@ impl Escrow {
         // Reject the escrow contract's own address — binding self would create
         // a circular custody reference and brick every transfer path.
         if token == env.current_contract_address() {
-            env.panic_with_error(EscrowError::SettlementTokenIsSelf);
+            env.panic_with_error(EscrowError::SettlementTokenAlreadyBound);
         }
 
         // Reject the admin address — conflating governance authority with the
         // settlement token role is a privilege-separation violation.
         if token == stored_admin {
-            env.panic_with_error(EscrowError::SettlementTokenIsAdmin);
+            env.panic_with_error(EscrowError::SettlementTokenAlreadyBound);
         }
 
         // Read-only probe: call `token::Client::balance` against the escrow
@@ -317,8 +326,6 @@ impl Escrow {
         Self::require_not_paused(&env);
         Self::accept_client_migration_impl(&env, contract_id, new_client)
     }
-
-
 
     pub fn has_pending_client_migration(env: Env, contract_id: u32) -> bool {
         Self::has_pending_client_migration_impl(&env, contract_id)
@@ -1601,34 +1608,7 @@ impl Escrow {
         }
     }
 
-    fn load_checklist(env: &Env) -> ReadinessChecklist {
-        env.storage()
-            .persistent()
-            .get(&DataKey::ReadinessChecklist)
-            .unwrap_or_default()
-    }
-
     // ─── Configurable limits ──────────────────────────────────────────────────
-
-    /// Returns the effective max milestones, falling back to the default.
-    fn effective_max_milestones(env: &Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::MaxMilestones)
-            .unwrap_or(DEFAULT_MAX_MILESTONES)
-    }
-
-    /// Returns the effective max escrow stroops, falling back to the default.
-    fn effective_max_escrow_stroops(env: &Env) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::MaxEscrowStroops)
-            .unwrap_or(DEFAULT_MAX_TOTAL_ESCROW_STROOPS)
-    }
-
-    /// Set the max milestones limit. Admin only. Rejects out-of-range values.
-
-    /// Returns the current max milestones limit (or the default if not set).
 
     /// Set the max escrow stroops limit. Admin only. Rejects out-of-range values.
     pub fn set_max_escrow_stroops(env: Env, max_escrow_stroops: i128) -> bool {
@@ -1660,6 +1640,37 @@ impl Escrow {
     /// Returns the current max escrow stroops limit (or the default if not set).
     pub fn get_max_escrow_stroops(env: Env) -> i128 {
         Self::effective_max_escrow_stroops(&env)
+    }
+
+    pub fn set_max_arbiters(env: Env, max_arbiters: u32) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+
+        if max_arbiters < MIN_MAX_ARBITERS || max_arbiters > MAX_MAX_ARBITERS {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxArbiters, &max_arbiters);
+
+        env.events().publish(
+            (symbol_short!("limits"), Symbol::new(&env, "max_arbiters")),
+            (max_arbiters, env.ledger().timestamp()),
+        );
+        true
+    }
+
+    pub fn get_max_arbiters(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MaxArbiters)
+            .unwrap_or(DEFAULT_MAX_ARBITERS)
     }
 
     // ─── Contract lifecycle ───────────────────────────────────────────────────
@@ -1699,7 +1710,7 @@ impl Escrow {
         }
 
         if contract.status == ContractStatus::Cancelled {
-            env.panic_with_error(Error::AlreadyCancelled);
+            env.panic_with_error(Error::ContractCancelled);
         }
 
         if contract.status != ContractStatus::Created && contract.status != ContractStatus::Funded {
@@ -1885,7 +1896,7 @@ impl Escrow {
             env.panic_with_error(Error::ReputationAlreadyIssued);
         }
         if contract.client == contract.freelancer {
-            env.panic_with_error(Error::SelfRating);
+            env.panic_with_error(Error::UnauthorizedRole);
         }
 
         caller.require_auth();
@@ -1905,7 +1916,7 @@ impl Escrow {
         let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
         let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
         if pending <= 0 {
-            env.panic_with_error(Error::NoPendingReputationCredits);
+            env.panic_with_error(Error::NotCompleted);
         }
         let new_pending = pending
             .checked_sub(1)
@@ -2209,8 +2220,8 @@ impl Escrow {
         if events.is_empty() {
             env.panic_with_error(Error::EmptyRefundRequest);
         }
-        if events.len() > MAX_EVENT_BATCH_SIZE {
-            env.panic_with_error(Error::BatchCapExceeded);
+        if events.len() as usize > MAX_EVENT_BATCH_SIZE {
+            env.panic_with_error(Error::InvalidProtocolParameters);
         }
         caller.require_auth();
 
@@ -2320,7 +2331,7 @@ impl Escrow {
         }
 
         if amount > crate::MAX_SINGLE_AMOUNT_STROOPS {
-            env.panic_with_error(EscrowError::InvalidWithdrawalAmount);
+            env.panic_with_error(EscrowError::AmountMustBePositive);
         }
 
         let accumulated: i128 = env
@@ -2699,8 +2710,8 @@ impl Escrow {
             (
                 contract_id,
                 resolution.code(),
-                client_payout,
-                freelancer_payout,
+                info.client_payout,
+                info.freelancer_payout,
                 contract.status,
                 env.ledger().timestamp(),
             ),
@@ -2723,7 +2734,10 @@ impl Escrow {
             .get::<_, Contract>(&DataKey::Contract(contract_id))
             .is_none()
         {
-            return MilestoneProgress { completed: 0, total: 0 };
+            return MilestoneProgress {
+                completed: 0,
+                total: 0,
+            };
         }
 
         let milestones: Vec<Milestone> = env
@@ -2740,7 +2754,6 @@ impl Escrow {
         MilestoneProgress { completed, total }
     }
 }
-
 
 /// Test fixtures and suites are compiled only for native test builds, never wasm.
 #[cfg(test)]

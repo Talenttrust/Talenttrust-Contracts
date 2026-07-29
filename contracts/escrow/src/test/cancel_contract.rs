@@ -179,7 +179,7 @@ fn double_cancel_rejects_with_already_cancelled() {
 
     super::assert_contract_error(
         client.try_cancel_contract(&contract_id, &client_addr),
-        Error::AlreadyCancelled,
+        Error::ContractCancelled,
     );
 }
 

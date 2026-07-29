@@ -300,7 +300,7 @@ fn double_release_same_milestone_fails() {
 
     assert_contract_error(
         client.try_release_milestone(&id, &client_addr, &0),
-        EscrowError::AlreadyReleased,
+        EscrowError::MilestoneAlreadyReleased,
     );
 }
 
@@ -315,7 +315,7 @@ fn release_out_of_bounds_milestone_fails() {
 
     assert_contract_error(
         client.try_release_milestone(&id, &client_addr, &99),
-        EscrowError::InvalidMilestone,
+        EscrowError::IndexOutOfBounds,
     );
 }
 

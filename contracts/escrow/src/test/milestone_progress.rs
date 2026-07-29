@@ -11,7 +11,13 @@ fn get_milestone_progress_returns_zero_for_unknown_contract() {
     let client = register_client(&env);
 
     let progress = client.get_milestone_progress(&999);
-    assert_eq!(progress, MilestoneProgress { completed: 0, total: 0 });
+    assert_eq!(
+        progress,
+        MilestoneProgress {
+            completed: 0,
+            total: 0
+        }
+    );
 }
 
 /// Zero id (never allocated) also returns MilestoneProgress { completed: 0, total: 0 }.
@@ -22,7 +28,13 @@ fn get_milestone_progress_returns_zero_for_zero_id() {
     let client = register_client(&env);
 
     let progress = client.get_milestone_progress(&0);
-    assert_eq!(progress, MilestoneProgress { completed: 0, total: 0 });
+    assert_eq!(
+        progress,
+        MilestoneProgress {
+            completed: 0,
+            total: 0
+        }
+    );
 }
 
 // ── none complete ────────────────────────────────────────────────────────────
@@ -34,7 +46,13 @@ fn get_milestone_progress_none_complete() {
     let escrow = fixture.escrow();
 
     let progress = escrow.get_milestone_progress(&fixture.escrow_id);
-    assert_eq!(progress, MilestoneProgress { completed: 0, total: 3 });
+    assert_eq!(
+        progress,
+        MilestoneProgress {
+            completed: 0,
+            total: 3
+        }
+    );
 }
 
 // ── some complete ────────────────────────────────────────────────────────────
@@ -48,7 +66,13 @@ fn get_milestone_progress_some_complete() {
     assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0));
 
     let progress = escrow.get_milestone_progress(&fixture.escrow_id);
-    assert_eq!(progress, MilestoneProgress { completed: 1, total: 3 });
+    assert_eq!(
+        progress,
+        MilestoneProgress {
+            completed: 1,
+            total: 3
+        }
+    );
 }
 
 // ── all complete ─────────────────────────────────────────────────────────────
@@ -64,7 +88,13 @@ fn get_milestone_progress_all_complete() {
     }
 
     let progress = escrow.get_milestone_progress(&fixture.escrow_id);
-    assert_eq!(progress, MilestoneProgress { completed: 3, total: 3 });
+    assert_eq!(
+        progress,
+        MilestoneProgress {
+            completed: 3,
+            total: 3
+        }
+    );
 }
 
 // ── purity ───────────────────────────────────────────────────────────────────

@@ -80,6 +80,15 @@ pub const MAX_BATCH_SETTLEMENT: u32 = DEFAULT_MAX_BATCH_SETTLEMENT;
 pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
 pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
 
+/// Default maximum number of arbiters allowed per contract.
+pub const DEFAULT_MAX_ARBITERS: u32 = 1;
+
+/// Absolute minimum for the max arbiters setting.
+pub const MIN_MAX_ARBITERS: u32 = 1;
+
+/// Absolute maximum for the max arbiters setting.
+pub const MAX_MAX_ARBITERS: u32 = 10;
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 #[soroban_sdk::contracttype]
@@ -129,260 +138,6 @@ pub struct MainnetReadinessInfo {
 
 #[contractimpl]
 impl Escrow {
-    /// Returns the protocol-wide hard-coded bounds used by validation paths.
-    ///
-    /// Callers and off-chain indexers should query this endpoint to discover
-    /// the limits enforced by `create_contract` without relying on hard-coded
-    /// constants:
-    ///
-    /// - `max_milestones`: maximum number of milestones per contract.
-    /// - `max_single_milestone_stroops`: maximum amount for any single milestone.
-    /// - `max_total_escrow_stroops`: maximum sum of all milestone amounts.
-    /// - `max_fee_bps`: protocol fee ceiling in basis points (10 000 = 100 %).
-    ///
-    /// These are compile-time constants — the return value never changes
-    /// between calls on the same contract binary. The function is read-only
-    /// and requires no authorization.
-    pub fn get_bounds(env: Env) -> crate::types::ContractBounds {
-        crate::types::ContractBounds {
-            max_milestones: MAX_MILESTONES,
-            max_single_milestone_stroops: crate::MAX_SINGLE_AMOUNT_STROOPS,
-            max_total_escrow_stroops: MAX_TOTAL_ESCROW_STROOPS,
-            max_fee_bps: crate::milestones_consts::MAX_FEE_BPS,
-            max_settlement: Self::effective_max_settlement(&env),
-        }
-    }
-
-    /// Checks whether a contract with the given ID exists in storage.
-    ///
-    /// This is a cheap, non-panicking existence probe that returns `true` if
-    /// the contract record is present and `false` otherwise. Unlike `get_contract`,
-    /// this function does **not** panic with `ContractNotFound` for missing IDs,
-    /// making it safe for indexers and clients iterating over ID ranges.
-    ///
-    /// # Security
-    /// This is a read-only operation that does **not** extend the contract's TTL.
-    /// Probing for contract existence cannot be abused to keep entries alive.
-    /// Only actual contract operations (reads/writes) extend TTL.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `contract_id` - The contract ID to check
-    ///
-    /// # Returns
-    /// * `true` if the contract exists
-    /// * `false` if the contract does not exist
-    ///
-    /// # Examples
-    /// ```
-    /// // Safe iteration over a range of IDs
-    /// for id in 1..=100 {
-    ///     if escrow.contract_exists(id) {
-    ///         let contract = escrow.get_contract(id);
-    ///         // process contract
-    ///     }
-    /// }
-    /// ```
-    pub fn contract_exists(env: Env, contract_id: u32) -> bool {
-        env.storage()
-            .persistent()
-            .has(&DataKey::Contract(contract_id))
-    }
-
-    /// Retrieves contract information.
-    pub fn get_contract(env: Env, contract_id: u32) -> Contract {
-        Self::validate_contract_id_bounds(&env, contract_id);
-        let contract = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
-
-        // Extend TTL on contract read
-        ttl::extend_contract_ttl(&env, contract_id);
-        contract
-    }
-
-    /// Returns the next contract ID to be allocated (the high-water mark).
-    ///
-    /// This reader returns the current value of `NextContractId`, which represents
-    /// the next ID that will be assigned when `create_contract` is called.
-    /// Indexers can use this to determine the allocation high-water mark and
-    /// safely iterate over the allocated ID range `[1, get_next_contract_id() - 1]`.
-    ///
-    /// # Security
-    /// This is a read-only operation that does not mutate contract state or extend TTL.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    ///
-    /// # Returns
-    /// The next contract ID to be allocated (always ≥ 1)
-    ///
-    /// # Examples
-    /// ```
-    /// // Get the high-water mark
-    /// let next_id = escrow.get_next_contract_id();
-    /// // All allocated IDs are in the range [1, next_id - 1]
-    /// for id in 1..next_id {
-    ///     if escrow.contract_exists(id) {
-    ///         let contract = escrow.get_contract(id);
-    ///         // process contract
-    ///     }
-    /// }
-    /// ```
-    pub fn get_next_contract_id(env: Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::NextContractId)
-            .unwrap_or(1)
-    }
-
-    /// Returns a structured summary of the contract and its milestones.
-    ///
-    /// Extends contract and milestone TTL on read without requiring caller auth.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `contract_id` - The contract ID
-    ///
-    /// # Returns
-    /// The detailed `ContractSummary` for off-chain consumption
-    ///
-    /// # Errors
-    /// * `ContractNotFound` - If contract doesn't exist
-    pub fn get_contract_summary(env: Env, contract_id: u32) -> ContractSummary {
-        Self::validate_contract_id_bounds(&env, contract_id);
-        let contract: Contract = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
-
-        // Extend TTL on contract and milestones read
-        ttl::extend_contract_and_milestones_ttl(&env, contract_id);
-
-        let milestones = ttl::load_milestones(&env, contract_id);
-        let total_amount: i128 =
-            crate::amount_validation::accumulate_amounts(milestones.iter().map(|m| m.amount))
-                .unwrap_or_else(|_| env.panic_with_error(EscrowError::PotentialOverflow));
-        let released_milestone_count = milestones.iter().filter(|m| m.released).count() as u32;
-
-        let mut milestone_summaries = Vec::new(&env);
-        for (idx, m) in milestones.iter().enumerate() {
-            milestone_summaries.push_back(MilestoneSummary {
-                index: idx as u32,
-                amount: m.amount,
-                released: m.released,
-                refunded: m.refunded,
-            });
-        }
-
-        let reputation_issued = env
-            .storage()
-            .persistent()
-            .get::<_, bool>(&DataKey::ReputationIssued(contract_id))
-            .unwrap_or(contract.reputation_issued);
-
-        let refundable_balance =
-            contract.funded_amount - contract.released_amount - contract.refunded_amount;
-
-        ContractSummary {
-            schema_version: CONTRACT_SUMMARY_SCHEMA_VERSION,
-            client: contract.client,
-            freelancer: contract.freelancer,
-            arbiter: contract.arbiter,
-            status: contract.status,
-            reputation_issued,
-            total_amount,
-            funded_amount: contract.funded_amount,
-            released_amount: contract.released_amount,
-            refundable_balance,
-            released_milestone_count,
-            milestones: milestone_summaries,
-        }
-    }
-
-    /// Retrieves all milestones for a contract.
-    pub fn get_milestones(env: Env, contract_id: u32) -> Vec<crate::Milestone> {
-        Self::validate_contract_id_bounds(&env, contract_id);
-        let milestone_key = Symbol::new(&env, "milestones");
-        let milestones = env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
-        ttl::extend_milestone_ttl(&env, contract_id);
-        milestones
-    }
-
-    /// Retrieves a single milestone by index for a contract.
-    ///
-    /// This is the bounds-checked single-item counterpart to
-    /// `get_milestones`. Off-chain callers that only need one milestone's
-    /// state (amount, funded/released/refunded flags, deadline, work evidence)
-    /// can avoid fetching and decoding the full `Vec<Milestone>`.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `contract_id` - The contract ID
-    /// * `milestone_index` - The zero-based index of the milestone to read
-    ///
-    /// # Returns
-    /// * `Some(Milestone)` if `milestone_index` is in bounds
-    /// * `None` if `milestone_index` is out of bounds
-    ///
-    /// # Panics
-    /// Panics with `ContractNotFound` if the contract's milestones were never
-    /// allocated (i.e. the contract id is unknown), matching
-    /// `get_milestones`.
-    ///
-    /// # Side effects
-    /// Extends the milestones vector TTL on a successful read, consistent with
-    /// `get_milestones`. Auth-free and otherwise non-mutating.
-    pub fn get_milestone(
-        env: Env,
-        contract_id: u32,
-        milestone_index: u32,
-    ) -> Option<crate::Milestone> {
-        Self::validate_contract_id_bounds(&env, contract_id);
-        let milestone_key = Symbol::new(&env, "milestones");
-        let milestones: Vec<crate::Milestone> = env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
-        ttl::extend_milestone_ttl(&env, contract_id);
-        milestones.get(milestone_index)
-    }
-
-    /// Returns funded minus released minus refunded for `contract_id`.
-    pub fn get_refundable_balance(env: Env, contract_id: u32) -> i128 {
-        Self::validate_contract_id_bounds(&env, contract_id);
-        let contract: Contract = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
-        ttl::extend_contract_ttl(&env, contract_id);
-        contract.funded_amount - contract.released_amount - contract.refunded_amount
-    }
-
-    /// Returns the mainnet readiness info for the escrow contract.
-    pub fn get_mainnet_readiness_info(env: Env) -> MainnetReadinessInfo {
-        let checklist = Self::load_checklist(&env);
-        MainnetReadinessInfo {
-            initialized: checklist.initialized,
-            governed_params_set: checklist.governed_params_set,
-            emergency_controls_enabled: checklist.emergency_controls_enabled,
-            caps_set: MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS > 0,
-            protocol_version: MAINNET_PROTOCOL_VERSION,
-            max_escrow_total_stroops: MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS,
-        }
-    }
-
-    // ── Admin: set arbiter ───────────────────────────────────────────────────
-
     pub fn set_arbiter(
         env: Env,
         contract_id: u32,
@@ -444,9 +199,11 @@ impl Escrow {
         true
     }
 
-    // ─── Configurable limits ──────────────────────────────────────────────────
-
-    pub fn set_contracts_parameters(env: Env, max_milestones: u32, max_escrow_stroops: i128) -> bool {
+    pub fn set_contracts_parameters(
+        env: Env,
+        max_milestones: u32,
+        max_escrow_stroops: i128,
+    ) -> bool {
         Self::require_initialized(&env);
         let admin: Address = env
             .storage()
@@ -456,12 +213,12 @@ impl Escrow {
         admin.require_auth();
 
         if max_milestones < MIN_MAX_MILESTONES || max_milestones > MAX_MAX_MILESTONES {
-            env.panic_with_error(EscrowError::InvalidContractsParameters);
+            env.panic_with_error(EscrowError::LimitOutOfRange);
         }
         if max_escrow_stroops < MIN_MAX_ESCROW_STROOPS
             || max_escrow_stroops > MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS
         {
-            env.panic_with_error(EscrowError::InvalidContractsParameters);
+            env.panic_with_error(EscrowError::LimitOutOfRange);
         }
 
         let params = crate::types::ContractsParameters {
@@ -486,57 +243,9 @@ impl Escrow {
             .get(&DataKey::ContractsParameters)
             .unwrap_or_default()
     }
+}
 
-    /// Admin-configurable maximum number of contracts finalizable in a single
-    /// `finalize_contracts_batch` call.
-    ///
-    /// Default is [`DEFAULT_MAX_BATCH_SETTLEMENT`] (10). Valid range is
-    /// [`MIN_MAX_BATCH_SETTLEMENT`]..=[`MAX_MAX_BATCH_SETTLEMENT`] (1..=100).
-    ///
-    /// # Errors
-    /// * [`EscrowError::NotInitialized`] if `initialize` has not been called.
-    /// * [`EscrowError::UnauthorizedRole`] if `admin` is not the stored admin.
-    /// * [`EscrowError::LimitOutOfRange`] if `max_settlement` is outside bounds.
-    ///
-    /// # Events
-    /// `("limits", "max_settlement")` → `(max_settlement: u32, timestamp: u64)`
-    pub fn set_max_settlement(env: Env, max_settlement: u32) -> bool {
-        Self::require_initialized(&env);
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
-        admin.require_auth();
-
-        if max_settlement < MIN_MAX_BATCH_SETTLEMENT
-            || max_settlement > MAX_MAX_BATCH_SETTLEMENT
-        {
-            env.panic_with_error(EscrowError::LimitOutOfRange);
-        }
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::MaxSettlement, &max_settlement);
-
-        env.events().publish(
-            (symbol_short!("limits"), Symbol::new(&env, "max_settlement")),
-            (max_settlement, env.ledger().timestamp()),
-        );
-        true
-    }
-
-    /// Returns the effective maximum number of contracts finalizable in a
-    /// single batch settlement call.
-    ///
-    /// Returns [`DEFAULT_MAX_BATCH_SETTLEMENT`] when no admin override has been
-    /// set.
-    pub fn get_max_settlement(env: Env) -> u32 {
-        Self::effective_max_settlement(&env)
-    }
-
-    // ── Private helpers ──────────────────────────────────────────────────────
-
+impl Escrow {
     pub(crate) fn load_checklist(env: &Env) -> crate::ReadinessChecklist {
         env.storage()
             .persistent()
@@ -545,6 +254,14 @@ impl Escrow {
     }
 
     pub(crate) fn effective_max_milestones(env: &Env) -> u32 {
+        // Prefer the dedicated admin override key written by `set_max_milestones`.
+        if let Some(v) = env
+            .storage()
+            .persistent()
+            .get::<_, u32>(&DataKey::MaxMilestones)
+        {
+            return v;
+        }
         env.storage()
             .persistent()
             .get::<_, crate::types::ContractsParameters>(&DataKey::ContractsParameters)
@@ -553,18 +270,19 @@ impl Escrow {
     }
 
     pub(crate) fn effective_max_escrow_stroops(env: &Env) -> i128 {
+        // Prefer the dedicated admin override key written by `set_max_escrow_stroops`.
+        if let Some(v) = env
+            .storage()
+            .persistent()
+            .get::<_, i128>(&DataKey::MaxEscrowStroops)
+        {
+            return v;
+        }
         env.storage()
             .persistent()
             .get::<_, crate::types::ContractsParameters>(&DataKey::ContractsParameters)
             .unwrap_or_default()
             .max_escrow_stroops
-    }
-
-    pub(crate) fn effective_max_settlement(env: &Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::MaxSettlement)
-            .unwrap_or(DEFAULT_MAX_BATCH_SETTLEMENT)
     }
 
     /// Validates that the given contract_id is within the valid range.

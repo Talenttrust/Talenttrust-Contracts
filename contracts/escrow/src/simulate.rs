@@ -1,9 +1,10 @@
+use crate::types::{
+    ReleaseAuthorization, SimulateCreateContractOutcome, SimulatedDeposit, SimulatedRefund,
+    SimulatedRelease,
+};
 use crate::{
     amount_validation, approvals, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
     EscrowArgs, EscrowClient, EscrowError, Milestone, MAX_MILESTONES,
-};
-use crate::types::{
-    ReleaseAuthorization, SimulateCreateContractOutcome, SimulatedDeposit, SimulatedRefund, SimulatedRelease,
 };
 use soroban_sdk::{contractimpl, token, Address, Env, Symbol, Vec};
 
@@ -179,7 +180,7 @@ impl Escrow {
         match contract.status {
             ContractStatus::Created | ContractStatus::PartiallyFunded => {}
             ContractStatus::Cancelled => env.panic_with_error(EscrowError::ContractCancelled),
-            ContractStatus::Refunded => env.panic_with_error(EscrowError::ContractRefunded),
+            ContractStatus::Refunded => env.panic_with_error(EscrowError::InvalidState),
             _ => env.panic_with_error(Error::InvalidState),
         }
 
@@ -197,10 +198,10 @@ impl Escrow {
         let new_funded_amount = contract
             .funded_amount
             .checked_add(amount)
-            .unwrap_or_else(|| env.panic_with_error(Error::InvalidDepositAmount));
+            .unwrap_or_else(|| env.panic_with_error(Error::AmountMustBePositive));
 
         if new_funded_amount > total_milestone_amount {
-            env.panic_with_error(Error::InvalidDepositAmount);
+            env.panic_with_error(Error::AmountMustBePositive);
         }
 
         let projected_status = if new_funded_amount >= total_milestone_amount {
@@ -274,15 +275,7 @@ impl Escrow {
         }
         match amount_validation::validate_milestone_amounts(&native_milestones[..len], max_total) {
             Ok(_) => (),
-            Err(err) => match err {
-                EscrowError::InvalidMilestoneAmount => {
-                    env.panic_with_error(EscrowError::InvalidMilestoneAmount)
-                }
-                EscrowError::TotalCapExceeded => {
-                    env.panic_with_error(EscrowError::TotalCapExceeded)
-                }
-                _ => env.panic_with_error(EscrowError::InvalidMilestoneAmount),
-            },
+            Err(err) => env.panic_with_error(err),
         }
 
         // Read next contract ID without incrementing

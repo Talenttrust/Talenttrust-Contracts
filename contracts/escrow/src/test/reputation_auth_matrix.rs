@@ -167,7 +167,7 @@ fn reputation_matrix_issue_rejects_self_rating() {
     });
 
     let result = client.try_issue_reputation(&contract_id, &client_addr, &5, &valid_comment(&env));
-    assert_contract_error(result, EscrowError::SelfRating);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]

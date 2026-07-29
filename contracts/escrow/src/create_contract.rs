@@ -4,6 +4,7 @@ use crate::{
 };
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Vec};
 
+#[contractimpl]
 impl Escrow {
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
     ///
@@ -159,7 +160,7 @@ impl Escrow {
             .persistent()
             .set(&DataKey::Contract(id), &contract);
 
-        let milestone_key = soroban_sdk::Symbol::new(&env, "milestones");
+        let milestone_key = keys::milestone_key(&env, id);
         let mut milestone_vec: Vec<Milestone> = Vec::new(&env);
         for i in 0..len {
             let amount = native_milestones[i];
@@ -191,7 +192,9 @@ impl Escrow {
 
         id
     }
+}
 
+impl Escrow {
     /// Returns the next available contract ID and asserts it is not already occupied.
     ///
     /// # Errors

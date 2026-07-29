@@ -8,7 +8,7 @@
 /// 5. Edge cases and error conditions are handled correctly
 use soroban_sdk::{testutils::Address as _, vec};
 
-use crate::{ContractStatus, ReleaseAuthorization, types::SimulateCreateContractOutcome};
+use crate::{types::SimulateCreateContractOutcome, ContractStatus, ReleaseAuthorization};
 
 use super::{create_client, setup};
 

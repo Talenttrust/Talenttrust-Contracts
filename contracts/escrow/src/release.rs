@@ -65,11 +65,8 @@ impl Escrow {
         }
 
         let milestone_key = keys::milestone_key(&env, contract_id);
-        let mut milestones: Vec<Milestone> = env
-            .storage()
-            .persistent()
-            .get(&milestone_key)
-            .unwrap();
+        let mut milestones: Vec<Milestone> =
+            env.storage().persistent().get(&milestone_key).unwrap();
 
         ttl::extend_milestone_ttl(&env, contract_id);
 
@@ -90,7 +87,8 @@ impl Escrow {
         approvals::check_approvals(&env, &contract, contract_id, milestone_index)
             .unwrap_or_else(|e| env.panic_with_error(e));
 
-        let available_balance = contract.funded_amount
+        let available_balance = contract
+            .funded_amount
             .checked_sub(contract.released_amount)
             .and_then(|a| a.checked_sub(contract.refunded_amount))
             .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
@@ -118,10 +116,9 @@ impl Escrow {
                 let new_accumulated = current_accumulated
                     .checked_add(fee)
                     .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-                env.storage().persistent().set(
-                    &DataKey::AccumulatedProtocolFees,
-                    &new_accumulated,
-                );
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::AccumulatedProtocolFees, &new_accumulated);
             }
         }
 
@@ -138,10 +135,7 @@ impl Escrow {
             env.storage().persistent().set(&pending_key, &new_pending);
         }
 
-        env.storage().persistent().set(
-            &milestone_key,
-            &milestones,
-        );
+        env.storage().persistent().set(&milestone_key, &milestones);
         env.storage()
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);
