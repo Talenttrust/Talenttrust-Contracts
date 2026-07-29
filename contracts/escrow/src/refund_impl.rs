@@ -122,7 +122,10 @@ pub fn refund_unreleased_milestones(
     mark_milestones_refunded(&mut milestones, milestone_indices);
 
     // Update contract state
-    contract.refunded_amount += total_refund_amount;
+    contract.refunded_amount = contract
+        .refunded_amount
+        .checked_add(total_refund_amount)
+        .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
     update_contract_status(&mut contract, &milestones);
 
     // Persist changes
@@ -179,7 +182,9 @@ fn validate_and_calculate_refund(
             env.panic_with_error(EscrowError::AlreadyRefunded);
         }
 
-        total_refund_amount += milestone.amount;
+        total_refund_amount = total_refund_amount
+            .checked_add(milestone.amount)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
     }
 
     total_refund_amount
@@ -187,8 +192,11 @@ fn validate_and_calculate_refund(
 
 /// Checks if the contract has sufficient balance to process the refund.
 fn check_sufficient_balance(env: &Env, contract: &Contract, refund_amount: i128) {
-    let available_balance =
-        contract.funded_amount - contract.released_amount - contract.refunded_amount;
+    let available_balance = contract
+        .funded_amount
+        .checked_sub(contract.released_amount)
+        .and_then(|v| v.checked_sub(contract.refunded_amount))
+        .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
     if available_balance < refund_amount {
         env.panic_with_error(EscrowError::InsufficientFunds);

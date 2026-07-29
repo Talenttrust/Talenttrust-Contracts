@@ -36,6 +36,7 @@ mod reputation;
 mod reputation_config_setter;
 mod rollback;
 mod security;
+mod settlement_overflow;
 mod simulate_create_contract;
 mod simulate_deposit;
 mod simulate_release;
