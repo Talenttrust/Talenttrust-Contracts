@@ -8,7 +8,6 @@ use soroban_sdk::{symbol_short, Address, Env, Symbol, Vec};
 
 impl Escrow {
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
-    pub(crate) fn create_contract_impl(
     pub fn create_contract(
         env: Env,
         client: Address,
@@ -33,8 +32,8 @@ impl Escrow {
             _ => {}
         }
 
-        if let Some(ref arb) = arbiter {
-            if arb == &client || arb == &freelancer {
+        if let Some(ref a) = arbiter {
+            if a == &client || a == &freelancer {
                 env.panic_with_error(EscrowError::InvalidArbiter);
             }
         }
@@ -51,22 +50,27 @@ impl Escrow {
             .storage()
             .persistent()
             .get::<_, GovernedParameters>(&DataKey::GovernedParameters)
-            .map(|params| params.max_escrow_total_stroops)
+            .map(|p| p.max_escrow_total_stroops)
             .unwrap_or(i128::MAX);
 
-        // Validate milestone amounts
+        // Copy into a native fixed-size array for the shared validator helper.
         let mut native_milestones = [0_i128; MAX_MILESTONES as usize];
         let len = milestones.len() as usize;
         for i in 0..len {
-            native_milestones[i] = milestones.get(i as u32).unwrap();
+            let v = milestones.get(i as u32).unwrap();
+            if v <= 0 {
+                env.panic_with_error(EscrowError::InvalidMilestoneAmount);
+            }
+            native_milestones[i] = v;
         }
-        amount_validation::validate_milestone_amounts(&native_milestones[..len], max_total)
-            .unwrap_or_else(|e| env.panic_with_error(e));
+
+        match amount_validation::validate_milestone_amounts(&native_milestones[..len], max_total) {
+            Ok(_) => {}
+            Err(e) => env.panic_with_error(e),
+        }
 
         ttl::extend_next_contract_id_ttl(&env);
         let id = next_contract_id(&env);
-
-        let freelancer_addr = freelancer.clone();
 
         let contract = Contract {
             client: client.clone(),
@@ -85,7 +89,8 @@ impl Escrow {
             .set(&DataKey::Contract(id), &contract);
 
         let mut milestone_vec: Vec<Milestone> = Vec::new(&env);
-        for amount in milestones.iter() {
+        for i in 0..len {
+            let amount = native_milestones[i];
             milestone_vec.push_back(Milestone {
                 amount: *amount,
                 funded_amount: 0,
@@ -113,7 +118,6 @@ impl Escrow {
             (client, freelancer.clone(), env.ledger().timestamp()),
         );
 
-        // Maintain participant and status indexes for paginated readers.
         status_index::index_new_contract(&env, id, &ContractStatus::Created);
         status_index::index_participant(&env, id, &contract.client, 0);
         status_index::index_participant(&env, id, &contract.freelancer, 1);

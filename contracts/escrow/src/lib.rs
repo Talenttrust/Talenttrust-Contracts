@@ -103,6 +103,9 @@ pub const DEFAULT_MAX_TOTAL_ESCROW_STROOPS: i128 = 10_000_000_000_000;
 /// Backward-compatible alias for the default max milestones.
 pub const MAX_MILESTONES: u32 = DEFAULT_MAX_MILESTONES;
 
+/// Pagination ceiling for read-only enumeration views (per-call max).
+pub const PAGE_CEILING: u32 = DEFAULT_MAX_MILESTONES;
+
 /// Backward-compatible alias for the default max escrow stroops.
 pub const MAX_TOTAL_ESCROW_STROOPS: i128 = DEFAULT_MAX_TOTAL_ESCROW_STROOPS;
 
@@ -111,11 +114,6 @@ pub const MIN_MAX_MILESTONES: u32 = 1;
 
 /// Absolute maximum for the max milestones setting.
 pub const MAX_MAX_MILESTONES: u32 = 100;
-
-/// Maximum number of entries returned by paginated list views in a single call.
-/// This caps per-call memory/host-cost exposure for clients enumerating large
-/// collections.
-pub const PAGE_CEILING: u32 = 100;
 
 /// Absolute minimum for the max escrow stroops setting (0.01 XLM).
 pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
@@ -138,13 +136,6 @@ pub struct EscrowContractData {
     pub refunded_amount: i128,
     pub reputation_issued: bool,
 }
-
-// Maximum bounds constants - re-export from amount_validation for API visibility
-pub use milestones_consts::{
-    MAX_COMMENT_BYTES, MAX_FEE_BPS, MAX_RATING, MAX_WORK_EVIDENCE_BYTES, MIN_COMMENT_BYTES, MIN_FEE_BPS,
-    MIN_RATING, MIN_WORK_EVIDENCE_BYTES, PROTOCOL_FEE_BPS_DENOMINATOR,
-};
-pub const MAX_SINGLE_AMOUNT_STROOPS: i128 = crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 
 /// Default maximum number of contracts finalizable in a single batch settlement call.
 pub const DEFAULT_MAX_BATCH_SETTLEMENT: u32 = 10;
