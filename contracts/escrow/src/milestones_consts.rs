@@ -96,6 +96,21 @@ pub const MAX_WORK_EVIDENCE_BYTES: u32 = 1_000;
 /// Minimum byte length for a work evidence string (inclusive).
 pub const MIN_WORK_EVIDENCE_BYTES: u32 = 1;
 
+/// Maximum allowed value for the configurable maximum rating parameter in
+/// reputation configuration (`set_reputation_config`).
+///
+/// This is the upper bound that an admin can set for `max_rating`;
+/// the actual rating scale for `issue_reputation` is always 1–5
+/// (see [`MAX_RATING`]).  The ceiling of **10** gives governance
+/// flexibility without allowing unbounded ratings.
+pub const MAX_REPUTATION_CONFIG_RATING_CEILING: u32 = 10;
+
+/// Maximum allowed value for the configurable maximum comment bytes parameter
+/// in reputation configuration (`set_reputation_config`).
+///
+/// This caps how large the `max_comment_bytes` field can be set by admin.
+pub const MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING: u32 = 1_000;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,6 +127,10 @@ mod tests {
         assert_eq!(MAX_RATING, 5);
         assert_eq!(MAX_COMMENT_BYTES, 200);
         assert_eq!(MIN_COMMENT_BYTES, 1);
+        assert_eq!(MAX_WORK_EVIDENCE_BYTES, 1_000);
+        assert_eq!(MIN_WORK_EVIDENCE_BYTES, 1);
+        assert_eq!(MAX_REPUTATION_CONFIG_RATING_CEILING, 10);
+        assert_eq!(MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING, 1_000);
     }
 
     /// MAX_FEE_BPS must equal the denominator — charging 100 % is the ceiling.

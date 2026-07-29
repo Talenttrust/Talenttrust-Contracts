@@ -148,7 +148,7 @@ impl Escrow {
             max_milestones: MAX_MILESTONES,
             max_single_milestone_stroops: crate::MAX_SINGLE_AMOUNT_STROOPS,
             max_total_escrow_stroops: MAX_TOTAL_ESCROW_STROOPS,
-            max_fee_bps: 10_000,
+            max_fee_bps: crate::milestones_consts::MAX_FEE_BPS,
             max_settlement: Self::effective_max_settlement(&env),
         }
     }

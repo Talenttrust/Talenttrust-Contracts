@@ -793,7 +793,10 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
         admin.require_auth();
 
-        if freelancer_bps > 10_000 || client_bps > 10_000 || freelancer_bps + client_bps != 10_000 {
+        if freelancer_bps > crate::milestones_consts::MAX_FEE_BPS
+            || client_bps > crate::milestones_consts::MAX_FEE_BPS
+            || freelancer_bps + client_bps != crate::milestones_consts::PROTOCOL_FEE_BPS_DENOMINATOR
+        {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
@@ -874,7 +877,7 @@ impl Escrow {
             max_milestones: MAX_MILESTONES,
             max_single_milestone_stroops: MAX_SINGLE_AMOUNT_STROOPS,
             max_total_escrow_stroops: MAX_TOTAL_ESCROW_STROOPS,
-            max_fee_bps: 10_000,
+            max_fee_bps: MAX_FEE_BPS,
             max_settlement: Self::effective_max_settlement(&env),
         }
     }

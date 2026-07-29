@@ -40,7 +40,7 @@ impl Escrow {
         admin.require_auth();
 
         storage_validation::validate_protocol_fee_bps(&env, new_bps);
-        if new_bps > 10_000 {
+        if new_bps > crate::milestones_consts::MAX_FEE_BPS {
             env.panic_with_error(EscrowError::InvalidProtocolParameters);
         }
 
