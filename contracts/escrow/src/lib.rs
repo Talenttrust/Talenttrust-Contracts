@@ -65,6 +65,7 @@ mod finalize;
 mod keys;
 mod migration;
 pub mod milestones_consts;
+pub mod settlement;
 mod simulate;
 mod rollback;
 mod storage;
