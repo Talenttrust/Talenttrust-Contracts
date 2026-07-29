@@ -32,8 +32,8 @@
 //! - **Funded → Funded**: Partial refund (some milestones remain unreleased/unrefunded)
 //! - **Funded → Completed**: All milestones either released or refunded (mixed state)
 
-use crate::{Contract, ContractStatus, DataKey, EscrowError, Milestone};
-use soroban_sdk::{Env, Symbol, Vec};
+use crate::{keys, Contract, ContractStatus, DataKey, EscrowError, Milestone};
+use soroban_sdk::{Env, Vec};
 
 /// Refunds unreleased milestones back to the client.
 ///
@@ -97,11 +97,11 @@ pub fn refund_unreleased_milestones(
     }
 
     // Load milestones
-    let milestone_key = Symbol::new(env, "milestones");
+    let milestone_key = keys::milestone_key(env, contract_id);
     let mut milestones: Vec<Milestone> = env
         .storage()
         .persistent()
-        .get(&(DataKey::Contract(contract_id), milestone_key.clone()))
+        .get(&milestone_key)
         .unwrap();
 
     // Validate all milestones and calculate total refund amount
@@ -114,7 +114,7 @@ pub fn refund_unreleased_milestones(
     let token_address: soroban_sdk::Address = env.storage().persistent().get(&DataKey::SettlementToken).unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
     let balance = soroban_sdk::token::Client::new(env, &token_address).balance(&env.current_contract_address());
     if balance < total_refund_amount {
-        env.panic_with_error(EscrowError::InsufficientEscrowBalance);
+        env.panic_with_error(EscrowError::InsufficientFunds);
     }
     soroban_sdk::token::Client::new(env, &token_address).transfer(&env.current_contract_address(), &contract.client, &total_refund_amount);
 
@@ -122,13 +122,16 @@ pub fn refund_unreleased_milestones(
     mark_milestones_refunded(&mut milestones, milestone_indices);
 
     // Update contract state
-    contract.refunded_amount += total_refund_amount;
+    contract.refunded_amount = contract
+        .refunded_amount
+        .checked_add(total_refund_amount)
+        .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
     update_contract_status(&mut contract, &milestones);
 
     // Persist changes
     env.storage()
         .persistent()
-        .set(&(DataKey::Contract(contract_id), milestone_key), &milestones);
+        .set(&milestone_key, &milestones);
     env.storage()
         .persistent()
         .set(&DataKey::Contract(contract_id), &contract);
@@ -179,7 +182,9 @@ fn validate_and_calculate_refund(
             env.panic_with_error(EscrowError::AlreadyRefunded);
         }
 
-        total_refund_amount += milestone.amount;
+        total_refund_amount = total_refund_amount
+            .checked_add(milestone.amount)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
     }
 
     total_refund_amount
@@ -187,8 +192,11 @@ fn validate_and_calculate_refund(
 
 /// Checks if the contract has sufficient balance to process the refund.
 fn check_sufficient_balance(env: &Env, contract: &Contract, refund_amount: i128) {
-    let available_balance =
-        contract.funded_amount - contract.released_amount - contract.refunded_amount;
+    let available_balance = contract
+        .funded_amount
+        .checked_sub(contract.released_amount)
+        .and_then(|v| v.checked_sub(contract.refunded_amount))
+        .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
     if available_balance < refund_amount {
         env.panic_with_error(EscrowError::InsufficientFunds);

@@ -1,62 +1,51 @@
 use crate::{
-    approvals, ttl, utils::now_seconds, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError,
+    approvals, milestones_consts::{MAX_MILESTONES, MIN_WORK_EVIDENCE_BYTES, MAX_WORK_EVIDENCE_BYTES}, ttl, utils::now_seconds, Contract,
+    ContractStatus, DataKey, Error, Escrow, EscrowError, Milestone, MilestoneApprovals, MilestoneSummary, ReleaseAuthorization,
 };
 use soroban_sdk::{contracttype, symbol_short, token, Address, Env, String, Symbol, Vec};
-
-// ── Types ────────────────────────────────────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MilestoneSummary {
-    pub index: u32,
-    pub amount: i128,
-    pub released: bool,
-    pub refunded: bool,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Milestone {
-    pub amount: i128,
-    pub funded_amount: i128,
-    pub released: bool,
-    pub refunded: bool,
-    pub work_evidence: Option<String>,
-    pub refunded_amount: i128,
-    /// Optional Unix timestamp (seconds) after which the client may claim
-    /// a timeout refund for this milestone without arbiter involvement.
-    /// None means no deadline — the milestone never expires.
-    pub deadline: Option<u64>,
-}
-
-/// Defines who can approve milestone releases.
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ReleaseAuthorization {
-    /// Only client can approve.
-    ClientOnly = 0,
-    /// Either client or arbiter can approve.
-    ClientAndArbiter = 1,
-    /// Only arbiter can approve.
-    ArbiterOnly = 2,
-    /// Both client and freelancer must approve; only either of them may release
-    /// after both approvals are present.
-    MultiSig = 3,
-}
-
-/// Tracks approval status for a milestone.
-/// Stored in temporary storage with TTL for expiry grace period.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MilestoneApprovals {
-    pub client_approved: bool,
-    pub freelancer_approved: bool,
-    pub arbiter_approved: bool,
-}
 
 // ── Implementations ──────────────────────────────────────────────────────────
 
 impl Escrow {
+    /// Admin setter to update milestone parameters within strict upper/lower bounds.
+    ///
+    /// # Errors
+    /// * `EscrowError::Unauthorized` - Caller is not the admin.
+    /// * `EscrowError::InvalidParameter` - `max_milestones` is 0 or exceeds hard cap (`MAX_MILESTONES`).
+    pub(crate) fn set_milestone_params_impl(
+        env: &Env,
+        admin: Address,
+        max_milestones: u32,
+    ) -> bool {
+        Self::require_not_paused(env);
+        admin.require_auth();
+
+        // Verify admin authority
+        let current_admin: Address = env.storage().persistent().get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::UnauthorizedRole));
+        if admin != current_admin {
+            env.panic_with_error(EscrowError::UnauthorizedRole);
+        }
+
+        // Validate bounds: non-zero and within MAX_MILESTONES cap
+        if max_milestones == 0 || max_milestones > MAX_MILESTONES {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        // Persist updated configuration
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxMilestones, &max_milestones);
+
+        // Emit parameter change event
+        env.events().publish(
+            (symbol_short!("mlst_cfg"), admin),
+            (max_milestones, env.ledger().timestamp()),
+        );
+
+        true
+    }
+
     pub(crate) fn release_milestone_impl(
         env: &Env,
         contract_id: u32,
@@ -153,7 +142,7 @@ impl Escrow {
         }
 
         if milestone.refunded {
-            env.panic_with_error(Error::AlreadyRefunded);
+            env.panic_with_error(EscrowError::AlreadyRefunded);
         }
 
         // Check contract-level funding (per-milestone funded_amount is set after
@@ -250,8 +239,7 @@ impl Escrow {
                 caller.clone(),
                 env.ledger().timestamp(),
             ),
-        );
-
+        );    
         if all_released {
             env.events().publish(
                 (symbol_short!("ctrct_cmp"), contract_id),
@@ -283,7 +271,7 @@ impl Escrow {
         };
 
         if milestone_index >= milestones.len() {
-            return false;
+            env.panic_with_error(Error::IndexOutOfBounds);
         }
 
         let milestone = milestones.get(milestone_index).unwrap();
@@ -355,7 +343,7 @@ impl Escrow {
             }
 
             if let Some(deadline) = milestone.deadline {
-                if !Self::is_milestone_overdue_impl(env, contract_id, *idx) {
+                if !Self::is_milestone_overdue_impl(env, contract_id, idx) {
                     env.panic_with_error(Error::MilestoneNotOverdue);
                 }
             }
@@ -380,10 +368,10 @@ impl Escrow {
         );
 
         for idx in milestone_indices.iter() {
-            let mut milestone = milestones.get(*idx).unwrap();
+            let mut milestone = milestones.get(idx).unwrap();
             milestone.refunded = true;
             milestone.refunded_amount = milestone.amount;
-            milestones.set(*idx, milestone);
+            milestones.set(idx, milestone);
         }
 
         contract.refunded_amount = contract
@@ -423,7 +411,7 @@ impl Escrow {
 
     pub(crate) fn get_milestones_impl(env: &Env, contract_id: u32) -> Vec<Milestone> {
         let milestone_key = Symbol::new(env, "milestones");
-        let milestones = env
+        let milestones: Vec<Milestone> = env
             .storage()
             .persistent()
             .get(&(DataKey::Contract(contract_id), milestone_key))
@@ -440,6 +428,11 @@ impl Escrow {
             .get(&(DataKey::Contract(contract_id), milestone_key))
             .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
         ttl::extend_milestone_ttl(env, contract_id);
+        
+        if milestone_index >= milestones.len() {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
+
         milestones.get(milestone_index)
     }
 
@@ -448,6 +441,15 @@ impl Escrow {
         contract_id: u32,
         milestone_index: u32,
     ) -> Option<MilestoneApprovals> {
+        let milestones: Vec<Milestone> = env
+            .storage()
+            .persistent()
+            .get(&(DataKey::Contract(contract_id), Symbol::new(env, "milestones")))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+        if milestone_index >= milestones.len() {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
+
         let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
         let approvals = env.storage().temporary().get(&approval_key);
         if approvals.is_some() {
@@ -465,8 +467,17 @@ impl Escrow {
         contract_id: u32,
         milestone_index: u32,
     ) -> Option<u32> {
+        let milestones: Vec<Milestone> = env
+            .storage()
+            .persistent()
+            .get(&(DataKey::Contract(contract_id), Symbol::new(env, "milestones")))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+        if milestone_index >= milestones.len() {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
+
         let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
-        env.storage().temporary().get_ttl(&approval_key)
+        if !env.storage().temporary().has(&approval_key) { return None; } Some(ttl::compute_expiry(env, ttl::PENDING_APPROVAL_TTL_LEDGERS))
     }
 
     pub(crate) fn submit_work_evidence_impl(
@@ -489,7 +500,11 @@ impl Escrow {
         }
         contract.freelancer.require_auth();
 
-        if evidence.len() > 1000 {
+        let evidence_len = evidence.len();
+        if evidence_len < MIN_WORK_EVIDENCE_BYTES {
+            env.panic_with_error(Error::EmptyEvidence);
+        }
+        if evidence_len > MAX_WORK_EVIDENCE_BYTES {
             env.panic_with_error(Error::EvidenceTooLong);
         }
 
@@ -540,9 +555,67 @@ impl Escrow {
         ttl::extend_milestone_ttl(env, contract_id);
 
         if milestone_index >= milestones.len() {
-            return None;
+            env.panic_with_error(Error::IndexOutOfBounds);
         }
 
         milestones.get(milestone_index).unwrap().work_evidence
+    }
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, Env};
+
+    #[test]
+    fn test_set_milestone_params_success() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+
+        env.storage().instance().set(&DataKey::Admin, &admin);
+
+        let new_limit = 8;
+        let res = Escrow::set_milestone_params_impl(&env, admin, new_limit);
+        assert!(res);
+
+        let stored: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MaxMilestones)
+            .unwrap();
+        assert_eq!(stored, new_limit);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_set_milestone_params_out_of_bounds_high() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+
+        Escrow::set_milestone_params_impl(&env, admin, 11);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_set_milestone_params_out_of_bounds_zero() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+
+        Escrow::set_milestone_params_impl(&env, admin, 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_set_milestone_params_unauthorized() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let attacker = Address::generate(&env);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+
+        Escrow::set_milestone_params_impl(&env, attacker, 5);
     }
 }

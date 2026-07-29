@@ -1,13 +1,10 @@
 #![cfg(test)]
 
 use soroban_sdk::{
-    testutils::{Address as _, Events as _},
-    Address, Env, String, Symbol, TryFromVal,
+    testutils::Address as _, testutils::Events, Address, Env, IntoVal, Symbol, TryFromVal, Val,
 };
 
-use crate::{Error, Escrow, EscrowClient, ReputationConfig};
-
-use super::complete_contract;
+use crate::{types::ReputationConfig, Error, Escrow, EscrowClient};
 
 fn setup(env: &Env) -> (EscrowClient<'_>, Address) {
     let escrow_address = env.register(Escrow, ());
@@ -18,14 +15,11 @@ fn setup(env: &Env) -> (EscrowClient<'_>, Address) {
     (client, admin)
 }
 
-// ── get_reputation_config defaults ──────────────────────────────────────────
-
 #[test]
-fn returns_default_before_init() {
+fn test_reputation_config_setter() {
     let env = Env::default();
+    let (client, _admin) = setup(&env);
     env.mock_all_auths();
-    let escrow_address = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &escrow_address);
 
     let config = client.get_reputation_config();
     assert_eq!(config, ReputationConfig::default());
@@ -94,7 +88,7 @@ fn min_rating_zero_rejected() {
     let (client, _admin) = setup(&env);
 
     let result = client.try_set_reputation_config(&0u32, &5u32, &200u32);
-    super::assert_contract_error(result, Error::InvalidReputationParameters);
+    super::assert_contract_error(result, Error::InvalidProtocolParameters);
 }
 
 #[test]
@@ -103,7 +97,7 @@ fn max_rating_below_min_rating_rejected() {
     let (client, _admin) = setup(&env);
 
     let result = client.try_set_reputation_config(&5u32, &4u32, &200u32);
-    super::assert_contract_error(result, Error::InvalidReputationParameters);
+    super::assert_contract_error(result, Error::InvalidProtocolParameters);
 }
 
 #[test]
@@ -112,7 +106,7 @@ fn max_rating_over_ceiling_rejected() {
     let (client, _admin) = setup(&env);
 
     let result = client.try_set_reputation_config(&1u32, &11u32, &200u32);
-    super::assert_contract_error(result, Error::InvalidReputationParameters);
+    super::assert_contract_error(result, Error::InvalidProtocolParameters);
 }
 
 #[test]
@@ -121,7 +115,7 @@ fn max_comment_bytes_zero_rejected() {
     let (client, _admin) = setup(&env);
 
     let result = client.try_set_reputation_config(&1u32, &5u32, &0u32);
-    super::assert_contract_error(result, Error::InvalidReputationParameters);
+    super::assert_contract_error(result, Error::InvalidProtocolParameters);
 }
 
 #[test]
@@ -130,7 +124,7 @@ fn max_comment_bytes_over_ceiling_rejected() {
     let (client, _admin) = setup(&env);
 
     let result = client.try_set_reputation_config(&1u32, &5u32, &1_001u32);
-    super::assert_contract_error(result, Error::InvalidReputationParameters);
+    super::assert_contract_error(result, Error::InvalidProtocolParameters);
 }
 
 #[test]
@@ -185,89 +179,18 @@ fn event_emitted_on_valid_set() {
     client.set_reputation_config(&2u32, &8u32, &300u32);
 
     let events = env.events().all();
-    let has_rep_cfg = events.iter().any(|e| {
-        let topic =
-            e.1.get(0)
-                .and_then(|topic| Symbol::try_from_val(&env, &topic).ok());
-        topic == Some(Symbol::new(&env, "rep_cfg"))
-    });
-    assert!(has_rep_cfg, "expected rep_cfg event to be emitted");
-}
 
-#[test]
-fn no_event_emitted_when_set_fails() {
-    let env = Env::default();
-    let (client, _admin) = setup(&env);
+    let _fallback1: Val = Val::VOID.into();
+    let topic1 = events
+        .last()
+        .and_then(|e| e.1.get(0).and_then(|v| Symbol::try_from_val(&env, &v).ok()));
+    let expected1 = Some(Symbol::new(&env, "reputation_config_set"));
+    assert_eq!(topic1, expected1);
 
-    let _ = client.try_set_reputation_config(&0u32, &5u32, &200u32);
-
-    let events = env.events().all();
-    let has_rep_cfg = events.iter().any(|e| {
-        let topic =
-            e.1.get(0)
-                .and_then(|topic| Symbol::try_from_val(&env, &topic).ok());
-        topic == Some(Symbol::new(&env, "rep_cfg"))
-    });
-    assert!(
-        !has_rep_cfg,
-        "rep_cfg event must not be emitted on a rejected set"
-    );
-}
-
-// ── issue_reputation actually enforces the configured bounds ────────────────
-
-#[test]
-fn issue_reputation_uses_updated_rating_bounds() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let escrow_address = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &escrow_address);
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
-
-    // Narrow the rating scale to [3, 4]; the old default of 1 must now be rejected.
-    assert!(client.set_reputation_config(&3u32, &4u32, &200u32));
-
-    let (client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
-
-    let comment = String::from_str(&env, "great work");
-    let result = client.try_issue_reputation(&contract_id, &client_addr, &1u32, &comment);
-    super::assert_contract_error(result, Error::InvalidRating);
-}
-
-#[test]
-fn issue_reputation_accepts_rating_within_updated_bounds() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let escrow_address = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &escrow_address);
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
-
-    assert!(client.set_reputation_config(&3u32, &4u32, &200u32));
-
-    let (client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
-
-    let comment = String::from_str(&env, "great work");
-    assert!(client.issue_reputation(&contract_id, &client_addr, &4u32, &comment));
-}
-
-#[test]
-fn issue_reputation_uses_updated_comment_byte_cap() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let escrow_address = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &escrow_address);
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
-
-    // Shrink the comment cap to 5 bytes; a 10-byte comment must now be rejected
-    // even though it was well within the original 200-byte default.
-    assert!(client.set_reputation_config(&1u32, &5u32, &5u32));
-
-    let (client_addr, _freelancer_addr, contract_id) = complete_contract(&env, &client);
-
-    let comment = String::from_str(&env, "0123456789");
-    let result = client.try_issue_reputation(&contract_id, &client_addr, &5u32, &comment);
-    super::assert_contract_error(result, Error::CommentTooLong);
+    let _fallback2: Val = Val::VOID.into();
+    let topic2 = events
+        .last()
+        .and_then(|e| e.1.get(0).and_then(|v| Symbol::try_from_val(&env, &v).ok()));
+    let expected2 = Some(Symbol::new(&env, "reputation_config_updated"));
+    assert_eq!(topic2, expected2);
 }

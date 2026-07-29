@@ -49,6 +49,8 @@ Read-only queries:
 - `get_protocol_fee_bps() -> u32`
 - `get_accumulated_protocol_fees() -> i128`
 - `get_bounds() -> ContractBounds` *(returns the compile-time protocol bounds: max milestones, max single milestone amount, max total escrow amount, max fee bps; see [`ContractBounds`](../../contracts/escrow/src/types.rs))*
+- `get_milestone_progress(contract_id) -> MilestoneProgress` — returns a struct carrying `completed` and `total` milestone counts; returns `completed: 0, total: 0` for an unknown id instead of panicking, unlike other getters below
+
 
 ### Read-only getter semantics
 
@@ -93,6 +95,11 @@ Per-getter details:
   when the contract id is unknown. Does not extend persistent TTL because
   approvals live in temporary storage bounded by
   `PENDING_APPROVAL_TTL_LEDGERS`.
+- `get_milestone_progress(contract_id)` returns the completed and total milestone
+  counts. It does not panic on an unknown contract id; it returns `completed: 0`
+  and `total: 0` instead. On a valid contract, it extends the contract's and
+  milestones' TTL.
+
 
 These properties are locked in by tests under
 `contracts/escrow/src/test/persistence.rs` (issue #475).

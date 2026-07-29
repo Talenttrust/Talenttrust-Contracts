@@ -3,14 +3,23 @@
 //! This module is intentionally storage-free. It computes how the currently
 //! available escrow balance should be split for a `DisputeResolution` and tells
 //! the root dispute entrypoint whether the contract should end as `Completed`
-//! or `Refunded`. The root entrypoints own authentication, token transfer, event
-//! publication, and writes to `DataKey::Contract(contract_id)`.
-
-use soroban_sdk::{Address, Env};
+//! or `Refunded`. ABI-compatible wrappers in the crate root delegate here;
+//! this module owns dispute authorization, state changes, events, and writes to
+//! `DataKey::Contract(contract_id)`.
 
 use crate::{
-    safe_add_amounts, Contract, ContractStatus, DataKey, DisputeConfig, DisputeResolution, Error,
+    safe_add_amounts, Contract, ContractStatus, DataKey, DisputeConfig, DisputeMetadata,
+    DisputeResolution, Error, DISPUTE_STORAGE_VERSION, types::DisputeMetadataV0,
 };
+use soroban_sdk::Env;
+
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeInfo {
+    pub available_balance: i128,
+    pub client_payout: i128,
+    pub freelancer_payout: i128,
+}
 
 /// Read-only getter for the arbiter dispute-split configuration.
 ///
@@ -29,18 +38,24 @@ pub fn set_dispute_config(env: &Env, config: DisputeConfig) {
 
 /// Compute the payout split for a dispute resolution.
 ///
-/// Returns `(client_payout, freelancer_payout)` where both values are non-negative
-/// and sum to the available balance. The available balance is computed as:
+/// Returns a [`DisputeInfo`] with named fields so callers can reference
+/// `client_payout`, `freelancer_payout`, and `available_balance` by name
+/// rather than relying on positional tuple index (issue #51).
+///
+/// The available balance is computed as:
 /// `available = funded_amount - released_amount - refunded_amount`.
 ///
+/// # Invariant
+/// `result.client_payout + result.freelancer_payout == result.available_balance`
+///
 /// # Errors
-/// - `AccountingInvariantViolated` if available would be negative (corrupted state)
-/// - `PotentialOverflow` if intermediate calculations overflow
-/// - `InvalidDisputeSplit` for Split variant with negative legs or non-conserving sum
+/// - [`Error::AccountingInvariantViolated`] if available would be negative (corrupted state)
+/// - [`Error::PotentialOverflow`] if intermediate calculations overflow
+/// - [`Error::InvalidDisputeSplit`] for Split variant with negative legs or non-conserving sum
 pub fn resolution_payouts(
     contract: &Contract,
     resolution: &DisputeResolution,
-) -> Result<(i128, i128), Error> {
+) -> Result<DisputeInfo, Error> {
     let available = contract
         .funded_amount
         .checked_sub(contract.released_amount)
@@ -51,16 +66,32 @@ pub fn resolution_payouts(
     }
 
     match resolution {
-        DisputeResolution::FullRefund => Ok((available, 0)),
+        DisputeResolution::FullRefund => Ok(DisputeInfo {
+            available_balance: available,
+            client_payout: available,
+            freelancer_payout: 0,
+        }),
         DisputeResolution::PartialRefund => {
-            // freelancer gets floor(available * 30 / 100), client gets remainder
+            // freelancer gets floor(available * PARTIAL_REFUND_FREELANCER_PERCENT / 100),
+            // client gets remainder
             let freelancer_payout = available
-                .checked_mul(30)
-                .and_then(|value| value.checked_div(100))
+                .checked_mul(PARTIAL_REFUND_FREELANCER_PERCENT)
+                .and_then(|value| value.checked_div(PARTIAL_REFUND_PERCENT_BASE))
                 .ok_or(Error::PotentialOverflow)?;
-            Ok((available - freelancer_payout, freelancer_payout))
+            let client_payout = available
+                .checked_sub(freelancer_payout)
+                .ok_or(Error::PotentialOverflow)?;
+            Ok(DisputeInfo {
+                available_balance: available,
+                client_payout,
+                freelancer_payout,
+            })
         }
-        DisputeResolution::FullPayout => Ok((0, available)),
+        DisputeResolution::FullPayout => Ok(DisputeInfo {
+            available_balance: available,
+            client_payout: 0,
+            freelancer_payout: available,
+        }),
         DisputeResolution::Split(split) => {
             if split.client_amount < 0 || split.freelancer_amount < 0 {
                 return Err(Error::InvalidDisputeSplit);
@@ -74,7 +105,11 @@ pub fn resolution_payouts(
             if total > available || total != available {
                 return Err(Error::InvalidDisputeSplit);
             }
-            Ok((split.client_amount, split.freelancer_amount))
+            Ok(DisputeInfo {
+                available_balance: available,
+                client_payout: split.client_amount,
+                freelancer_payout: split.freelancer_amount,
+            })
         }
     }
 }
@@ -92,8 +127,70 @@ pub fn final_status_after_resolution(contract: &Contract) -> ContractStatus {
 }
 
 // ---------------------------------------------------------------------------
-// raise_dispute / resolve_dispute entrypoints
+// Dispute metadata storage helpers
 // ---------------------------------------------------------------------------
 
-// Dispute entrypoints are implemented in `contracts/escrow/src/lib.rs`.
-// This module retains dispute-related helpers only.
+/// Persist dispute metadata for a contract.
+pub fn store_dispute_metadata(env: &Env, contract_id: u32, metadata: &DisputeMetadata) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Dispute(contract_id), metadata);
+}
+
+/// Remove dispute metadata for a contract.
+pub fn clear_dispute_metadata(env: &Env, contract_id: u32) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::Dispute(contract_id));
+}
+
+/// Return the schema version of the stored dispute metadata, or 0 if none exists.
+pub fn get_dispute_storage_version(env: &Env, contract_id: u32) -> u32 {
+    if env
+        .storage()
+        .persistent()
+        .has(&DataKey::Dispute(contract_id))
+    {
+        DISPUTE_STORAGE_VERSION
+    } else {
+        0
+    }
+}
+
+/// Read dispute metadata with automatic v0 → v1 migration.
+///
+/// Panics with `DisputeNotFound` when no record exists.
+pub fn load_dispute_metadata(env: &Env, contract_id: u32) -> DisputeMetadata {
+    if let Some(meta) = env
+        .storage()
+        .persistent()
+        .get::<_, DisputeMetadata>(&DataKey::Dispute(contract_id))
+    {
+        if meta.schema_version > DISPUTE_STORAGE_VERSION {
+            env.panic_with_error(Error::UnsupportedDisputeStorageVersion);
+        }
+        return meta;
+    }
+    // Try v0 → v1 migration
+    if let Some(v0) = env
+        .storage()
+        .persistent()
+        .get::<_, DisputeMetadataV0>(&DataKey::Dispute(contract_id))
+    {
+        let v1 = migrate_dispute_metadata_v0_to_v1(v0);
+        store_dispute_metadata(env, contract_id, &v1);
+        return v1;
+    }
+
+    env.panic_with_error(Error::DisputeNotFound)
+}
+
+/// Migrate a v0 metadata record to the current schema version.
+pub fn migrate_dispute_metadata_v0_to_v1(v0: DisputeMetadataV0) -> DisputeMetadata {
+    DisputeMetadata {
+        schema_version: DISPUTE_STORAGE_VERSION,
+        raised_by: v0.raised_by,
+        reason_hash: v0.reason_hash,
+        raised_at: v0.raised_at,
+    }
+}

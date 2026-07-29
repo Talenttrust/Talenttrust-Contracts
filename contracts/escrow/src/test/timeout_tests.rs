@@ -50,7 +50,7 @@ fn set_milestone_deadline_and_released(
     released: bool,
 ) {
     env.as_contract(contract_addr, || {
-        let key = (DataKey::Contract(contract_id), Symbol::new(env, "milestones"));
+        let key = crate::keys::milestone_key(env, contract_id);
         let mut milestones: SorobanVec<Milestone> =
             env.storage().persistent().get(&key).unwrap();
         let mut m = milestones.get(index).unwrap();

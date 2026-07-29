@@ -1,5 +1,5 @@
 use super::{EscrowFixture, MILESTONE_ONE};
-use crate::{ContractStatus, Error, Escrow, EscrowError, ReleaseAuthorization, SimulatedRelease};
+use crate::{ContractStatus, Error, Escrow, EscrowError, ReleaseAuthorization, types::SimulatedRelease};
 use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

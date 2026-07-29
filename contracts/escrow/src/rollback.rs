@@ -1,3 +1,4 @@
+use crate::storage;
 use crate::ttl::{PERSISTENT_BUMP_THRESHOLD, PERSISTENT_TTL_LEDGERS};
 use crate::{ttl, Contract, ContractStatus, DataKey, Error, Escrow, Milestone};
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Vec};
@@ -39,6 +40,7 @@ pub(crate) fn clear_dispute_rollback(env: &Env, contract_id: u32) {
 }
 
 pub(crate) fn rollback_dispute_impl(env: &Env, contract_id: u32) -> bool {
+    storage::validate_contract_id_bounds(env, contract_id);
     Escrow::require_initialized(env);
     Escrow::require_not_paused(env);
 

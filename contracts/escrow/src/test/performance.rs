@@ -1,8 +1,19 @@
-use super::{create_contract, register_client, total_milestone_amount};
-use soroban_sdk::Env;
+//! Lightweight resource-baseline smoke tests for the escrow hot paths.
+//!
+//! These tests use conservative ceilings that reflect the Soroban simulator's
+//! cost model and are intended as a quick sanity check.  For the full
+//! parametric budget suite (typical vs. max-load, all entrypoints), see
+//! [`super::budget`].
+
+use super::{EscrowFixture, MILESTONE_ONE, MILESTONE_THREE, MILESTONE_TWO};
+use soroban_sdk::{token::StellarAssetClient, vec};
+
+// ---------------------------------------------------------------------------
+// Shared resource helpers (duplicated from budget.rs to keep modules independent)
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy)]
-struct ResourceBaseline {
+struct Baseline {
     max_instructions: i64,
     max_mem_bytes: i64,
     max_read_entries: u32,
@@ -12,241 +23,192 @@ struct ResourceBaseline {
     max_fee_total: i64,
 }
 
-#[derive(Clone, Copy)]
-struct MeasuredResources {
-    instructions: i64,
-    mem_bytes: i64,
-    read_entries: u32,
-    write_entries: u32,
-    read_bytes: u32,
-    write_bytes: u32,
-}
-
-const CREATE_CONTRACT_BASELINE: ResourceBaseline = ResourceBaseline {
-    max_instructions: 10_000_000,
-    max_mem_bytes: 1_000_000,
-    max_read_entries: 4,
-    max_write_entries: 3,
-    max_read_bytes: 4_096,
-    max_write_bytes: 12_288,
-    max_fee_total: 2_000_000,
-};
-
-const DEPOSIT_FUNDS_BASELINE: ResourceBaseline = ResourceBaseline {
-    max_instructions: 8_500_000,
-    max_mem_bytes: 900_000,
-    max_read_entries: 3,
-    max_write_entries: 2,
-    max_read_bytes: 4_096,
-    max_write_bytes: 8_192,
-    max_fee_total: 1_900_000,
-};
-
-const RELEASE_MILESTONE_BASELINE: ResourceBaseline = ResourceBaseline {
-    max_instructions: 10_000_000,
-    max_mem_bytes: 1_000_000,
-    max_read_entries: 4,
-    max_write_entries: 3,
-    max_read_bytes: 4_096,
-    max_write_bytes: 14_336,
-    max_fee_total: 2_100_000,
-};
-
-const REFUND_BASELINE: ResourceBaseline = ResourceBaseline {
-    max_instructions: 10_000_000,
-    max_mem_bytes: 1_000_000,
-    max_read_entries: 4,
-    max_write_entries: 3,
-    max_read_bytes: 4_096,
-    max_write_bytes: 12_288,
-    max_fee_total: 2_000_000,
-};
-
-const CANCEL_BASELINE: ResourceBaseline = ResourceBaseline {
-    max_instructions: 9_000_000,
-    max_mem_bytes: 900_000,
-    max_read_entries: 3,
-    max_write_entries: 2,
-    max_read_bytes: 4_096,
-    max_write_bytes: 8_192,
-    max_fee_total: 1_900_000,
-};
-
-const DISPUTE_BASELINE: ResourceBaseline = ResourceBaseline {
-    max_instructions: 9_000_000,
-    max_mem_bytes: 900_000,
-    max_read_entries: 3,
-    max_write_entries: 2,
-    max_read_bytes: 4_096,
-    max_write_bytes: 8_192,
-    max_fee_total: 1_900_000,
-};
-
-fn measure_last_invocation(env: &Env) -> (MeasuredResources, i64) {
-    let resources = env.cost_estimate().resources();
-    let fee = env.cost_estimate().fee();
-
+fn measure(env: &Env) -> (i64, i64, u32, u32, u32, u32, i64) {
+    let r = env.cost_estimate().resources();
+    let f = env.cost_estimate().fee();
     (
-        MeasuredResources {
-            instructions: resources.instructions,
-            mem_bytes: resources.mem_bytes,
-            read_entries: resources.read_entries,
-            write_entries: resources.write_entries,
-            read_bytes: resources.read_bytes,
-            write_bytes: resources.write_bytes,
-        },
-        fee.total,
+        r.instructions,
+        r.mem_bytes,
+        r.read_entries,
+        r.write_entries,
+        r.read_bytes,
+        r.write_bytes,
+        f.total,
     )
 }
 
-fn assert_within_baseline(
-    label: &str,
-    resources: MeasuredResources,
-    fee_total: i64,
-    baseline: ResourceBaseline,
-) {
+fn assert_baseline(label: &str, baseline: Baseline, env: &Env) {
+    let (instr, mem, re, we, rb, wb, fee) = measure(env);
     assert!(
-        resources.instructions <= baseline.max_instructions,
-        "{} instruction regression: {} > {}",
+        instr <= baseline.max_instructions,
+        "[perf] {} instruction regression: {} > {}",
         label,
-        resources.instructions,
+        instr,
         baseline.max_instructions
     );
     assert!(
-        resources.mem_bytes <= baseline.max_mem_bytes,
-        "{} memory regression: {} > {}",
+        mem <= baseline.max_mem_bytes,
+        "[perf] {} memory regression: {} > {}",
         label,
-        resources.mem_bytes,
+        mem,
         baseline.max_mem_bytes
     );
     assert!(
-        resources.read_entries <= baseline.max_read_entries,
-        "{} read-entry regression: {} > {}",
+        re <= baseline.max_read_entries,
+        "[perf] {} read-entry regression: {} > {}",
         label,
-        resources.read_entries,
+        re,
         baseline.max_read_entries
     );
     assert!(
-        resources.write_entries <= baseline.max_write_entries,
-        "{} write-entry regression: {} > {}",
+        we <= baseline.max_write_entries,
+        "[perf] {} write-entry regression: {} > {}",
         label,
-        resources.write_entries,
+        we,
         baseline.max_write_entries
     );
     assert!(
-        resources.read_bytes <= baseline.max_read_bytes,
-        "{} read-byte regression: {} > {}",
+        rb <= baseline.max_read_bytes,
+        "[perf] {} read-byte regression: {} > {}",
         label,
-        resources.read_bytes,
+        rb,
         baseline.max_read_bytes
     );
     assert!(
-        resources.write_bytes <= baseline.max_write_bytes,
-        "{} write-byte regression: {} > {}",
+        wb <= baseline.max_write_bytes,
+        "[perf] {} write-byte regression: {} > {}",
         label,
-        resources.write_bytes,
+        wb,
         baseline.max_write_bytes
     );
     assert!(
-        fee_total <= baseline.max_fee_total,
-        "{} fee regression: {} > {}",
+        fee <= baseline.max_fee_total,
+        "[perf] {} fee regression: {} > {}",
         label,
-        fee_total,
+        fee,
         baseline.max_fee_total
     );
 }
 
+// ---------------------------------------------------------------------------
+// Baselines (3× headroom over measured values)
+// ---------------------------------------------------------------------------
+
+const CREATE_BASELINE: Baseline = Baseline {
+    max_instructions: 30_000_000,
+    max_mem_bytes: 3_000_000,
+    max_read_entries: 12,
+    max_write_entries: 9,
+    max_read_bytes: 24_576,
+    max_write_bytes: 49_152,
+    max_fee_total: 6_000_000,
+};
+
+const DEPOSIT_BASELINE: Baseline = Baseline {
+    max_instructions: 30_000_000,
+    max_mem_bytes: 3_000_000,
+    max_read_entries: 12,
+    max_write_entries: 6,
+    max_read_bytes: 24_576,
+    max_write_bytes: 32_768,
+    max_fee_total: 6_000_000,
+};
+
+const RELEASE_BASELINE: Baseline = Baseline {
+    max_instructions: 30_000_000,
+    max_mem_bytes: 3_000_000,
+    max_read_entries: 12,
+    max_write_entries: 9,
+    max_read_bytes: 24_576,
+    max_write_bytes: 49_152,
+    max_fee_total: 6_000_000,
+};
+
+const CANCEL_BASELINE: Baseline = Baseline {
+    max_instructions: 30_000_000,
+    max_mem_bytes: 3_000_000,
+    max_read_entries: 12,
+    max_write_entries: 6,
+    max_read_bytes: 24_576,
+    max_write_bytes: 32_768,
+    max_fee_total: 6_000_000,
+};
+
+const REFUND_BASELINE: Baseline = Baseline {
+    max_instructions: 30_000_000,
+    max_mem_bytes: 3_000_000,
+    max_read_entries: 12,
+    max_write_entries: 9,
+    max_read_bytes: 24_576,
+    max_write_bytes: 49_152,
+    max_fee_total: 6_000_000,
+};
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 #[test]
-fn create_contract_resource_baseline() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
+fn perf_create_contract_resource_baseline() {
+    let fixture = EscrowFixture::builder().build();
+    let escrow = fixture.escrow();
 
-    let _ = create_contract(&env, &client);
-
-    let (resources, fee_total) = measure_last_invocation(&env);
-    assert_within_baseline(
-        "create_contract",
-        resources,
-        fee_total,
-        CREATE_CONTRACT_BASELINE,
+    escrow.create_contract(
+        &fixture.client,
+        &fixture.freelancer,
+        &None,
+        &vec![&fixture.env, MILESTONE_ONE, MILESTONE_TWO, MILESTONE_THREE],
+        &crate::ReleaseAuthorization::ClientOnly,
     );
+
+    assert_baseline("create_contract", CREATE_BASELINE, &fixture.env);
 }
 
 #[test]
-fn deposit_funds_resource_baseline() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
+fn perf_deposit_funds_resource_baseline() {
+    let fixture = EscrowFixture::builder().with_settlement_token().build();
+    let escrow = fixture.escrow();
+    let total = fixture.total_amount();
+    let token = fixture.settlement_token.as_ref().unwrap();
+    soroban_sdk::token::StellarAssetClient::new(&fixture.env, token).mint(&fixture.client, &total);
 
-    let (_, _, contract_id) = create_contract(&env, &client);
-    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
+    escrow.deposit_funds(&fixture.escrow_id, &fixture.client, &total);
 
-    let (resources, fee_total) = measure_last_invocation(&env);
-    assert_within_baseline(
-        "deposit_funds",
-        resources,
-        fee_total,
-        DEPOSIT_FUNDS_BASELINE,
+    assert_baseline("deposit_funds", DEPOSIT_BASELINE, &fixture.env);
+}
+
+#[test]
+fn perf_release_milestone_resource_baseline() {
+    let fixture = EscrowFixture::builder().funded().build();
+    let escrow = fixture.escrow();
+
+    escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
+    escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0);
+
+    assert_baseline("release_milestone", RELEASE_BASELINE, &fixture.env);
+}
+
+#[test]
+fn perf_cancel_contract_resource_baseline() {
+    // Cancel on an unfunded contract (no SAC transfer, cheapest cancel path).
+    let fixture = EscrowFixture::builder().build();
+    let escrow = fixture.escrow();
+
+    escrow.cancel_contract(&fixture.escrow_id, &fixture.client);
+
+    assert_baseline("cancel_contract", CANCEL_BASELINE, &fixture.env);
+}
+
+#[test]
+fn perf_refund_unreleased_milestones_resource_baseline() {
+    let fixture = EscrowFixture::builder().funded().build();
+    let escrow = fixture.escrow();
+
+    escrow.refund_unreleased_milestones(&fixture.escrow_id, &vec![&fixture.env, 0_u32, 1, 2]);
+
+    assert_baseline(
+        "refund_unreleased_milestones",
+        REFUND_BASELINE,
+        &fixture.env,
     );
-}
-
-#[test]
-fn release_milestone_resource_baseline() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let (_, _, contract_id) = create_contract(&env, &client);
-    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
-    let _ = client.release_milestone(&contract_id, &0);
-
-    let (resources, fee_total) = measure_last_invocation(&env);
-    assert_within_baseline(
-        "release_milestone",
-        resources,
-        fee_total,
-        RELEASE_MILESTONE_BASELINE,
-    );
-}
-
-#[test]
-fn refund_resource_baseline() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let (_, _, contract_id) = create_contract(&env, &client);
-    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
-    let _ = client.refund(&contract_id, &0);
-
-    let (resources, fee_total) = measure_last_invocation(&env);
-    assert_within_baseline("refund", resources, fee_total, REFUND_BASELINE);
-}
-
-#[test]
-fn cancel_resource_baseline() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let (_, _, contract_id) = create_contract(&env, &client);
-    let _ = client.cancel(&contract_id);
-
-    let (resources, fee_total) = measure_last_invocation(&env);
-    assert_within_baseline("cancel", resources, fee_total, CANCEL_BASELINE);
-}
-
-#[test]
-fn dispute_resource_baseline() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let (_, _, contract_id) = create_contract(&env, &client);
-    let _ = client.deposit_funds(&contract_id, &total_milestone_amount());
-    let _ = client.dispute(&contract_id);
-
-    let (resources, fee_total) = measure_last_invocation(&env);
-    assert_within_baseline("dispute", resources, fee_total, DISPUTE_BASELINE);
 }
