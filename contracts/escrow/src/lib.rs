@@ -28,6 +28,7 @@
 //! Generate this map with `cargo doc -p escrow --no-deps` and open
 //! `target/doc/escrow/index.html`.
 #![no_std]
+#![allow(dead_code)]
 #![allow(clippy::derivable_impls)]
 #![allow(clippy::manual_range_contains)]
 #![allow(clippy::assertions_on_constants)]
@@ -51,13 +52,10 @@
 #![allow(clippy::module_inception)]
 #![allow(clippy::single_match)]
 #![allow(clippy::useless_conversion)]
+#![allow(clippy::doc_markdown)]
 #![allow(clippy::doc_lazy_continuation)]
 #![allow(clippy::len_zero)]
 #![allow(unused_doc_comments)]
-#![allow(unused_variables)]
-#![allow(unused_mut)]
-#![allow(dead_code)]
-#![allow(deprecated)]
 
 mod amount_validation;
 mod approvals;
@@ -77,8 +75,7 @@ mod utils;
 
 use crate::utils::now_seconds;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, log, symbol_short, token, Address, BytesN, Env, String,
-    Symbol, Vec,
+    contract, contracterror, contractimpl, symbol_short, token, Address, Env, String, Symbol, Vec,
 };
 
 pub use amount_validation::accumulate_amounts;
@@ -87,6 +84,7 @@ pub use amount_validation::safe_subtract_amounts;
 pub use amount_validation::validate_deposit_amount;
 pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
+pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 pub use dispute::final_status_after_resolution;
 pub use dispute::resolution_payouts;
 pub use migration::PendingClientMigration;
@@ -298,7 +296,7 @@ pub enum EscrowError {
     EmptyComment = 42,
     /// Reputation feedback comment exceeded the 200-character maximum.
     CommentTooLong = 43,
-    /// A configured limit was set outside of the supported bounds.
+    /// The requested limit is out of the valid range.
     LimitOutOfRange = 44,
     /// The contract ID is out of valid bounds.
     InvalidContractId = 45,
@@ -317,12 +315,12 @@ impl Escrow {
             .set(&DataKey::SettlementToken, token);
     }
 
-    /// Returns the effective max batch settlement, falling back to the default.
-    pub(crate) fn effective_max_settlement(env: &Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::MaxSettlement)
-            .unwrap_or(DEFAULT_MAX_BATCH_SETTLEMENT)
+    /// Validate that a contract ID is within the valid range (>= 1).
+    /// Contract IDs are allocated from 1 upward, so 0 is always invalid.
+    pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
+        if contract_id == 0 {
+            env.panic_with_error(EscrowError::InvalidContractId);
+        }
     }
 }
 
@@ -899,147 +897,6 @@ impl Escrow {
     /// Activating the emergency pause to flip the `emergency_controls_enabled` flag leaves the contract
     /// in a paused state. To complete a clean deploy and allow normal operations, the operator must
     /// subsequently call `resolve_emergency` to unpause the contract.
-    pub fn get_mainnet_readiness_info(env: Env) -> ReadinessChecklist {
-        env.storage()
-            .persistent()
-            .get(&DataKey::ReadinessChecklist)
-            .unwrap_or_default()
-    }
-
-    // ── Configurable limits (PR #1243) ──────────────────────────────────────
-    //
-    // Admin-only setters expose runtime configuration of the milestone cap,
-    // the total-escrow cap, and the arbiter cap. Each setter validates its
-    // input against the bounded range defined in `DEFAULT_*` / `MIN_*` /
-    // `MAX_*` constants above before persisting the value under the matching
-    // `DataKey` variant. The matching `effective_max_*` getter returns the
-    // stored value or falls back to the protocol default if no admin
-    // override has been stored. This delivers the headline feature of PR
-    // #1243: making the arbiter limit an admin-configurable parameter.
-
-    /// Admin-only setter for the maximum number of milestones per contract.
-    pub fn set_max_milestones(env: Env, admin: Address, max: u32) -> bool {
-        Self::require_initialized(&env);
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
-        if admin != stored_admin {
-            env.panic_with_error(EscrowError::UnauthorizedRole);
-        }
-        admin.require_auth();
-        if max < MIN_MAX_MILESTONES || max > MAX_MAX_MILESTONES {
-            env.panic_with_error(EscrowError::LimitOutOfRange);
-        }
-        env.storage()
-            .persistent()
-            .set(&DataKey::MaxMilestones, &max);
-        env.events().publish(
-            (symbol_short!("cfg_maxm"),),
-            (admin, max, env.ledger().timestamp()),
-        );
-        true
-    }
-
-    /// Returns the effective max-milestones cap (admin override or default).
-    pub fn effective_max_milestones(env: &Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::MaxMilestones)
-            .unwrap_or(DEFAULT_MAX_MILESTONES)
-    }
-
-    /// Read the effective max-milestones cap.
-    pub fn get_max_milestones(env: Env) -> u32 {
-        Self::effective_max_milestones(&env)
-    }
-
-    /// Admin-only setter for the maximum total-escrow stroops per contract.
-    pub fn set_max_escrow_stroops(env: Env, admin: Address, max: i128) -> bool {
-        Self::require_initialized(&env);
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
-        if admin != stored_admin {
-            env.panic_with_error(EscrowError::UnauthorizedRole);
-        }
-        admin.require_auth();
-        if max < MIN_MAX_ESCROW_STROOPS || max > MAX_TOTAL_ESCROW_STROOPS {
-            env.panic_with_error(EscrowError::LimitOutOfRange);
-        }
-        env.storage()
-            .persistent()
-            .set(&DataKey::MaxEscrowStroops, &max);
-        env.events().publish(
-            (symbol_short!("cfg_maxs"),),
-            (admin, max, env.ledger().timestamp()),
-        );
-        true
-    }
-
-    /// Returns the effective max-escrow-stroops cap (admin override or default).
-    pub fn effective_max_escrow_stroops(env: &Env) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::MaxEscrowStroops)
-            .unwrap_or(DEFAULT_MAX_TOTAL_ESCROW_STROOPS)
-    }
-
-    /// Read the effective max-escrow-stroops cap.
-    pub fn get_max_escrow_stroops(env: Env) -> i128 {
-        Self::effective_max_escrow_stroops(&env)
-    }
-
-    /// Admin-only setter for the maximum number of arbiters per contract.
-    ///
-    /// This is the headline endpoint of PR #1243. Setting the value below
-    /// `MIN_MAX_ARBITERS = 1` or above `MAX_MAX_ARBITERS = 100` panics with
-    /// `LimitOutOfRange`. Successful updates emit a `cfg_maxa` topic event so
-    /// off-chain indexers observe the parameter change.
-    pub fn set_max_arbiters(env: Env, admin: Address, max: u32) -> bool {
-        Self::require_initialized(&env);
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
-        if admin != stored_admin {
-            env.panic_with_error(EscrowError::UnauthorizedRole);
-        }
-        admin.require_auth();
-        if max < MIN_MAX_ARBITERS || max > MAX_MAX_ARBITERS {
-            env.panic_with_error(EscrowError::LimitOutOfRange);
-        }
-        env.storage()
-            .persistent()
-            .set(&DataKey::MaxArbiters, &max);
-        env.events().publish(
-            (symbol_short!("cfg_maxa"),),
-            (admin, max, env.ledger().timestamp()),
-        );
-        true
-    }
-
-    /// Returns the effective max-arbiters cap (admin override or default).
-    ///
-    /// Used by callers that want to validate a contract's arbiter count
-    /// against the currently configured cap. Falls back to
-    /// `DEFAULT_MAX_ARBITERS = 1` when no admin override has been stored.
-    pub fn effective_max_arbiters(env: &Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::MaxArbiters)
-            .unwrap_or(DEFAULT_MAX_ARBITERS)
-    }
-
-    /// Read the effective max-arbiters cap.
-    pub fn get_max_arbiters(env: Env) -> u32 {
-        Self::effective_max_arbiters(&env)
-    }
-
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
     ///
     /// # Arguments
@@ -1322,13 +1179,13 @@ impl Escrow {
             }
         }
 
-        let mut milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
+        let milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
 
         if milestone_index >= milestones.len() {
             env.panic_with_error(Error::IndexOutOfBounds);
         }
 
-        let mut milestone = milestones.get(milestone_index).unwrap().clone();
+        let milestone = milestones.get(milestone_index).unwrap().clone();
 
         if milestone.released {
             env.panic_with_error(Error::MilestoneAlreadyReleased);
@@ -1646,13 +1503,12 @@ impl Escrow {
             }
 
             // SECURITY: Check timeout refund conditions - milestone must be overdue if deadline is set
-            if let Some(_deadline) = milestone.deadline {
+            if milestone.deadline.is_some() {
                 // Milestone has a deadline - check if it's overdue
                 if !Self::is_milestone_overdue(env.clone(), contract_id, idx) {
                     // Deadline set but milestone not yet overdue
                     env.panic_with_error(Error::MilestoneNotOverdue);
                 }
-                // SECURITY: is_milestone_overdue already verified: now > deadline AND unreleased
             }
             // If no deadline (None), allow refund anytime (backward compatibility)
 
@@ -2349,7 +2205,17 @@ impl Escrow {
     /// * `InvalidStatusTransition` - If the contract is not `Created`/`Funded` or has already released funds.
     pub fn cancel_contract(env: Env, contract_id: u32, client: Address) -> bool {
         Self::require_not_paused(&env);
-        let mut contract: Contract = Self::require_active_contract(&env, contract_id);
+        client.require_auth();
+
+        let mut contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+
+        ttl::extend_contract_ttl(&env, contract_id);
+
+        Self::require_not_finalized(&env, contract_id);
 
         if client != contract.client {
             env.panic_with_error(EscrowError::UnauthorizedRole);
@@ -2363,11 +2229,7 @@ impl Escrow {
             env.panic_with_error(EscrowError::InvalidStatusTransition);
         }
 
-        if contract.released_amount != 0 {
-            env.panic_with_error(EscrowError::InvalidStatusTransition);
-        }
-
-        client.require_auth();
+        let old_status = contract.status;
 
         let refund_amount =
             contract.funded_amount - contract.released_amount - contract.refunded_amount;
@@ -2390,7 +2252,6 @@ impl Escrow {
         env.storage()
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);
-        ttl::extend_contract_ttl(&env, contract_id);
 
         env.events().publish(
             (symbol_short!("cancelled"), contract_id),
@@ -2621,7 +2482,10 @@ impl Escrow {
         if pending <= 0 {
             env.panic_with_error(Error::NoPendingReputationCredits);
         }
-        env.storage().persistent().set(&pending_key, &(pending - 1));
+        let new_pending = pending
+            .checked_sub(1)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+        env.storage().persistent().set(&pending_key, &new_pending);
 
         let rep_key = DataKey::Reputation(contract.freelancer.clone());
         let mut rep: types::Reputation =
@@ -3154,6 +3018,16 @@ impl Escrow {
         let proposal: Option<PendingAdminProposal> =
             env.storage().persistent().get(&DataKey::PendingAdmin);
         proposal.map(|p| p.proposed_at_ledger)
+    }
+
+    /// Propose a new governance admin. Only the existing admin can call this.
+    pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+        Self::propose_governance_admin_impl(&env, proposed)
+    }
+
+    /// Accept an existing governance admin proposal.
+    pub fn accept_governance_admin(env: Env) -> bool {
+        Self::accept_governance_admin_impl(&env)
     }
 
     // ── Protocol fee helpers ─────────────────────────────────────────────────

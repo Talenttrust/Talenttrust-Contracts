@@ -1,7 +1,8 @@
 #![cfg(test)]
 #![allow(dead_code)]
 
-use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env, Vec};
+pub use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
 use crate::{
     Contract, ContractStatus, Escrow, EscrowClient, EscrowError, Milestone, ReleaseAuthorization,

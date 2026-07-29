@@ -1,4 +1,4 @@
-use soroban_sdk::testutils::{Address as _, Events, Ledger};
+use soroban_sdk::testutils::{Address as _, Events, Ledger as _, LedgerInfo};
 use soroban_sdk::{Address, Env};
 
 use super::{
