@@ -8,10 +8,15 @@
 //! `DataKey::Contract(contract_id)`.
 
 use crate::{
-    safe_add_amounts, Contract, ContractStatus, DataKey, DisputeConfig, DisputeMetadata,
-    DisputeResolution, Error, DISPUTE_STORAGE_VERSION, types::DisputeMetadataV0,
+    safe_add_amounts, types::DisputeMetadataV0, Contract, ContractStatus, DataKey, DisputeConfig,
+    DisputeMetadata, DisputeResolution, Error, DISPUTE_STORAGE_VERSION,
 };
 use soroban_sdk::Env;
+
+/// Freelancer share of a partial-refund dispute resolution, in percent.
+pub const PARTIAL_REFUND_FREELANCER_PERCENT: i128 = 30;
+/// Percent base used with [`PARTIAL_REFUND_FREELANCER_PERCENT`].
+pub const PARTIAL_REFUND_PERCENT_BASE: i128 = 100;
 
 #[soroban_sdk::contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -167,7 +172,7 @@ pub fn load_dispute_metadata(env: &Env, contract_id: u32) -> DisputeMetadata {
         .get::<_, DisputeMetadata>(&DataKey::Dispute(contract_id))
     {
         if meta.schema_version > DISPUTE_STORAGE_VERSION {
-            env.panic_with_error(Error::UnsupportedDisputeStorageVersion);
+            env.panic_with_error(Error::InvalidState);
         }
         return meta;
     }

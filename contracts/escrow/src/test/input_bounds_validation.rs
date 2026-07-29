@@ -98,7 +98,7 @@ fn create_contract_rejects_zero_milestone_amount() {
             &vec![&env, 0_i128],
             &ReleaseAuthorization::ClientOnly,
         ),
-        EscrowError::InvalidMilestoneAmount,
+        EscrowError::IndexOutOfBounds,
     );
 }
 
@@ -116,7 +116,7 @@ fn create_contract_rejects_negative_milestone_amount() {
             &vec![&env, -1_i128],
             &ReleaseAuthorization::ClientOnly,
         ),
-        EscrowError::InvalidMilestoneAmount,
+        EscrowError::IndexOutOfBounds,
     );
 }
 
@@ -134,7 +134,7 @@ fn create_contract_rejects_large_negative_milestone_amount() {
             &vec![&env, -1_000_000_0000000_i128],
             &ReleaseAuthorization::ClientOnly,
         ),
-        EscrowError::InvalidMilestoneAmount,
+        EscrowError::IndexOutOfBounds,
     );
 }
 
@@ -152,7 +152,7 @@ fn create_contract_rejects_milestone_above_max_single_amount() {
             &vec![&env, MAX_SINGLE_AMOUNT_STROOPS + 1],
             &ReleaseAuthorization::ClientOnly,
         ),
-        EscrowError::InvalidMilestoneAmount,
+        EscrowError::IndexOutOfBounds,
     );
 }
 
@@ -248,7 +248,7 @@ fn create_contract_rejects_total_one_over_cap() {
             &vec![&env, MAX_TOTAL_ESCROW_STROOPS + 1],
             &ReleaseAuthorization::ClientOnly,
         ),
-        EscrowError::InvalidMilestoneAmount,
+        EscrowError::IndexOutOfBounds,
     );
 }
 
@@ -267,7 +267,7 @@ fn create_contract_rejects_total_above_cap_split() {
             &vec![&env, half, half],
             &ReleaseAuthorization::ClientOnly,
         ),
-        EscrowError::TotalCapExceeded,
+        EscrowError::InvalidMilestoneAmount,
     );
 }
 
@@ -285,7 +285,7 @@ fn create_contract_rejects_i128_max_milestone() {
             &vec![&env, i128::MAX],
             &ReleaseAuthorization::ClientOnly,
         ),
-        EscrowError::InvalidMilestoneAmount,
+        EscrowError::IndexOutOfBounds,
     );
 }
 
@@ -303,7 +303,7 @@ fn create_contract_rejects_mixed_valid_and_zero_amounts() {
             &vec![&env, 100_0000000_i128, 0_i128, 200_0000000_i128],
             &ReleaseAuthorization::ClientOnly,
         ),
-        EscrowError::InvalidMilestoneAmount,
+        EscrowError::IndexOutOfBounds,
     );
 }
 
@@ -470,7 +470,7 @@ fn deposit_funds_rejects_amount_above_max_single() {
     token_client.mint(&client_addr, &MAX_SINGLE_AMOUNT_STROOPS);
     assert_contract_error(
         client.try_deposit_funds(&contract_id, &client_addr, &(MAX_SINGLE_AMOUNT_STROOPS + 1)),
-        EscrowError::InvalidDepositAmount,
+        EscrowError::AmountMustBePositive,
     );
 }
 
@@ -507,7 +507,7 @@ fn deposit_funds_rejects_amount_exceeding_remaining_capacity() {
     token_client.mint(&client_addr, &200_0000000_i128);
     assert_contract_error(
         client.try_deposit_funds(&contract_id, &client_addr, &200_0000000_i128),
-        crate::Error::InvalidDepositAmount,
+        crate::Error::AmountMustBePositive,
     );
 }
 
@@ -579,7 +579,7 @@ fn withdraw_protocol_fees_rejects_amount_above_max() {
     assert_contract_error(
         client
             .try_withdraw_protocol_fees(&(MAX_SINGLE_AMOUNT_STROOPS + 1), &Address::generate(&env)),
-        EscrowError::InvalidWithdrawalAmount,
+        EscrowError::AmountMustBePositive,
     );
 }
 

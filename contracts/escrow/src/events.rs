@@ -10,7 +10,6 @@ pub struct EventInput {
     pub data: soroban_sdk::Symbol,
 }
 
-
 /// Maximum number of events processed in a batch operations.
 pub const MAX_EVENT_BATCH_SIZE: usize = 100;
 

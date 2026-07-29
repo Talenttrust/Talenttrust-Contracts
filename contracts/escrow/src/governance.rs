@@ -10,12 +10,12 @@
 use crate::storage_validation;
 use crate::ttl::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
 use crate::{
-    DataKey, Error, Escrow, GovernedParameters, PendingAdminProposal,
-    ReadinessChecklist, MAX_MAX_MILESTONES, MIN_MAX_MILESTONES, MAX_FEE_BPS,
+    DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, PendingAdminProposal,
+    ReadinessChecklist, MAX_FEE_BPS, MAX_MAX_MILESTONES, MIN_MAX_MILESTONES,
 };
-use soroban_sdk::{symbol_short, Address, Env, Symbol};
+use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol};
 
-#[soroban_sdk::contractimpl]
+#[contractimpl]
 impl Escrow {
     /// Set the protocol fee in basis points.
     ///
@@ -74,32 +74,20 @@ impl Escrow {
 
     /// Set the maximum allowed milestones per contract (admin-controlled).
     ///
-    /// Admin must be the stored admin and authorize the call. The provided
+    /// The stored admin must authorize the call. The provided
     /// `max_milestones` is validated against compile-time safe bounds and a
-    /// typed `InvalidProtocolParameters` error is returned for invalid values.
-    pub fn set_max_milestones(env: Env, admin: Address, max_milestones: u32) -> bool {
-        if !env
-            .storage()
-            .persistent()
-            .get::<_, bool>(&crate::DataKey::Initialized)
-            .unwrap_or(false)
-        {
-            env.panic_with_error(Error::NotInitialized);
-        }
-
-        let stored_admin: Address = env
+    /// typed `LimitOutOfRange` error is returned for invalid values.
+    pub fn set_max_milestones(env: Env, max_milestones: u32) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
             .storage()
             .persistent()
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
-
-        if admin != stored_admin {
-            env.panic_with_error(Error::UnauthorizedRole);
-        }
         admin.require_auth();
 
         if max_milestones < MIN_MAX_MILESTONES || max_milestones > MAX_MAX_MILESTONES {
-            env.panic_with_error(Error::InvalidProtocolParameters);
+            env.panic_with_error(Error::LimitOutOfRange);
         }
 
         env.storage()

@@ -6,7 +6,7 @@
 //! [`super::budget`].
 
 use super::{EscrowFixture, MILESTONE_ONE, MILESTONE_THREE, MILESTONE_TWO};
-use soroban_sdk::{token::StellarAssetClient, vec};
+use soroban_sdk::{token::StellarAssetClient, vec, Env};
 
 // ---------------------------------------------------------------------------
 // Shared resource helpers (duplicated from budget.rs to keep modules independent)
