@@ -5,7 +5,7 @@
 //! parametric budget suite (typical vs. max-load, all entrypoints), see
 //! [`super::budget`].
 
-use super::{EscrowFixture, MILESTONE_ONE, MILESTONE_TWO, MILESTONE_THREE};
+use super::{EscrowFixture, MILESTONE_ONE, MILESTONE_THREE, MILESTONE_TWO};
 use soroban_sdk::{token::StellarAssetClient, vec};
 
 // ---------------------------------------------------------------------------
@@ -42,37 +42,51 @@ fn assert_baseline(label: &str, baseline: Baseline, env: &Env) {
     assert!(
         instr <= baseline.max_instructions,
         "[perf] {} instruction regression: {} > {}",
-        label, instr, baseline.max_instructions
+        label,
+        instr,
+        baseline.max_instructions
     );
     assert!(
         mem <= baseline.max_mem_bytes,
         "[perf] {} memory regression: {} > {}",
-        label, mem, baseline.max_mem_bytes
+        label,
+        mem,
+        baseline.max_mem_bytes
     );
     assert!(
         re <= baseline.max_read_entries,
         "[perf] {} read-entry regression: {} > {}",
-        label, re, baseline.max_read_entries
+        label,
+        re,
+        baseline.max_read_entries
     );
     assert!(
         we <= baseline.max_write_entries,
         "[perf] {} write-entry regression: {} > {}",
-        label, we, baseline.max_write_entries
+        label,
+        we,
+        baseline.max_write_entries
     );
     assert!(
         rb <= baseline.max_read_bytes,
         "[perf] {} read-byte regression: {} > {}",
-        label, rb, baseline.max_read_bytes
+        label,
+        rb,
+        baseline.max_read_bytes
     );
     assert!(
         wb <= baseline.max_write_bytes,
         "[perf] {} write-byte regression: {} > {}",
-        label, wb, baseline.max_write_bytes
+        label,
+        wb,
+        baseline.max_write_bytes
     );
     assert!(
         fee <= baseline.max_fee_total,
         "[perf] {} fee regression: {} > {}",
-        label, fee, baseline.max_fee_total
+        label,
+        fee,
+        baseline.max_fee_total
     );
 }
 
@@ -81,53 +95,53 @@ fn assert_baseline(label: &str, baseline: Baseline, env: &Env) {
 // ---------------------------------------------------------------------------
 
 const CREATE_BASELINE: Baseline = Baseline {
-    max_instructions:  30_000_000,
-    max_mem_bytes:      3_000_000,
-    max_read_entries:          12,
-    max_write_entries:          9,
-    max_read_bytes:        24_576,
-    max_write_bytes:       49_152,
-    max_fee_total:      6_000_000,
+    max_instructions: 30_000_000,
+    max_mem_bytes: 3_000_000,
+    max_read_entries: 12,
+    max_write_entries: 9,
+    max_read_bytes: 24_576,
+    max_write_bytes: 49_152,
+    max_fee_total: 6_000_000,
 };
 
 const DEPOSIT_BASELINE: Baseline = Baseline {
-    max_instructions:  30_000_000,
-    max_mem_bytes:      3_000_000,
-    max_read_entries:          12,
-    max_write_entries:          6,
-    max_read_bytes:        24_576,
-    max_write_bytes:       32_768,
-    max_fee_total:      6_000_000,
+    max_instructions: 30_000_000,
+    max_mem_bytes: 3_000_000,
+    max_read_entries: 12,
+    max_write_entries: 6,
+    max_read_bytes: 24_576,
+    max_write_bytes: 32_768,
+    max_fee_total: 6_000_000,
 };
 
 const RELEASE_BASELINE: Baseline = Baseline {
-    max_instructions:  30_000_000,
-    max_mem_bytes:      3_000_000,
-    max_read_entries:          12,
-    max_write_entries:          9,
-    max_read_bytes:        24_576,
-    max_write_bytes:       49_152,
-    max_fee_total:      6_000_000,
+    max_instructions: 30_000_000,
+    max_mem_bytes: 3_000_000,
+    max_read_entries: 12,
+    max_write_entries: 9,
+    max_read_bytes: 24_576,
+    max_write_bytes: 49_152,
+    max_fee_total: 6_000_000,
 };
 
 const CANCEL_BASELINE: Baseline = Baseline {
-    max_instructions:  30_000_000,
-    max_mem_bytes:      3_000_000,
-    max_read_entries:          12,
-    max_write_entries:          6,
-    max_read_bytes:        24_576,
-    max_write_bytes:       32_768,
-    max_fee_total:      6_000_000,
+    max_instructions: 30_000_000,
+    max_mem_bytes: 3_000_000,
+    max_read_entries: 12,
+    max_write_entries: 6,
+    max_read_bytes: 24_576,
+    max_write_bytes: 32_768,
+    max_fee_total: 6_000_000,
 };
 
 const REFUND_BASELINE: Baseline = Baseline {
-    max_instructions:  30_000_000,
-    max_mem_bytes:      3_000_000,
-    max_read_entries:          12,
-    max_write_entries:          9,
-    max_read_bytes:        24_576,
-    max_write_bytes:       49_152,
-    max_fee_total:      6_000_000,
+    max_instructions: 30_000_000,
+    max_mem_bytes: 3_000_000,
+    max_read_entries: 12,
+    max_write_entries: 9,
+    max_read_bytes: 24_576,
+    max_write_bytes: 49_152,
+    max_fee_total: 6_000_000,
 };
 
 // ---------------------------------------------------------------------------
@@ -143,12 +157,7 @@ fn perf_create_contract_resource_baseline() {
         &fixture.client,
         &fixture.freelancer,
         &None,
-        &vec![
-            &fixture.env,
-            MILESTONE_ONE,
-            MILESTONE_TWO,
-            MILESTONE_THREE,
-        ],
+        &vec![&fixture.env, MILESTONE_ONE, MILESTONE_TWO, MILESTONE_THREE],
         &crate::ReleaseAuthorization::ClientOnly,
     );
 
@@ -161,8 +170,7 @@ fn perf_deposit_funds_resource_baseline() {
     let escrow = fixture.escrow();
     let total = fixture.total_amount();
     let token = fixture.settlement_token.as_ref().unwrap();
-    soroban_sdk::token::StellarAssetClient::new(&fixture.env, token)
-        .mint(&fixture.client, &total);
+    soroban_sdk::token::StellarAssetClient::new(&fixture.env, token).mint(&fixture.client, &total);
 
     escrow.deposit_funds(&fixture.escrow_id, &fixture.client, &total);
 
@@ -196,10 +204,7 @@ fn perf_refund_unreleased_milestones_resource_baseline() {
     let fixture = EscrowFixture::builder().funded().build();
     let escrow = fixture.escrow();
 
-    escrow.refund_unreleased_milestones(
-        &fixture.escrow_id,
-        &vec![&fixture.env, 0_u32, 1, 2],
-    );
+    escrow.refund_unreleased_milestones(&fixture.escrow_id, &vec![&fixture.env, 0_u32, 1, 2]);
 
     assert_baseline(
         "refund_unreleased_milestones",

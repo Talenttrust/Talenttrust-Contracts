@@ -10,8 +10,8 @@
 use crate::storage_validation;
 use crate::ttl::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
 use crate::{
-    DataKey, Error, Escrow, EscrowError, GovernedParameters, PendingAdminProposal,
-    ReadinessChecklist, MAX_MAX_MILESTONES, MIN_MAX_MILESTONES,
+    DataKey, Error, Escrow, GovernedParameters, PendingAdminProposal,
+    ReadinessChecklist, MAX_MAX_MILESTONES, MIN_MAX_MILESTONES, MAX_FEE_BPS,
 };
 use soroban_sdk::{symbol_short, Address, Env, Symbol};
 
@@ -40,8 +40,8 @@ impl Escrow {
         admin.require_auth();
 
         storage_validation::validate_protocol_fee_bps(&env, new_bps);
-        if new_bps > crate::milestones_consts::MAX_FEE_BPS {
-            env.panic_with_error(EscrowError::InvalidProtocolParameters);
+        if new_bps > 10_000 {
+            env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
         let old_bps: u32 = env

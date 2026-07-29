@@ -1,8 +1,15 @@
-use crate::types::{Contract, EventEntry, MilestoneIndexEvent};
-use crate::{DataKey, EscrowError};
-use soroban_sdk::{symbol_short, Env};
+use crate::types::Contract;
+use crate::EscrowError;
+use soroban_sdk::{symbol_short, Address, Env};
 
-pub use crate::types::MilestoneIndexEvent;
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventInput {
+    pub topic: soroban_sdk::Symbol,
+    pub contract_id: u32,
+    pub data: soroban_sdk::Symbol,
+}
+
 
 /// Maximum number of events processed in a batch operations.
 pub const MAX_EVENT_BATCH_SIZE: usize = 100;
@@ -90,7 +97,7 @@ pub fn emit_dispute_resolved_event(
     client_payout: i128,
     freelancer_payout: i128,
     resolution_code: u32,
-    final_status: ContractStatus,
+    final_status: crate::types::ContractStatus,
 ) {
     env.events().publish(
         (symbol_short!("dispute"), symbol_short!("resolved")),

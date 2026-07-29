@@ -1,8 +1,8 @@
 use super::register_client;
 use crate::{
-    Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization, MAX_MAX_ARBITERS,
-    MAX_MAX_MILESTONES, DEFAULT_MAX_ARBITERS, DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
-    MIN_MAX_ARBITERS, MIN_MAX_ESCROW_STROOPS,
+    Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization, DEFAULT_MAX_ARBITERS,
+    DEFAULT_MAX_TOTAL_ESCROW_STROOPS, MAX_MAX_ARBITERS, MAX_MAX_MILESTONES, MIN_MAX_ARBITERS,
+    MIN_MAX_ESCROW_STROOPS,
 };
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
@@ -33,7 +33,10 @@ fn max_escrow_stroops_returns_default_before_any_set() {
     let (env, contract_id, _admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
 
-    assert_eq!(client.get_max_escrow_stroops(), DEFAULT_MAX_TOTAL_ESCROW_STROOPS);
+    assert_eq!(
+        client.get_max_escrow_stroops(),
+        DEFAULT_MAX_TOTAL_ESCROW_STROOPS
+    );
 }
 
 #[test]
@@ -141,10 +144,7 @@ fn set_max_milestones_requires_initialization() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
-    super::assert_contract_error(
-        client.try_set_max_milestones(&20),
-        Error::NotInitialized,
-    );
+    super::assert_contract_error(client.try_set_max_milestones(&20), Error::NotInitialized);
 }
 
 #[test]
@@ -204,9 +204,8 @@ fn create_contract_respects_higher_max_milestones() {
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
     let milestones = vec![
-        &env, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
-        100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
-        100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
+        &env, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
+        100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
     ];
     let id = client.create_contract(
         &client_addr,
@@ -305,8 +304,8 @@ fn default_limits_apply_when_not_set() {
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
     let milestones = vec![
-        &env, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
-        100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
+        &env, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
+        100_i128, 100_i128,
     ];
     let id = client.create_contract(
         &client_addr,

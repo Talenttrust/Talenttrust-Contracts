@@ -114,7 +114,7 @@ pub fn refund_unreleased_milestones(
     let token_address: soroban_sdk::Address = env.storage().persistent().get(&DataKey::SettlementToken).unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
     let balance = soroban_sdk::token::Client::new(env, &token_address).balance(&env.current_contract_address());
     if balance < total_refund_amount {
-        env.panic_with_error(EscrowError::InsufficientEscrowBalance);
+        env.panic_with_error(EscrowError::InsufficientFunds);
     }
     soroban_sdk::token::Client::new(env, &token_address).transfer(&env.current_contract_address(), &contract.client, &total_refund_amount);
 

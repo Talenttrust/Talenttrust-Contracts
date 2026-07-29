@@ -1,6 +1,4 @@
-use super::{
-    default_milestones, generated_participants3, register_client, total_milestones,
-};
+use super::{default_milestones, generated_participants3, register_client, total_milestones};
 use crate::{Error, ReleaseAuthorization};
 use soroban_sdk::{testutils::Address as _, Env};
 
@@ -93,7 +91,12 @@ fn test_only_client_can_issue_reputation() {
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &2));
     assert!(client.release_milestone(&contract_id, &client_addr, &2));
 
-    let result = client.try_issue_reputation(&contract_id, &freelancer_addr, &5, &soroban_sdk::String::from_str(&env, "test"));
+    let result = client.try_issue_reputation(
+        &contract_id,
+        &freelancer_addr,
+        &5,
+        &soroban_sdk::String::from_str(&env, "test"),
+    );
     super::assert_contract_error(result, Error::UnauthorizedRole);
 }
 
@@ -122,7 +125,12 @@ fn test_issue_reputation_rejects_freelancer_mismatch() {
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &2));
     assert!(client.release_milestone(&contract_id, &client_addr, &2));
 
-    let result = client.try_issue_reputation(&contract_id, &client_addr, &5, &soroban_sdk::String::from_str(&env, "test"));
+    let result = client.try_issue_reputation(
+        &contract_id,
+        &client_addr,
+        &5,
+        &soroban_sdk::String::from_str(&env, "test"),
+    );
     super::assert_contract_error(result, Error::FreelancerMismatch);
 }
 
@@ -401,7 +409,12 @@ fn test_issue_reputation_rejects_invalid_rating() {
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &2));
     assert!(client.release_milestone(&contract_id, &client_addr, &2));
 
-    let result = client.try_issue_reputation(&contract_id, &client_addr, &0, &soroban_sdk::String::from_str(&env, "test"));
+    let result = client.try_issue_reputation(
+        &contract_id,
+        &client_addr,
+        &0,
+        &soroban_sdk::String::from_str(&env, "test"),
+    );
     super::assert_contract_error(result, Error::InvalidRating);
 }
 
@@ -420,7 +433,12 @@ fn test_issue_reputation_requires_completed_contract() {
         &ReleaseAuthorization::ClientOnly,
     );
 
-    let result = client.try_issue_reputation(&contract_id, &client_addr, &5, &soroban_sdk::String::from_str(&env, "test"));
+    let result = client.try_issue_reputation(
+        &contract_id,
+        &client_addr,
+        &5,
+        &soroban_sdk::String::from_str(&env, "test"),
+    );
     super::assert_contract_error(result, Error::InvalidState);
 }
 
@@ -447,8 +465,18 @@ fn test_issue_reputation_rejects_duplicate_issuance() {
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &2));
     assert!(client.release_milestone(&contract_id, &client_addr, &2));
 
-    assert!(client.issue_reputation(&contract_id, &client_addr, &5, &soroban_sdk::String::from_str(&env, "test")));
-    let result = client.try_issue_reputation(&contract_id, &client_addr, &4, &soroban_sdk::String::from_str(&env, "test2"));
+    assert!(client.issue_reputation(
+        &contract_id,
+        &client_addr,
+        &5,
+        &soroban_sdk::String::from_str(&env, "test")
+    ));
+    let result = client.try_issue_reputation(
+        &contract_id,
+        &client_addr,
+        &4,
+        &soroban_sdk::String::from_str(&env, "test2"),
+    );
     super::assert_contract_error(result, Error::ReputationAlreadyIssued);
 }
 
@@ -533,10 +561,7 @@ fn submit_work_evidence_freelancer_succeeds() {
     let escrow = f.escrow();
     let evidence = s(&f.env, "ipfs://QmValid");
     assert!(escrow.submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &evidence));
-    assert_eq!(
-        escrow.get_work_evidence(&f.escrow_id, &0),
-        Some(evidence)
-    );
+    assert_eq!(escrow.get_work_evidence(&f.escrow_id, &0), Some(evidence));
 }
 
 /// The client is not the freelancer — must be rejected with `UnauthorizedRole`.
@@ -546,7 +571,7 @@ fn submit_work_evidence_client_rejected() {
     let escrow = f.escrow();
     let evidence = s(&f.env, "ipfs://QmClient");
     let result = escrow.try_submit_work_evidence(&f.escrow_id, &f.client, &0, &evidence);
-    super::super::assert_contract_error(result, EscrowError::UnauthorizedRole);
+    crate::test::assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 /// An assigned arbiter is not the freelancer — must be rejected.
@@ -580,7 +605,7 @@ fn submit_work_evidence_arbiter_rejected() {
 
     let evidence = s(&env, "ipfs://QmArbiter");
     let result = escrow.try_submit_work_evidence(&contract_id, &arbiter, &0, &evidence);
-    super::super::assert_contract_error(result, EscrowError::UnauthorizedRole);
+    crate::test::assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 /// A random third party must be rejected with `UnauthorizedRole`.
@@ -591,7 +616,7 @@ fn submit_work_evidence_third_party_rejected() {
     let outsider = soroban_sdk::Address::generate(&f.env);
     let evidence = s(&f.env, "ipfs://QmOutsider");
     let result = escrow.try_submit_work_evidence(&f.escrow_id, &outsider, &0, &evidence);
-    super::super::assert_contract_error(result, EscrowError::UnauthorizedRole);
+    crate::test::assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ── contract-state gates ──────────────────────────────────────────────────────
@@ -624,7 +649,7 @@ fn submit_work_evidence_rejects_created_state() {
 
     let evidence = s(&env, "ipfs://QmCreated");
     let result = escrow.try_submit_work_evidence(&contract_id, &freelancer, &0, &evidence);
-    super::super::assert_contract_error(result, EscrowError::InvalidState);
+    crate::test::assert_contract_error(result, EscrowError::InvalidState);
 }
 
 /// `Cancelled` contract rejects evidence with `InvalidState`.
@@ -658,7 +683,7 @@ fn submit_work_evidence_rejects_cancelled_state() {
 
     let evidence = s(&env, "ipfs://QmCancelled");
     let result = escrow.try_submit_work_evidence(&contract_id, &freelancer, &0, &evidence);
-    super::super::assert_contract_error(result, EscrowError::InvalidState);
+    crate::test::assert_contract_error(result, EscrowError::InvalidState);
 }
 
 /// `Disputed` contract rejects evidence with `InvalidState`.
@@ -699,7 +724,7 @@ fn submit_work_evidence_rejects_disputed_state() {
 
     let evidence = s(&env, "ipfs://QmDisputed");
     let result = escrow.try_submit_work_evidence(&contract_id, &freelancer, &0, &evidence);
-    super::super::assert_contract_error(result, EscrowError::InvalidState);
+    crate::test::assert_contract_error(result, EscrowError::InvalidState);
 }
 
 /// `Completed` contract rejects evidence with `InvalidState`.
@@ -740,7 +765,7 @@ fn submit_work_evidence_rejects_completed_state() {
 
     let evidence = s(&env, "ipfs://QmCompleted");
     let result = escrow.try_submit_work_evidence(&contract_id, &freelancer, &0, &evidence);
-    super::super::assert_contract_error(result, EscrowError::InvalidState);
+    crate::test::assert_contract_error(result, EscrowError::InvalidState);
 }
 
 /// `Refunded` contract rejects evidence with `InvalidState`.
@@ -779,7 +804,7 @@ fn submit_work_evidence_rejects_refunded_state() {
 
     let evidence = s(&env, "ipfs://QmRefunded");
     let result = escrow.try_submit_work_evidence(&contract_id, &freelancer, &0, &evidence);
-    super::super::assert_contract_error(result, EscrowError::InvalidState);
+    crate::test::assert_contract_error(result, EscrowError::InvalidState);
 }
 
 // ── milestone-state gates ─────────────────────────────────────────────────────
@@ -819,7 +844,7 @@ fn submit_work_evidence_rejects_released_milestone() {
     // Contract is still Funded (one remaining milestone). But milestone 0 is released.
     let evidence = s(&env, "ipfs://QmPostRelease");
     let result = escrow.try_submit_work_evidence(&contract_id, &freelancer, &0, &evidence);
-    super::super::assert_contract_error(result, crate::Error::MilestoneAlreadyReleased);
+    crate::test::assert_contract_error(result, crate::Error::MilestoneAlreadyReleased);
 }
 
 /// A milestone that has been individually refunded must reject evidence.
@@ -856,7 +881,7 @@ fn submit_work_evidence_rejects_refunded_milestone() {
     // Contract is now Refunded; the contract-state gate fires first.
     let evidence = s(&env, "ipfs://QmPostRefund");
     let result = escrow.try_submit_work_evidence(&contract_id, &freelancer, &0, &evidence);
-    super::super::assert_contract_error(result, EscrowError::InvalidState);
+    crate::test::assert_contract_error(result, EscrowError::InvalidState);
 }
 
 // ── evidence string validation ────────────────────────────────────────────────
@@ -868,7 +893,7 @@ fn submit_work_evidence_rejects_empty_string() {
     let escrow = f.escrow();
     let empty = s(&f.env, "");
     let result = escrow.try_submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &empty);
-    super::super::assert_contract_error(result, crate::Error::EmptyEvidence);
+    crate::test::assert_contract_error(result, crate::Error::EmptyEvidence);
 }
 
 /// A single-byte evidence string is the minimum valid length.
@@ -878,10 +903,7 @@ fn submit_work_evidence_accepts_single_byte() {
     let escrow = f.escrow();
     let one_byte = s(&f.env, "x");
     assert!(escrow.submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &one_byte));
-    assert_eq!(
-        escrow.get_work_evidence(&f.escrow_id, &0),
-        Some(one_byte)
-    );
+    assert_eq!(escrow.get_work_evidence(&f.escrow_id, &0), Some(one_byte));
 }
 
 /// Exactly 256 bytes is the upper boundary — must be accepted.
@@ -904,7 +926,7 @@ fn submit_work_evidence_rejects_257_byte_string() {
     let escrow = f.escrow();
     let too_long = String::from_str(&f.env, &"a".repeat(257));
     let result = escrow.try_submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &too_long);
-    super::super::assert_contract_error(result, crate::Error::EvidenceTooLong);
+    crate::test::assert_contract_error(result, crate::Error::EvidenceTooLong);
 }
 
 // ── overwrite and read-back ───────────────────────────────────────────────────
@@ -952,7 +974,7 @@ fn submit_work_evidence_rejects_unknown_contract_id() {
 
     let evidence = s(&env, "ipfs://QmUnknown");
     let result = escrow.try_submit_work_evidence(&9999, &freelancer, &0, &evidence);
-    super::super::assert_contract_error(result, EscrowError::ContractNotFound);
+    crate::test::assert_contract_error(result, EscrowError::ContractNotFound);
 }
 
 // ── pause gate ────────────────────────────────────────────────────────────────
@@ -967,7 +989,7 @@ fn submit_work_evidence_blocked_while_paused() {
 
     let evidence = s(&f.env, "ipfs://QmPaused");
     let result = escrow.try_submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &evidence);
-    super::super::assert_contract_error(result, EscrowError::ContractPaused);
+    crate::test::assert_contract_error(result, EscrowError::ContractPaused);
 }
 
 /// After unpausing the same call is accepted.
@@ -991,7 +1013,7 @@ fn submit_work_evidence_rejects_out_of_bounds_index() {
     let escrow = f.escrow();
     let evidence = s(&f.env, "ipfs://QmBadIndex");
     let result = escrow.try_submit_work_evidence(&f.escrow_id, &f.freelancer, &99, &evidence);
-    super::super::assert_contract_error(result, crate::Error::IndexOutOfBounds);
+    crate::test::assert_contract_error(result, crate::Error::IndexOutOfBounds);
 }
 
 // ── multi-milestone correctness ───────────────────────────────────────────────

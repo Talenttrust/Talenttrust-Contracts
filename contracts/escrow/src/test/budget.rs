@@ -37,14 +37,10 @@
 //! | `resolve_dispute`              |       ✓        |        -         |
 
 use soroban_sdk::{
-    testutils::Address as _,
-    token::StellarAssetClient,
-    vec, Address, Env, String, Vec,
+    testutils::Address as _, token::StellarAssetClient, vec, Address, Env, String, Vec,
 };
 
-use crate::{
-    ContractStatus, DisputeResolution, Escrow, EscrowClient, ReleaseAuthorization,
-};
+use crate::{ContractStatus, DisputeResolution, Escrow, EscrowClient, ReleaseAuthorization};
 
 // ---------------------------------------------------------------------------
 // Resource snapshot and baseline types
@@ -80,103 +76,103 @@ struct Ceiling {
 // ---------------------------------------------------------------------------
 
 const CREATE_3MS: Ceiling = Ceiling {
-    instructions:  30_000_000,
-    mem_bytes:      3_000_000,
-    read_entries:          12,
-    write_entries:          9,
-    read_bytes:        24_576,
-    write_bytes:       49_152,
-    fee_total:      6_000_000,
+    instructions: 30_000_000,
+    mem_bytes: 3_000_000,
+    read_entries: 12,
+    write_entries: 9,
+    read_bytes: 24_576,
+    write_bytes: 49_152,
+    fee_total: 6_000_000,
 };
 
 const DEPOSIT_3MS: Ceiling = Ceiling {
-    instructions:  30_000_000,
-    mem_bytes:      3_000_000,
-    read_entries:          12,
-    write_entries:          6,
-    read_bytes:        24_576,
-    write_bytes:       32_768,
-    fee_total:      6_000_000,
+    instructions: 30_000_000,
+    mem_bytes: 3_000_000,
+    read_entries: 12,
+    write_entries: 6,
+    read_bytes: 24_576,
+    write_bytes: 32_768,
+    fee_total: 6_000_000,
 };
 
 const APPROVE_3MS: Ceiling = Ceiling {
-    instructions:  30_000_000,
-    mem_bytes:      3_000_000,
-    read_entries:          12,
-    write_entries:          6,
-    read_bytes:        24_576,
-    write_bytes:       32_768,
-    fee_total:      6_000_000,
+    instructions: 30_000_000,
+    mem_bytes: 3_000_000,
+    read_entries: 12,
+    write_entries: 6,
+    read_bytes: 24_576,
+    write_bytes: 32_768,
+    fee_total: 6_000_000,
 };
 
 const RELEASE_3MS: Ceiling = Ceiling {
-    instructions:  30_000_000,
-    mem_bytes:      3_000_000,
-    read_entries:          12,
-    write_entries:          9,
-    read_bytes:        24_576,
-    write_bytes:       49_152,
-    fee_total:      6_000_000,
+    instructions: 30_000_000,
+    mem_bytes: 3_000_000,
+    read_entries: 12,
+    write_entries: 9,
+    read_bytes: 24_576,
+    write_bytes: 49_152,
+    fee_total: 6_000_000,
 };
 
 const CANCEL_3MS: Ceiling = Ceiling {
-    instructions:  30_000_000,
-    mem_bytes:      3_000_000,
-    read_entries:          12,
-    write_entries:          6,
-    read_bytes:        24_576,
-    write_bytes:       32_768,
-    fee_total:      6_000_000,
+    instructions: 30_000_000,
+    mem_bytes: 3_000_000,
+    read_entries: 12,
+    write_entries: 6,
+    read_bytes: 24_576,
+    write_bytes: 32_768,
+    fee_total: 6_000_000,
 };
 
 const REFUND_3MS: Ceiling = Ceiling {
-    instructions:  30_000_000,
-    mem_bytes:      3_000_000,
-    read_entries:          12,
-    write_entries:          9,
-    read_bytes:        24_576,
-    write_bytes:       49_152,
-    fee_total:      6_000_000,
+    instructions: 30_000_000,
+    mem_bytes: 3_000_000,
+    read_entries: 12,
+    write_entries: 9,
+    read_bytes: 24_576,
+    write_bytes: 49_152,
+    fee_total: 6_000_000,
 };
 
 const FINALIZE_3MS: Ceiling = Ceiling {
-    instructions:  30_000_000,
-    mem_bytes:      3_000_000,
-    read_entries:          12,
-    write_entries:          9,
-    read_bytes:        24_576,
-    write_bytes:       49_152,
-    fee_total:      6_000_000,
+    instructions: 30_000_000,
+    mem_bytes: 3_000_000,
+    read_entries: 12,
+    write_entries: 9,
+    read_bytes: 24_576,
+    write_bytes: 49_152,
+    fee_total: 6_000_000,
 };
 
 const REPUTATION_3MS: Ceiling = Ceiling {
-    instructions:  30_000_000,
-    mem_bytes:      3_000_000,
-    read_entries:          12,
-    write_entries:          9,
-    read_bytes:        24_576,
-    write_bytes:       49_152,
-    fee_total:      6_000_000,
+    instructions: 30_000_000,
+    mem_bytes: 3_000_000,
+    read_entries: 12,
+    write_entries: 9,
+    read_bytes: 24_576,
+    write_bytes: 49_152,
+    fee_total: 6_000_000,
 };
 
 const RAISE_DISPUTE_3MS: Ceiling = Ceiling {
-    instructions:  30_000_000,
-    mem_bytes:      3_000_000,
-    read_entries:          12,
-    write_entries:          6,
-    read_bytes:        24_576,
-    write_bytes:       32_768,
-    fee_total:      6_000_000,
+    instructions: 30_000_000,
+    mem_bytes: 3_000_000,
+    read_entries: 12,
+    write_entries: 6,
+    read_bytes: 24_576,
+    write_bytes: 32_768,
+    fee_total: 6_000_000,
 };
 
 const RESOLVE_DISPUTE_3MS: Ceiling = Ceiling {
-    instructions:  30_000_000,
-    mem_bytes:      3_000_000,
-    read_entries:          12,
-    write_entries:          9,
-    read_bytes:        24_576,
-    write_bytes:       49_152,
-    fee_total:      6_000_000,
+    instructions: 30_000_000,
+    mem_bytes: 3_000_000,
+    read_entries: 12,
+    write_entries: 9,
+    read_bytes: 24_576,
+    write_bytes: 49_152,
+    fee_total: 6_000_000,
 };
 
 // ---------------------------------------------------------------------------
@@ -187,53 +183,53 @@ const RESOLVE_DISPUTE_3MS: Ceiling = Ceiling {
 // ---------------------------------------------------------------------------
 
 const CREATE_10MS: Ceiling = Ceiling {
-    instructions:  45_000_000,
-    mem_bytes:      5_000_000,
-    read_entries:          16,
-    write_entries:         12,
-    read_bytes:        40_960,
-    write_bytes:       81_920,
-    fee_total:      9_000_000,
+    instructions: 45_000_000,
+    mem_bytes: 5_000_000,
+    read_entries: 16,
+    write_entries: 12,
+    read_bytes: 40_960,
+    write_bytes: 81_920,
+    fee_total: 9_000_000,
 };
 
 const DEPOSIT_10MS: Ceiling = Ceiling {
-    instructions:  45_000_000,
-    mem_bytes:      5_000_000,
-    read_entries:          16,
-    write_entries:          8,
-    read_bytes:        40_960,
-    write_bytes:       65_536,
-    fee_total:      9_000_000,
+    instructions: 45_000_000,
+    mem_bytes: 5_000_000,
+    read_entries: 16,
+    write_entries: 8,
+    read_bytes: 40_960,
+    write_bytes: 65_536,
+    fee_total: 9_000_000,
 };
 
 const APPROVE_10MS: Ceiling = Ceiling {
-    instructions:  45_000_000,
-    mem_bytes:      5_000_000,
-    read_entries:          16,
-    write_entries:          8,
-    read_bytes:        40_960,
-    write_bytes:       65_536,
-    fee_total:      9_000_000,
+    instructions: 45_000_000,
+    mem_bytes: 5_000_000,
+    read_entries: 16,
+    write_entries: 8,
+    read_bytes: 40_960,
+    write_bytes: 65_536,
+    fee_total: 9_000_000,
 };
 
 const RELEASE_10MS: Ceiling = Ceiling {
-    instructions:  45_000_000,
-    mem_bytes:      5_000_000,
-    read_entries:          16,
-    write_entries:         12,
-    read_bytes:        40_960,
-    write_bytes:       81_920,
-    fee_total:      9_000_000,
+    instructions: 45_000_000,
+    mem_bytes: 5_000_000,
+    read_entries: 16,
+    write_entries: 12,
+    read_bytes: 40_960,
+    write_bytes: 81_920,
+    fee_total: 9_000_000,
 };
 
 const REFUND_10MS: Ceiling = Ceiling {
-    instructions:  45_000_000,
-    mem_bytes:      5_000_000,
-    read_entries:          16,
-    write_entries:         12,
-    read_bytes:        40_960,
-    write_bytes:       81_920,
-    fee_total:      9_000_000,
+    instructions: 45_000_000,
+    mem_bytes: 5_000_000,
+    read_entries: 16,
+    write_entries: 12,
+    read_bytes: 40_960,
+    write_bytes: 81_920,
+    fee_total: 9_000_000,
 };
 
 // ---------------------------------------------------------------------------
@@ -244,13 +240,13 @@ fn measure(env: &Env) -> Resources {
     let r = env.cost_estimate().resources();
     let f = env.cost_estimate().fee();
     Resources {
-        instructions:  r.instructions,
-        mem_bytes:     r.mem_bytes,
-        read_entries:  r.read_entries,
+        instructions: r.instructions,
+        mem_bytes: r.mem_bytes,
+        read_entries: r.read_entries,
         write_entries: r.write_entries,
-        read_bytes:    r.read_bytes,
-        write_bytes:   r.write_bytes,
-        fee_total:     f.total,
+        read_bytes: r.read_bytes,
+        write_bytes: r.write_bytes,
+        fee_total: f.total,
     }
 }
 
@@ -261,37 +257,51 @@ fn assert_within(label: &str, got: Resources, ceiling: Ceiling) {
     assert!(
         got.instructions <= ceiling.instructions,
         "[budget] {} instruction regression: got {} > ceiling {}",
-        label, got.instructions, ceiling.instructions
+        label,
+        got.instructions,
+        ceiling.instructions
     );
     assert!(
         got.mem_bytes <= ceiling.mem_bytes,
         "[budget] {} memory regression: got {} > ceiling {}",
-        label, got.mem_bytes, ceiling.mem_bytes
+        label,
+        got.mem_bytes,
+        ceiling.mem_bytes
     );
     assert!(
         got.read_entries <= ceiling.read_entries,
         "[budget] {} read-entry regression: got {} > ceiling {}",
-        label, got.read_entries, ceiling.read_entries
+        label,
+        got.read_entries,
+        ceiling.read_entries
     );
     assert!(
         got.write_entries <= ceiling.write_entries,
         "[budget] {} write-entry regression: got {} > ceiling {}",
-        label, got.write_entries, ceiling.write_entries
+        label,
+        got.write_entries,
+        ceiling.write_entries
     );
     assert!(
         got.read_bytes <= ceiling.read_bytes,
         "[budget] {} read-byte regression: got {} > ceiling {}",
-        label, got.read_bytes, ceiling.read_bytes
+        label,
+        got.read_bytes,
+        ceiling.read_bytes
     );
     assert!(
         got.write_bytes <= ceiling.write_bytes,
         "[budget] {} write-byte regression: got {} > ceiling {}",
-        label, got.write_bytes, ceiling.write_bytes
+        label,
+        got.write_bytes,
+        ceiling.write_bytes
     );
     assert!(
         got.fee_total <= ceiling.fee_total,
         "[budget] {} fee regression: got {} > ceiling {}",
-        label, got.fee_total, ceiling.fee_total
+        label,
+        got.fee_total,
+        ceiling.fee_total
     );
 }
 

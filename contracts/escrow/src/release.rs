@@ -2,7 +2,7 @@ use crate::{
     approvals, keys, ttl, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
     ReleaseAuthorization,
 };
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{Address, Env, Symbol, Vec};
 
 impl Escrow {
     /// Core logic for releasing a milestone, transferring funds to the freelancer.
@@ -90,12 +90,10 @@ impl Escrow {
         approvals::check_approvals(&env, &contract, contract_id, milestone_index)
             .unwrap_or_else(|e| env.panic_with_error(e));
 
-        let available_balance = crate::checked_available_balance(
-            contract.funded_amount,
-            contract.released_amount,
-            contract.refunded_amount,
-        )
-        .unwrap_or_else(|e| env.panic_with_error(e));
+        let available_balance = contract.funded_amount
+            .checked_sub(contract.released_amount)
+            .and_then(|a| a.checked_sub(contract.refunded_amount))
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
         if available_balance < milestone.amount {
             env.panic_with_error(Error::InsufficientFunds);
         }
@@ -108,10 +106,10 @@ impl Escrow {
             .checked_add(milestone.amount)
             .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
-        if is_initialized(&env) {
-            let fee_bps = get_protocol_fee_bps(&env);
+        if Self::is_initialized(&env) {
+            let fee_bps = Self::read_protocol_fee_bps(&env);
             if fee_bps > 0 {
-                let fee = calculate_protocol_fee(milestone.amount, fee_bps);
+                let fee = Self::calculate_protocol_fee(&env, milestone.amount, fee_bps);
                 let current_accumulated: i128 = env
                     .storage()
                     .persistent()

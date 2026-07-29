@@ -28,7 +28,7 @@
 use soroban_sdk::{testutils::Address as _, vec, Address, Env, Vec};
 
 use crate::{
-    ContractBounds, Escrow, EscrowClient, EscrowError, ReleaseAuthorization, MAX_MILESTONES,
+    types::ContractBounds, Escrow, EscrowClient, EscrowError, ReleaseAuthorization, MAX_MILESTONES,
     MAX_SINGLE_AMOUNT_STROOPS, MAX_TOTAL_ESCROW_STROOPS,
 };
 

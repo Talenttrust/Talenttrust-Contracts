@@ -143,8 +143,8 @@ impl Escrow {
     /// These are compile-time constants — the return value never changes
     /// between calls on the same contract binary. The function is read-only
     /// and requires no authorization.
-    pub fn get_bounds(env: Env) -> crate::ContractBounds {
-        crate::ContractBounds {
+    pub fn get_bounds(env: Env) -> crate::types::ContractBounds {
+        crate::types::ContractBounds {
             max_milestones: MAX_MILESTONES,
             max_single_milestone_stroops: crate::MAX_SINGLE_AMOUNT_STROOPS,
             max_total_escrow_stroops: MAX_TOTAL_ESCROW_STROOPS,
@@ -366,72 +366,6 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
         ttl::extend_contract_ttl(&env, contract_id);
         contract.funded_amount - contract.released_amount - contract.refunded_amount
-    }
-
-    /// Checks if a specific milestone is overdue based on its deadline.
-    ///
-    /// A milestone is considered overdue if:
-    /// - It has a deadline set (Some value)
-    /// - The current time is strictly greater than the deadline (now > deadline)
-    /// - The milestone has not been released
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `contract_id` - The contract ID
-    /// * `milestone_index` - The index of the milestone to check
-    ///
-    /// # Returns
-    /// `true` if the milestone is overdue, `false` otherwise
-    ///
-    /// # Note
-    /// - Returns `false` if milestone has no deadline (None)
-    /// - Returns `false` if milestone is already released
-    /// - Boundary condition: at exactly the deadline (now == deadline), returns `false`
-    ///   because the deadline hasn't passed yet (uses strictly > comparison)
-    ///
-    /// # Security
-    /// Uses `now_seconds(&env)` which is the single source of truth for ledger time.
-    /// Time cannot be manipulated by contract callers.
-    pub fn is_milestone_overdue(env: Env, contract_id: u32, milestone_index: u32) -> bool {
-        Self::validate_contract_id_bounds(&env, contract_id);
-        let _contract: Contract = match env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-        {
-            Some(c) => c,
-            None => return false, // Contract not found, not overdue
-        };
-
-        let milestone_key = Symbol::new(&env, "milestones");
-        let milestones: Vec<crate::Milestone> = match env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
-        {
-            Some(m) => m,
-            None => return false, // No milestones, not overdue
-        };
-
-        if milestone_index >= milestones.len() {
-            return false; // Index out of bounds, not overdue
-        }
-
-        let milestone = milestones.get(milestone_index).unwrap();
-
-        // Return false if already released
-        if milestone.released {
-            return false;
-        }
-
-        // Return false if no deadline set
-        match milestone.deadline {
-            None => false,
-            Some(deadline) => {
-                // Overdue if now > deadline (strictly greater)
-                crate::utils::now_seconds(&env) > deadline
-            }
-        }
     }
 
     /// Returns the mainnet readiness info for the escrow contract.
