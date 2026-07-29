@@ -7,7 +7,6 @@ pub use crate::types::MilestoneIndexEvent;
 /// Maximum number of events processed in a batch operations.
 pub const MAX_EVENT_BATCH_SIZE: usize = 100;
 
-
 /// Emits an indexed event on contract state changes to assist off-chain indexers
 /// in cheaply reconstructing contract lifecycle history and financial balances.
 ///

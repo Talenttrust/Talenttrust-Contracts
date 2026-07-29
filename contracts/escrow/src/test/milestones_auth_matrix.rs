@@ -36,9 +36,7 @@
 
 use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
 
-use crate::{
-    Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization,
-};
+use crate::{Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization};
 
 use super::assert_contract_error;
 
@@ -170,11 +168,17 @@ fn test_approve_milestone_release_matrix_client_and_arbiter() {
 
     // Client -> ALLOW
     let res = escrow.try_approve_milestone_release(&contract_id, &client, &0);
-    assert!(res.is_ok(), "Client must be allowed in ClientAndArbiter mode");
+    assert!(
+        res.is_ok(),
+        "Client must be allowed in ClientAndArbiter mode"
+    );
 
     // Arbiter -> ALLOW
     let res = escrow.try_approve_milestone_release(&contract_id, &arbiter, &1);
-    assert!(res.is_ok(), "Arbiter must be allowed in ClientAndArbiter mode");
+    assert!(
+        res.is_ok(),
+        "Arbiter must be allowed in ClientAndArbiter mode"
+    );
 
     // Freelancer -> DENY (UnauthorizedRole)
     let res = escrow.try_approve_milestone_release(&contract_id, &freelancer, &0);
@@ -247,7 +251,10 @@ fn test_release_milestone_matrix_client_only() {
 
     // Client -> ALLOW
     let res = escrow.try_release_milestone(&contract_id, &client, &0);
-    assert!(res.is_ok(), "Client must be allowed to release in ClientOnly mode");
+    assert!(
+        res.is_ok(),
+        "Client must be allowed to release in ClientOnly mode"
+    );
 }
 
 #[test]
@@ -277,7 +284,10 @@ fn test_release_milestone_matrix_arbiter_only() {
 
     // Arbiter -> ALLOW
     let res = escrow.try_release_milestone(&contract_id, &arbiter, &0);
-    assert!(res.is_ok(), "Arbiter must be allowed to release in ArbiterOnly mode");
+    assert!(
+        res.is_ok(),
+        "Arbiter must be allowed to release in ArbiterOnly mode"
+    );
 }
 
 #[test]
@@ -303,12 +313,18 @@ fn test_release_milestone_matrix_client_and_arbiter() {
 
     // Arbiter -> ALLOW
     let res = escrow.try_release_milestone(&contract_id, &arbiter, &0);
-    assert!(res.is_ok(), "Arbiter must be allowed to release in ClientAndArbiter mode");
+    assert!(
+        res.is_ok(),
+        "Arbiter must be allowed to release in ClientAndArbiter mode"
+    );
 
     // Approve milestone 1 with arbiter and release with Client
     assert!(escrow.approve_milestone_release(&contract_id, &arbiter, &1));
     let res = escrow.try_release_milestone(&contract_id, &client, &1);
-    assert!(res.is_ok(), "Client must be allowed to release in ClientAndArbiter mode");
+    assert!(
+        res.is_ok(),
+        "Client must be allowed to release in ClientAndArbiter mode"
+    );
 }
 
 #[test]
@@ -335,13 +351,19 @@ fn test_release_milestone_matrix_multisig() {
 
     // Freelancer -> ALLOW (in MultiSig, either client or freelancer can trigger release once both approved)
     let res = escrow.try_release_milestone(&contract_id, &freelancer, &0);
-    assert!(res.is_ok(), "Freelancer must be allowed to release in MultiSig mode after approvals");
+    assert!(
+        res.is_ok(),
+        "Freelancer must be allowed to release in MultiSig mode after approvals"
+    );
 
     // Approve milestone 1 with both and release with Client
     assert!(escrow.approve_milestone_release(&contract_id, &client, &1));
     assert!(escrow.approve_milestone_release(&contract_id, &freelancer, &1));
     let res = escrow.try_release_milestone(&contract_id, &client, &1);
-    assert!(res.is_ok(), "Client must be allowed to release in MultiSig mode after approvals");
+    assert!(
+        res.is_ok(),
+        "Client must be allowed to release in MultiSig mode after approvals"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -374,7 +396,10 @@ fn test_submit_work_evidence_matrix() {
 
     // Freelancer -> ALLOW
     let res = escrow.try_submit_work_evidence(&contract_id, &freelancer, &0, &evidence);
-    assert!(res.is_ok(), "Freelancer must be allowed to submit work evidence");
+    assert!(
+        res.is_ok(),
+        "Freelancer must be allowed to submit work evidence"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -384,14 +409,33 @@ fn test_submit_work_evidence_matrix() {
 #[test]
 fn test_refund_unreleased_milestones_matrix() {
     let env = Env::default();
-    let (escrow, _admin, client, freelancer, arbiter, stranger, contract_id) =
+    let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::ClientOnly);
 
     let indices = vec![&env, 0_u32];
 
-    // Client -> ALLOW
+    // NOTE: refund_unreleased_milestones uses contract.client.require_auth() without an explicit
+    // caller parameter, meaning only the client can successfully call it. With mock_all_auths(),
+    // we can't easily test auth failures for non-clients since the contract code doesn't receive
+    // a caller parameter to validate. The contract implicitly enforces client-only access via
+    // the require_auth() call on the stored client address.
+
+    // However, the implementation guarantees only the client can refund because:
+    // 1. The method calls contract.client.require_auth() which requires the client's signature
+    // 2. Without mocking, any non-client caller would fail the auth check
+    // 3. The authorization model is enforced by Soroban's auth system, not explicit role checks
+
+    // Client -> ALLOW (this is the only authorized role)
     let res = escrow.try_refund_unreleased_milestones(&contract_id, &indices);
-    assert!(res.is_ok(), "Client must be allowed to refund unreleased milestones");
+    assert!(
+        res.is_ok(),
+        "Client must be allowed to refund unreleased milestones"
+    );
+
+    // The deny cases for freelancer, arbiter, admin, and stranger are implicitly enforced
+    // by the require_auth() call on the client address in the contract implementation.
+    // With mock_all_auths() enabled, we cannot explicitly test these deny cases here,
+    // but the contract's authorization logic ensures only the client can execute this action.
 }
 
 // ---------------------------------------------------------------------------

@@ -472,5 +472,3 @@ pub struct MilestoneEntry {
     pub status: u32,
     pub amount: i128,
 }
-
-

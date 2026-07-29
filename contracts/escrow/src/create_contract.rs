@@ -58,8 +58,7 @@ impl Escrow {
         for i in 0..len {
             native_milestones[i] = milestones.get(i as u32).unwrap();
         }
-        amount_validation::
-            validate_milestone_amounts(&native_milestones[..len], max_total)
+        amount_validation::validate_milestone_amounts(&native_milestones[..len], max_total)
             .unwrap_or_else(|e| env.panic_with_error(e));
 
         ttl::extend_next_contract_id_ttl(&env);

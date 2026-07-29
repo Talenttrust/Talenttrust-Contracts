@@ -37,9 +37,7 @@
 //! All governance-setter success paths expect `Ok(true)` or a direct `true`
 //! return; failure paths use `try_*` + `assert_contract_error`.
 
-use crate::{
-    Escrow, EscrowClient, EscrowError, Error, GovernedParameters, ReleaseAuthorization,
-};
+use crate::{Error, Escrow, EscrowClient, EscrowError, GovernedParameters, ReleaseAuthorization};
 use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env};
 
 // ---------------------------------------------------------------------------
@@ -207,7 +205,10 @@ fn pause_sets_only_paused_not_emergency() {
     client.pause();
 
     assert!(client.is_paused());
-    assert!(!client.is_emergency(), "pause must NOT set the emergency flag");
+    assert!(
+        !client.is_emergency(),
+        "pause must NOT set the emergency flag"
+    );
 }
 
 #[test]
@@ -261,7 +262,10 @@ fn resolve_emergency_clears_both_flags() {
     // Then resolve.
     client.resolve_emergency();
 
-    assert!(!client.is_emergency(), "resolve_emergency must clear emergency");
+    assert!(
+        !client.is_emergency(),
+        "resolve_emergency must clear emergency"
+    );
     assert!(
         !client.is_paused(),
         "current behaviour: resolve_emergency also clears paused — this test \
