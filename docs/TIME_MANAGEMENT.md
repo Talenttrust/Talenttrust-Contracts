@@ -1,5 +1,8 @@
 # Centralized Ledger Time Management
 
+> **See also:** [`docs/escrow/ledger-time-source.md`](escrow/ledger-time-source.md)
+> for the authoritative reference on precision, trust assumptions, and call sites.
+
 ## Overview
 
 This project uses a centralized time management system to ensure deterministic behavior and reliable testing. All time-related operations must use the `now_seconds()` helper function.
@@ -226,11 +229,11 @@ If you see errors about `now_seconds`:
 2. Import with `use crate::utils::now_seconds;`
 3. Pass `&env` reference to the function
 
-## Future Enhancements
+## See also
 
-Potential improvements to consider:
-
-1. Time duration types for type safety
-2. Helper functions for common durations
-3. Time range validation utilities
-4. Automated deadline calculation helpers
+- [`docs/escrow/ledger-time-source.md`](escrow/ledger-time-source.md) — comprehensive reference covering
+  `now_seconds` precision/trust assumptions, every call site in the contract,
+  ledger-vs-sequence time mechanisms, and deterministic test patterns with
+  `env.ledger().with_mut()`.
+- [`contracts/escrow/src/utils.rs`](../contracts/escrow/src/utils.rs) — the `now_seconds` definition.
+- [`contracts/escrow/src/test/timeout_tests.rs`](../contracts/escrow/src/test/timeout_tests.rs) — worked examples.

@@ -382,7 +382,7 @@ fn migration_blocked_on_disputed_contract() {
 // ---------------------------------------------------------------------------
 
 /// Proposing the freelancer collapses the two roles and must be rejected
-/// with `InvalidParticipant`.
+/// with `RoleOverlap`.
 #[test]
 fn cannot_propose_freelancer_as_new_client() {
     let env = Env::default();
@@ -393,12 +393,12 @@ fn cannot_propose_freelancer_as_new_client() {
 
     assert_contract_error(
         client.try_propose_client_migration(&id, &client_addr, &freelancer_addr),
-        EscrowError::InvalidParticipant,
+        EscrowError::RoleOverlap,
     );
 }
 
 /// Proposing the current client as themselves must be rejected with
-/// `InvalidParticipant`.
+/// `RoleOverlap`.
 #[test]
 fn cannot_propose_current_client_as_new_client() {
     let env = Env::default();
@@ -409,7 +409,7 @@ fn cannot_propose_current_client_as_new_client() {
 
     assert_contract_error(
         client.try_propose_client_migration(&id, &client_addr, &client_addr),
-        EscrowError::InvalidParticipant,
+        EscrowError::RoleOverlap,
     );
 }
 
@@ -573,4 +573,215 @@ fn pending_migration_expiry_matches_ttl_constant() {
         pending.requested_at_ledger, ledger_before,
         "requested_at_ledger must equal the ledger at proposal time"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Test 11 – Arbiter role overlap is rejected at proposal time
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cannot_propose_arbiter_as_new_client() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &super::default_milestones(&env),
+        &crate::ReleaseAuthorization::ClientOnly,
+    );
+
+    assert_contract_error(
+        client.try_propose_client_migration(&id, &client_addr, &arbiter_addr),
+        EscrowError::RoleOverlap,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 12 – Escrow contract's own address is rejected at proposal time
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cannot_propose_escrow_contract_as_new_client() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+    let escrow_contract_addr = client.address.clone();
+
+    assert_contract_error(
+        client.try_propose_client_migration(&id, &client_addr, &escrow_contract_addr),
+        EscrowError::RoleOverlap,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 13 – Acceptance rejects if role overlap occurs between proposal and acceptance
+// ---------------------------------------------------------------------------
+
+#[test]
+fn accept_rejects_if_freelancer_changed_to_match_proposed_client() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // Set max_entry_ttl high enough so the proposal can be stored without hitting the cap.
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let (client_addr, freelancer_addr, id) = create_contract(&env, &client);
+    let new_client = Address::generate(&env);
+
+    // Proposal succeeds initially
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+
+    // Force-change freelancer role in contract storage to match the proposed client address
+    let escrow_addr = client.address.clone();
+    env.as_contract(&escrow_addr, || {
+        let key = DataKey::Contract(id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.freelancer = new_client.clone();
+        env.storage().persistent().set(&key, &contract);
+    });
+
+    // Acceptance must fail now because proposed client is the freelancer
+    assert_contract_error(
+        client.try_accept_client_migration(&id, &new_client),
+        EscrowError::RoleOverlap,
+    );
+}
+
+#[test]
+fn accept_rejects_if_arbiter_changed_to_match_proposed_client() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // Set max_entry_ttl high enough so the proposal can be stored without hitting the cap.
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+    let new_client = Address::generate(&env);
+
+    // Proposal succeeds initially (no arbiter set)
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+
+    // Force-set arbiter role in contract storage to match the proposed client address
+    let escrow_addr = client.address.clone();
+    env.as_contract(&escrow_addr, || {
+        let key = DataKey::Contract(id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.arbiter = Some(new_client.clone());
+        env.storage().persistent().set(&key, &contract);
+    });
+
+    // Acceptance must fail now because proposed client is the arbiter
+    assert_contract_error(
+        client.try_accept_client_migration(&id, &new_client),
+        EscrowError::RoleOverlap,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 14 – Valid proposal with distinct arbiter set succeeds
+// ---------------------------------------------------------------------------
+
+#[test]
+fn valid_proposal_with_arbiter_set_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr.clone()),
+        &super::default_milestones(&env),
+        &crate::ReleaseAuthorization::ClientOnly,
+    );
+
+    let new_client = Address::generate(&env);
+
+    // Propose client migration
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+
+    // Accept client migration
+    assert!(client.accept_client_migration(&id, &new_client));
+
+    // Check that client has been updated
+    let contract = client.get_contract(&id);
+    assert_eq!(contract.client, new_client);
+}
+
+// ---------------------------------------------------------------------------
+// Test 15 – Verify accept actually writes updated client to contract storage (non-ignored)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn propose_and_accept_actually_updates_contract_client() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+    let new_client = Address::generate(&env);
+
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+    assert!(client.accept_client_migration(&id, &new_client));
+
+    // contract.client must be updated
+    let contract = client.get_contract(&id);
+    assert_eq!(contract.client, new_client);
 }

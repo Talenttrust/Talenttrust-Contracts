@@ -22,6 +22,7 @@ Then open `target/doc/escrow/index.html`.
 - Cancel non-completed contracts by the stored client or freelancer.
 - Finalize completed or disputed contracts with immutable close metadata.
 - Pause and emergency controls managed by a single initialized admin.
+- Propose and accept client migrations with strict role-overlap checks.
 
 ## Current Public Entrypoints
 
@@ -44,6 +45,11 @@ Then open `target/doc/escrow/index.html`.
 - `get_finalization_record(contract_id) -> Option<FinalizationRecord>`
 - `get_reputation(freelancer) -> Option<ReputationRecord>`
 - `get_pending_reputation_credits(freelancer) -> u32`
+- `propose_client_migration(contract_id, current_client, new_client) -> bool`
+- `accept_client_migration(contract_id, new_client) -> bool`
+- `cancel_client_migration(contract_id, current_client) -> bool`
+- `has_pending_client_migration(contract_id) -> bool`
+- `get_pending_client_migration(contract_id) -> PendingClientMigration`
 
 ### Protocol Fee Read API
 
