@@ -17,6 +17,7 @@ fn latest_event(
         .all()
         .iter()
         .last()
+        .map(|e| (e.0.clone(), e.1.clone(), e.2))
         .expect("the emitting call must publish an event")
 }
 
