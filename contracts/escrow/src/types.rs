@@ -537,58 +537,13 @@ impl DisputeResolution {
     }
 }
 
+/// Represents the milestone progress of an escrow contract.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProtocolParameters {
-    pub fee_bps: u32,
-    pub max_escrow_total: i128,
+pub struct MilestoneProgress {
+    /// The number of completed (released) milestones.
+    pub completed: u32,
+    /// The total number of milestones.
+    pub total: u32,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeSummary {
-    pub contract_id: u32,
-    pub status: ContractStatus,
-    pub total_deposited: i128,
-    pub funded_amount: i128,
-    pub released_amount: i128,
-    pub refunded_amount: i128,
-}
-
-/// Configuration for the arbiter's partial-refund split, stored under
-/// [`DataKey::DisputeConfigKey`].
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeConfig {
-    pub partial_refund_freelancer_bps: u32,
-    pub partial_refund_client_bps: u32,
-}
-
-impl Default for DisputeConfig {
-    fn default() -> Self {
-        DisputeConfig {
-            partial_refund_freelancer_bps: 3000,
-            partial_refund_client_bps: 7000,
-        }
-    }
-}
-
-/// Named result type returned by [`dispute::resolution_payouts`].
-///
-/// Replaces the opaque `(i128, i128)` tuple so callers can reference fields by
-/// name (`client_payout`, `freelancer_payout`, `available_balance`) rather than
-/// relying on positional index.
-///
-/// # Invariant
-/// `client_payout + freelancer_payout == available_balance`
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeInfo {
-    /// Escrowed balance at the time the resolution was computed:
-    /// `funded_amount - released_amount - refunded_amount`.
-    pub available_balance: i128,
-    /// Amount to be credited back to the client (refund side).
-    pub client_payout: i128,
-    /// Amount to be forwarded to the freelancer (release side).
-    pub freelancer_payout: i128,
-}
