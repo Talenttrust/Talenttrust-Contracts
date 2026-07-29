@@ -1,13 +1,15 @@
 use crate::{
+    amount_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError,
+    GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
     amount_validation, storage_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
     EscrowArgs, EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization,
     MAX_MILESTONES,
 };
-use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{symbol_short, Address, Env, Symbol, Vec};
 
-#[contractimpl]
 impl Escrow {
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
+    pub(crate) fn create_contract_impl(
     pub fn create_contract(
         env: Env,
         client: Address,
@@ -66,6 +68,8 @@ impl Escrow {
         ttl::extend_next_contract_id_ttl(&env);
         let id = next_contract_id(&env);
 
+        let freelancer_addr = freelancer.clone();
+
         let contract = Contract {
             client: client.clone(),
             freelancer: freelancer.clone(),
@@ -82,7 +86,6 @@ impl Escrow {
             .persistent()
             .set(&DataKey::Contract(id), &contract);
 
-        // Build and persist the milestone vector.
         let mut milestone_vec: Vec<Milestone> = Vec::new(&env);
         for amount in milestones.iter() {
             milestone_vec.push_back(Milestone {
@@ -100,8 +103,6 @@ impl Escrow {
             .persistent()
             .set(&(DataKey::Contract(id), milestone_key), &milestone_vec);
 
-        // Advance the counter. `next_contract_id` already checked `id < u32::MAX`;
-        // the `checked_add` here is a defense-in-depth guard.
         let next_id = id
             .checked_add(1)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractIdOverflow));
@@ -109,7 +110,6 @@ impl Escrow {
             .persistent()
             .set(&DataKey::NextContractId, &next_id);
 
-        // Emit creation event for indexers and off-chain subscribers.
         env.events().publish(
             (symbol_short!("created"), id),
             (client, freelancer.clone(), env.ledger().timestamp()),
@@ -125,9 +125,6 @@ impl Escrow {
 }
 
 /// Returns the next available contract ID and asserts it is not already occupied.
-///
-/// # Errors
-/// * `ContractIdCollision` - If the allocated id slot is already occupied
 pub(crate) fn next_contract_id(env: &Env) -> u32 {
     let id: u32 = env
         .storage()

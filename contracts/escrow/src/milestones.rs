@@ -1,5 +1,6 @@
 use crate::{
-    approvals, ttl, utils::now_seconds, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError,
+    approvals, milestones_consts::MAX_MILESTONES, ttl, utils::now_seconds, Contract,
+    ContractStatus, DataKey, Error, Escrow, EscrowError,
 };
 use soroban_sdk::{contracttype, symbol_short, token, Address, Env, String, Symbol, Vec};
 
@@ -57,6 +58,45 @@ pub struct MilestoneApprovals {
 // ── Implementations ──────────────────────────────────────────────────────────
 
 impl Escrow {
+    /// Admin setter to update milestone parameters within strict upper/lower bounds.
+    ///
+    /// # Errors
+    /// * `EscrowError::Unauthorized` - Caller is not the admin.
+    /// * `EscrowError::InvalidParameter` - `max_milestones` is 0 or exceeds hard cap (`MAX_MILESTONES`).
+    pub(crate) fn set_milestone_params_impl(
+        env: &Env,
+        admin: Address,
+        max_milestones: u32,
+    ) -> bool {
+        Self::require_not_paused(env);
+        admin.require_auth();
+
+        // Verify admin authority
+        let current_admin = Self::read_admin(env)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::Unauthorized));
+        if admin != current_admin {
+            env.panic_with_error(EscrowError::Unauthorized);
+        }
+
+        // Validate bounds: non-zero and within MAX_MILESTONES cap
+        if max_milestones == 0 || max_milestones > MAX_MILESTONES {
+            env.panic_with_error(EscrowError::InvalidParameter);
+        }
+
+        // Persist updated configuration
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxMilestones, &max_milestones);
+
+        // Emit parameter change event
+        env.events().publish(
+            (symbol_short!("mlst_cfg"), admin),
+            (max_milestones, env.ledger().timestamp()),
+        );
+
+        true
+    }
+
     pub(crate) fn release_milestone_impl(
         env: &Env,
         contract_id: u32,
@@ -153,7 +193,7 @@ impl Escrow {
         }
 
         if milestone.refunded {
-            env.panic_with_error(Error::AlreadyRefunded);
+            env.panic_with_error(EscrowError::AlreadyRefunded);
         }
 
         // Check contract-level funding (per-milestone funded_amount is set after
@@ -250,8 +290,7 @@ impl Escrow {
                 caller.clone(),
                 env.ledger().timestamp(),
             ),
-        );
-
+        );    
         if all_released {
             env.events().publish(
                 (symbol_short!("ctrct_cmp"), contract_id),
@@ -571,5 +610,63 @@ impl Escrow {
         }
 
         milestones.get(milestone_index).unwrap().work_evidence
+    }
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, Env};
+
+    #[test]
+    fn test_set_milestone_params_success() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+
+        env.storage().instance().set(&DataKey::Admin, &admin);
+
+        let new_limit = 8;
+        let res = Escrow::set_milestone_params_impl(&env, admin, new_limit);
+        assert!(res);
+
+        let stored: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MaxMilestones)
+            .unwrap();
+        assert_eq!(stored, new_limit);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_set_milestone_params_out_of_bounds_high() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+
+        Escrow::set_milestone_params_impl(&env, admin, 11);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_set_milestone_params_out_of_bounds_zero() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+
+        Escrow::set_milestone_params_impl(&env, admin, 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_set_milestone_params_unauthorized() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let attacker = Address::generate(&env);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+
+        Escrow::set_milestone_params_impl(&env, attacker, 5);
     }
 }

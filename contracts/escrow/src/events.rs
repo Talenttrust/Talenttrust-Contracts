@@ -1,5 +1,5 @@
-use crate::types::{Contract, MilestoneIndexEvent};
-use crate::EscrowError;
+use crate::types::{Contract, EventEntry, MilestoneIndexEvent};
+use crate::{DataKey, EscrowError};
 use soroban_sdk::{symbol_short, Env};
 
 pub use crate::types::MilestoneIndexEvent;
@@ -19,6 +19,15 @@ pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contr
         env.panic_with_error(Error::ContractNotFound);
         env.panic_with_error(EscrowError::InvalidContractId);
     }
+
+    validate_event_amounts(
+        contract.funded_amount,
+        contract.released_amount,
+        contract.refunded_amount,
+        contract.total_deposited,
+    )
+    .unwrap_or_else(|e| env.panic_with_error(e));
+
     env.events().publish(
         (symbol_short!("contract"), contract_id),
         (

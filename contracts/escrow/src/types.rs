@@ -54,9 +54,7 @@ pub struct ContractBounds {
     pub max_settlement: u32,
 }
 
-// ── Core contract state ──────────────────────────────────────────────────────
-
-// ─── Storage keys ──────────────────────────────────────────────────────────────
+// ── Storage keys ──────────────────────────────────────────────────────────────
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -66,11 +64,15 @@ pub enum DataKey {
     Admin,
     Paused,
     Emergency,
+    MaxMilestones,
     // Contract storage
     Contract(u32),
     NextContractId,
     MilestoneReleased(u32, u32),
     MilestoneApprovals(u32, u32),
+    // Events / Indexing
+    Event(u32),
+    NextEventId,
     // Reputation
     ReputationIssued(u32),
     PendingReputationCredits(Address),
@@ -110,6 +112,31 @@ pub enum DataKey {
     State,
 }
 
+// ── Event Types ──────────────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventEntry {
+    pub contract_id: u32,
+    pub status: u32,
+    pub funded_amount: i128,
+    pub released_amount: i128,
+    pub refunded_amount: i128,
+    pub total_deposited: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneIndexEvent {
+    pub amount: i128,
+    pub released: bool,
+    pub refunded: bool,
+    pub timestamp: u64,
+}
+
+// ── Canonical Errors ─────────────────────────────────────────────────────────
+
+/// Canonical contract error type for all entrypoint-facing errors.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -183,6 +210,8 @@ pub enum Error {
     EmptyEvidence = 58,
 }
 
+// ── Core contract state ──────────────────────────────────────────────────────
+
 /// Contract lifecycle states
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -195,6 +224,21 @@ pub enum ContractStatus {
     Cancelled = 5,
     Refunded = 6,
     PartiallyFunded = 7,
+}
+
+/// Defines who can approve milestone releases.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReleaseAuthorization {
+    /// Only client can approve.
+    ClientOnly = 0,
+    /// Either client or arbiter can approve.
+    ClientAndArbiter = 1,
+    /// Only arbiter can approve.
+    ArbiterOnly = 2,
+    /// Both client and freelancer must approve; only either of them may release
+    /// after both approvals are present.
+    MultiSig = 3,
 }
 
 /// Main escrow contract state
@@ -226,21 +270,6 @@ pub struct Milestone {
     /// a timeout refund for this milestone without arbiter involvement.
     /// None means no deadline — the milestone never expires.
     pub deadline: Option<u64>,
-}
-
-/// Defines who can approve milestone releases.
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ReleaseAuthorization {
-    /// Only client can approve.
-    ClientOnly = 0,
-    /// Either client or arbiter can approve.
-    ClientAndArbiter = 1,
-    /// Only arbiter can approve.
-    ArbiterOnly = 2,
-    /// Both client and freelancer must approve; only either of them may release
-    /// after both approvals are present.
-    MultiSig = 3,
 }
 
 /// Tracks approval status for a milestone.
@@ -353,13 +382,6 @@ pub struct ReputationEntry {
 
 /// Runtime-configurable reputation validation parameters, stored under
 /// [`DataKey::ReputationConfigKey`].
-///
-/// These were compile-time constants (`MIN_RATING`, `MAX_RATING`,
-/// `MAX_COMMENT_BYTES`) until issue #1119 added
-/// `Escrow::set_reputation_config`, which lets the admin retune them within
-/// bounds without redeploying the contract. `issue_reputation` reads this
-/// config (falling back to [`ReputationConfig::default`], which matches the
-/// original constants) instead of the raw constants directly.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReputationConfig {
@@ -432,6 +454,7 @@ impl Default for DisputeConfig {
             partial_refund_client_bps: 7000,
         }
     }
+}
 }
 
 /// Named result type returned by [`dispute::resolution_payouts`].
