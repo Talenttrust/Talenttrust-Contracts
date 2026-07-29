@@ -86,11 +86,10 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // `DisputeResolution`, `DisputeSplit`, and `DisputeInfo` are defined once in
 // `types.rs` and re-exported here; `dispute.rs` uses them via `crate::`.
 pub use types::{
-    AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
-    DepositMode, DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone,
-    MilestoneApprovals, MilestoneSummary, PendingAdminProposal, ReadinessChecklist,
-    ReleaseAuthorization, Reputation, ReputationEntry, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
-    MAX_PAGINATION_LIMIT,
+    Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode,
+    DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
+    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
+    SimulateDisputeOutcome, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 
 /// Default maximum number of milestones allowed per contract.
@@ -3104,37 +3103,108 @@ impl Escrow {
 
         true
     }
-    /// Returns the current contract configuration
-    /// 
-    /// # Returns
-    /// * `Config` - The current configuration values
-    /// 
-    /// # Behavior
-    /// * If contract is not initialized, returns sensible defaults
-    /// * Does not modify any storage state
-    pub fn get_config(env: Env) -> Config {
-        // Try to load stored config
-        if let Some(config) = Self::load_config(&env) {
-            config
-        } else {
-            // Return sensible defaults before init
-            Config {
-                admin: env.current_contract_address(),
-                // Add other default values appropriate for your contract
-                fee_percentage: 0,
-                min_deposit: 0,
-                max_duration: 0,
-                // ... etc
-            }
-        }
-}
 
-/// Helper to load config from storage (private/internal)
-fn load_config(env: &Env) -> Option<Config> {
-    let storage = env.storage().instance();
-    // Use appropriate key for your config
-    storage.get(&DataKey::Config)
-}
+    /// Simulates dispute resolution and returns the projected outcome without
+    /// writing storage or emitting events.
+    ///
+    /// This is the read-only dry-run counterpart to `resolve_dispute`. It
+    /// performs every pre-condition check that `resolve_dispute` performs —
+    /// initialization, pause gate, arbiter authorization, contract existence,
+    /// finalization guard, `Disputed`-state requirement, arbiter matching,
+    /// and payout arithmetic validation — and then returns the projected
+    /// payout split and final status **without** mutating persistent storage,
+    /// extending TTL, executing token transfers, or publishing events.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `contract_id` - The contract ID
+    /// * `arbiter` - The arbiter address (must match contract's assigned arbiter)
+    /// * `resolution` - The resolution decision (FullRefund, PartialRefund, FullPayout, or Split)
+    ///
+    /// # Returns
+    /// A [`SimulateDisputeOutcome`] containing:
+    /// - `client_payout` — amount that would be refunded to the client
+    /// - `freelancer_payout` — amount that would be released to the freelancer
+    /// - `final_status` — projected contract status after applying the resolution
+    /// - `new_refunded_amount` — projected `refunded_amount`
+    /// - `new_released_amount` — projected `released_amount`
+    ///
+    /// # Errors
+    /// * `NotInitialized` - If `initialize` has not been called
+    /// * `ContractNotFound` - If contract doesn't exist
+    /// * `UnauthorizedRole` - If caller is not the assigned arbiter
+    /// * `InvalidStatusTransition` - If contract is not in Disputed state
+    /// * `InvalidDisputeSplit` - If custom split doesn't match available balance
+    /// * `AccountingInvariantViolated` - If accounting state is inconsistent
+    /// * `PotentialOverflow` - If amount calculations would overflow
+    /// * `ContractPaused` - If pause or emergency controls are active
+    /// * `AlreadyFinalized` - If contract has been finalized
+    ///
+    /// # Security
+    /// This entrypoint is read-only: it performs no storage writes, no TTL
+    /// extensions, no token transfers, and emits no events. It does not
+    /// contribute to keeping contract state alive and cannot be used as a
+    /// state-mutation vector.
+    pub fn simulate_dispute_resolution(
+        env: Env,
+        contract_id: u32,
+        arbiter: Address,
+        resolution: DisputeResolution,
+    ) -> SimulateDisputeOutcome {
+        // Identical pre-condition checks as `resolve_dispute`.
+        Self::require_initialized(&env);
+        Self::require_not_paused(&env);
+        arbiter.require_auth();
+
+        let contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+
+        // NOTE: No TTL extension — this is a read-only simulation.
+
+        Self::require_not_finalized(&env, contract_id);
+
+        if contract.status != ContractStatus::Disputed {
+            env.panic_with_error(Error::InvalidStatusTransition);
+        }
+
+        match &contract.arbiter {
+            Some(contract_arbiter) if *contract_arbiter == arbiter => {}
+            _ => env.panic_with_error(Error::UnauthorizedRole),
+        }
+
+        let (client_payout, freelancer_payout) =
+            dispute::resolution_payouts(&contract, &resolution)
+                .unwrap_or_else(|e| env.panic_with_error(e));
+
+        let new_refunded_amount = contract
+            .refunded_amount
+            .checked_add(client_payout)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+        let new_released_amount = contract
+            .released_amount
+            .checked_add(freelancer_payout)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+
+        // Compute projected final status using dispute helper.
+        // Build a projected contract view without mutating the original.
+        let projected = Contract {
+            refunded_amount: new_refunded_amount,
+            released_amount: new_released_amount,
+            ..contract
+        };
+        let final_status = dispute::final_status_after_resolution(&projected);
+
+        SimulateDisputeOutcome {
+            client_payout,
+            freelancer_payout,
+            final_status,
+            new_refunded_amount,
+            new_released_amount,
+        }
+    }
 }
 
 /// Test fixtures and suites are compiled only for native test builds, never wasm.
