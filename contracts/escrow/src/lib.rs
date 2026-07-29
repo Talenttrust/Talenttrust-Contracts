@@ -234,6 +234,11 @@ pub enum EscrowError {
     InvalidProtocolParameters = 44,
     /// The withdrawal amount exceeds the maximum allowed per operation.
     InvalidWithdrawalAmount = 45,
+    /// The proposed migration target overlaps with an existing contract role
+    /// (client, freelancer, arbiter, or the escrow contract itself), which
+    /// would collapse independent authorization parties and defeat the
+    /// release-authorization and dispute models.
+    RoleOverlap = 46,
 }
 
 impl Escrow {
