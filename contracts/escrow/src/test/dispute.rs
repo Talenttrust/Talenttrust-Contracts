@@ -25,8 +25,8 @@
 #![cfg(test)]
 
 use crate::{
-    Contract, ContractStatus, DisputeResolution, DisputeSplit, Error, Escrow, EscrowClient,
-    ReleaseAuthorization, SimulateDisputeOutcome,
+    Contract, ContractStatus, DisputeInfo, DisputeResolution, DisputeSplit, Error, Escrow,
+    EscrowClient, ReleaseAuthorization, SimulateDisputeOutcome,
 };
 use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env};
 
@@ -201,7 +201,11 @@ fn resolution_payouts_split_accepts_exact_conserving_amounts() {
                 freelancer_amount: 60,
             })
         ),
-        Ok((40, 60))
+        Ok(DisputeInfo {
+            available_balance: 100,
+            client_payout: 40,
+            freelancer_payout: 60,
+        })
     );
     // One stroop → floor(1 * 30 / 100) = 0, client gets 1
     assert_eq!(
@@ -379,9 +383,8 @@ fn resolution_payouts_conserves_available_balance() {
         assert_eq!(info.freelancer_payout, available);
 
         // PartialRefund
-        let (client, freelancer) =
-            resolution_payouts(&c, &DisputeResolution::PartialRefund).unwrap();
-        assert_eq!(client + freelancer, available);
+        let info = resolution_payouts(&c, &DisputeResolution::PartialRefund).unwrap();
+        assert_eq!(info.client_payout + info.freelancer_payout, available);
         let expected_freelancer = (available * 30) / 100;
         assert_eq!(info.freelancer_payout, expected_freelancer);
         assert_eq!(info.client_payout, available - expected_freelancer);
@@ -393,11 +396,10 @@ fn resolution_payouts_conserves_available_balance() {
             client_amount: split_client,
             freelancer_amount: split_freelancer,
         };
-        let (client, freelancer) =
-            resolution_payouts(&c, &DisputeResolution::Split(split)).unwrap();
-        assert_eq!(client + freelancer, available);
-        assert_eq!(client, split_client);
-        assert_eq!(freelancer, split_freelancer);
+        let info = resolution_payouts(&c, &DisputeResolution::Split(split)).unwrap();
+        assert_eq!(info.client_payout + info.freelancer_payout, available);
+        assert_eq!(info.client_payout, split_client);
+        assert_eq!(info.freelancer_payout, split_freelancer);
     }
 }
 

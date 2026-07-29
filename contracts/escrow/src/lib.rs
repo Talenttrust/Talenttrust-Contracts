@@ -94,10 +94,11 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // `types.rs` and re-exported here; `dispute.rs` uses them via `crate::`.
 pub use events::MAX_EVENT_BATCH_SIZE;
 pub use types::{
-    Contract, ContractStatus, ContractSummary, DataKey, DepositMode, DisputeConfig,
-    DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
-    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    Contract, ContractStatus, ContractSummary, DataKey, DepositMode, DisputeConfig, DisputeInfo,
+    DisputeMetadata, DisputeMetadataV0, DisputeResolution, DisputeSplit, Error,
+    GovernedParameters, Milestone, MilestoneApprovals, MilestoneSummary, PendingAdminProposal,
+    ReadinessChecklist, ReleaseAuthorization, Reputation, SplitAmounts,
+    CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 pub use types::DISPUTE_STORAGE_VERSION;
 
@@ -3263,18 +3264,17 @@ impl Escrow {
         }
 
         // Compute payouts based on resolution
-        let (client_payout, freelancer_payout) =
-            dispute::resolution_payouts(&contract, &resolution)
-                .unwrap_or_else(|e| env.panic_with_error(e));
+        let info = dispute::resolution_payouts(&contract, &resolution)
+            .unwrap_or_else(|e| env.panic_with_error(e));
 
         // Update contract accounting
         contract.refunded_amount = contract
             .refunded_amount
-            .checked_add(client_payout)
+            .checked_add(info.client_payout)
             .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
         contract.released_amount = contract
             .released_amount
-            .checked_add(freelancer_payout)
+            .checked_add(info.freelancer_payout)
             .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
         // Set final status
