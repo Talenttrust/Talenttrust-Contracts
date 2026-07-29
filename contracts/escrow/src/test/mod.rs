@@ -1,7 +1,11 @@
 #![cfg(test)]
 #![allow(dead_code)]
 
-use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env, Vec};
+use soroban_sdk::{
+    testutils::{Address as _, Events as _},
+    token::StellarAssetClient,
+    vec, Address, Env, Vec,
+};
 
 use crate::{
     Contract, ContractStatus, Escrow, EscrowClient, EscrowError, Milestone, ReleaseAuthorization,
@@ -20,6 +24,7 @@ mod emergency_controls;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
 mod mainnet_readiness;
+mod milestone_budget;
 mod milestones_events;
 mod pause_controls;
 mod persistence;
@@ -30,6 +35,7 @@ mod reputation;
 mod reputation_config_setter;
 mod rollback;
 mod security;
+mod settlement_budget;
 mod ttl_tests;
 
 // --- Shared constants ---

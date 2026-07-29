@@ -98,7 +98,7 @@ pub enum DataKey {
 }
 
 /// Canonical contract error type for all entrypoint-facing errors.
-#[contracterror]
+#[contracterror(export = false)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {

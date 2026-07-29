@@ -39,7 +39,7 @@
 //! key `(DataKey::Contract(contract_id), "milestones")`, `NextContractId`,
 //! participant index keys, pending approvals, and pending migrations.
 //!
-use crate::{DataKey, Error, Milestone};
+use crate::{types::Error, DataKey, Milestone};
 use soroban_sdk::{Env, IntoVal, Symbol, TryFromVal, Val, Vec};
 
 pub const LEDGERS_PER_DAY: u32 = 17_280;

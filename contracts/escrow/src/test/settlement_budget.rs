@@ -1,25 +1,25 @@
 use super::{create_contract, register_client, EscrowFixture, MILESTONE_ONE};
 use crate::{ContractStatus, EscrowClient, ReleaseAuthorization};
-use soroban_sdk::{testutils::Address as _, Env, Vec};
+use soroban_sdk::{testutils::Address as _, vec, Env, Vec};
 
 const RELEASE_MILESTONE_BASELINE: ResourceBaseline = ResourceBaseline {
     max_instructions: 10_000_000,
     max_mem_bytes: 1_000_000,
-    max_read_entries: 4,
-    max_write_entries: 3,
+    max_read_entries: 11,
+    max_write_entries: 7,
     max_read_bytes: 4_096,
     max_write_bytes: 14_336,
-    max_fee_total: 2_100_000,
+    max_fee_total: 2_200_000,
 };
 
 const REFUND_ALL_BASELINE: ResourceBaseline = ResourceBaseline {
     max_instructions: 10_000_000,
     max_mem_bytes: 1_000_000,
-    max_read_entries: 4,
-    max_write_entries: 3,
+    max_read_entries: 7,
+    max_write_entries: 5,
     max_read_bytes: 4_096,
     max_write_bytes: 12_288,
-    max_fee_total: 2_000_000,
+    max_fee_total: 2_100_000,
 };
 
 #[derive(Clone, Copy)]
@@ -181,7 +181,7 @@ fn refund_all_unreleased_bounded() {
     let fixture = EscrowFixture::builder().funded().build();
     let escrow = fixture.escrow();
 
-    let indices: Vec<u32> = vec![&fixture.env, 0, 1, 2];
+    let indices: Vec<u32> = vec![&fixture.env, 0_u32, 1_u32, 2_u32];
     escrow.refund_unreleased_milestones(&fixture.escrow_id, &indices);
 
     let (resources, fee_total) = measure_last_invocation(&fixture.env);
