@@ -10,8 +10,8 @@
 use crate::storage_validation;
 use crate::ttl::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
 use crate::{
-    DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, PendingAdminProposal,
-    ReadinessChecklist, MIN_MAX_MILESTONES, MAX_MAX_MILESTONES,
+    DataKey, Error, Escrow, EscrowError, GovernedParameters, PendingAdminProposal,
+    ReadinessChecklist, MAX_MAX_MILESTONES, MIN_MAX_MILESTONES,
 };
 use soroban_sdk::{symbol_short, Address, Env, Symbol};
 

@@ -86,12 +86,12 @@ fn per_item_events_emitted() {
     assert_eq!(count, 2);
 
     let all_events = env.events().all();
-    let found_1 = all_events.iter().any(|e| {
-        e.1.len() > 0 && e.1.get(0).unwrap() == Symbol::new(&env, "event_1").into()
-    });
-    let found_2 = all_events.iter().any(|e| {
-        e.1.len() > 0 && e.1.get(0).unwrap() == Symbol::new(&env, "event_2").into()
-    });
+    let found_1 = all_events
+        .iter()
+        .any(|e| e.1.len() > 0 && e.1.get(0).unwrap() == Symbol::new(&env, "event_1").into());
+    let found_2 = all_events
+        .iter()
+        .any(|e| e.1.len() > 0 && e.1.get(0).unwrap() == Symbol::new(&env, "event_2").into());
     assert!(found_1);
     assert!(found_2);
 }

@@ -85,11 +85,13 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // Keep shared storage keys and escrow domain types centralized in `types.rs`.
 // `DisputeResolution`, `DisputeSplit`, and `DisputeInfo` are defined once in
 // `types.rs` and re-exported here; `dispute.rs` uses them via `crate::`.
+pub use events::MAX_EVENT_BATCH_SIZE;
 pub use types::{
-    Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode,
-    DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
-    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    SimulateDisputeOutcome, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
+    DepositMode, DisputeConfig, DisputeInfo, DisputeResolution, DisputeSplit, Error, EventInput,
+    GovernedParameters, Milestone, MilestoneApprovals, MilestoneEntry, MilestoneSummary,
+    PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig,
+    ReputationEntry, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, MAX_PAGINATION_LIMIT,
 };
 
 /// Default maximum number of milestones allowed per contract.
@@ -240,11 +242,10 @@ pub enum EscrowError {
     InvalidProtocolParameters = 44,
     /// The withdrawal amount exceeds the maximum allowed per operation.
     InvalidWithdrawalAmount = 45,
-    /// The proposed migration target overlaps with an existing contract role
-    /// (client, freelancer, arbiter, or the escrow contract itself), which
-    /// would collapse independent authorization parties and defeat the
-    /// release-authorization and dispute models.
-    RoleOverlap = 46,
+    /// The specified contract ID is invalid or zero.
+    InvalidContractId = 46,
+    /// The specified batch or operational limit is out of allowed range.
+    LimitOutOfRange = 47,
 }
 
 impl Escrow {
@@ -849,56 +850,67 @@ impl Escrow {
             .unwrap_or_default()
     }
 
-        /// Paginated read-only view over milestones for a contract.
-        ///
-        /// - `start`: zero-based start index
-        /// - `limit`: maximum entries to return (clamped to PAGE_CEILING)
-        ///
-        /// Read-only and empty-safe: unknown contracts or out-of-range start values
-        /// return an empty vector rather than panicking.
-        pub fn get_milestones_page(env: Env, contract_id: u32, start: u32, limit: u32) -> Vec<MilestoneEntry> {
-            // Clamp requested limit to the configured ceiling.
-            let capped_limit = core::cmp::min(limit, PAGE_CEILING);
-            if capped_limit == 0 {
-                return Vec::new(&env);
-            }
-
-            let milestone_key = Symbol::new(&env, "milestones");
-            let maybe_milestones: Option<Vec<Milestone>> = env
-                .storage()
-                .persistent()
-                .get(&(DataKey::Contract(contract_id), milestone_key));
-
-            let milestones = match maybe_milestones {
-                Some(m) => m,
-                None => return Vec::new(&env),
-            };
-
-            let len = milestones.len();
-            if start >= len {
-                return Vec::new(&env);
-            }
-
-            // Compute end index safely and clamp to available length.
-            let end = {
-                let sum = start.saturating_add(capped_limit);
-                core::cmp::min(len, sum)
-            };
-
-            let mut page = Vec::new(&env);
-            let mut idx = start;
-            while idx < end {
-                let ms = milestones.get(idx).unwrap();
-                let status = if ms.released { 1u32 } else if ms.refunded { 2u32 } else { 0u32 };
-                page.push_back(MilestoneEntry {
-                    index: idx,
-                    status,
-                    amount: ms.amount,
-                });
-                idx = idx + 1;
-            }
-            page
+    /// Paginated read-only view over milestones for a contract.
+    ///
+    /// - `start`: zero-based start index
+    /// - `limit`: maximum entries to return (clamped to PAGE_CEILING)
+    ///
+    /// Read-only and empty-safe: unknown contracts or out-of-range start values
+    /// return an empty vector rather than panicking.
+    pub fn get_milestones_page(
+        env: Env,
+        contract_id: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<MilestoneEntry> {
+        // Clamp requested limit to the configured ceiling.
+        let capped_limit = core::cmp::min(limit, PAGE_CEILING);
+        if capped_limit == 0 {
+            return Vec::new(&env);
         }
+
+        let milestone_key = Symbol::new(&env, "milestones");
+        let maybe_milestones: Option<Vec<Milestone>> = env
+            .storage()
+            .persistent()
+            .get(&(DataKey::Contract(contract_id), milestone_key));
+
+        let milestones = match maybe_milestones {
+            Some(m) => m,
+            None => return Vec::new(&env),
+        };
+
+        let len = milestones.len();
+        if start >= len {
+            return Vec::new(&env);
+        }
+
+        // Compute end index safely and clamp to available length.
+        let end = {
+            let sum = start.saturating_add(capped_limit);
+            core::cmp::min(len, sum)
+        };
+
+        let mut page = Vec::new(&env);
+        let mut idx = start;
+        while idx < end {
+            let ms = milestones.get(idx).unwrap();
+            let status = if ms.released {
+                1u32
+            } else if ms.refunded {
+                2u32
+            } else {
+                0u32
+            };
+            page.push_back(MilestoneEntry {
+                index: idx,
+                status,
+                amount: ms.amount,
+            });
+            idx = idx + 1;
+        }
+        page
+    }
 
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
     ///
@@ -1395,7 +1407,7 @@ impl Escrow {
     /// Uses `now_seconds(&env)` which is the single source of truth for ledger time.
     /// Time cannot be manipulated by contract callers.
     pub fn is_milestone_overdue(env: Env, contract_id: u32, milestone_index: u32) -> bool {
-        let contract: Contract = match env
+        let _contract: Contract = match env
             .storage()
             .persistent()
             .get(&DataKey::Contract(contract_id))
@@ -2358,7 +2370,9 @@ impl Escrow {
                 .get(&DataKey::ReputationIndex)
                 .unwrap_or_else(|| Vec::new(&env));
             idx.push_back(contract.freelancer.clone());
-            env.storage().persistent().set(&DataKey::ReputationIndex, &idx);
+            env.storage()
+                .persistent()
+                .set(&DataKey::ReputationIndex, &idx);
         }
 
         let comment_key = DataKey::ReputationComment(contract_id);
@@ -2628,7 +2642,8 @@ impl Escrow {
 
         let mut count: u32 = 0;
         for item in events.iter() {
-            env.events().publish((item.topic.clone(), item.contract_id), item.data.clone());
+            env.events()
+                .publish((item.topic.clone(), item.contract_id), item.data.clone());
             count += 1;
         }
         count

@@ -104,6 +104,8 @@ pub enum DataKey {
     ReputationConfigKey,
     // Configurable settlement (batch finalize) limit
     MaxSettlement,
+    // Configurable maximum milestones limit
+    MaxMilestones,
     // Milestone vector (replaces composite (Contract(id), "milestones"))
     Milestones(u32),
     // Reputation schema version marker
@@ -169,10 +171,9 @@ pub enum Error {
     EmptyComment = 29,
     CommentTooLong = 30,
     InvalidParticipant = 31,
-    InvalidDepositAmount = 32,
-    InvalidMilestone = 33,
     /// The deposit amount is invalid.
     InvalidDepositAmount = 32,
+    InvalidMilestone = 33,
     /// The contract has already been initialized.
     AlreadyInitialized = 34,
     InsufficientAccumulatedFees = 35,
@@ -495,4 +496,22 @@ pub struct DisputeInfo {
     pub client_payout: i128,
     /// Amount to be forwarded to the freelancer (release side).
     pub freelancer_payout: i128,
+}
+
+/// Event input data payload.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventInput {
+    pub topic: soroban_sdk::Symbol,
+    pub contract_id: u32,
+    pub data: soroban_sdk::Symbol,
+}
+
+/// Milestone index entry for pagination.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneEntry {
+    pub index: u32,
+    pub status: u32,
+    pub amount: i128,
 }

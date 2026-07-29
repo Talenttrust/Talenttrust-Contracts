@@ -2,8 +2,7 @@ use crate::{
     amount_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError,
     GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
     amount_validation, storage_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
-    EscrowArgs, EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization,
-    MAX_MILESTONES,
+    EscrowError, GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
 };
 use soroban_sdk::{symbol_short, Address, Env, Symbol, Vec};
 
@@ -61,8 +60,7 @@ impl Escrow {
         for i in 0..len {
             native_milestones[i] = milestones.get(i as u32).unwrap();
         }
-        amount_validation::
-            validate_milestone_amounts(&native_milestones[..len], max_total)
+        amount_validation::validate_milestone_amounts(&native_milestones[..len], max_total)
             .unwrap_or_else(|e| env.panic_with_error(e));
 
         ttl::extend_next_contract_id_ttl(&env);

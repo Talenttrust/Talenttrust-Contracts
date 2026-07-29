@@ -231,13 +231,7 @@ fn create_contract_accepts_exactly_max_milestone_count() {
         amounts.push_back(1_i128);
     }
     assert_eq!(amounts.len(), MAX_MILESTONES);
-    let _id = client.create_contract(
-        &c,
-        &f,
-        &None,
-        &amounts,
-        &ReleaseAuthorization::ClientOnly,
-    );
+    let _id = client.create_contract(&c, &f, &None, &amounts, &ReleaseAuthorization::ClientOnly);
 }
 
 #[test]
@@ -475,11 +469,7 @@ fn deposit_funds_rejects_amount_above_max_single() {
     let token_client = StellarAssetClient::new(&env, &token);
     token_client.mint(&client_addr, &MAX_SINGLE_AMOUNT_STROOPS);
     assert_contract_error(
-        client.try_deposit_funds(
-            &contract_id,
-            &client_addr,
-            &(MAX_SINGLE_AMOUNT_STROOPS + 1),
-        ),
+        client.try_deposit_funds(&contract_id, &client_addr, &(MAX_SINGLE_AMOUNT_STROOPS + 1)),
         EscrowError::InvalidDepositAmount,
     );
 }
@@ -587,10 +577,8 @@ fn withdraw_protocol_fees_rejects_amount_above_max() {
     let env = Env::default();
     let (client, _) = setup(&env);
     assert_contract_error(
-        client.try_withdraw_protocol_fees(
-            &(MAX_SINGLE_AMOUNT_STROOPS + 1),
-            &Address::generate(&env),
-        ),
+        client
+            .try_withdraw_protocol_fees(&(MAX_SINGLE_AMOUNT_STROOPS + 1), &Address::generate(&env)),
         EscrowError::InvalidWithdrawalAmount,
     );
 }
@@ -624,10 +612,7 @@ fn withdraw_protocol_fees_accepts_at_exact_max() {
     let env = Env::default();
     let (client, _) = setup(&env);
     assert_contract_error(
-        client.try_withdraw_protocol_fees(
-            &MAX_SINGLE_AMOUNT_STROOPS,
-            &Address::generate(&env),
-        ),
+        client.try_withdraw_protocol_fees(&MAX_SINGLE_AMOUNT_STROOPS, &Address::generate(&env)),
         EscrowError::InsufficientAccumulatedFees,
     );
 }
@@ -957,8 +942,7 @@ fn refund_accepts_multiple_distinct_indices() {
     let token_client = StellarAssetClient::new(&env, &token);
     token_client.mint(&client_addr, &600_0000000_i128);
     client.deposit_funds(&contract_id, &client_addr, &600_0000000_i128);
-    let refunded =
-        client.refund_unreleased_milestones(&contract_id, &vec![&env, 0_u32, 2_u32]);
+    let refunded = client.refund_unreleased_milestones(&contract_id, &vec![&env, 0_u32, 2_u32]);
     assert_eq!(refunded, 400_0000000_i128);
 }
 

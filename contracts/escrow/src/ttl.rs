@@ -149,7 +149,7 @@ pub fn store_milestones(env: &Env, contract_id: u32, milestones: &Vec<Milestone>
     extend_milestone_ttl(env, contract_id);
 }
 
-pub(crate) fn milestone_storage_key(env: &Env, contract_id: u32) -> DataKey {
+pub(crate) fn milestone_storage_key(_env: &Env, contract_id: u32) -> DataKey {
     DataKey::Milestones(contract_id)
 }
 

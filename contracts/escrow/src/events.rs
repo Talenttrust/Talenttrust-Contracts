@@ -4,6 +4,9 @@ use soroban_sdk::{symbol_short, Env};
 
 pub use crate::types::MilestoneIndexEvent;
 
+/// Maximum number of events processed in a batch operations.
+pub const MAX_EVENT_BATCH_SIZE: usize = 100;
+
 /// Emits an indexed event on contract state changes to assist off-chain indexers
 /// in cheaply reconstructing contract lifecycle history and financial balances.
 ///
@@ -16,7 +19,6 @@ pub use crate::types::MilestoneIndexEvent;
 /// - `AmountMustBePositive` if any amount field is negative.
 pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contract) {
     if contract_id == 0 {
-        env.panic_with_error(Error::ContractNotFound);
         env.panic_with_error(EscrowError::InvalidContractId);
     }
 

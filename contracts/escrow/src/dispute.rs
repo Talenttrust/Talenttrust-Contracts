@@ -10,8 +10,8 @@
 use soroban_sdk::{symbol_short, Address, Env};
 
 use crate::{
-    rollback, safe_add_amounts, ttl, Contract, ContractStatus, DataKey, DisputeConfig,
-    DisputeInfo, DisputeResolution, Error, Escrow,
+    rollback, safe_add_amounts, ttl, Contract, ContractStatus, DataKey, DisputeConfig, DisputeInfo,
+    DisputeResolution, Error, Escrow,
 };
 
 /// Read-only getter for the arbiter dispute-split configuration.

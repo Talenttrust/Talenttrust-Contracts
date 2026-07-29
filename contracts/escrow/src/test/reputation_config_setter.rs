@@ -189,10 +189,6 @@ fn event_emitted_on_valid_set() {
     let has_rep_cfg = events.iter().any(|e| {
         Symbol::try_from_val(&env, &e.1.get(0).unwrap_or_else(|| Val::VOID.into())).ok()
             == Some(target.clone())
-        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID.into()))
-            .ok()
-            .as_ref()
-            == Some(&Symbol::new(&env, "rep_cfg"))
     });
     assert!(has_rep_cfg, "expected rep_cfg event to be emitted");
 }
@@ -209,10 +205,6 @@ fn no_event_emitted_when_set_fails() {
     let has_rep_cfg = events.iter().any(|e| {
         Symbol::try_from_val(&env, &e.1.get(0).unwrap_or_else(|| Val::VOID.into())).ok()
             == Some(target.clone())
-        Symbol::try_from_val(&env, &e.1.get(0).unwrap_or(Val::VOID.into()))
-            .ok()
-            .as_ref()
-            == Some(&Symbol::new(&env, "rep_cfg"))
     });
     assert!(
         !has_rep_cfg,
@@ -372,5 +364,8 @@ fn reset_reputation_config_emits_event() {
             .as_ref()
             == Some(&Symbol::new(&env, "rep_cfg_reset"))
     });
-    assert!(has_rep_cfg_reset, "expected rep_cfg_reset event to be emitted");
+    assert!(
+        has_rep_cfg_reset,
+        "expected rep_cfg_reset event to be emitted"
+    );
 }

@@ -1,6 +1,4 @@
-use super::{
-    complete_contract_funded, register_client_with_token, total_milestone_amount,
-};
+use super::{complete_contract_funded, register_client_with_token, total_milestone_amount};
 use crate::{Contract, ContractStatus, DataKey, Error, ReleaseAuthorization};
 use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env, String};
 
@@ -53,16 +51,13 @@ fn pending_reputation_credits_accumulate_and_drain_across_completed_contracts() 
     let second_client = Address::generate(&env);
     let third_client = Address::generate(&env);
 
-    let first_contract =
-        complete_contract_for(&env, &client, &token, &first_client, &freelancer);
+    let first_contract = complete_contract_for(&env, &client, &token, &first_client, &freelancer);
     assert_eq!(client.get_pending_reputation_credits(&freelancer), 1);
 
-    let second_contract =
-        complete_contract_for(&env, &client, &token, &second_client, &freelancer);
+    let second_contract = complete_contract_for(&env, &client, &token, &second_client, &freelancer);
     assert_eq!(client.get_pending_reputation_credits(&freelancer), 2);
 
-    let third_contract =
-        complete_contract_for(&env, &client, &token, &third_client, &freelancer);
+    let third_contract = complete_contract_for(&env, &client, &token, &third_client, &freelancer);
     assert_eq!(client.get_pending_reputation_credits(&freelancer), 3);
 
     // A fully refunded contract is terminal but never earns a reputation credit.
@@ -74,8 +69,7 @@ fn pending_reputation_credits_accumulate_and_drain_across_completed_contracts() 
         &super::default_milestones(&env),
         &ReleaseAuthorization::ClientOnly,
     );
-    StellarAssetClient::new(&env, &token)
-        .mint(&refunded_client, &total_milestone_amount());
+    StellarAssetClient::new(&env, &token).mint(&refunded_client, &total_milestone_amount());
     assert!(client.deposit_funds(
         &refunded_contract,
         &refunded_client,
@@ -160,8 +154,7 @@ fn issue_reputation_rejects_non_completed_contract() {
         &ReleaseAuthorization::ClientOnly,
     );
 
-    let result =
-        client.try_issue_reputation(&contract_id, &client_addr, &5, &valid_comment(&env));
+    let result = client.try_issue_reputation(&contract_id, &client_addr, &5, &valid_comment(&env));
     super::assert_contract_error(result, Error::NotCompleted);
 }
 
@@ -264,8 +257,7 @@ fn issue_reputation_rejects_duplicate_issuance() {
         complete_contract_funded(&env, &client, &token);
 
     assert!(client.issue_reputation(&contract_id, &client_addr, &5, &valid_comment(&env)));
-    let result =
-        client.try_issue_reputation(&contract_id, &client_addr, &4, &valid_comment(&env));
+    let result = client.try_issue_reputation(&contract_id, &client_addr, &4, &valid_comment(&env));
     super::assert_contract_error(result, Error::ReputationAlreadyIssued);
 }
 
@@ -284,8 +276,7 @@ fn issue_reputation_rejects_self_rating_when_client_equals_freelancer() {
         env.storage().persistent().set(&key, &contract);
     });
 
-    let result =
-        client.try_issue_reputation(&contract_id, &client_addr, &5, &valid_comment(&env));
+    let result = client.try_issue_reputation(&contract_id, &client_addr, &5, &valid_comment(&env));
     super::assert_contract_error(result, Error::SelfRating);
 }
 
@@ -319,8 +310,7 @@ fn issue_reputation_rejects_when_no_pending_credits() {
         env.storage().persistent().set(&key, &0_i128);
     });
 
-    let result =
-        client.try_issue_reputation(&contract_id, &client_addr, &5, &valid_comment(&env));
+    let result = client.try_issue_reputation(&contract_id, &client_addr, &5, &valid_comment(&env));
     super::assert_contract_error(result, Error::NoPendingReputationCredits);
 }
 
