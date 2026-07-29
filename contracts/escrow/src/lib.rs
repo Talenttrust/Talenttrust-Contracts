@@ -2858,6 +2858,37 @@ impl Escrow {
 
         true
     }
+    /// Returns the current contract configuration
+    /// 
+    /// # Returns
+    /// * `Config` - The current configuration values
+    /// 
+    /// # Behavior
+    /// * If contract is not initialized, returns sensible defaults
+    /// * Does not modify any storage state
+    pub fn get_config(env: Env) -> Config {
+        // Try to load stored config
+        if let Some(config) = Self::load_config(&env) {
+            config
+        } else {
+            // Return sensible defaults before init
+            Config {
+                admin: env.current_contract_address(),
+                // Add other default values appropriate for your contract
+                fee_percentage: 0,
+                min_deposit: 0,
+                max_duration: 0,
+                // ... etc
+            }
+        }
+}
+
+/// Helper to load config from storage (private/internal)
+fn load_config(env: &Env) -> Option<Config> {
+    let storage = env.storage().instance();
+    // Use appropriate key for your config
+    storage.get(&DataKey::Config)
+}
 }
 
 /// Test fixtures and suites are compiled only for native test builds, never wasm.
