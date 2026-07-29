@@ -353,3 +353,14 @@ impl DisputeResolution {
         }
     }
 }
+
+/// Represents the milestone progress of an escrow contract.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneProgress {
+    /// The number of completed (released) milestones.
+    pub completed: u32,
+    /// The total number of milestones.
+    pub total: u32,
+}
+

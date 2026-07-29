@@ -82,8 +82,8 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 pub use types::{
     Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode,
     DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
-    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
-    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    MilestoneProgress, MilestoneSummary, PendingAdminProposal, ReadinessChecklist,
+    ReleaseAuthorization, Reputation, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -2320,7 +2320,39 @@ impl Escrow {
 
         true
     }
+
+    /// Returns milestone progress (completed and total counts) for a contract.
+    ///
+    /// Read-only and side-effect-free on the unknown-contract path. Unlike other
+    /// getters, this does not panic with `ContractNotFound` for an unknown
+    /// `contract_id` — it returns a progress struct with `completed: 0` and
+    /// `total: 0` instead, since it is meant as a cheap probe rather than a
+    /// strict existence check.
+    pub fn get_milestone_progress(env: Env, contract_id: u32) -> MilestoneProgress {
+        if env
+            .storage()
+            .persistent()
+            .get::<_, Contract>(&DataKey::Contract(contract_id))
+            .is_none()
+        {
+            return MilestoneProgress { completed: 0, total: 0 };
+        }
+
+        let milestones: Vec<Milestone> = env
+            .storage()
+            .persistent()
+            .get(&ttl::milestone_storage_key(&env, contract_id))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let total = milestones.len() as u32;
+        let completed = milestones.iter().filter(|m| m.released).count() as u32;
+
+        ttl::extend_contract_and_milestones_ttl(&env, contract_id);
+
+        MilestoneProgress { completed, total }
+    }
 }
+
 
 /// Test fixtures and suites are compiled only for native test builds, never wasm.
 #[cfg(test)]
