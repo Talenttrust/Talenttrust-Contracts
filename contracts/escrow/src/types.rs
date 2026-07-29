@@ -64,7 +64,6 @@ pub enum DataKey {
     Admin,
     Paused,
     Emergency,
-    MaxMilestones,
     // Contract storage
     Contract(u32),
     NextContractId,
@@ -96,6 +95,7 @@ pub enum DataKey {
     MaxMilestones,
     MaxEscrowStroops,
     MaxArbiters,
+    MaxSettlement,
     // Finalization
     Finalization(u32),
     // Settlement token
@@ -103,8 +103,11 @@ pub enum DataKey {
     // Dispute / arbiter configuration
     DisputeRollback(u32),
     DisputeConfigKey,
+    Dispute(u32),
     // Reputation configuration
     ReputationConfigKey,
+    ClientContracts(Address),
+    FreelancerContracts(Address),
 }
 
 // ── Event Types ──────────────────────────────────────────────────────────────
@@ -193,8 +196,11 @@ pub enum Error {
     /// The work evidence string is empty; at least one byte is required.
     EmptyEvidence = 54,
     /// No safe rollback is available for the contract's current state.
-    RollbackNotAllowed = 54,
-    RollbackStateChanged = 55,
+    RollbackNotAllowed = 55,
+    RollbackStateChanged = 56,
+    RoleOverlap = 57,
+    BatchCapExceeded = 58,
+    NoPendingReputationCredits = 59,
     // `InvalidReputationParameters` was retired during the PR #1243 conflict
     // resolution so the contract stays under the Soroban SDK's 50-variant
     // limit on `#[contracterror]` enums. Use `InvalidProtocolParameters`
@@ -319,6 +325,21 @@ pub struct Milestone {
     pub deadline: Option<u64>,
 }
 
+/// Defines who can approve milestone releases.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReleaseAuthorization {
+    /// Only client can approve.
+    ClientOnly = 0,
+    /// Either client or arbiter can approve.
+    ClientAndArbiter = 1,
+    /// Only arbiter can approve.
+    ArbiterOnly = 2,
+    /// Both client and freelancer must approve; only either of them may release
+    /// after both approvals are present.
+    MultiSig = 3,
+}
+
 /// Tracks approval status for a milestone.
 /// Stored in temporary storage with TTL for expiry grace period.
 #[contracttype]
@@ -391,8 +412,8 @@ pub struct ContractsParameters {
 impl Default for ContractsParameters {
     fn default() -> Self {
         ContractsParameters {
-            max_milestones: crate::contracts::DEFAULT_MAX_MILESTONES,
-            max_escrow_stroops: crate::contracts::DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
+            max_milestones: crate::DEFAULT_MAX_MILESTONES,
+            max_escrow_stroops: crate::DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
         }
     }
 }
@@ -517,6 +538,25 @@ pub struct DisputeSummary {
     pub funded_amount: i128,
     pub released_amount: i128,
     pub refunded_amount: i128,
+}
+
+pub const DISPUTE_STORAGE_VERSION: u32 = 1;
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeMetadataV0 {
+    pub contract_id: u32,
+    pub arbiter: soroban_sdk::Address,
+    pub schema_version: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeMetadata {
+    pub contract_id: u32,
+    pub arbiter: soroban_sdk::Address,
+    pub schema_version: u32,
+    pub timestamp: u64,
 }
 
 /// Configuration for the arbiter's partial-refund split, stored under

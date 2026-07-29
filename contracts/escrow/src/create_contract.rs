@@ -133,7 +133,7 @@ impl Escrow {
         }
 
         ttl::extend_next_contract_id_ttl(&env);
-        let id = next_contract_id(&env);
+        let id = Self::next_contract_id(&env);
 
         // Retain the original freelancer address alongside `freelancer` so the
         // created event can publish it without re-cloning once the move into
@@ -155,14 +155,16 @@ impl Escrow {
             reputation_issued: false,
         };
 
-        env.storage().persistent().set(&DataKey::Contract(id), &contract);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(id), &contract);
 
-        let milestone_key = Symbol::new(&env, "milestones");
+        let milestone_key = soroban_sdk::Symbol::new(&env, "milestones");
         let mut milestone_vec: Vec<Milestone> = Vec::new(&env);
         for i in 0..len {
             let amount = native_milestones[i];
             milestone_vec.push_back(Milestone {
-                amount: *amount,
+                amount,
                 funded_amount: 0,
                 released: false,
                 refunded: false,
@@ -200,16 +202,6 @@ impl Escrow {
             .persistent()
             .get(&DataKey::NextContractId)
             .unwrap_or(1);
-            (client, freelancer_addr, env.ledger().timestamp()),
-        );
-
-        status_index::index_new_contract(&env, id, &ContractStatus::Created);
-        status_index::index_participant(&env, id, &contract.client, 0);
-        status_index::index_participant(&env, id, &contract.freelancer, 1);
-
-        id
-    }
-}
 
         if env
             .storage()

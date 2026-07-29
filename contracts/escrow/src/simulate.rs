@@ -1,8 +1,9 @@
 use crate::{
     amount_validation, approvals, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
-    EscrowArgs, EscrowClient, EscrowError, Milestone, ReleaseAuthorization,
-    SimulateCreateContractOutcome,
-    SimulatedDeposit, SimulatedRefund, SimulatedRelease, MAX_MILESTONES,
+    EscrowArgs, EscrowClient, EscrowError, Milestone, MAX_MILESTONES,
+};
+use crate::types::{
+    ReleaseAuthorization, SimulateCreateContractOutcome, SimulatedDeposit, SimulatedRefund, SimulatedRelease,
 };
 use soroban_sdk::{contractimpl, token, Address, Env, Symbol, Vec};
 
@@ -48,11 +49,14 @@ impl Escrow {
             return err(Error::ContractPaused as u32);
         }
 
-        let contract: Contract =
-            match env.storage().persistent().get(&DataKey::Contract(contract_id)) {
-                Some(c) => c,
-                None => return err(EscrowError::ContractNotFound as u32),
-            };
+        let contract: Contract = match env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+        {
+            Some(c) => c,
+            None => return err(EscrowError::ContractNotFound as u32),
+        };
 
         if Self::is_finalized(&env, contract_id) {
             return err(Error::AlreadyFinalized as u32);
@@ -121,9 +125,10 @@ impl Escrow {
             .checked_add(net_amount)
             .unwrap_or(contract.released_amount);
 
-        let would_complete_contract = milestones.iter().enumerate().all(|(i, m)| {
-            m.released || m.refunded || i as u32 == milestone_index
-        });
+        let would_complete_contract = milestones
+            .iter()
+            .enumerate()
+            .all(|(i, m)| m.released || m.refunded || i as u32 == milestone_index);
 
         SimulatedRelease {
             would_succeed: true,
@@ -181,7 +186,10 @@ impl Escrow {
         let milestones: Vec<Milestone> = env
             .storage()
             .persistent()
-            .get(&(DataKey::Contract(contract_id), Symbol::new(&env, "milestones")))
+            .get(&(
+                DataKey::Contract(contract_id),
+                Symbol::new(&env, "milestones"),
+            ))
             .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
 
         let total_milestone_amount: i128 = milestones.iter().map(|m| m.amount).sum();
@@ -337,11 +345,14 @@ impl Escrow {
             }
         }
 
-        let contract: Contract =
-            match env.storage().persistent().get(&DataKey::Contract(contract_id)) {
-                Some(c) => c,
-                None => return err(EscrowError::ContractNotFound as u32),
-            };
+        let contract: Contract = match env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+        {
+            Some(c) => c,
+            None => return err(EscrowError::ContractNotFound as u32),
+        };
 
         if Self::is_finalized(&env, contract_id) {
             return err(Error::AlreadyFinalized as u32);
@@ -373,7 +384,7 @@ impl Escrow {
             let milestone = milestones.get(idx).unwrap();
 
             if milestone.released {
-                return err(Error::AlreadyReleased as u32);
+                return err(Error::AlreadyRefunded as u32);
             }
 
             if milestone.refunded {

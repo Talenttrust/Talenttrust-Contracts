@@ -68,7 +68,7 @@ fn single_dispute_appears_in_page() {
     assert_eq!(page.len(), 1);
     let meta = page.get(0).unwrap();
     assert_eq!(meta.raised_by, client_addr);
-    assert_eq!(meta.schema_version, crate::DISPUTE_STORAGE_VERSION);
+    assert_eq!(meta.schema_version, crate::types::CONTRACT_SUMMARY_SCHEMA_VERSION);
 }
 
 #[test]
@@ -141,7 +141,11 @@ fn resolved_dispute_clears_metadata() {
     client.raise_dispute(&contract_id, &client_addr);
     assert_eq!(client.get_disputes_page(&0u32, &10u32).len(), 1);
 
-    client.resolve_dispute(&contract_id, &arbiter_addr, &crate::DisputeResolution::FullRefund);
+    client.resolve_dispute(
+        &contract_id,
+        &arbiter_addr,
+        &crate::DisputeResolution::FullRefund,
+    );
     assert_eq!(client.get_disputes_page(&0u32, &10u32).len(), 0);
 }
 
@@ -158,7 +162,7 @@ fn get_dispute_returns_metadata_for_active_dispute() {
     assert!(meta.is_some());
     let meta = meta.unwrap();
     assert_eq!(meta.raised_by, client_addr);
-    assert_eq!(meta.schema_version, crate::DISPUTE_STORAGE_VERSION);
+    assert_eq!(meta.schema_version, crate::types::CONTRACT_SUMMARY_SCHEMA_VERSION);
 }
 
 #[test]

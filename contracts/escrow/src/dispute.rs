@@ -7,7 +7,19 @@
 //! this module owns dispute authorization, state changes, events, and writes to
 //! `DataKey::Contract(contract_id)`.
 
-use crate::{safe_add_amounts, Contract, ContractStatus, DisputeResolution, Error};
+use crate::{
+    safe_add_amounts, Contract, ContractStatus, DataKey, DisputeConfig, DisputeMetadata,
+    DisputeResolution, Error, DISPUTE_STORAGE_VERSION, types::DisputeMetadataV0,
+};
+use soroban_sdk::Env;
+
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeInfo {
+    pub available_balance: i128,
+    pub client_payout: i128,
+    pub freelancer_payout: i128,
+}
 
 /// Read-only getter for the arbiter dispute-split configuration.
 ///
@@ -68,7 +80,11 @@ pub fn resolution_payouts(
             let client_payout = available
                 .checked_sub(freelancer_payout)
                 .ok_or(Error::PotentialOverflow)?;
-            Ok((client_payout, freelancer_payout))
+            Ok(DisputeInfo {
+                available_balance: available,
+                client_payout,
+                freelancer_payout,
+            })
         }
         DisputeResolution::FullPayout => Ok(DisputeInfo {
             available_balance: available,
@@ -176,92 +192,4 @@ pub fn migrate_dispute_metadata_v0_to_v1(v0: DisputeMetadataV0) -> DisputeMetada
         reason_hash: v0.reason_hash,
         raised_at: v0.raised_at,
     }
-}
-
-// ---------------------------------------------------------------------------
-// raise_dispute / resolve_dispute entrypoints
-// ---------------------------------------------------------------------------
-
-    let mut contract: Contract = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Contract(contract_id))
-        .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
-
-    ttl::extend_contract_ttl(env, contract_id);
-    Escrow::require_not_finalized(env, contract_id);
-
-    if caller != contract.client && caller != contract.freelancer {
-        env.panic_with_error(Error::UnauthorizedRole);
-    }
-    if contract.arbiter.is_none() {
-        env.panic_with_error(Error::ArbiterRequired);
-    }
-    match contract.status {
-        ContractStatus::Funded | ContractStatus::PartiallyFunded => {}
-        _ => env.panic_with_error(Error::InvalidState),
-    }
-
-    let milestones = ttl::load_milestones(env, contract_id);
-    rollback::store_dispute_rollback(env, contract_id, &contract, &milestones);
-    contract.status = ContractStatus::Disputed;
-    env.storage()
-        .persistent()
-        .set(&DataKey::Contract(contract_id), &contract);
-    ttl::extend_contract_ttl(env, contract_id);
-
-    env.events().publish(
-        (symbol_short!("dispute"), symbol_short!("opened")),
-        (contract_id, caller),
-    );
-    true
-}
-
-/// Resolve a dispute after enforcing arbiter authorization and split conservation.
-pub(crate) fn resolve_dispute_impl(
-    env: &Env,
-    contract_id: u32,
-    arbiter: Address,
-    resolution: DisputeResolution,
-) -> bool {
-    Escrow::require_initialized(env);
-    Escrow::require_not_paused(env);
-    arbiter.require_auth();
-
-    let mut contract: Contract = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Contract(contract_id))
-        .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
-
-    ttl::extend_contract_ttl(env, contract_id);
-    Escrow::require_not_finalized(env, contract_id);
-    if contract.status != ContractStatus::Disputed {
-        env.panic_with_error(Error::InvalidStatusTransition);
-    }
-    match &contract.arbiter {
-        Some(contract_arbiter) if *contract_arbiter == arbiter => {}
-        _ => env.panic_with_error(Error::UnauthorizedRole),
-    }
-
-    // Named fields instead of opaque tuple index (issue #51).
-    let info =
-        resolution_payouts(&contract, &resolution).unwrap_or_else(|e| env.panic_with_error(e));
-    contract.refunded_amount += info.client_payout;
-    contract.released_amount += info.freelancer_payout;
-    contract.status = final_status_after_resolution(&contract);
-    if contract.status == ContractStatus::Completed {
-        Escrow::grant_pending_reputation_credit(env, &contract.freelancer);
-    }
-
-    env.storage()
-        .persistent()
-        .set(&DataKey::Contract(contract_id), &contract);
-    rollback::clear_dispute_rollback(env, contract_id);
-    ttl::extend_contract_ttl(env, contract_id);
-    env.events().publish(
-        (symbol_short!("dispute"), symbol_short!("resolved")),
-        (contract_id, resolution.code()),
-    );
-    true
 }

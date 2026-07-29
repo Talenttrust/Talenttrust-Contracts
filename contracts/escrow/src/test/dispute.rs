@@ -26,7 +26,7 @@
 
 use crate::{
     Contract, ContractStatus, DisputeResolution, DisputeSplit, Error, Escrow, EscrowClient,
-    ReleaseAuthorization, SimulateDisputeOutcome,
+    ReleaseAuthorization, types::SimulateDisputeOutcome,
 };
 use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env};
 
@@ -150,7 +150,7 @@ fn resolution_payouts_full_refund_routes_all_to_client() {
     let contract = payout_contract(&env, 100, 20, 10);
     assert_eq!(
         resolution_payouts(&contract, &DisputeResolution::FullRefund),
-        Ok(DisputeInfo {
+        Ok(crate::types::DisputeSummary {
             available_balance: 70,
             client_payout: 70,
             freelancer_payout: 0,
@@ -164,7 +164,7 @@ fn resolution_payouts_full_payout_routes_all_to_freelancer() {
     let contract = payout_contract(&env, 100, 20, 10);
     assert_eq!(
         resolution_payouts(&contract, &DisputeResolution::FullPayout),
-        Ok(DisputeInfo {
+        Ok(crate::types::DisputeSummary {
             available_balance: 70,
             client_payout: 0,
             freelancer_payout: 70,
@@ -181,7 +181,7 @@ fn resolution_payouts_partial_refund_applies_floor_rounded_30_pct_to_freelancer(
     let contract = payout_contract(&env, 101, 0, 0);
     assert_eq!(
         resolution_payouts(&contract, &DisputeResolution::PartialRefund),
-        Ok(DisputeInfo {
+        Ok(crate::types::DisputeSummary {
             available_balance: 101,
             client_payout: 71,
             freelancer_payout: 30,
@@ -209,7 +209,7 @@ fn resolution_payouts_split_accepts_exact_conserving_amounts() {
             &payout_contract(&env, 1, 0, 0),
             &DisputeResolution::PartialRefund
         ),
-        Ok(DisputeInfo {
+        Ok(crate::types::DisputeSummary {
             available_balance: 1,
             client_payout: 1,
             freelancer_payout: 0,
@@ -307,7 +307,7 @@ fn resolution_payouts_split_accepts_exact_splits() {
             &payout_contract(&env, 100, 0, 0),
             &DisputeResolution::Split(split)
         ),
-        Ok(DisputeInfo {
+        Ok(crate::types::DisputeSummary {
             available_balance: 100,
             client_payout: 40,
             freelancer_payout: 60,
@@ -322,7 +322,7 @@ fn resolution_payouts_split_accepts_exact_splits() {
             &payout_contract(&env, 0, 0, 0),
             &DisputeResolution::Split(split)
         ),
-        Ok(DisputeInfo {
+        Ok(crate::types::DisputeSummary {
             available_balance: 0,
             client_payout: 0,
             freelancer_payout: 0,

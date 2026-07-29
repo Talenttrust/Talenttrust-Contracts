@@ -23,9 +23,9 @@ pub fn validate_deposit(
     amount: i128,
 ) -> ValidatedDeposit {
     // Reject non-positive or over-cap amounts before any state read.
-    storage_validation::validate_stroop_amount(env, amount);
+    crate::storage_validation::validate_stroop_amount(env, amount);
 
-    if amount > MAX_SINGLE_AMOUNT_STROOPS {
+    if amount > crate::MAX_SINGLE_AMOUNT_STROOPS {
         env.panic_with_error(EscrowError::InvalidDepositAmount);
     }
 

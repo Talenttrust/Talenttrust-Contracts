@@ -4,11 +4,21 @@ use soroban_sdk::{
     testutils::Address as _, testutils::Events, Address, Env, IntoVal, Symbol, TryFromVal, Val,
 };
 
-use crate::{Escrow, EscrowClient};
+use crate::{types::ReputationConfig, Error, Escrow, EscrowClient};
+
+fn setup(env: &Env) -> (EscrowClient<'_>, Address) {
+    let escrow_address = env.register(Escrow, ());
+    let client = EscrowClient::new(env, &escrow_address);
+    let admin = Address::generate(env);
+    env.mock_all_auths();
+    client.initialize(&admin);
+    (client, admin)
+}
 
 #[test]
 fn test_reputation_config_setter() {
     let env = Env::default();
+    let (client, _admin) = setup(&env);
     env.mock_all_auths();
 
     let config = client.get_reputation_config();

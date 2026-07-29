@@ -100,7 +100,7 @@ impl Escrow {
     }
 
     fn summarize_contract(env: &Env, contract_id: u32, contract: &Contract) -> ContractSummary {
-        let milestone_key = keys::milestone_key(env, contract_id);
+        let milestone_key = crate::keys::milestone_key(env, contract_id);
         let milestones: Vec<Milestone> = env
             .storage()
             .persistent()

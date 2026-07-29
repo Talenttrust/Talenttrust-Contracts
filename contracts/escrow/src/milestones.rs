@@ -1,59 +1,8 @@
 use crate::{
-    approvals, milestones_consts::MAX_MILESTONES, ttl, utils::now_seconds, Contract,
-    ContractStatus, DataKey, Error, Escrow, EscrowError,
+    approvals, milestones_consts::{MAX_MILESTONES, MIN_WORK_EVIDENCE_BYTES, MAX_WORK_EVIDENCE_BYTES}, ttl, utils::now_seconds, Contract,
+    ContractStatus, DataKey, Error, Escrow, EscrowError, Milestone, MilestoneApprovals, MilestoneSummary, ReleaseAuthorization,
 };
 use soroban_sdk::{contracttype, symbol_short, token, Address, Env, String, Symbol, Vec};
-
-// ── Types ────────────────────────────────────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MilestoneSummary {
-    pub index: u32,
-    pub amount: i128,
-    pub released: bool,
-    pub refunded: bool,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Milestone {
-    pub amount: i128,
-    pub funded_amount: i128,
-    pub released: bool,
-    pub refunded: bool,
-    pub work_evidence: Option<String>,
-    pub refunded_amount: i128,
-    /// Optional Unix timestamp (seconds) after which the client may claim
-    /// a timeout refund for this milestone without arbiter involvement.
-    /// None means no deadline — the milestone never expires.
-    pub deadline: Option<u64>,
-}
-
-/// Defines who can approve milestone releases.
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ReleaseAuthorization {
-    /// Only client can approve.
-    ClientOnly = 0,
-    /// Either client or arbiter can approve.
-    ClientAndArbiter = 1,
-    /// Only arbiter can approve.
-    ArbiterOnly = 2,
-    /// Both client and freelancer must approve; only either of them may release
-    /// after both approvals are present.
-    MultiSig = 3,
-}
-
-/// Tracks approval status for a milestone.
-/// Stored in temporary storage with TTL for expiry grace period.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MilestoneApprovals {
-    pub client_approved: bool,
-    pub freelancer_approved: bool,
-    pub arbiter_approved: bool,
-}
 
 // ── Implementations ──────────────────────────────────────────────────────────
 
@@ -72,15 +21,15 @@ impl Escrow {
         admin.require_auth();
 
         // Verify admin authority
-        let current_admin = Self::read_admin(env)
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::Unauthorized));
+        let current_admin: Address = env.storage().persistent().get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::UnauthorizedRole));
         if admin != current_admin {
-            env.panic_with_error(EscrowError::Unauthorized);
+            env.panic_with_error(EscrowError::UnauthorizedRole);
         }
 
         // Validate bounds: non-zero and within MAX_MILESTONES cap
         if max_milestones == 0 || max_milestones > MAX_MILESTONES {
-            env.panic_with_error(EscrowError::InvalidParameter);
+            env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
         // Persist updated configuration
@@ -394,7 +343,7 @@ impl Escrow {
             }
 
             if let Some(deadline) = milestone.deadline {
-                if !Self::is_milestone_overdue_impl(env, contract_id, *idx) {
+                if !Self::is_milestone_overdue_impl(env, contract_id, idx) {
                     env.panic_with_error(Error::MilestoneNotOverdue);
                 }
             }
@@ -419,10 +368,10 @@ impl Escrow {
         );
 
         for idx in milestone_indices.iter() {
-            let mut milestone = milestones.get(*idx).unwrap();
+            let mut milestone = milestones.get(idx).unwrap();
             milestone.refunded = true;
             milestone.refunded_amount = milestone.amount;
-            milestones.set(*idx, milestone);
+            milestones.set(idx, milestone);
         }
 
         contract.refunded_amount = contract
@@ -462,7 +411,7 @@ impl Escrow {
 
     pub(crate) fn get_milestones_impl(env: &Env, contract_id: u32) -> Vec<Milestone> {
         let milestone_key = Symbol::new(env, "milestones");
-        let milestones = env
+        let milestones: Vec<Milestone> = env
             .storage()
             .persistent()
             .get(&(DataKey::Contract(contract_id), milestone_key))
@@ -528,7 +477,7 @@ impl Escrow {
         }
 
         let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
-        env.storage().temporary().get_ttl(&approval_key)
+        if !env.storage().temporary().has(&approval_key) { return None; } Some(ttl::compute_expiry(env, ttl::PENDING_APPROVAL_TTL_LEDGERS))
     }
 
     pub(crate) fn submit_work_evidence_impl(
@@ -552,10 +501,10 @@ impl Escrow {
         contract.freelancer.require_auth();
 
         let evidence_len = evidence.len();
-        if evidence_len < crate::MIN_WORK_EVIDENCE_BYTES {
+        if evidence_len < MIN_WORK_EVIDENCE_BYTES {
             env.panic_with_error(Error::EmptyEvidence);
         }
-        if evidence_len > crate::MAX_WORK_EVIDENCE_BYTES {
+        if evidence_len > MAX_WORK_EVIDENCE_BYTES {
             env.panic_with_error(Error::EvidenceTooLong);
         }
 

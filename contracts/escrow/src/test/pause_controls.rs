@@ -28,7 +28,7 @@
 //!
 //! The pause guard calls `env.panic_with_error(Error::ContractPaused)` where
 //! `Error` is the canonical enum in `types.rs` (`ContractPaused = 37`).  Tests
-//! therefore assert against `Error::ContractPaused`, NOT `EscrowError::ContractPaused`
+//! therefore assert against `Error::ContractPaused`, NOT `crate::EscrowError::ContractPaused`
 //! (a separate `#[contracterror]` enum in `lib.rs` with code 16).
 
 use crate::{Error, Escrow, EscrowClient, ReleaseAuthorization};
@@ -497,7 +497,7 @@ fn pause_blocks_issue_reputation() {
 fn unpause_restores_issue_reputation() {
     let (env, contract_id, _admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
-    let (client_addr, _freelancer_addr, id) = setup_completed_contract(&env, &client);
+    let (client_addr, _freelancer_addr, id) = crate::test::complete_contract(&env, &client);
     client.pause();
     client.unpause();
 
@@ -515,6 +515,6 @@ fn pause_blocks_set_reputation_config() {
 
     super::assert_contract_error(
         client.try_set_reputation_config(&2_u32, &8_u32, &300_u32),
-        EscrowError::ContractPaused,
+        crate::EscrowError::ContractPaused,
     );
 }
