@@ -388,10 +388,8 @@ mod approval_ttl_integration {
                     deadline: None,
                 }],
             );
-            let milestone_key = Symbol::new(&env, "milestones");
-            env.storage()
-                .persistent()
-                .set(&(DataKey::Contract(1), milestone_key), &milestones);
+            let milestone_key = crate::keys::milestone_key(&env, 1);
+            env.storage().persistent().set(&milestone_key, &milestones);
         });
 
         (
@@ -505,10 +503,8 @@ mod approval_ttl_integration {
                     deadline: None,
                 }],
             );
-            let milestone_key = Symbol::new(&env, "milestones");
-            env.storage()
-                .persistent()
-                .set(&(DataKey::Contract(1), milestone_key), &milestones);
+            let milestone_key = crate::keys::milestone_key(&env, 1);
+            env.storage().persistent().set(&milestone_key, &milestones);
         });
 
         env.as_contract(&escrow_id, || {

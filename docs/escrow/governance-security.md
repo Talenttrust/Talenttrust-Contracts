@@ -15,6 +15,15 @@ resolve emergency mode.
 - `is_paused() -> bool`
 - `is_emergency() -> bool`
 
+- `get_pending_governance_admin() -> Option<Address>` — reads the proposed
+  address from the pending admin proposal (correctly decodes the
+  [`PendingAdminProposal`] struct, not a bare `Address`)
+- `get_pending_governance_admin_proposed_at() -> Option<u32>` — returns the
+  ledger sequence when the pending admin was proposed (alias for
+  `get_pending_admin_proposed_at`)
+- `get_pending_admin_proposed_at() -> Option<u32>` — returns the ledger sequence
+  when the pending admin was proposed
+
 All mutating admin controls require the stored admin's Soroban authorization.
 There is no live admin transfer entrypoint.
 

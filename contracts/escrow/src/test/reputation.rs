@@ -1,15 +1,18 @@
-use super::{complete_contract, create_contract, register_client};
-use crate::{Contract, ContractStatus, DataKey, EscrowError, ReleaseAuthorization};
-use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
+use super::{complete_contract_funded, register_client_with_token, total_milestone_amount};
+use crate::{Contract, ContractStatus, DataKey, Error, ReleaseAuthorization};
+use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env, String};
+
 fn valid_comment(env: &Env) -> String {
     String::from_str(env, "Great job!")
 }
 
-/// Completes a new escrow for the supplied participants so multiple contracts
-/// can accrue reputation credits to the same freelancer.
+/// Completes a new escrow for the supplied participants, minting and depositing
+/// the settlement token so multiple contracts can accrue reputation credits to
+/// the same freelancer.
 fn complete_contract_for(
     env: &Env,
     client: &crate::EscrowClient<'_>,
+    token: &Address,
     client_addr: &Address,
     freelancer_addr: &Address,
 ) -> u32 {
@@ -21,6 +24,7 @@ fn complete_contract_for(
         &ReleaseAuthorization::ClientOnly,
     );
     let total = super::total_milestone_amount();
+    StellarAssetClient::new(env, token).mint(client_addr, &total);
     assert!(client.deposit_funds(&contract_id, client_addr, &total));
     for milestone_index in 0..3 {
         assert!(client.approve_milestone_release(&contract_id, client_addr, &milestone_index));
@@ -33,23 +37,27 @@ fn complete_contract_for(
     contract_id
 }
 
+// ---------------------------------------------------------------------------
+// Pending credits: accumulate and drain
+// ---------------------------------------------------------------------------
+
 #[test]
 fn pending_reputation_credits_accumulate_and_drain_across_completed_contracts() {
     let env = Env::default();
     env.mock_all_auths();
-    let client = register_client(&env);
+    let (client, token) = register_client_with_token(&env);
     let freelancer = Address::generate(&env);
     let first_client = Address::generate(&env);
     let second_client = Address::generate(&env);
     let third_client = Address::generate(&env);
 
-    let first_contract = complete_contract_for(&env, &client, &first_client, &freelancer);
+    let first_contract = complete_contract_for(&env, &client, &token, &first_client, &freelancer);
     assert_eq!(client.get_pending_reputation_credits(&freelancer), 1);
 
-    let second_contract = complete_contract_for(&env, &client, &second_client, &freelancer);
+    let second_contract = complete_contract_for(&env, &client, &token, &second_client, &freelancer);
     assert_eq!(client.get_pending_reputation_credits(&freelancer), 2);
 
-    let third_contract = complete_contract_for(&env, &client, &third_client, &freelancer);
+    let third_contract = complete_contract_for(&env, &client, &token, &third_client, &freelancer);
     assert_eq!(client.get_pending_reputation_credits(&freelancer), 3);
 
     // A fully refunded contract is terminal but never earns a reputation credit.
@@ -61,6 +69,7 @@ fn pending_reputation_credits_accumulate_and_drain_across_completed_contracts() 
         &super::default_milestones(&env),
         &ReleaseAuthorization::ClientOnly,
     );
+    StellarAssetClient::new(&env, &token).mint(&refunded_client, &total_milestone_amount());
     assert!(client.deposit_funds(
         &refunded_contract,
         &refunded_client,

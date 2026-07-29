@@ -9,7 +9,7 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-soroban-sdk = "22.0"
+soroban-sdk = { version = "22.0", features = ["testutils"] }
 
 [dev-dependencies]
 soroban-sdk = { version = "22.0", features = ["testutils"] }

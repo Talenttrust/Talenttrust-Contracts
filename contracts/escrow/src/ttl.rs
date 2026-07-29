@@ -150,10 +150,7 @@ pub fn store_milestones(env: &Env, contract_id: u32, milestones: &Vec<Milestone>
 }
 
 pub(crate) fn milestone_storage_key(env: &Env, contract_id: u32) -> (DataKey, Symbol) {
-    (
-        DataKey::Contract(contract_id),
-        Symbol::new(env, "milestones"),
-    )
+    crate::keys::milestone_key(env, contract_id)
 }
 
 /// Extend TTL of the NextContractId counter.

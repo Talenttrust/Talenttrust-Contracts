@@ -10,7 +10,7 @@ use soroban_sdk::{
 };
 
 fn milestone_symbol(env: &Env) -> Symbol {
-    Symbol::new(env, "milestones")
+    crate::keys::milestone_symbol(env)
 }
 
 /// Finalization by arbiter works on a completed contract.

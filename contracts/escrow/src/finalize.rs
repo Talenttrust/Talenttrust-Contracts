@@ -1,8 +1,8 @@
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Vec};
 
 use crate::{
-    safe_subtract_amounts, Contract, ContractStatus, ContractSummary, DataKey, Error, Escrow,
-    EscrowError, Milestone, MilestoneSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    Contract, ContractStatus, ContractSummary, DataKey, Error, Escrow, EscrowError, Milestone,
+    MilestoneSummary,
 };
 
 /// Immutable metadata written when an escrow contract is closed.
@@ -45,6 +45,32 @@ impl Escrow {
         }
     }
 
+    /// Load a contract, verify it's in an active (mutable) state, and extend
+    /// its TTL. Rejects `Cancelled`, `Refunded`, and finalized contracts.
+    ///
+    /// This is the canonical preamble for all lifecycle entrypoints that need a
+    /// live, mutable contract. Calls `load_contract` from `storage.rs`, extends
+    /// the TTL, checks finalization, and rejects terminal statuses.
+    ///
+    /// # Panics
+    /// - `ContractNotFound` when `contract_id` is unknown.
+    /// - `AlreadyFinalized` when the contract has been finalized.
+    /// - `InvalidState` when the contract status is `Cancelled` or `Refunded`.
+    ///
+    /// # Returns
+    /// The loaded `Contract`.
+    pub(crate) fn require_active_contract(env: &Env, contract_id: u32) -> Contract {
+        let contract = crate::storage::load_contract(env, contract_id);
+        crate::ttl::extend_contract_ttl(env, contract_id);
+        Self::require_not_finalized(env, contract_id);
+        if contract.status == ContractStatus::Cancelled
+            || contract.status == ContractStatus::Refunded
+        {
+            env.panic_with_error(Error::InvalidState);
+        }
+        contract
+    }
+
     pub(crate) fn require_not_paused(env: &Env) {
         if env
             .storage()
@@ -74,11 +100,11 @@ impl Escrow {
     }
 
     fn summarize_contract(env: &Env, contract_id: u32, contract: &Contract) -> ContractSummary {
-        let milestone_key = Symbol::new(env, "milestones");
+        let milestone_key = keys::milestone_key(env, contract_id);
         let milestones: Vec<Milestone> = env
             .storage()
             .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
+            .get(&milestone_key)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
         let mut total_amount: i128 = 0;
@@ -158,6 +184,10 @@ pub fn finalize_contract_impl(env: &Env, contract_id: u32, finalizer: Address) -
     env.storage()
         .persistent()
         .set(&Escrow::finalization_key(contract_id), &record);
+
+    if contract.status == ContractStatus::Disputed {
+        crate::rollback::clear_dispute_rollback(env, contract_id);
+    }
 
     env.events().publish(
         (symbol_short!("finalized"), contract_id),

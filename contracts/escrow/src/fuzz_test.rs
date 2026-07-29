@@ -36,7 +36,10 @@ extern crate std;
 use proptest::prelude::*;
 use soroban_sdk::{testutils::Address as _, vec as sorovec, Address, Env, Vec as SoroVec};
 
-use crate::{Escrow, EscrowClient, EscrowError, ReleaseAuthorization, MAX_MILESTONES, MAX_TOTAL_ESCROW_STROOPS};
+use crate::{
+    milestones_consts::{MAX_RATING, MIN_RATING},
+    Escrow, EscrowClient, EscrowError, ReleaseAuthorization, MAX_MILESTONES, MAX_TOTAL_ESCROW_STROOPS,
+};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -206,7 +209,7 @@ proptest! {
 
     /// Reputation rating 1..=5 must be accepted on a completed contract.
     #[test]
-    fn fuzz_reputation_valid_rating_accepted(rating in 1i128..=5i128) {
+    fn fuzz_reputation_valid_rating_accepted(rating in (MIN_RATING as i128)..=(MAX_RATING as i128)) {
         let (env, client) = setup();
         let client_addr = Address::generate(&env);
         let freelancer_addr = Address::generate(&env);
@@ -221,7 +224,7 @@ proptest! {
 
     /// Reputation rating 0 and 6 must be rejected.
     #[test]
-    fn fuzz_reputation_boundary_ratings_rejected(rating in prop_oneof![Just(0i128), Just(6i128)]) {
+    fn fuzz_reputation_boundary_ratings_rejected(rating in prop_oneof![Just((MIN_RATING - 1) as i128), Just((MAX_RATING + 1) as i128)]) {
         let (env, client) = setup();
         let client_addr = Address::generate(&env);
         let freelancer_addr = Address::generate(&env);
