@@ -4,6 +4,7 @@ use crate::{
 };
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Vec};
 
+#[contractimpl]
 impl Escrow {
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
     ///
