@@ -780,9 +780,12 @@ fn rejects_refund_after_release_and_release_after_refund() {
     let refund_result = client.try_refund_unreleased_milestones(&contract_id, &refund_ids);
     match refund_result {
         Err(Ok(e)) => {
-            assert_eq!(e, soroban_sdk::Error::from(Error::AlreadyReleased));
+            assert_eq!(e, soroban_sdk::Error::from(Error::MilestoneAlreadyReleased));
         }
-        other => panic!("expected contract error AlreadyReleased, got {:?}", other),
+        other => panic!(
+            "expected contract error MilestoneAlreadyReleased, got {:?}",
+            other
+        ),
     }
 
     let refund_ids = vec![&env, 1_u32];

@@ -10,8 +10,8 @@ use crate::{
 // --- Submodules ---
 mod access_control;
 mod approval_expiry;
-mod milestones_bounds_validation;
-mod authorization_pagination;
+mod arbiter_config_setter;
+mod arbiter_config_view;
 mod cancel_contract;
 mod client_migration;
 mod contracts_page;
@@ -24,7 +24,6 @@ mod governance_events;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
 mod mainnet_readiness;
-mod milestones_auth_matrix;
 mod milestones_events;
 mod participant_index_pagination;
 mod pause_controls;

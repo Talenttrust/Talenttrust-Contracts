@@ -250,7 +250,6 @@ pub fn accumulate_amounts<I: IntoIterator<Item = i128>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::EscrowError;
 
     #[test]
     fn test_validate_single_amount() {

@@ -97,23 +97,9 @@ pub enum DataKey {
     Finalization(u32),
     // Settlement token
     SettlementToken,
-    DisputeRollback(u32),
-    // Dispute / arbiter configuration
-    DisputeConfigKey,
-    // Dispute metadata per contract
-    Dispute(u32),
-    // Reputation configuration
-    ReputationConfigKey,
-    // Configurable settlement (batch finalize) limit
-    MaxSettlement,
-    // Configurable maximum milestones limit
-    MaxMilestones,
-    // Milestone vector (replaces composite (Contract(id), "milestones"))
-    Milestones(u32),
-    // Reputation schema version marker
-    ReputationStorageVersion(Address),
-    // Migration state (test-only)
-    State,
+    // Participant indexer (append-only contract id lists)
+    ClientContracts(Address),
+    FreelancerContracts(Address),
 }
 
 // ── Event Types ──────────────────────────────────────────────────────────────
@@ -146,7 +132,7 @@ pub struct MilestoneIndexEvent {
 #[repr(u32)]
 pub enum Error {
     IndexOutOfBounds = 3,
-    AlreadyReleased = 4,
+    /// The refund request is empty.
     EmptyRefundRequest = 6,
     DuplicateMilestoneInRefund = 7,
     /// The milestone has already been refunded.
@@ -172,7 +158,6 @@ pub enum Error {
     ContractIdOverflow = 28,
     EmptyComment = 29,
     CommentTooLong = 30,
-    InvalidParticipant = 31,
     /// The deposit amount is invalid.
     InvalidDepositAmount = 32,
     /// The contract has already been initialized.
@@ -189,10 +174,13 @@ pub enum Error {
     AccountingInvariantViolated = 44,
     PotentialOverflow = 45,
     AlreadyFinalized = 46,
+    /// The work evidence string exceeds the maximum length limit.
     EvidenceTooLong = 47,
     TimelockNotElapsed = 48,
     InvalidProtocolParameters = 49,
+    /// The contract has already been cancelled.
     AlreadyCancelled = 50,
+    /// The escrow cap would be exceeded by this operation.
     EscrowCapExceeded = 51,
     /// No settlement token has been bound for custody transfers.
     SettlementTokenNotConfigured = 52,
@@ -510,16 +498,30 @@ impl DisputeResolution {
     }
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProtocolParameters {
+    pub fee_bps: u32,
+    pub max_escrow_total: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeSummary {
+    pub contract_id: u32,
+    pub status: ContractStatus,
+    pub total_deposited: i128,
+    pub funded_amount: i128,
+    pub released_amount: i128,
+    pub refunded_amount: i128,
+}
+
 /// Configuration for the arbiter's partial-refund split, stored under
 /// [`DataKey::DisputeConfigKey`].
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisputeConfig {
-    /// Share of remaining funds allocated to the freelancer in partial refunds
-    /// (basis points, `3000` = 30%).
     pub partial_refund_freelancer_bps: u32,
-    /// Share of remaining funds allocated to the client in partial refunds
-    /// (basis points, `7000` = 70%).
     pub partial_refund_client_bps: u32,
 }
 
@@ -530,30 +532,4 @@ impl Default for DisputeConfig {
             partial_refund_client_bps: 7000,
         }
     }
-}
-
-/// Current schema version for persisted dispute metadata.
-pub const DISPUTE_STORAGE_VERSION: u32 = 1;
-
-/// Persisted metadata for an on-chain dispute.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeMetadata {
-    /// Schema version for forward-compatible reads.
-    pub schema_version: u32,
-    /// Address that raised the dispute (client or freelancer).
-    pub raised_by: Address,
-    /// Optional 32-byte hash of the dispute reason.
-    pub reason_hash: BytesN<32>,
-    /// Ledger timestamp when the dispute was raised.
-    pub raised_at: u64,
-}
-
-/// V0 dispute metadata (pre-migration schema).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeMetadataV0 {
-    pub raised_by: Address,
-    pub reason_hash: BytesN<32>,
-    pub raised_at: u64,
 }

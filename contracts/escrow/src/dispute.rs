@@ -7,12 +7,7 @@
 //! this module owns dispute authorization, state changes, events, and writes to
 //! `DataKey::Contract(contract_id)`.
 
-use soroban_sdk::{Address, BytesN, Env};
-
-use crate::{
-    safe_add_amounts, Contract, ContractStatus, DataKey, DisputeConfig, DisputeMetadata,
-    DisputeMetadataV0, DisputeResolution, Error, DISPUTE_STORAGE_VERSION,
-};
+use crate::{safe_add_amounts, Contract, ContractStatus, DisputeResolution, Error};
 
 /// Read-only getter for the arbiter dispute-split configuration.
 ///

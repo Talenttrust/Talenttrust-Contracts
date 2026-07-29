@@ -1,10 +1,8 @@
 use crate::{
-    amount_validation, ttl, Contract, ContractStatus, DataKey, Error, EscrowError,
-    GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
-    amount_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowArgs,
+    amount_validation, keys, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowArgs,
     EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
 };
-use soroban_sdk::{symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{contractimpl, symbol_short, Address, Env, Vec};
 
 impl Escrow {
     /// Creates a new escrow contract with the specified client, freelancer, and milestone amounts.
@@ -96,6 +94,31 @@ impl Escrow {
             .persistent()
             .set(&DataKey::Contract(id), &contract);
 
+        // Maintain append-only participant indices for fast enumeration.
+        // These are updated after the contract is persisted to keep the index consistent.
+        let client_key = DataKey::ClientContracts(client.clone());
+        let mut client_ids: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&client_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        client_ids.push_back(id);
+        env.storage().persistent().set(&client_key, &client_ids);
+        ttl::extend_participant_contract_index_ttl(&env, &client_key);
+
+        let freelancer_key = DataKey::FreelancerContracts(freelancer_addr.clone());
+        let mut freelancer_ids: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&freelancer_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        freelancer_ids.push_back(id);
+        env.storage()
+            .persistent()
+            .set(&freelancer_key, &freelancer_ids);
+        ttl::extend_participant_contract_index_ttl(&env, &freelancer_key);
+
+        // Build and persist the milestone vector.
         let mut milestone_vec: Vec<Milestone> = Vec::new(&env);
         for i in 0..len {
             let amount = native_milestones[i];
@@ -109,10 +132,10 @@ impl Escrow {
                 deadline: None,
             });
         }
-        let milestone_key = Symbol::new(&env, "milestones");
+        let milestone_key = keys::milestone_key(&env, id);
         env.storage()
             .persistent()
-            .set(&(DataKey::Contract(id), milestone_key), &milestone_vec);
+            .set(&milestone_key, &milestone_vec);
 
         let next_id = id
             .checked_add(1)

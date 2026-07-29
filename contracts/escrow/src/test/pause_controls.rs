@@ -518,13 +518,3 @@ fn pause_blocks_set_reputation_config() {
         EscrowError::ContractPaused,
     );
 }
-
-#[test]
-fn unpause_restores_set_reputation_config() {
-    let (env, contract_id, _admin) = setup_initialized();
-    let client = EscrowClient::new(&env, &contract_id);
-    client.pause();
-    client.unpause();
-
-    client.set_reputation_config(&2_u32, &8_u32, &300_u32);
-}

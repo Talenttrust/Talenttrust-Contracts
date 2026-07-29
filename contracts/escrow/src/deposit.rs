@@ -1,8 +1,7 @@
 use crate::{
-    accumulate_amounts, storage_validation, ttl, Contract, ContractStatus, DataKey, Error,
-    EscrowError, Milestone, MAX_SINGLE_AMOUNT_STROOPS,
+    accumulate_amounts, keys, ttl, Contract, ContractStatus, DataKey, Error, EscrowError, Milestone,
 };
-use soroban_sdk::{Address, Env, Symbol, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 /// Validated deposit data that is safe to use before any token transfer.
 pub struct ValidatedDeposit {
@@ -55,17 +54,17 @@ pub fn validate_deposit(
         env.panic_with_error(Error::InvalidState);
     }
 
-    let milestone_key = Symbol::new(env, "milestones");
+    let milestone_key = keys::milestone_key(env, contract_id);
     let milestones: Vec<Milestone> = env
         .storage()
         .persistent()
-        .get(&(DataKey::Contract(contract_id), milestone_key))
+        .get(&milestone_key)
         .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
-    /// Calculate the total amount from milestones with checked arithmetic.
-    /// This prevents overflow panics that would brick the contract if a malformed
-    /// contract with many large milestones were created (unlikely given the
-    /// validation in create_contract, but defense-in-depth).
+    // Calculate the total amount from milestones with checked arithmetic.
+    // This prevents overflow panics that would brick the contract if a malformed
+    // contract with many large milestones were created (unlikely given the
+    // validation in create_contract, but defense-in-depth).
     let total_amount: i128 = accumulate_amounts(milestones.iter().map(|m| m.amount))
         .unwrap_or_else(|err| env.panic_with_error(err));
     let new_funded_amount = contract

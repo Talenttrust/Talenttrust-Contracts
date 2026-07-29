@@ -51,12 +51,20 @@
 #![allow(clippy::module_inception)]
 #![allow(clippy::single_match)]
 #![allow(clippy::useless_conversion)]
+#![allow(clippy::doc_lazy_continuation)]
+#![allow(clippy::len_zero)]
+#![allow(unused_doc_comments)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(dead_code)]
+#![allow(deprecated)]
 
 mod amount_validation;
 mod approvals;
 mod deposit;
 mod events;
 mod finalize;
+mod keys;
 mod migration;
 pub mod milestones_consts;
 mod simulate;
@@ -88,11 +96,10 @@ pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // `types.rs` and re-exported here; `dispute.rs` uses them via `crate::`.
 pub use events::MAX_EVENT_BATCH_SIZE;
 pub use types::{
-    Contract, ContractBounds, ContractStatus, ContractSummary, DataKey, DepositMode, DisputeConfig,
-    DisputeMetadata, DisputeMetadataV0, DisputeResolution, DisputeSplit, Error, GovernedParameters,
-    Milestone, MilestoneApprovals, MilestoneSummary, PendingAdminProposal, ReadinessChecklist,
-    ReleaseAuthorization, Reputation, ReputationConfig, SplitAmounts,
-    CONTRACT_SUMMARY_SCHEMA_VERSION,
+    Contract, ContractStatus, ContractSummary, DataKey, DepositMode, DisputeConfig,
+    DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
+    MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
+    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 pub use types::DISPUTE_STORAGE_VERSION;
 
@@ -174,10 +181,8 @@ pub struct MainnetReadinessInfo {
     pub max_escrow_total_stroops: i128,
 }
 // Maximum bounds constants - re-export from amount_validation for API visibility
-pub use milestones_consts::{
-    MAX_COMMENT_BYTES, MAX_FEE_BPS, MAX_MILESTONES, MAX_RATING, MIN_COMMENT_BYTES, MIN_FEE_BPS,
-    MIN_RATING, PROTOCOL_FEE_BPS_DENOMINATOR,
-};
+pub const MAX_MILESTONES: u32 = 10;
+pub const MAX_FEE_BPS: u32 = 10_000;
 pub const MAX_SINGLE_AMOUNT_STROOPS: i128 = crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
 
@@ -1237,12 +1242,9 @@ impl Escrow {
         approvals::check_approvals(&env, &contract, contract_id, milestone_index)
             .unwrap_or_else(|e| env.panic_with_error(e));
 
-        let milestone_key = Symbol::new(&env, "milestones");
-        let mut milestones: Vec<Milestone> = env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key.clone()))
-            .unwrap();
+        let milestone_key = keys::milestone_key(&env, contract_id);
+        let mut milestones: Vec<Milestone> =
+            env.storage().persistent().get(&milestone_key).unwrap();
 
         // Extend TTL on milestone read
         ttl::extend_milestone_ttl(&env, contract_id);
@@ -1439,12 +1441,8 @@ impl Escrow {
             None => return false, // Contract not found, not overdue
         };
 
-        let milestone_key = Symbol::new(&env, "milestones");
-        let milestones: Vec<Milestone> = match env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
-        {
+        let milestone_key = keys::milestone_key(&env, contract_id);
+        let milestones: Vec<Milestone> = match env.storage().persistent().get(&milestone_key) {
             Some(m) => m,
             None => return false, // No milestones, not overdue
         };
@@ -1539,7 +1537,7 @@ impl Escrow {
 
             // SECURITY: Check if milestone is already released
             if milestone.released {
-                env.panic_with_error(Error::AlreadyReleased);
+                env.panic_with_error(Error::MilestoneAlreadyReleased);
             }
 
             // SECURITY: Check if milestone is already refunded
@@ -1717,70 +1715,51 @@ impl Escrow {
             .unwrap_or(1)
     }
 
-    /// Returns a bounded, read-only page of existing contract IDs.
+    /// Returns a paginated slice of contract IDs associated with a participant.
     ///
-    /// The page is empty-safe: callers always receive an empty vector when no
-    /// contracts exist, when `start` is beyond the last allocated ID, or when a
-    /// request uses a zero `limit`. The implementation caps each request to
-    /// [`PAGE_CEILING`] entries per call and walks the allocated ID range in
-    /// ascending order.
-    pub fn get_contracts_page(env: Env, start: u32, limit: u32) -> Vec<u32> {
-        let capped_limit = core::cmp::min(limit, PAGE_CEILING);
-        if capped_limit == 0 {
-            return Vec::new(&env);
-        }
-
-        let total = Self::get_next_contract_id(env.clone()) as u64;
-        if start as u64 >= total {
-            return Vec::new(&env);
-        }
-
-        let mut result = Vec::new(&env);
-        let mut count = 0u32;
-        let mut current = start;
-        while current < total as u32 && count < capped_limit {
-            if env.storage().persistent().has(&DataKey::Contract(current)) {
-                result.push_back(current);
-                count += 1;
-            }
-            current += 1;
-        }
-
-        result
-    }
-
-    /// Returns a bounded, read-only page of dispute metadata records.
+    /// `role` parameter:
+    /// - `0`: Client role ([`DataKey::ClientContracts`])
+    /// - `1`: Freelancer role ([`DataKey::FreelancerContracts`])
     ///
-    /// Iterates over allocated contract IDs and returns entries for contracts
-    /// that have a stored dispute record. The page is empty-safe: callers always
-    /// receive an empty vector when no disputes exist, when `start` is beyond
-    /// the last allocated ID, or when a request uses a zero `limit`. The
-    /// implementation caps each request to [`PAGE_CEILING`] entries per call and
-    /// walks the allocated ID range in ascending order.
-    pub fn get_disputes_page(env: Env, start: u32, limit: u32) -> Vec<DisputeMetadata> {
-        let capped_limit = core::cmp::min(limit, PAGE_CEILING);
-        if capped_limit == 0 {
+    /// Requests out of bounds or exceeding the maximum limit will be bounded
+    /// safely without throwing a panic.
+    pub fn list_contracts_by_participant(
+        env: Env,
+        participant: Address,
+        role: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<u32> {
+        let max_limit: u32 = 100;
+        let effective_limit = core::cmp::min(limit, max_limit);
+
+        let key = match role {
+            0 => DataKey::ClientContracts(participant),
+            1 => DataKey::FreelancerContracts(participant),
+            _ => return Vec::new(&env),
+        };
+
+        let ids: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(&env));
+        let total: u32 = ids.len();
+
+        if start >= total {
             return Vec::new(&env);
         }
 
-        let total = Self::get_next_contract_id(env.clone()) as u64;
-        if start as u64 >= total {
-            return Vec::new(&env);
+        let end_exclusive = core::cmp::min(start.saturating_add(effective_limit), total);
+        let mut page: Vec<u32> = Vec::new(&env);
+        let mut i: u32 = start;
+
+        while i < end_exclusive {
+            page.push_back(ids.get(i).unwrap());
+            i += 1;
         }
 
-        let mut result = Vec::new(&env);
-        let mut count = 0u32;
-        let mut current = start;
-        while current < total as u32 && count < capped_limit {
-            let key = DataKey::Dispute(current);
-            if let Some(meta) = env.storage().persistent().get::<_, DisputeMetadata>(&key) {
-                result.push_back(meta);
-                count += 1;
-            }
-            current += 1;
-        }
-
-        result
+        page
     }
 
     /// Returns a structured summary of the contract and its milestones.
@@ -1849,11 +1828,11 @@ impl Escrow {
 
     /// Retrieves all milestones for a contract.
     pub fn get_milestones(env: Env, contract_id: u32) -> Vec<Milestone> {
-        let milestone_key = Symbol::new(&env, "milestones");
+        let milestone_key = keys::milestone_key(&env, contract_id);
         let milestones = env
             .storage()
             .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
+            .get(&milestone_key)
             .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
         ttl::extend_milestone_ttl(&env, contract_id);
         milestones
@@ -1884,11 +1863,11 @@ impl Escrow {
     /// Extends the milestones vector TTL on a successful read, consistent with
     /// `get_milestones`. Auth-free and otherwise non-mutating.
     pub fn get_milestone(env: Env, contract_id: u32, milestone_index: u32) -> Option<Milestone> {
-        let milestone_key = Symbol::new(&env, "milestones");
+        let milestone_key = keys::milestone_key(&env, contract_id);
         let milestones: Vec<Milestone> = env
             .storage()
             .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
+            .get(&milestone_key)
             .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
         ttl::extend_milestone_ttl(&env, contract_id);
         milestones.get(milestone_index)
@@ -1927,7 +1906,7 @@ impl Escrow {
         contract_id: u32,
         milestone_index: u32,
     ) -> Option<MilestoneApprovals> {
-        let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
+        let approval_key = keys::milestone_approval_key(contract_id, milestone_index);
         let approvals = env.storage().temporary().get(&approval_key);
         if approvals.is_some() {
             env.storage().temporary().extend_ttl(
@@ -2772,11 +2751,11 @@ impl Escrow {
             env.panic_with_error(Error::EvidenceTooLong);
         }
 
-        let milestone_key = Symbol::new(&env, "milestones");
+        let milestone_key = keys::milestone_key(&env, contract_id);
         let mut milestones: Vec<Milestone> = env
             .storage()
             .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key.clone()))
+            .get(&milestone_key)
             .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
 
         ttl::extend_milestone_ttl(&env, contract_id);
@@ -2832,11 +2811,11 @@ impl Escrow {
     /// Extends the milestones vector's persistent TTL on read,
     /// consistent with `get_milestones`.
     pub fn get_work_evidence(env: Env, contract_id: u32, milestone_index: u32) -> Option<String> {
-        let milestone_key = Symbol::new(&env, "milestones");
+        let milestone_key = keys::milestone_key(&env, contract_id);
         let milestones: Vec<Milestone> = env
             .storage()
             .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
+            .get(&milestone_key)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
         ttl::extend_milestone_ttl(&env, contract_id);
