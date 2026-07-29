@@ -183,7 +183,8 @@ fn partial_refund_max_safe_amount_succeeds() {
     let contract = payout_contract(&env, safe_max, 0, 0);
     let result = crate::resolution_payouts(&contract, &DisputeResolution::PartialRefund);
     assert!(result.is_ok(), "expected Ok for safe_max, got {:?}", result);
-    let (client, freelancer) = result.unwrap();
+    let info = result.unwrap();
+    let (client, freelancer) = (info.client_payout, info.freelancer_payout);
     // freelancer = floor(safe_max * 30 / 100)
     let expected_freelancer = (safe_max * 30) / 100;
     assert_eq!(freelancer, expected_freelancer);
@@ -209,7 +210,8 @@ fn partial_refund_small_amounts_floor_rounding() {
     let contract = payout_contract(&env, 1, 0, 0);
     let result = crate::resolution_payouts(&contract, &DisputeResolution::PartialRefund);
     assert!(result.is_ok(), "expected Ok for 1 stroop, got {:?}", result);
-    let (client, freelancer) = result.unwrap();
+    let info = result.unwrap();
+    let (client, freelancer) = (info.client_payout, info.freelancer_payout);
     assert_eq!(freelancer, 0);
     assert_eq!(client, 1);
     assert_eq!(client + freelancer, 1);
@@ -222,7 +224,8 @@ fn partial_refund_99_stroops_rounding() {
     let contract = payout_contract(&env, 99, 0, 0);
     let result = crate::resolution_payouts(&contract, &DisputeResolution::PartialRefund);
     assert!(result.is_ok());
-    let (client, freelancer) = result.unwrap();
+    let info = result.unwrap();
+    let (client, freelancer) = (info.client_payout, info.freelancer_payout);
     assert_eq!(freelancer, 29);
     assert_eq!(client, 70);
     assert_eq!(client + freelancer, 99);
@@ -243,7 +246,8 @@ fn split_i128_max_zero_succeeds() {
     };
     let result = crate::resolution_payouts(&contract, &DisputeResolution::Split(split));
     assert!(result.is_ok());
-    let (client, freelancer) = result.unwrap();
+    let info = result.unwrap();
+    let (client, freelancer) = (info.client_payout, info.freelancer_payout);
     assert_eq!(client, i128::MAX);
     assert_eq!(freelancer, 0);
 }
@@ -259,7 +263,8 @@ fn split_zero_i128_max_succeeds() {
     };
     let result = crate::resolution_payouts(&contract, &DisputeResolution::Split(split));
     assert!(result.is_ok());
-    let (client, freelancer) = result.unwrap();
+    let info = result.unwrap();
+    let (client, freelancer) = (info.client_payout, info.freelancer_payout);
     assert_eq!(client, 0);
     assert_eq!(freelancer, i128::MAX);
 }
@@ -326,7 +331,8 @@ fn partial_refund_conservation_invariant() {
             result.is_ok(),
             "PartialRefund failed at available={}", available
         );
-        let (client, freelancer) = result.unwrap();
+        let info = result.unwrap();
+        let (client, freelancer) = (info.client_payout, info.freelancer_payout);
         assert_eq!(
             client + freelancer,
             available,

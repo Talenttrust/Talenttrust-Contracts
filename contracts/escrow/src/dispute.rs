@@ -7,7 +7,24 @@
 //! this module owns dispute authorization, state changes, events, and writes to
 //! `DataKey::Contract(contract_id)`.
 
-use crate::{safe_add_amounts, Contract, ContractStatus, DisputeResolution, Error};
+use soroban_sdk::{symbol_short, Address, Env};
+
+use crate::{
+    rollback, safe_add_amounts, ttl, Contract, ContractStatus, DataKey, DisputeConfig, DisputeInfo,
+    DisputeMetadata, DisputeMetadataV0, DisputeResolution, Error, Escrow, DISPUTE_STORAGE_VERSION,
+};
+
+/// Freelancer's share of the available balance under `DisputeResolution::PartialRefund`,
+/// expressed as a whole-number percent.
+///
+/// Hard-coded rather than read from [`DisputeConfig`]/[`get_dispute_config`]: the stored
+/// arbiter split configuration is not yet wired into `resolution_payouts` (tracked
+/// separately). The client receives the remainder of `available` after this share.
+const PARTIAL_REFUND_FREELANCER_PERCENT: i128 = 30;
+
+/// Divisor that turns [`PARTIAL_REFUND_FREELANCER_PERCENT`] into a fraction of the
+/// available balance (i.e. "percent" out of this base).
+const PARTIAL_REFUND_PERCENT_BASE: i128 = 100;
 
 /// Read-only getter for the arbiter dispute-split configuration.
 ///
@@ -60,15 +77,20 @@ pub fn resolution_payouts(
             freelancer_payout: 0,
         }),
         DisputeResolution::PartialRefund => {
-            // freelancer gets floor(available * 30 / 100), client gets remainder
+            // freelancer gets floor(available * PARTIAL_REFUND_FREELANCER_PERCENT / 100),
+            // client gets remainder
             let freelancer_payout = available
-                .checked_mul(30)
-                .and_then(|value| value.checked_div(100))
+                .checked_mul(PARTIAL_REFUND_FREELANCER_PERCENT)
+                .and_then(|value| value.checked_div(PARTIAL_REFUND_PERCENT_BASE))
                 .ok_or(Error::PotentialOverflow)?;
             let client_payout = available
                 .checked_sub(freelancer_payout)
                 .ok_or(Error::PotentialOverflow)?;
-            Ok((client_payout, freelancer_payout))
+            Ok(DisputeInfo {
+                available_balance: available,
+                client_payout,
+                freelancer_payout,
+            })
         }
         DisputeResolution::FullPayout => Ok(DisputeInfo {
             available_balance: available,
@@ -181,6 +203,15 @@ pub fn migrate_dispute_metadata_v0_to_v1(v0: DisputeMetadataV0) -> DisputeMetada
 // ---------------------------------------------------------------------------
 // raise_dispute / resolve_dispute entrypoints
 // ---------------------------------------------------------------------------
+
+/// Open a dispute after enforcing lifecycle, role, and arbiter guards.
+///
+/// The public Soroban entrypoint remains on [`Escrow`] so its ABI stays stable;
+/// this helper keeps the complete dispute workflow in this module.
+pub(crate) fn raise_dispute_impl(env: &Env, contract_id: u32, caller: Address) -> bool {
+    Escrow::require_initialized(env);
+    Escrow::require_not_paused(env);
+    caller.require_auth();
 
     let mut contract: Contract = env
         .storage()

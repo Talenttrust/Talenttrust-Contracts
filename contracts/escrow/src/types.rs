@@ -5,6 +5,35 @@ use soroban_sdk::{contracterror, contracttype, Address, BytesN, String, Vec};
 #[allow(dead_code)]
 pub const CONTRACT_SUMMARY_SCHEMA_VERSION: u32 = 1;
 
+/// Current on-ledger layout version for per-contract dispute metadata.
+///
+/// Bump this when introducing a new `DisputeMetadata` layout. Older layouts are
+/// upgraded on read by `dispute::load_dispute_metadata`.
+pub const DISPUTE_STORAGE_VERSION: u32 = 1;
+
+/// Legacy (v0) dispute metadata layout without an embedded schema version.
+///
+/// Retained solely so migrate-on-read can decode pre-versioned records and
+/// rewrite them as [`DisputeMetadata`].
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeMetadataV0 {
+    pub raised_by: Address,
+    pub reason_hash: BytesN<32>,
+    pub raised_at: u64,
+}
+
+/// Versioned dispute metadata stored under [`DataKey::Dispute`].
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeMetadata {
+    /// Must equal [`DISPUTE_STORAGE_VERSION`] after a successful write/migration.
+    pub schema_version: u32,
+    pub raised_by: Address,
+    pub reason_hash: BytesN<32>,
+    pub raised_at: u64,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MilestoneSummary {
@@ -103,6 +132,9 @@ pub enum DataKey {
     // Dispute / arbiter configuration
     DisputeRollback(u32),
     DisputeConfigKey,
+    // Disputes: versioned metadata + per-contract layout marker
+    Dispute(u32),
+    DisputeStorageVersion(u32),
     // Reputation configuration
     ReputationConfigKey,
 }
@@ -199,6 +231,10 @@ pub enum Error {
     // resolution so the contract stays under the Soroban SDK's 50-variant
     // limit on `#[contracterror]` enums. Use `InvalidProtocolParameters`
     // (code 49) for all reputation-parameter rejections.
+    /// No dispute record exists for the requested contract.
+    DisputeNotFound = 56,
+    /// The stored dispute metadata version is not supported.
+    UnsupportedDisputeStorageVersion = 57,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
@@ -535,4 +571,24 @@ impl Default for DisputeConfig {
             partial_refund_client_bps: 7000,
         }
     }
+}
+
+/// Named result type returned by [`dispute::resolution_payouts`].
+///
+/// Replaces the opaque `(i128, i128)` tuple so callers can reference fields by
+/// name (`client_payout`, `freelancer_payout`, `available_balance`) rather than
+/// relying on positional index.
+///
+/// # Invariant
+/// `client_payout + freelancer_payout == available_balance`
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeInfo {
+    /// Escrowed balance at the time the resolution was computed:
+    /// `funded_amount - released_amount - refunded_amount`.
+    pub available_balance: i128,
+    /// Amount to be credited back to the client (refund side).
+    pub client_payout: i128,
+    /// Amount to be forwarded to the freelancer (release side).
+    pub freelancer_payout: i128,
 }
