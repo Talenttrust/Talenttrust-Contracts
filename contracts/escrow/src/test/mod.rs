@@ -24,6 +24,7 @@ mod deposit;
 mod dispute;
 mod dispute_storage;
 mod emergency_controls;
+mod events_auth_matrix;
 mod indexed_event;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
