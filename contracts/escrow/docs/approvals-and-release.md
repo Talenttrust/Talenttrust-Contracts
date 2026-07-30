@@ -97,15 +97,3 @@ get_milestone_approvals(contract_id, milestone_index) -> Option<MilestoneApprova
 Returns `None` when no record exists or the TTL has elapsed. A `Some` value
 with all fields `false` and `None` are both insufficient — neither unblocks
 `release_milestone`.
-
----
-
-## Storage layout note: MilestoneReleased removal
-
-The unused `DataKey::MilestoneReleased(u32, u32)` variant was removed in favor of
-the append-only pattern. Milestone release state is **exclusively tracked** via the
-`Milestone.released` boolean field in the persisted milestone vector. The `release_milestone`
-function updates this flag directly; there is no separate storage key.
-
-This keeps the storage layout cleaner and ensures a single source of truth for
-release status.

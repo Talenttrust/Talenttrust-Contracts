@@ -276,15 +276,6 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: `("dispute", "opened")`
 - Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `UnauthorizedRole`, `ArbiterRequired`, `InvalidState`, `AlreadyFinalized`
 
-### raise_dispute_batch
-
-- Signature: `raise_dispute_batch(env: Env, caller: Address, contract_ids: Vec<u32>) -> bool`
-- Kind: Mutating
-- Auth: `caller.require_auth()` (per item via `raise_dispute`)
-- Semantics: Opens disputes for each contract ID in a bounded vector (`MAX_BATCH_DISPUTES = 10`). Per-item checks match `raise_dispute`. Over-cap batches are rejected with `BatchCapExceeded`. Failure on any item aborts the whole call (all-or-nothing).
-- Events: `("dispute", "opened")` per successfully disputed contract
-- Errors: `BatchCapExceeded`, plus all errors from `raise_dispute`
-
 ### resolve_dispute
 
 - Signature: `resolve_dispute(env: Env, contract_id: u32, arbiter: Address, resolution: DisputeResolution) -> bool`
@@ -294,15 +285,14 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: `("dispute", "resolved")`
 - Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `UnauthorizedRole`, `InvalidStatusTransition`, `InvalidDisputeSplit`, `AccountingInvariantViolated`, `PotentialOverflow`, `AlreadyFinalized`
 
-### get_disputes_config
+### rollback_dispute
 
-- Signature: `get_disputes_config(env: Env) -> DisputeConfig`
-- Kind: Read-only
-- Auth: None
-- Semantics: Returns the current disputes configuration parameters without mutating storage. Returns sensible default values before initialization or if unconfigured.
-- Events: None
-- Errors: None
-
+- Signature: `rollback_dispute(env: Env, contract_id: u32) -> bool`
+- Kind: Mutating
+- Auth: Stored admin `require_auth()`
+- Semantics: Restores an unresolved dispute to its recorded `Funded` or `PartiallyFunded` status only when the contract and milestones are unchanged since the dispute opened. Refund, resolution, or finalization permanently closes the rollback window.
+- Events: `("rollback", contract_id)` with `(admin, Disputed, restored_status, timestamp)`
+- Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `AlreadyFinalized`, `RollbackNotAllowed`, `RollbackStateChanged`
 
 ### issue_reputation
 
@@ -312,16 +302,6 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Semantics: Issues reputation for a completed contract once. Updates the freelancer's aggregate reputation record and stores the provided comment.
 - Events: None in the current implementation
 - Errors: `ContractNotFound`, `UnauthorizedRole`, `InvalidRating`, `EmptyComment`, `CommentTooLong`, `NotCompleted`, `ReputationAlreadyIssued`, `SelfRating`, `InvalidState`
-
-### issue_reputation_batch
-
-- Signature: `issue_reputation_batch(env: Env, caller: Address, items: Vec<ReputationBatchItem>) -> bool`
-- Kind: Mutating
-- Auth: `caller.require_auth()`
-- Semantics: Issues reputation for multiple completed contracts in a single call. Each item is validated and persisted independently. Emits `rep_iss` events per successfully processed item. Rejects the entire batch if any item would fail.
-- Max items: [`MAX_REPUTATION_BATCH_SIZE`] (10)
-- Events: `rep_iss` `(caller: Address, rating: u32, timestamp: u64)` per item
-- Errors: `ContractNotFound`, `UnauthorizedRole`, `InvalidRating`, `EmptyComment`, `CommentTooLong`, `NotCompleted`, `ReputationAlreadyIssued`, `SelfRating`, `InvalidState`, `BatchItemLimitExceeded`
 
 ### get_reputation_comment
 
@@ -356,6 +336,15 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Kind: Read-only
 - Auth: None
 - Semantics: Returns the pending reputation credits for the freelancer.
+- Events: None
+- Errors: None
+
+### get_reputations_page
+
+- Signature: `get_reputations_page(env: Env, start: u32, limit: u32) -> Vec<types::ReputationEntry>`
+- Kind: Read-only
+- Auth: None
+- Semantics: Returns a bounded, paginated slice over known reputation records. `start` is a zero-based offset into the reputations index and `limit` is capped by the pagination ceiling to control host cost. Returns an empty vector for missing index, out-of-range offsets, or `limit == 0`.
 - Events: None
 - Errors: None
 
@@ -451,19 +440,28 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 
 ### get_governed_parameters
 
-- Signature: `get_governed_parameters(env: Env) -> GovernedParameters`
+- Signature: `get_governed_parameters(env: Env) -> Option<GovernedParameters>`
 - Kind: Read-only
 - Auth: None
-- Semantics: Returns the current governance parameters. When `set_governed_params` has not been called, returns safe defaults (`protocol_fee_bps: 0`, `max_escrow_total_stroops: i128::MAX`) that match the enforcement code's fallback values. Use [`is_governed_params_set`](#is_governed_params_set) to distinguish "unset" from "set to matching defaults".
+- Semantics: Returns the stored governance parameters, if present.
 - Events: None
 - Errors: None
 
-### is_governed_params_set
+### set_max_milestones
 
-- Signature: `is_governed_params_set(env: Env) -> bool`
+- Signature: `set_max_milestones(env: Env, admin: Address, max_milestones: u32) -> bool`
+- Kind: Mutating
+- Auth: stored admin
+- Semantics: Admin-controlled setter for the per-contract maximum number of milestones. The value must be within the safe bounds `MIN_MAX_MILESTONES..=MAX_MAX_MILESTONES`.
+- Events: None
+- Errors: `NotInitialized`, `UnauthorizedRole`, `InvalidProtocolParameters`
+
+### get_max_milestones
+
+- Signature: `get_max_milestones(env: Env) -> u32`
 - Kind: Read-only
 - Auth: None
-- Semantics: Returns `true` if `set_governed_params` has ever been called successfully, `false` otherwise. This lets integrators distinguish between "governance has not written anything yet" (defaults active, flag is `false`) and "governance wrote values that happen to match defaults" (defaults active, flag is `true`).
+- Semantics: Returns the configured maximum milestones per contract, or the compile-time default `MAX_MILESTONES` when unset.
 - Events: None
 - Errors: None
 

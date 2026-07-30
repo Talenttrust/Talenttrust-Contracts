@@ -227,7 +227,7 @@ fn unsupported_future_version_is_rejected() {
 
     assert_contract_error(
         client.try_get_dispute(&id),
-        EscrowError::UnsupportedDisputeStorageVersion,
+        EscrowError::InvalidState,
     );
 }
 

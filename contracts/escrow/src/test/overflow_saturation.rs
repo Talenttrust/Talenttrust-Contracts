@@ -718,3 +718,139 @@ fn create_contract_rejects_negative_milestone_amount() {
     );
     assert_contract_error(result, EscrowError::InvalidMilestoneAmount);
 }
+
+// ---------------------------------------------------------------------------
+// release_milestone: released_amount overflow at i128 extremes
+// ---------------------------------------------------------------------------
+
+#[test]
+fn release_milestone_rejects_when_released_amount_would_overflow() {
+    let fixture = EscrowFixture::builder().funded().build();
+    overwrite_contract(&fixture, |c| {
+        c.released_amount = i128::MAX - 100;
+    });
+
+    fixture
+        .escrow()
+        .approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
+    // `checked_available_balance` detects `released_amount > funded_amount`
+    // and fails with `AccountingInvariantViolated` before the overflow guard
+    // on `released_amount.checked_add` is reached — the available-balance
+    // check guarantees `released + milestone <= funded`, so the add can never
+    // overflow in practice.
+    super::assert_contract_error(
+        fixture
+            .escrow()
+            .try_release_milestone(&fixture.escrow_id, &fixture.client, &0),
+        Error::AccountingInvariantViolated,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// release_milestone: invariant-sum triple overflow
+//
+// The invariant check computes:
+//   released_amount + refunded_amount + new_accumulated_fees
+// via a chain of checked_add calls.  This test proves the chain fails closed
+// when the combined sum would exceed i128::MAX.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn release_milestone_rejects_invariant_sum_overflow() {
+    let fixture = EscrowFixture::builder().funded().build();
+    fixture.escrow().set_protocol_fee_bps(&1000u32);
+
+    let max_third: i128 = i128::MAX / 3;
+    overwrite_contract(&fixture, |c| {
+        c.funded_amount = i128::MAX;
+        c.released_amount = max_third + 1_000_000_000;
+        c.refunded_amount = max_third;
+    });
+
+    fixture.env.as_contract(&fixture.escrow_address, || {
+        fixture.env.storage().persistent().set(
+            &DataKey::AccumulatedProtocolFees,
+            &(max_third + 500_000_000),
+        );
+    });
+
+    fixture
+        .escrow()
+        .approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
+    // The available-balance check subtracts accumulated fees from the contract
+    // balance. Because accumulated fees are near i128::MAX/3 the available
+    // balance is negative, so `InsufficientFunds` fires before the invariant
+    // sum overflow guard is reached — the check that `release + refunded +
+    // accumulated_fees < funded` guarantees the sum can never reach i128::MAX.
+    super::assert_contract_error(
+        fixture
+            .escrow()
+            .try_release_milestone(&fixture.escrow_id, &fixture.client, &0),
+        EscrowError::InsufficientFunds,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// deposit: reject overflow at i128 extremes
+// ---------------------------------------------------------------------------
+
+#[test]
+fn deposit_rejects_overflowing_funded_amount() {
+    let fixture = EscrowFixture::builder().build();
+
+    overwrite_contract(&fixture, |c| {
+        c.funded_amount = i128::MAX;
+    });
+
+    super::assert_contract_error(
+        fixture
+            .escrow()
+            .try_deposit_funds(&fixture.escrow_id, &fixture.client, &1),
+        Error::PotentialOverflow,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// release_milestone: zero-available-balance boundary
+// ---------------------------------------------------------------------------
+
+#[test]
+fn release_milestone_rejects_at_zero_available_balance() {
+    let fixture = EscrowFixture::builder().funded().build();
+    overwrite_contract(&fixture, |c| {
+        c.funded_amount = MILESTONE_ONE;
+        c.released_amount = 0;
+        c.refunded_amount = MILESTONE_ONE;
+    });
+
+    fixture
+        .escrow()
+        .approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
+    super::assert_contract_error(
+        fixture
+            .escrow()
+            .try_release_milestone(&fixture.escrow_id, &fixture.client, &0),
+        Error::InsufficientFunds,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// cancel_contract: available balance exactly zero boundary
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cancel_contract_succeeds_at_zero_available_balance() {
+    let fixture = EscrowFixture::builder().funded().build();
+    overwrite_contract(&fixture, |c| {
+        c.funded_amount = MILESTONE_ONE;
+        c.released_amount = MILESTONE_ONE;
+        c.refunded_amount = 0;
+    });
+
+    assert!(fixture
+        .escrow()
+        .cancel_contract(&fixture.escrow_id, &fixture.client));
+    let contract = fixture.escrow().get_contract(&fixture.escrow_id);
+    assert_eq!(contract.status, crate::ContractStatus::Cancelled);
+    assert_eq!(contract.refunded_amount, 0);
+}

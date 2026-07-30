@@ -35,41 +35,14 @@ pub struct DisputeMetadata {
 }
 
 #[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MilestoneEntry {
-    pub index: u32,
-    pub status: u32,
-    pub amount: i128,
-}
-
-/// Lightweight contract entry returned by the paginated contracts view.
-///
-/// Carries only the fields needed for a UI listing: the contract `id`, a
-/// numeric `status` code (the `ContractStatus` discriminant), and the
-/// escrow's `funded_amount` / `released_amount` in stroops.
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ContractEntry {
-    pub id: u32,
-    pub status: u32,
-    pub funded_amount: i128,
-    pub released_amount: i128,
-}
-
-/// Lightweight arbiter entry returned by the paginated arbiter enumeration view.
-///
-/// Each entry pairs a contract id with its assigned arbiter. Contracts without
-/// an arbiter are omitted from the page.
-#[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ArbiterEntry {
-    pub contract_id: u32,
-    pub arbiter: Address,
+pub struct MilestoneSummary {
+    pub index: u32,
+    pub amount: i128,
+    pub released: bool,
+    pub refunded: bool,
 }
 
-/// A point-in-time snapshot of the contract state.
-/// This structure is used for both indexing (`get_contract_summary`) and
-/// the immutable close metadata stored at finalization.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractSummary {
@@ -78,8 +51,6 @@ pub struct ContractSummary {
     pub freelancer: Address,
     pub arbiter: Option<Address>,
     pub status: ContractStatus,
-    /// Indicates whether reputation has been issued for this contract.
-    /// This is determined by reading the `DataKey::ReputationIssued` storage entry.
     pub reputation_issued: bool,
     pub total_amount: i128,
     pub funded_amount: i128,
@@ -91,111 +62,28 @@ pub struct ContractSummary {
 
 /// Protocol-wide bounds for contract validation.
 ///
-/// This type carries the limits used by `create_contract` and other
+/// This type carries the hard-coded limits used by `create_contract` and other
 /// validation paths. It is returned by `get_bounds()` for off-chain indexers
 /// and client applications.
 ///
-/// The settlement limit (`max_single_milestone_stroops`) is admin-configurable
-/// at runtime; all other fields are compile-time constants.
+/// Dedicated struct for protocol bounds prevents coupling the limits ABI to the
+/// per-contract summary schema version.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ContractBounds {
+    /// Maximum number of milestones per contract.
     pub max_milestones: u32,
+    /// Maximum amount allowed for a single milestone (in stroops).
     pub max_single_milestone_stroops: i128,
+    /// Maximum total escrow amount for a single contract (in stroops).
     pub max_total_escrow_stroops: i128,
+    /// Maximum protocol fee in basis points (10_000 = 100%).
     pub max_fee_bps: u32,
-    /// Maximum number of disputes per contract.
-    pub max_disputes: u32,
+    /// Maximum number of contracts finalizable in a single batch settlement call.
+    pub max_settlement: u32,
 }
 
-/// Configuration parameters for dispute resolutions.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeConfig {
-    /// Percentage of remaining funds allocated to the freelancer in partial refunds (in basis points, 3000 = 30%).
-    pub partial_refund_freelancer_bps: u32,
-    /// Percentage of remaining funds allocated to the client in partial refunds (in basis points, 7000 = 70%).
-    pub partial_refund_client_bps: u32,
-}
-
-impl Default for DisputeConfig {
-    fn default() -> Self {
-        DisputeConfig {
-            partial_refund_freelancer_bps: 3000,
-            partial_refund_client_bps: 7000,
-        }
-    }
-}
-
-/// Simulated outcome of creating a contract without actually writing to storage.
-///
-/// This type is returned by `simulate_create_contract` and represents the
-/// projected state that would result from a contract creation. The operation
-/// performs all validation checks but makes no storage writes or events.
-///
-/// # Read-only guarantee
-/// - No storage mutations
-/// - No events emitted
-/// - All validation from `create_contract` is applied
-/// - Outcome matches what `create_contract` would produce
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SimulateCreateContractOutcome {
-    /// The contract ID that would be assigned
-    pub contract_id: u32,
-    /// The client address
-    pub client: Address,
-    /// The freelancer address
-    pub freelancer: Address,
-    /// The optional arbiter address
-    pub arbiter: Option<Address>,
-    /// The release authorization mode
-    pub release_authorization: ReleaseAuthorization,
-    /// The milestone amounts (in stroops)
-    pub milestones: Vec<i128>,
-    /// Total escrow amount across all milestones
-    pub total_amount: i128,
-}
-
-// ── Core contract state ──────────────────────────────────────────────────────
-
-/// Typed storage key for contract-owned entries that previously used ad-hoc
-/// tuple keys such as `(DataKey::Contract(id), Symbol("milestones"))`.
-///
-/// The variants are intentionally narrow and match the storage shapes already
-/// used by the escrow contract so the public behavior stays unchanged while the
-/// call sites become clearer and more type-safe.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum StorageKey {
-    Contract(u32),
-    ContractMilestones(u32),
-    MilestoneApprovals(u32, u32),
-    Finalization(u32),
-    PendingClientMigration(u32),
-}
-
-impl StorageKey {
-    pub fn contract(contract_id: u32) -> Self {
-        Self::Contract(contract_id)
-    }
-
-    pub fn contract_milestones(contract_id: u32) -> Self {
-        Self::ContractMilestones(contract_id)
-    }
-
-    pub fn milestone_approvals(contract_id: u32, milestone_index: u32) -> Self {
-        Self::MilestoneApprovals(contract_id, milestone_index)
-    }
-
-    pub fn finalization(contract_id: u32) -> Self {
-        Self::Finalization(contract_id)
-    }
-
-    pub fn pending_client_migration(contract_id: u32) -> Self {
-        Self::PendingClientMigration(contract_id)
-    }
-}
+// ── Storage keys ──────────────────────────────────────────────────────────────
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -205,35 +93,29 @@ pub enum DataKey {
     Admin,
     Paused,
     Emergency,
-    SettlementToken,
     // Contract storage
     Contract(u32),
-    ContractSchemaVersion(u32),
     NextContractId,
-    Milestones(u32),
     MilestoneReleased(u32, u32),
     MilestoneApprovals(u32, u32),
-    Finalization(u32),
+    // Events / Indexing
+    Event(u32),
+    NextEventId,
     // Reputation
     ReputationIssued(u32),
-    PendingReputationCredits(ReputationKey),
-    Reputation(ReputationKey),
+    PendingReputationCredits(Address),
+    Reputation(Address),
     ReputationComment(u32),
-    /// Monotonically-increasing schema version for reputation storage.
-    /// Absent means v1 (original layout). Present value equals
-    /// [`REPUTATION_STORAGE_VERSION`].
-    ReputationStorageVersion(Address),
+    /// Index of addresses that have reputation records. Used by paginated readers.
+    ReputationIndex,
     // Client migration
     PendingClientMigration(u32),
-    // Settlement token
-    SettlementToken,
-    // Finalization
-    Finalization(u32),
     // Protocol / governance
     GovernanceAdmin,
     PendingGovernanceAdmin,
     ProtocolParameters,
     ProtocolFeeBps,
+    // Two-step admin transfer: pending admin stored here while proposal awaits acceptance
     PendingAdmin,
     AccumulatedProtocolFees,
     GovernedParameters,
@@ -241,53 +123,87 @@ pub enum DataKey {
     // Configurable limits
     MaxMilestones,
     MaxEscrowStroops,
-    // Settlement storage
+    MaxArbiters,
+    ContractsParameters,
+    MaxSettlement,
+    // Finalization
+    Finalization(u32),
+    // Settlement token
     SettlementToken,
-    // Disputes: versioned metadata + per-contract layout marker
+    // Dispute / arbiter configuration
+    DisputeRollback(u32),
+    DisputeConfigKey,
     Dispute(u32),
-    DisputeStorageVersion(u32),
+    // Reputation configuration
+    ReputationConfigKey,
+    ClientContracts(Address),
+    FreelancerContracts(Address),
 }
+
+// ── Event Types ──────────────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventEntry {
+    pub contract_id: u32,
+    pub status: u32,
+    pub funded_amount: i128,
+    pub released_amount: i128,
+    pub refunded_amount: i128,
+    pub total_deposited: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneIndexEvent {
+    pub amount: i128,
+    pub released: bool,
+    pub refunded: bool,
+    pub timestamp: u64,
+}
+
+// ── Canonical Errors ─────────────────────────────────────────────────────────
 
 /// Canonical contract error type for all entrypoint-facing errors.
 #[contracterror(export = false)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
-pub enum EscrowError {
-    /// The specified milestone index is out of bounds.
+pub enum Error {
+    TooManyMilestones = 1,
+    LimitOutOfRange = 2,
     IndexOutOfBounds = 3,
-    AlreadyReleased = 4,
+    InvalidContractId = 4,
+    /// The refund request is empty.
     EmptyRefundRequest = 6,
     DuplicateMilestoneInRefund = 7,
+    /// The milestone has already been refunded.
     AlreadyRefunded = 8,
     InsufficientFunds = 9,
     ContractNotFound = 10,
     UnauthorizedRole = 11,
     MissingArbiter = 12,
     InvalidArbiter = 13,
-    InvalidParticipants = 14,
     AmountMustBePositive = 15,
     InvalidState = 16,
     MilestoneAlreadyReleased = 17,
     AlreadyApproved = 18,
+    InvalidParticipant = 19,
     InsufficientApprovals = 20,
-    FreelancerMismatch = 21,
     InvalidRating = 22,
     ReputationAlreadyIssued = 23,
     EmptyMilestones = 25,
     InvalidMilestoneAmount = 26,
+    /// A contract with the specified ID already exists.
     ContractIdCollision = 27,
     ContractIdOverflow = 28,
     EmptyComment = 29,
     CommentTooLong = 30,
-    InvalidParticipant = 31,
-    InvalidDepositAmount = 32,
-    InvalidMilestone = 33,
+    /// The contract has already been initialized.
     AlreadyInitialized = 34,
     InsufficientAccumulatedFees = 35,
     NotInitialized = 36,
     ContractPaused = 37,
     EmergencyActive = 38,
-    SelfRating = 39,
     NotCompleted = 40,
     InvalidStatusTransition = 41,
     ArbiterRequired = 42,
@@ -299,16 +215,24 @@ pub enum EscrowError {
     EvidenceTooLong = 47,
     TimelockNotElapsed = 48,
     InvalidProtocolParameters = 49,
-    /// The contract has already been cancelled.
-    AlreadyCancelled = 50,
-    /// The escrow cap would be exceeded by this operation.
-    EscrowCapExceeded = 51,
+    /// No settlement token has been bound for custody transfers.
     SettlementTokenNotConfigured = 52,
     MilestoneNotOverdue = 53,
-    /// Milestone rollback is not allowed in the current state.
-    RollbackNotAllowed = 54,
+    /// The work evidence string is empty; at least one byte is required.
+    EmptyEvidence = 54,
+    /// No safe rollback is available for the contract's current state.
+    RollbackNotAllowed = 55,
+    RoleOverlap = 57,
+    /// No dispute record exists for the requested contract.
+    DisputeNotFound = 60,
+    SettlementTokenAlreadyBound = 61,
+    ContractCancelled = 62,
+    InvalidDepositAmount = 65,
 }
 
+// ── Core contract state ──────────────────────────────────────────────────────
+
+/// Contract lifecycle states
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContractStatus {
@@ -322,6 +246,78 @@ pub enum ContractStatus {
     PartiallyFunded = 7,
 }
 
+// ── Simulate / dry-run result types ───────────────────────────────────────────
+
+/// Projected outcome of a `release_milestone` dry-run.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatedRelease {
+    /// Whether the release would succeed (all validation checks pass).
+    pub would_succeed: bool,
+    /// If `would_succeed` is false, the numeric error code that would be emitted.
+    pub error_code: Option<u32>,
+    /// The gross milestone amount before any deduction.
+    pub gross_amount: i128,
+    /// The net amount that would be transferred to the freelancer (gross minus fee).
+    pub net_amount: i128,
+    /// The protocol fee that would be retained from this release.
+    pub protocol_fee: i128,
+    /// The projected `released_amount` on the contract after release.
+    pub projected_released_amount: i128,
+    /// Whether releasing this milestone would complete the contract.
+    pub would_complete_contract: bool,
+}
+
+/// Projected outcome of a `deposit_funds` dry-run.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatedDeposit {
+    /// The `funded_amount` before the deposit.
+    pub current_funded_amount: i128,
+    /// The projected `funded_amount` after the deposit.
+    pub new_funded_amount: i128,
+    /// The projected contract status after the deposit.
+    pub projected_status: ContractStatus,
+    /// The total value of all milestones (used to determine Funded vs PartiallyFunded).
+    pub total_milestone_amount: i128,
+}
+
+/// Projected outcome of a `create_contract` dry-run.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulateCreateContractOutcome {
+    /// The contract ID that would be assigned.
+    pub contract_id: u32,
+    pub client: Address,
+    pub freelancer: Address,
+    pub arbiter: Option<Address>,
+    pub release_authorization: ReleaseAuthorization,
+    /// Milestone amounts as submitted.
+    pub milestones: Vec<i128>,
+    /// The sum of all milestone amounts.
+    pub total_amount: i128,
+}
+
+/// Projected outcome of a `refund_unreleased_milestones` dry-run.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatedRefund {
+    /// Whether the refund would succeed (all validation checks pass).
+    pub would_succeed: bool,
+    /// If `would_succeed` is false, the numeric error code that would be emitted.
+    pub error_code: Option<u32>,
+    /// The total amount that would be refunded to the client.
+    pub total_refund_amount: i128,
+    /// The projected contract status after the refund.
+    pub projected_status: ContractStatus,
+    /// The projected `refunded_amount` on the contract after the refund.
+    pub projected_refunded_amount: i128,
+    /// Whether refunding these milestones would cause all milestones to be
+    /// either released or refunded (i.e., the contract would become terminal).
+    pub would_complete_contract: bool,
+}
+
+/// Main escrow contract state
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Contract {
@@ -335,20 +331,13 @@ pub struct Contract {
     pub refunded_amount: i128,
     pub release_authorization: ReleaseAuthorization,
     pub reputation_issued: bool,
-    pub token: Address,
 }
 
-/// Bounded snapshot of the escrow instance's settlement configuration.
-///
-/// All fields are read directly from persistent storage so indexers can inspect
-/// settlement readiness and accrued fees without reconstructing state from
-/// events or contract activity.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Milestone {
     pub amount: i128,
     pub funded_amount: i128,
-    pub protocol_fee: i128,
     pub released: bool,
     pub refunded: bool,
     pub work_evidence: Option<String>,
@@ -359,28 +348,43 @@ pub struct Milestone {
     pub deadline: Option<u64>,
 }
 
-/// Projected outcome of a milestone release simulation.
-///
-/// Returned by `simulate_release_milestone`. When `would_succeed` is `false`,
-/// `error_code` contains the numeric code of the error that the real
-/// `release_milestone` would panic with.
+/// Defines who can approve milestone releases.
 #[contracttype]
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct SimulatedRelease {
-    /// Whether the real `release_milestone` would succeed.
-    pub would_succeed: bool,
-    /// Gross milestone amount (before fee deduction).
-    pub gross_amount: i128,
-    /// Protocol fee that would be retained.
-    pub protocol_fee: i128,
-    /// Net amount that would be transferred to the freelancer.
-    pub net_amount: i128,
-    /// The contract's `released_amount` after the projected release.
-    pub projected_released_amount: i128,
-    /// Whether this release would transition the contract to `Completed`.
-    pub would_complete_contract: bool,
-    /// Error code matching the corresponding entrypoint error, `None` on success.
-    pub error_code: Option<u32>,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReleaseAuthorization {
+    /// Only client can approve.
+    ClientOnly = 0,
+    /// Either client or arbiter can approve.
+    ClientAndArbiter = 1,
+    /// Only arbiter can approve.
+    ArbiterOnly = 2,
+    /// Both client and freelancer must approve; only either of them may release
+    /// after both approvals are present.
+    MultiSig = 3,
+}
+
+/// Tracks approval status for a milestone.
+/// Stored in temporary storage with TTL for expiry grace period.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneApprovals {
+    pub client_approved: bool,
+    pub freelancer_approved: bool,
+    pub arbiter_approved: bool,
+}
+
+/// Maximum records returned per pagination request across view entrypoints.
+pub const MAX_PAGINATION_LIMIT: u32 = 50;
+
+/// Bounded pagination record for milestone release authorization status.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizationRecord {
+    pub milestone_index: u32,
+    pub has_approvals: bool,
+    pub client_approved: bool,
+    pub freelancer_approved: bool,
+    pub arbiter_approved: bool,
 }
 
 #[contracttype]
@@ -390,36 +394,17 @@ pub enum DepositMode {
     Incremental = 1,
 }
 
-// ── Simulation result types ───────────────────────────────────────────────────
-
-/// Result of a simulated deposit operation.
-///
-/// Returned by [`simulate_deposit_funds`](crate::Escrow::simulate_deposit_funds)
-/// to let callers preview the state transition that a real `deposit_funds`
-/// call would produce, without executing any token transfer or writing storage.
-///
-/// All amounts are in stroops.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SimulateDepositResult {
-    /// The `funded_amount` on the contract before the simulated deposit.
-    pub current_funded_amount: i128,
-    /// The `funded_amount` that would result after the deposit.
-    pub new_funded_amount: i128,
-    /// The contract status that would result after the deposit.
-    pub projected_status: ContractStatus,
-    /// The sum of all milestone amounts for the contract.
-    pub total_milestone_amount: i128,
-}
-
 // ── Governance / readiness ───────────────────────────────────────────────────
 
 /// Readiness checklist stored under [`DataKey::ReadinessChecklist`].
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReadinessChecklist {
+    /// `true` after `initialize` has been called successfully.
     pub initialized: bool,
+    /// `true` after protocol governance parameters have been set.
     pub governed_params_set: bool,
+    /// `true` after an emergency control operation has been invoked.
     pub emergency_controls_enabled: bool,
 }
 
@@ -441,6 +426,25 @@ pub struct GovernedParameters {
 }
 
 #[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ContractsParameters {
+    pub max_milestones: u32,
+    pub max_escrow_stroops: i128,
+}
+
+impl Default for ContractsParameters {
+    fn default() -> Self {
+        ContractsParameters {
+            max_milestones: crate::DEFAULT_MAX_MILESTONES,
+            max_escrow_stroops: crate::DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
+        }
+    }
+}
+
+/// Stores a pending governance admin proposal with the proposed address
+/// and the ledger sequence when it was proposed.
+/// Used for the admin rotation timelock mechanism.
+#[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingAdminProposal {
     pub proposed: Address,
@@ -449,67 +453,45 @@ pub struct PendingAdminProposal {
 
 // ── Reputation ───────────────────────────────────────────────────────────────
 
-/// Cumulative on-chain reputation record for a freelancer.
-///
-/// A `Reputation` entry is created (or updated) each time
-/// `issue_reputation` is called for a completed contract.  It
-/// aggregates ratings across all contracts the freelancer has participated in,
-/// enabling clients and integrations to derive an average score at any time.
-///
-/// # Stored under
-///
-/// [`DataKey::Reputation`]`(freelancer_address)` in persistent storage.
-///
-/// # Average rating
-///
-/// To compute the decimal average:
-/// ```text
-/// average = total_rating as f64 / completed_contracts as f64
-/// ```
-/// Or, to avoid floating-point arithmetic on-chain, use
-/// `get_average_rating` which returns
-/// `total_rating * 10_000 / completed_contracts` (basis-point precision).
-///
-/// # Example
-///
-/// ```no_run
-/// # use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
-/// # use escrow::{Escrow, EscrowClient, ReleaseAuthorization};
-/// let env = Env::default();
-/// env.mock_all_auths();
-///
-/// let escrow_id = env.register(Escrow, ());
-/// let escrow = EscrowClient::new(&env, &escrow_id);
-/// escrow.initialize(&Address::generate(&env));
-///
-/// let client_addr = Address::generate(&env);
-/// let freelancer_addr = Address::generate(&env);
-/// let milestones = vec![&env, 200_0000000_i128, 400_0000000_i128, 600_0000000_i128];
-/// let contract_id = escrow.create_contract(
-///     &client_addr, &freelancer_addr, &None, &milestones,
-///     &ReleaseAuthorization::ClientOnly,
-/// );
-/// escrow.deposit_funds(&contract_id, &client_addr, &1_200_0000000_i128);
-/// for idx in 0_u32..3 {
-///     escrow.approve_milestone_release(&contract_id, &client_addr, &idx);
-///     escrow.release_milestone(&contract_id, &client_addr, &idx);
-/// }
-/// escrow.issue_reputation(&contract_id, &client_addr, &5, &String::from_str(&env, "Excellent!"));
-///
-/// let rep = escrow.get_reputation(&freelancer_addr).unwrap();
-/// assert_eq!(rep.completed_contracts, 1);
-/// assert_eq!(rep.total_rating, 5);
-/// assert_eq!(rep.last_rating, 5);
-/// ```
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct Reputation {
-    /// Number of escrow contracts for which reputation has been issued.
     pub completed_contracts: i128,
-    /// Sum of all individual ratings received (each rating is in \[1, 5\]).
     pub total_rating: i128,
-    /// The most recent individual rating value.
     pub last_rating: i128,
+}
+
+/// Lightweight reputation entry returned by the paginated reputations view.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReputationEntry {
+    pub account: Address,
+    pub completed_contracts: i128,
+    pub total_rating: i128,
+    pub last_rating: i128,
+}
+
+/// Runtime-configurable reputation validation parameters, stored under
+/// [`DataKey::ReputationConfigKey`].
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReputationConfig {
+    /// Minimum valid rating (inclusive).
+    pub min_rating: u32,
+    /// Maximum valid rating (inclusive).
+    pub max_rating: u32,
+    /// Maximum byte length of a reputation feedback comment (inclusive).
+    pub max_comment_bytes: u32,
+}
+
+impl Default for ReputationConfig {
+    fn default() -> Self {
+        ReputationConfig {
+            min_rating: 1,
+            max_rating: 5,
+            max_comment_bytes: 200,
+        }
+    }
 }
 
 // ── Dispute Resolution ───────────────────────────────────────────────────────
@@ -523,56 +505,6 @@ pub struct DisputeSplit {
 
 pub type SplitAmounts = DisputeSplit;
 
-// ── Milestone schedule metadata ───────────────────────────────────────────
-
-/// Maximum byte length for a milestone schedule title.
-pub const MAX_SCHEDULE_TITLE_LEN: u32 = 64;
-/// Maximum byte length for a milestone schedule description.
-pub const MAX_SCHEDULE_DESCRIPTION_LEN: u32 = 256;
-
-/// Milestone-related configuration values.
-///
-/// Combines compile‑time bounds with runtime‑governed parameters, providing
-/// a single read‑only view for callers that need to discover how milestones
-/// are constrained.
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MilestonesConfig {
-    /// Maximum number of milestones per contract (compile‑time constant).
-    pub max_milestones: u32,
-    /// Maximum amount allowed for a single milestone in stroops (compile‑time constant).
-    pub max_single_milestone_stroops: i128,
-    /// Maximum total escrow amount in stroops.
-    /// This is the runtime‑governed cap (falls back to the compile‑time bound when unset).
-    pub max_total_escrow_stroops: i128,
-    /// Maximum protocol fee in basis points (10_000 = 100 %).
-    /// This is the runtime‑governed cap (falls back to 10_000 when unset).
-    pub max_fee_bps: u32,
-    /// Maximum byte length for a milestone schedule title.
-    pub max_schedule_title_len: u32,
-    /// Maximum byte length for a milestone schedule description.
-    pub max_schedule_description_len: u32,
-}
-
-/// Per-milestone schedule metadata stored alongside the milestone vector.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MilestoneSchedule {
-    /// Optional Unix timestamp (seconds) for the expected delivery deadline.
-    /// `None` means no deadline — the milestone never expires for schedule
-    /// purposes (distinct from the timeout-refund deadline on `Milestone`).
-    pub due_date: Option<u64>,
-    /// Optional short title for the milestone (e.g. "Phase 1").
-    /// Max byte length is [`MAX_SCHEDULE_TITLE_LEN`].
-    pub title: Option<String>,
-    /// Optional longer description of the milestone deliverable.
-    /// Max byte length is [`MAX_SCHEDULE_DESCRIPTION_LEN`].
-    pub description: Option<String>,
-    /// Ledger timestamp of the last schedule update.  Stamped by the contract
-    /// on create / set — caller-supplied values are overwritten.
-    pub updated_at: u64,
-}
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DisputeResolution {
@@ -580,6 +512,26 @@ pub enum DisputeResolution {
     PartialRefund,
     FullPayout,
     Split(DisputeSplit),
+}
+
+/// Projected outcome of a dispute resolution for dry-run simulation.
+///
+/// This type is returned by `simulate_dispute_resolution`, the read-only
+/// dry-run variant of `resolve_dispute`. It carries the projected accounting
+/// changes and final status without writing storage or emitting events.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulateDisputeOutcome {
+    /// Amount that would be refunded to the client.
+    pub client_payout: i128,
+    /// Amount that would be released to the freelancer.
+    pub freelancer_payout: i128,
+    /// Projected final contract status after applying the resolution.
+    pub final_status: ContractStatus,
+    /// Projected `refunded_amount` after the resolution.
+    pub new_refunded_amount: i128,
+    /// Projected `released_amount` after the resolution.
+    pub new_released_amount: i128,
 }
 
 impl DisputeResolution {
@@ -593,98 +545,41 @@ impl DisputeResolution {
     }
 }
 
-/// Outcome of a dispute, combining open-state and all resolution variants in one
-/// enum so that `DisputeRecord` can store the outcome without `Option<DisputeResolution>`
-/// (which cannot be stored in a `#[contracttype]` struct because Soroban contracttype
-/// enums use env-based serialization, not the XDR `From<T>` trait needed by `Option<T>`).
+/// Represents the milestone progress of an escrow contract.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DisputeOutcome {
-    /// The dispute has been raised but not yet resolved by the arbiter.
-    Open,
-    /// All remaining funds returned to the client.
-    FullRefund,
-    /// 70 % to client, 30 % to freelancer (floor-rounded).
-    PartialRefund,
-    /// All remaining funds released to the freelancer.
-    FullPayout,
-    /// Arbiter-specified custom split.
-    Split(DisputeSplit),
+pub struct MilestoneProgress {
+    /// The number of completed (released) milestones.
+    pub completed: u32,
+    /// The total number of milestones.
+    pub total: u32,
 }
 
-impl DisputeOutcome {
-    /// Convert to the equivalent `DisputeResolution`, or `None` if still open.
-    pub fn as_resolution(&self) -> Option<DisputeResolution> {
-        match self {
-            Self::Open => None,
-            Self::FullRefund => Some(DisputeResolution::FullRefund),
-            Self::PartialRefund => Some(DisputeResolution::PartialRefund),
-            Self::FullPayout => Some(DisputeResolution::FullPayout),
-            Self::Split(s) => Some(DisputeResolution::Split(s.clone())),
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeSummary {
+    pub contract_id: u32,
+    pub status: ContractStatus,
+    pub total_deposited: i128,
+    pub funded_amount: i128,
+    pub released_amount: i128,
+    pub refunded_amount: i128,
+}
+
+/// Configuration for the arbiter's partial-refund split, stored under
+/// [`DataKey::DisputeConfigKey`].
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeConfig {
+    pub partial_refund_freelancer_bps: u32,
+    pub partial_refund_client_bps: u32,
+}
+
+impl Default for DisputeConfig {
+    fn default() -> Self {
+        DisputeConfig {
+            partial_refund_freelancer_bps: 3000,
+            partial_refund_client_bps: 7000,
         }
     }
-
-    /// Build a `DisputeOutcome` from a `DisputeResolution`.
-    pub fn from_resolution(r: &DisputeResolution) -> Self {
-        match r {
-            DisputeResolution::FullRefund => Self::FullRefund,
-            DisputeResolution::PartialRefund => Self::PartialRefund,
-            DisputeResolution::FullPayout => Self::FullPayout,
-            DisputeResolution::Split(s) => Self::Split(s.clone()),
-        }
-    }
-}
-
-/// Typed record for a dispute lifecycle entry.
-///
-/// Written to `DataKey::Dispute(contract_id)` by `raise_dispute` and updated
-/// in-place by `resolve_dispute`. Absent for contracts that were never disputed.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeRecord {
-    /// Party (client or freelancer) that raised the dispute.
-    pub raised_by: Address,
-    /// Ledger timestamp when the dispute was raised.
-    pub raised_at: u64,
-    /// `Open` while the dispute is pending; replaced with the resolution variant
-    /// once the arbiter calls `resolve_dispute`.
-    pub outcome: DisputeOutcome,
-    /// Ledger timestamp when the dispute was resolved, or `None` while open.
-    pub resolved_at: Option<u64>,
-}
-
-// ── Batch settlement ─────────────────────────────────────────────────────────
-
-/// A single item in a [`Escrow::finalize_contracts_batch`] request.
-///
-/// Each entry pairs a `contract_id` with the `finalizer` address that is
-/// authorizing closure of that contract.  The finalizer must be the stored
-/// client, freelancer, or assigned arbiter — the same role check as the
-/// single-item [`Escrow::finalize_contract`] entrypoint.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SettlementItem {
-    /// The escrow contract to finalize.
-    pub contract_id: u32,
-    /// The address authorizing finalization (client, freelancer, or arbiter).
-    pub finalizer: Address,
-}
-
-/// Per-item outcome returned by [`Escrow::finalize_contracts_batch`].
-///
-/// Every item in the input vector produces exactly one `BatchSettlementResult`
-/// at the same position.  Inspect `success` first; when `false`, `error_code`
-/// carries the numeric discriminant of the [`EscrowError`] that would have
-/// been returned by the equivalent single-item call.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BatchSettlementResult {
-    /// Zero-based position of this item in the input vector.
-    pub index: u32,
-    /// The contract ID from the corresponding [`SettlementItem`].
-    pub contract_id: u32,
-    /// `true` when finalization succeeded; `false` on any per-item error.
-    pub success: bool,
-    /// Error discriminant when `success` is `false`; `None` on success.
-    pub error_code: Option<u32>,
 }

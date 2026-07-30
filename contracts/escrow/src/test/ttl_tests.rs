@@ -20,7 +20,7 @@ use crate::{
         PENDING_APPROVAL_TTL_LEDGERS, PENDING_MIGRATION_BUMP_THRESHOLD,
         PENDING_MIGRATION_TTL_LEDGERS,
     },
-    Error, Escrow, MilestonesKey, ReleaseAuthorization,
+    Error, Escrow, ReleaseAuthorization,
 };
 
 const INSTANCE_TTL: u32 = PENDING_MIGRATION_TTL_LEDGERS * 4;
@@ -224,12 +224,12 @@ fn extend_is_a_no_op_when_remaining_ttl_is_at_threshold() {
     advance(
         &env,
         &id,
-        PENDING_APPROVAL_TTL_LEDGERS - (PENDING_APPROVAL_BUMP_THRESHOLD + 1),
+        PENDING_APPROVAL_TTL_LEDGERS - PENDING_APPROVAL_BUMP_THRESHOLD,
     );
 
     env.as_contract(&id, || {
         let ttl_before = env.storage().temporary().get_ttl(&approval_key());
-        assert_eq!(ttl_before, PENDING_APPROVAL_BUMP_THRESHOLD + 1);
+        assert_eq!(ttl_before, PENDING_APPROVAL_BUMP_THRESHOLD);
         assert!(
             extend_if_below_threshold(
                 &env,
@@ -370,7 +370,6 @@ mod approval_ttl_integration {
             refunded_amount: 0,
             release_authorization: ReleaseAuthorization::ClientOnly,
             reputation_issued: false,
-            token: soroban_sdk::Address::generate(&env),
         };
 
         env.as_contract(&escrow_id, || {
@@ -382,7 +381,6 @@ mod approval_ttl_integration {
                 [Milestone {
                     amount: 6000_0000000_i128,
                     funded_amount: 0,
-                    protocol_fee: 0,
                     released: false,
                     refunded: false,
                     work_evidence: None,
@@ -390,9 +388,8 @@ mod approval_ttl_integration {
                     deadline: None,
                 }],
             );
-            env.storage()
-                .persistent()
-                .set(&DataKey::Milestones(1), &milestones);
+            let milestone_key = crate::keys::milestone_key(&env, 1);
+            env.storage().persistent().set(&milestone_key, &milestones);
         });
 
         (
@@ -488,7 +485,6 @@ mod approval_ttl_integration {
             refunded_amount: 0,
             release_authorization: ReleaseAuthorization::MultiSig,
             reputation_issued: false,
-            token: soroban_sdk::Address::generate(&env),
         };
 
         env.as_contract(&escrow_id, || {
@@ -500,7 +496,6 @@ mod approval_ttl_integration {
                 [Milestone {
                     amount: 6000_0000000_i128,
                     funded_amount: 0,
-                    protocol_fee: 0,
                     released: false,
                     refunded: false,
                     work_evidence: None,
@@ -508,9 +503,8 @@ mod approval_ttl_integration {
                     deadline: None,
                 }],
             );
-            env.storage()
-                .persistent()
-                .set(&DataKey::Milestones(1), &milestones);
+            let milestone_key = crate::keys::milestone_key(&env, 1);
+            env.storage().persistent().set(&milestone_key, &milestones);
         });
 
         env.as_contract(&escrow_id, || {

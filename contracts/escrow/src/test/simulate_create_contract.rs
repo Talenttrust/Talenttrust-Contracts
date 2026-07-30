@@ -6,9 +6,9 @@
 /// 3. Simulate makes no storage mutations
 /// 4. Simulate requires no authorization
 /// 5. Edge cases and error conditions are handled correctly
-use soroban_sdk::vec;
+use soroban_sdk::{testutils::Address as _, vec};
 
-use crate::{ContractStatus, ReleaseAuthorization, SimulateCreateContractOutcome};
+use crate::{types::SimulateCreateContractOutcome, ContractStatus, ReleaseAuthorization};
 
 use super::{create_client, setup};
 
@@ -37,7 +37,10 @@ fn simulate_returns_projected_outcome() {
     assert_eq!(outcome.client, client_addr);
     assert_eq!(outcome.freelancer, freelancer_addr);
     assert_eq!(outcome.arbiter, None);
-    assert_eq!(outcome.release_authorization, ReleaseAuthorization::ClientOnly);
+    assert_eq!(
+        outcome.release_authorization,
+        ReleaseAuthorization::ClientOnly
+    );
     assert_eq!(outcome.milestones.len(), 2);
     assert_eq!(outcome.milestones.get(0).unwrap(), 200_0000000_i128);
     assert_eq!(outcome.milestones.get(1).unwrap(), 400_0000000_i128);
@@ -123,7 +126,10 @@ fn simulate_outcome_matches_create_contract() {
     assert_eq!(contract.client, outcome.client);
     assert_eq!(contract.freelancer, outcome.freelancer);
     assert_eq!(contract.arbiter, outcome.arbiter);
-    assert_eq!(contract.release_authorization, outcome.release_authorization);
+    assert_eq!(
+        contract.release_authorization,
+        outcome.release_authorization
+    );
 
     // Verify milestones match
     let stored_milestones = client.get_milestones(&contract_id);
@@ -435,7 +441,10 @@ fn simulate_with_all_authorization_modes() {
         &milestones,
         &ReleaseAuthorization::ClientOnly,
     );
-    assert_eq!(outcome1.release_authorization, ReleaseAuthorization::ClientOnly);
+    assert_eq!(
+        outcome1.release_authorization,
+        ReleaseAuthorization::ClientOnly
+    );
 
     // Test ArbiterOnly (with arbiter)
     let outcome2 = client.simulate_create_contract(
@@ -445,7 +454,10 @@ fn simulate_with_all_authorization_modes() {
         &milestones,
         &ReleaseAuthorization::ArbiterOnly,
     );
-    assert_eq!(outcome2.release_authorization, ReleaseAuthorization::ArbiterOnly);
+    assert_eq!(
+        outcome2.release_authorization,
+        ReleaseAuthorization::ArbiterOnly
+    );
 
     // Test ClientAndArbiter (with arbiter)
     let outcome3 = client.simulate_create_contract(
@@ -455,7 +467,10 @@ fn simulate_with_all_authorization_modes() {
         &milestones,
         &ReleaseAuthorization::ClientAndArbiter,
     );
-    assert_eq!(outcome3.release_authorization, ReleaseAuthorization::ClientAndArbiter);
+    assert_eq!(
+        outcome3.release_authorization,
+        ReleaseAuthorization::ClientAndArbiter
+    );
 
     // Test MultiSig (no arbiter required)
     let outcome4 = client.simulate_create_contract(
@@ -465,7 +480,10 @@ fn simulate_with_all_authorization_modes() {
         &milestones,
         &ReleaseAuthorization::MultiSig,
     );
-    assert_eq!(outcome4.release_authorization, ReleaseAuthorization::MultiSig);
+    assert_eq!(
+        outcome4.release_authorization,
+        ReleaseAuthorization::MultiSig
+    );
 }
 
 /// Test that simulate increments contract ID for each call (reflects counter).

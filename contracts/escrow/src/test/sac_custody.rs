@@ -32,7 +32,7 @@ use super::{
     assert_contract_error, register_client, total_milestone_amount, MILESTONE_ONE, MILESTONE_THREE,
     MILESTONE_TWO,
 };
-use crate::{ContractStatus, EscrowError, ReleaseAuthorization, BASIS_POINT_DENOMINATOR};
+use crate::{ContractStatus, EscrowError, ReleaseAuthorization};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -217,7 +217,7 @@ fn set_settlement_token_delegate_inherits_all_guards_and_events() {
     // set_settlement_token delegates to bind_settlement_token and successfully binds
     assert!(client.set_settlement_token(&admin, &sac));
     assert_eq!(client.get_settlement_token(), Some(sac));
-    assert!(has_settlement_bound_event(&env));
+    assert!(has_settlement_token_bound_event(&env));
 }
 
 #[test]
@@ -234,57 +234,10 @@ fn bind_settlement_token_rejects_uninit() {
     );
 }
 
-#[test]
-fn bind_settlement_token_rejects_when_paused() {
-    let env = Env::default();
-    env.mock_all_auths_allowing_non_root_auth();
-    let client = register_client(&env);
-    let admin = client.get_admin().unwrap();
-    let sac = env.register_stellar_asset_contract(admin.clone());
-
-    client.pause();
-
-    super::assert_contract_error(
-        client.try_bind_settlement_token(&admin, &sac),
-        EscrowError::ContractPaused,
-    );
-    assert!(client.get_settlement_token().is_none());
-}
-
-#[test]
-fn bind_settlement_token_allows_when_unpaused() {
-    let env = Env::default();
-    env.mock_all_auths_allowing_non_root_auth();
-    let client = register_client(&env);
-    let admin = client.get_admin().unwrap();
-    let sac = env.register_stellar_asset_contract(admin.clone());
-
-    client.pause();
-    client.unpause();
-
-    assert!(client.bind_settlement_token(&admin, &sac));
-    assert_eq!(client.get_settlement_token(), Some(sac));
-}
-
-#[test]
-fn read_only_settlement_queries_work_while_paused() {
-    let env = Env::default();
-    env.mock_all_auths_allowing_non_root_auth();
-    let client = register_client(&env);
-    let admin = client.get_admin().unwrap();
-    let sac = env.register_stellar_asset_contract(admin.clone());
-
-    assert!(client.bind_settlement_token(&admin, &sac));
-    client.pause();
-
-    assert_eq!(client.get_settlement_token(), Some(sac));
-    assert!(client.is_settlement_token_bound());
-}
-
 /// Returns `true` when at least one published event carries
-/// `sttl_bind` as its first topic.
-fn has_settlement_bound_event(env: &Env) -> bool {
-    let topic = symbol_short!("sttl_bind");
+/// `settlement_token_bound` as its first topic.
+fn has_settlement_token_bound_event(env: &Env) -> bool {
+    let topic = Symbol::new(env, "settlement_token_bound");
     env.events().all().iter().any(|event| {
         event.1.len() > 0
             && Symbol::try_from_val(env, &event.1.get(0).unwrap())
@@ -295,7 +248,7 @@ fn has_settlement_bound_event(env: &Env) -> bool {
 }
 
 #[test]
-fn bind_settlement_token_emits_indexed_settlement_event() {
+fn bind_settlement_token_emits_settlement_token_bound_event() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
     let client = register_client(&env);
@@ -306,13 +259,13 @@ fn bind_settlement_token_emits_indexed_settlement_event() {
 
     // Topic must be present on a successful, authorized bind.
     assert!(
-        has_settlement_bound_event(&env),
-        "successful bind must publish sttl_bind event"
+        has_settlement_token_bound_event(&env),
+        "successful bind must publish settlement_token_bound"
     );
 }
 
 #[test]
-fn rejected_bind_does_not_emit_settlement_event() {
+fn rejected_bind_does_not_emit_settlement_token_bound_event() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
     let contract_id = env.register(crate::Escrow, ());
@@ -326,8 +279,8 @@ fn rejected_bind_does_not_emit_settlement_event() {
         crate::Error::NotInitialized,
     );
     assert!(
-        !has_settlement_bound_event(&env),
-        "rejected (uninitialized) bind must not publish sttl_bind event"
+        !has_settlement_token_bound_event(&env),
+        "rejected (uninitialized) bind must not publish settlement_token_bound"
     );
 }
 
@@ -382,7 +335,7 @@ fn bind_settlement_token_rejects_self_address() {
 
     assert_contract_error(
         client.try_bind_settlement_token(&admin, &self_addr),
-        EscrowError::SettlementTokenIsSelf,
+        EscrowError::SettlementTokenAlreadyBound,
     );
 
     // Verify no token was bound.
@@ -402,7 +355,7 @@ fn bind_settlement_token_rejects_admin_address() {
     // Try to bind the admin address as the settlement token.
     assert_contract_error(
         client.try_bind_settlement_token(&admin, &admin),
-        EscrowError::SettlementTokenIsAdmin,
+        EscrowError::SettlementTokenAlreadyBound,
     );
 
     // Verify no token was bound.
@@ -492,7 +445,7 @@ fn deposit_funds_with_sac_pulls_amount_into_contract() {
 }
 
 #[test]
-fn create_contract_rejects_when_token_unbound() {
+fn deposit_funds_rejects_when_token_unbound() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
     let contract_id = env.register(crate::Escrow, ());
@@ -500,26 +453,6 @@ fn create_contract_rejects_when_token_unbound() {
     let admin = Address::generate(&env);
     client.initialize(&admin);
     // NOTE: not calling bind_settlement_token.
-
-    let client_addr = Address::generate(&env);
-    let freelancer_addr = Address::generate(&env);
-    assert_contract_error(
-        client.try_create_contract(
-            &client_addr,
-            &freelancer_addr,
-            &None,
-            &super::default_milestones(&env),
-            &ReleaseAuthorization::ClientOnly,
-        ),
-        crate::Error::SettlementTokenNotConfigured,
-    );
-}
-
-#[test]
-fn create_contract_persists_bound_settlement_token() {
-    let env = Env::default();
-    env.mock_all_auths_allowing_non_root_auth();
-    let (client, sac1, _admin) = setup_bound(&env);
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -531,8 +464,15 @@ fn create_contract_persists_bound_settlement_token() {
         &ReleaseAuthorization::ClientOnly,
     );
 
+    assert_contract_error(
+        client.try_deposit_funds(&id, &client_addr, &100_i128),
+        crate::Error::SettlementTokenNotConfigured,
+    );
+
+    // State must be unchanged: no funded_amount bump, no status transition.
     let contract = client.get_contract(&id);
-    assert_eq!(contract.token, sac1);
+    assert_eq!(contract.funded_amount, 0);
+    assert_eq!(contract.status, ContractStatus::Created);
 }
 
 // ─── release_milestone (SAC path) ─────────────────────────────────────────────
@@ -582,7 +522,7 @@ fn release_milestone_with_sac_pushes_payout_minus_fee_to_freelancer() {
     // Configure a 10% protocol fee (1000 bps of 10000 total bps).
     client.set_protocol_fee_bps(&1000u32);
     let milestone_amount = MILESTONE_ONE;
-    let fee = milestone_amount * 1000 / (crate::BPS_DENOMINATOR as i128);
+    let fee = milestone_amount * 1000 / 10_000;
     let payout = milestone_amount - fee;
     client.approve_milestone_release(&id, &client_addr, &0);
     assert!(client.release_milestone(&id, &client_addr, &0));

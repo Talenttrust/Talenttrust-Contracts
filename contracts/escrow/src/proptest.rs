@@ -29,11 +29,12 @@
 
 extern crate std;
 
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::vec::Vec as StdVec;
 
 use proptest::prelude::*;
 use soroban_sdk::{
-    testutils::Address as _, token::StellarAssetClient, Address, Env, Vec as SorobanVec,
+    testutils::Address as _, Address, Env, Vec as SorobanVec,
 };
 
 use crate::{Contract, ContractStatus, Escrow, EscrowClient, ReleaseAuthorization};
@@ -72,14 +73,13 @@ enum Op {
 /// the total milestone sum so it can generate sensible deposit amounts.
 fn op_strategy(n_ms: usize, total: i128) -> impl Strategy<Value = Op> {
     let n = n_ms as u32;
-    let size = n_ms;
     // Deposit amounts anywhere from 1 to 2x the total (some will overshoot).
     let overshoot = total.saturating_mul(2).max(1);
     prop_oneof![
         (1i128..=overshoot).prop_map(Op::Deposit),
         (0u32..n).prop_map(Op::Approve),
         (0u32..n).prop_map(Op::Release),
-        prop::collection::vec(0u32..n, 1..=size).prop_map(Op::Refund),
+        prop::collection::vec(0u32..n, 1..=n).prop_map(Op::Refund),
     ]
 }
 
@@ -98,42 +98,26 @@ fn sum(amounts: &[i128]) -> i128 {
 
 struct Harness {
     env: Env,
-    admin_addr: Address,
     client_addr: Address,
     freelancer_addr: Address,
-    escrow_address: Address,
-    settlement_token: Address,
 }
 
 impl Harness {
     fn new() -> Self {
         let env = Env::default();
-        env.mock_all_auths_allowing_non_root_auth();
-        let admin_addr = Address::generate(&env);
+        env.mock_all_auths();
         let client_addr = Address::generate(&env);
         let freelancer_addr = Address::generate(&env);
-        let escrow_address = env.register(Escrow, ());
-        let escrow_client = EscrowClient::new(&env, &escrow_address);
-        assert!(escrow_client.initialize(&admin_addr));
-        let settlement_token = env.register_stellar_asset_contract(admin_addr.clone());
-        assert!(escrow_client.bind_settlement_token(&admin_addr, &settlement_token));
         Harness {
             env,
-            admin_addr,
             client_addr,
             freelancer_addr,
-            escrow_address,
-            settlement_token,
         }
     }
 
     fn escrow_client(&self) -> EscrowClient<'_> {
-        EscrowClient::new(&self.env, &self.escrow_address)
-    }
-
-    fn mint_and_deposit(&self, client: &EscrowClient, id: u32, amount: i128) -> bool {
-        StellarAssetClient::new(&self.env, &self.settlement_token).mint(&self.client_addr, &amount);
-        try_deposit(client, id, &self.client_addr, amount)
+        let id = self.env.register(Escrow, ());
+        EscrowClient::new(&self.env, &id)
     }
 }
 
@@ -142,15 +126,24 @@ impl Harness {
 // ---------------------------------------------------------------------------
 
 fn try_deposit(client: &EscrowClient, id: u32, caller: &Address, amount: i128) -> bool {
-    matches!(client.try_deposit_funds(&id, caller, &amount), Ok(Ok(true)))
+    catch_unwind(AssertUnwindSafe(|| {
+        client.deposit_funds(&id, caller, &amount);
+    }))
+    .is_ok()
 }
 
 fn try_approve(client: &EscrowClient, id: u32, caller: &Address, ms_idx: u32) -> bool {
-    matches!(client.try_approve_milestone_release(&id, caller, &ms_idx), Ok(Ok(true)))
+    catch_unwind(AssertUnwindSafe(|| {
+        client.approve_milestone_release(&id, caller, &ms_idx);
+    }))
+    .is_ok()
 }
 
 fn try_release(client: &EscrowClient, id: u32, caller: &Address, ms_idx: u32) -> bool {
-    matches!(client.try_release_milestone(&id, caller, &ms_idx), Ok(Ok(true)))
+    catch_unwind(AssertUnwindSafe(|| {
+        client.release_milestone(&id, caller, &ms_idx);
+    }))
+    .is_ok()
 }
 
 fn try_refund(
@@ -166,10 +159,10 @@ fn try_refund(
         }
         tmp
     };
-    match client.try_refund_unreleased_milestones(&id, &v) {
-        Ok(Ok(amount)) => Ok(amount),
-        Ok(Err(_)) | Err(_) => Err(()),
-    }
+    catch_unwind(AssertUnwindSafe(|| {
+        client.refund_unreleased_milestones(&id, &v)
+    }))
+    .map_or(Err(()), |r| Ok(r))
 }
 
 // ---------------------------------------------------------------------------
@@ -337,19 +330,20 @@ proptest! {
 
         assert_invariant(&client, id);
 
-        assert!(h.mint_and_deposit(&client, id, total));
+        // Deposit the exact total.
+        assert!(try_deposit(&client, id, &h.client_addr, total));
         assert_invariant(&client, id);
 
         let n_ms = amounts.len() as u32;
         for i in 0..n_ms {
-            let _ = try_approve(&client, id, &h.client_addr, i);
+            assert!(try_approve(&client, id, &h.client_addr, i));
             assert_invariant(&client, id);
-            let _ = try_release(&client, id, &h.client_addr, i);
+            assert!(try_release(&client, id, &h.client_addr, i));
             assert_invariant(&client, id);
         }
 
         let data = client.get_contract(&id);
-        prop_assert!(matches!(data.status, ContractStatus::Completed | ContractStatus::Funded | ContractStatus::PartiallyFunded | ContractStatus::Accepted | ContractStatus::Created));
+        prop_assert_eq!(data.status, ContractStatus::Completed);
         prop_assert_eq!(data.released_amount, total);
         prop_assert_eq!(data.refunded_amount, 0);
         prop_assert_eq!(data.funded_amount, total);
@@ -378,18 +372,19 @@ proptest! {
             &ReleaseAuthorization::ClientOnly,
         );
 
-        let _ = try_deposit(&client, id, &h.client_addr, total);
+        assert!(try_deposit(&client, id, &h.client_addr, total));
         assert_invariant(&client, id);
 
         let all_indices: StdVec<u32> = (0..amounts.len() as u32).collect();
         let refunded = try_refund(&client, &h.env, id, &all_indices);
-        let data = client.get_contract(&id);
+        prop_assert_eq!(refunded, Ok(total));
         assert_invariant(&client, id);
-        prop_assert!(matches!(data.status, ContractStatus::Refunded | ContractStatus::Funded | ContractStatus::PartiallyFunded | ContractStatus::Accepted | ContractStatus::Created));
-        if refunded.is_ok() {
-            prop_assert_eq!(data.refunded_amount, total);
-        }
 
+        let data = client.get_contract(&id);
+        prop_assert_eq!(data.status, ContractStatus::Refunded);
+        prop_assert_eq!(data.released_amount, 0);
+        prop_assert_eq!(data.refunded_amount, total);
+        prop_assert_eq!(data.funded_amount, total);
     }
 
     /// Mixed release-then-refund: release some milestones, refund the
@@ -421,23 +416,28 @@ proptest! {
             &ReleaseAuthorization::ClientOnly,
         );
 
-        let _ = try_deposit(&client, id, &h.client_addr, total);
+        assert!(try_deposit(&client, id, &h.client_addr, total));
         assert_invariant(&client, id);
 
-        // Release first `split_point` milestones where accepted.
+        // Release first `split_point` milestones.
+        let mut released_sum: i128 = 0;
         for i in 0..split_point as u32 {
-            let _ = try_approve(&client, id, &h.client_addr, i);
-            let _ = try_release(&client, id, &h.client_addr, i);
+            assert!(try_approve(&client, id, &h.client_addr, i));
+            assert!(try_release(&client, id, &h.client_addr, i));
+            released_sum += amounts[i as usize];
             assert_invariant(&client, id);
         }
 
         // Refund the remaining milestones.
         let refund_indices: StdVec<u32> = (split_point as u32..n as u32).collect();
-        let _ = try_refund(&client, &h.env, id, &refund_indices);
+        let refunded = try_refund(&client, &h.env, id, &refund_indices);
+        prop_assert!(refunded.is_ok());
         assert_invariant(&client, id);
 
         let data = client.get_contract(&id);
-        prop_assert!(matches!(data.status, ContractStatus::Completed | ContractStatus::Refunded | ContractStatus::Funded | ContractStatus::PartiallyFunded | ContractStatus::Accepted | ContractStatus::Created));
+        // If all milestones are now released-or-refunded, status is Completed.
+        prop_assert_eq!(data.status, ContractStatus::Completed);
+        prop_assert_eq!(data.released_amount, released_sum);
         assert_invariant(&client, id);
     }
 
@@ -470,9 +470,9 @@ proptest! {
             &ReleaseAuthorization::ClientOnly,
         );
 
-        let _ = try_deposit(&client, id, &h.client_addr, total);
-        let _ = try_approve(&client, id, &h.client_addr, target);
-        let _ = try_release(&client, id, &h.client_addr, target);
+        assert!(try_deposit(&client, id, &h.client_addr, total));
+        assert!(try_approve(&client, id, &h.client_addr, target));
+        assert!(try_release(&client, id, &h.client_addr, target));
         assert_invariant(&client, id);
 
         let before = client.get_contract(&id);
@@ -506,11 +506,13 @@ proptest! {
             &ReleaseAuthorization::ClientOnly,
         );
 
-        assert!(h.mint_and_deposit(&client, id, total));
+        // Deposit the exact total.
+        assert!(try_deposit(&client, id, &h.client_addr, total));
         assert_invariant(&client, id);
 
-        // Any further deposit should not corrupt the invariant.
-        let _ = try_deposit(&client, id, &h.client_addr, 1);
+        // Any further deposit (even 1 stroop) must be rejected because
+        // the contract moves out of Created state once fully funded.
+        prop_assert!(!try_deposit(&client, id, &h.client_addr, 1));
         assert_invariant(&client, id);
     }
 
@@ -527,14 +529,14 @@ proptest! {
             }
             v
         };
-        let id = client.create_contract(
+        let _id = client.create_contract(
             &h.client_addr,
             &h.freelancer_addr,
             &None,
             &ms,
             &ReleaseAuthorization::ClientOnly,
         );
-        assert_invariant(&client, id);
+        assert_invariant(&client, 1u32);
     }
 
     /// Adversarial: try to release a milestone that has not been approved.
@@ -566,11 +568,11 @@ proptest! {
             &ReleaseAuthorization::ClientOnly,
         );
 
-        let _ = try_deposit(&client, id, &h.client_addr, total);
+        assert!(try_deposit(&client, id, &h.client_addr, total));
         assert_invariant(&client, id);
 
-        // Release WITHOUT prior approval must not corrupt the invariant.
-        let _ = try_release(&client, id, &h.client_addr, idx);
+        // Release WITHOUT prior approval must fail.
+        prop_assert!(!try_release(&client, id, &h.client_addr, idx));
         assert_invariant(&client, id);
     }
 
@@ -598,47 +600,47 @@ proptest! {
 
         let mut prev_status = client.get_contract(&id).status;
 
-        // Deposit, then try to approve/release all milestones.
-        assert!(h.mint_and_deposit(&client, id, total));
+        // Deposit, approve and release all milestones.
+        assert!(try_deposit(&client, id, &h.client_addr, total));
         let cur = client.get_contract(&id).status;
         prop_assert!(is_valid_transition(prev_status, cur));
         prev_status = cur;
 
         let n_ms = amounts.len() as u32;
         for i in 0..n_ms {
-            let _ = try_approve(&client, id, &h.client_addr, i);
+            assert!(try_approve(&client, id, &h.client_addr, i));
             // Approve does not change status.
             let cur = client.get_contract(&id).status;
             prop_assert!(is_valid_transition(prev_status, cur));
             prev_status = cur;
 
-            let _ = try_release(&client, id, &h.client_addr, i);
+            assert!(try_release(&client, id, &h.client_addr, i));
             let cur = client.get_contract(&id).status;
             prop_assert!(is_valid_transition(prev_status, cur));
             prev_status = cur;
         }
 
-        // The status should remain monotonic and stay in a valid terminal or non-terminal state.
-        prop_assert!(matches!(prev_status, ContractStatus::Completed | ContractStatus::Refunded | ContractStatus::Cancelled | ContractStatus::Funded | ContractStatus::PartiallyFunded | ContractStatus::Accepted | ContractStatus::Created));
+        // Terminal: Completed.
+        prop_assert_eq!(prev_status, ContractStatus::Completed);
 
-        // Any further operation must keep the status monotonic.
-        let _ = try_release(&client, id, &h.client_addr, 0);
-        let cur = client.get_contract(&id).status;
-        prop_assert!(is_valid_transition(prev_status, cur));
+        // Any further operation must keep status as Completed.
+        prop_assert!(!try_release(&client, id, &h.client_addr, 0));
+        prop_assert_eq!(client.get_contract(&id).status, ContractStatus::Completed);
         assert_invariant(&client, id);
     }
 
-    /// Large milestone amounts within protocol bounds must not cause
-    /// arithmetic overflow and invariant must hold.
+    /// Max-value milestone amounts (i128::MAX / small count) must not
+    /// cause arithmetic overflow and invariant must hold.
     #[test]
     fn prop_large_amounts_invariant_preserved(
         small_count in 1u32..=3u32,
     ) {
-        use crate::MAX_SINGLE_AMOUNT_STROOPS;
-        let max_safe = MAX_SINGLE_AMOUNT_STROOPS / small_count as i128;
+        // Use amounts in the i128::MAX / 3 range to avoid multiplicative overflow.
+        let max_safe = i128::MAX / 3;
         let amounts: StdVec<i128> = (0..small_count)
-            .map(|i| (max_safe / (small_count as i128)) * (i as i128 + 1))
+            .map(|i| (max_safe / (small_count as i128)) * (i + 1))
             .collect();
+        // Avoid zero amounts.
         let amounts: StdVec<i128> = amounts.into_iter().map(|a| if a <= 0 { 1 } else { a }).collect();
 
         let h = Harness::new();
@@ -660,7 +662,7 @@ proptest! {
 
         // Deposit a tiny fraction to keep arithmetic safe in test env.
         let tiny = 1_000i128;
-        assert!(h.mint_and_deposit(&client, id, tiny));
+        assert!(try_deposit(&client, id, &h.client_addr, tiny));
         assert_invariant(&client, id);
     }
 }

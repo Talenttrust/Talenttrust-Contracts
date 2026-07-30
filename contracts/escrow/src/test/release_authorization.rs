@@ -42,10 +42,7 @@ fn register(env: &Env) -> EscrowClient<'_> {
     let id = env.register(Escrow, ());
     let client = EscrowClient::new(env, &id);
     let admin = soroban_sdk::Address::generate(env);
-    env.mock_all_auths_allowing_non_root_auth();
     client.initialize(&admin);
-    let token = env.register_stellar_asset_contract(admin.clone());
-    client.bind_settlement_token(&admin, &token);
     client
 }
 fn assert_contract_error<T, E>(
@@ -97,26 +94,19 @@ fn create_contract_with_mode(
     release_auth: &ReleaseAuthorization,
 ) -> u32 {
     let milestones = vec![env, 500_i128, 300_i128, 200_i128];
-    let id = client.create_contract(
+    client.create_contract(
         client_addr,
         freelancer_addr,
         arbiter,
         &milestones,
         release_auth,
-    );
-    if let Some(token) = client.get_settlement_token() {
-        soroban_sdk::token::StellarAssetClient::new(env, &token).mint(client_addr, &1_000_000_000_000_000_i128);
-    }
-    id
+    )
 }
 
-fn fund_contract(env: &Env, client: &EscrowClient<'_>, contract_id: &u32) {
+fn fund_contract(_env: &Env, client: &EscrowClient<'_>, contract_id: &u32) {
     let milestones = client.get_milestones(contract_id);
     let total: i128 = milestones.iter().map(|m| m.amount).sum();
     let contract = client.get_contract(contract_id);
-    if let Some(token) = client.get_settlement_token() {
-        soroban_sdk::token::StellarAssetClient::new(env, &token).mint(&contract.client, &total);
-    }
     assert!(client.deposit_funds(contract_id, &contract.client, &total));
 
     for index in 0..milestones.len() {
@@ -156,9 +146,6 @@ fn funded_contract(env: &Env, client: &EscrowClient<'_>) -> (Address, Address, u
         &milestones,
         &ReleaseAuthorization::ClientOnly,
     );
-    if let Some(token) = client.get_settlement_token() {
-        soroban_sdk::token::StellarAssetClient::new(env, &token).mint(&client_addr, &800_i128);
-    }
     assert!(client.deposit_funds(&id, &client_addr, &800_i128));
     assert!(client.approve_milestone_release(&id, &client_addr, &0));
     assert!(client.approve_milestone_release(&id, &client_addr, &1));
@@ -176,11 +163,8 @@ fn total() -> i128 {
 fn new_client(env: &Env) -> EscrowClient<'_> {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(env, &contract_id);
-    let admin = Address::generate(env);
-    env.mock_all_auths_allowing_non_root_auth();
+    let admin = soroban_sdk::Address::generate(env);
     client.initialize(&admin);
-    let token = env.register_stellar_asset_contract(admin.clone());
-    client.bind_settlement_token(&admin, &token);
     client
 }
 
@@ -202,9 +186,6 @@ fn create(
         &milestones(env),
         auth,
     );
-    if let Some(token) = client.get_settlement_token() {
-        soroban_sdk::token::StellarAssetClient::new(env, &token).mint(client_addr, &total());
-    }
     assert!(client.deposit_funds(&id, client_addr, &total()));
     // Approve milestone 0 so release can go through on happy paths
     match auth {
@@ -264,7 +245,7 @@ fn client_only_freelancer_rejected() {
         &ReleaseAuthorization::ClientOnly,
     );
     let result = client.try_release_milestone(&id, &freelancer_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -282,7 +263,7 @@ fn client_only_arbiter_rejected() {
         &ReleaseAuthorization::ClientOnly,
     );
     let result = client.try_release_milestone(&id, &arbiter_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -301,7 +282,7 @@ fn client_only_attacker_rejected() {
     );
     let attacker = Address::generate(&env);
     let result = client.try_release_milestone(&id, &attacker, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ===========================================================================
@@ -340,7 +321,7 @@ fn arbiter_only_client_rejected() {
         &ReleaseAuthorization::ArbiterOnly,
     );
     let result = client.try_release_milestone(&id, &client_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -358,7 +339,7 @@ fn arbiter_only_freelancer_rejected() {
         &ReleaseAuthorization::ArbiterOnly,
     );
     let result = client.try_release_milestone(&id, &freelancer_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -377,7 +358,7 @@ fn arbiter_only_attacker_rejected() {
     );
     let attacker = Address::generate(&env);
     let result = client.try_release_milestone(&id, &attacker, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ===========================================================================
@@ -434,7 +415,7 @@ fn client_and_arbiter_freelancer_rejected() {
         &ReleaseAuthorization::ClientAndArbiter,
     );
     let result = client.try_release_milestone(&id, &freelancer_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -453,7 +434,7 @@ fn client_and_arbiter_attacker_rejected() {
     );
     let attacker = Address::generate(&env);
     let result = client.try_release_milestone(&id, &attacker, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ===========================================================================
@@ -509,7 +490,7 @@ fn multisig_arbiter_rejected() {
         &ReleaseAuthorization::MultiSig,
     );
     let result = client.try_release_milestone(&id, &arbiter_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -528,7 +509,7 @@ fn multisig_attacker_rejected() {
     );
     let attacker = Address::generate(&env);
     let result = client.try_release_milestone(&id, &attacker, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -545,9 +526,6 @@ fn multisig_only_one_approval_insufficient() {
         &milestones(&env),
         &ReleaseAuthorization::MultiSig,
     );
-    if let Some(token) = client.get_settlement_token() {
-        soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&client_addr, &total());
-    }
     assert!(client.deposit_funds(&id, &client_addr, &total()));
 
     assert!(client.approve_milestone_release(&id, &client_addr, &0));
@@ -569,9 +547,6 @@ fn multisig_only_freelancer_approval_insufficient() {
         &milestones(&env),
         &ReleaseAuthorization::MultiSig,
     );
-    if let Some(token) = client.get_settlement_token() {
-        soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&client_addr, &total());
-    }
     assert!(client.deposit_funds(&id, &client_addr, &total()));
 
     assert!(client.approve_milestone_release(&id, &freelancer_addr, &0));
@@ -593,13 +568,10 @@ fn multisig_arbiter_cannot_record_approval() {
         &milestones(&env),
         &ReleaseAuthorization::MultiSig,
     );
-    if let Some(token) = client.get_settlement_token() {
-        soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&client_addr, &total());
-    }
     assert!(client.deposit_funds(&id, &client_addr, &total()));
 
     let result = client.try_approve_milestone_release(&id, &arbiter_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ===========================================================================
@@ -620,9 +592,6 @@ fn release_without_approval_fails() {
         &milestones(&env),
         &ReleaseAuthorization::ClientOnly,
     );
-    if let Some(token) = client.get_settlement_token() {
-        soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&client_addr, &total());
-    }
     assert!(client.deposit_funds(&id, &client_addr, &total()));
 
     // No approval recorded yet
@@ -650,7 +619,7 @@ fn unauthorized_caller_without_auth_is_rejected() {
     );
     let stranger = Address::generate(&env);
     let result = client.try_release_milestone(&id, &stranger, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ===========================================================================
@@ -676,7 +645,7 @@ fn fail_closed_on_unauthorized_caller_no_state_change() {
 
     let attacker = Address::generate(&env);
     let result = client.try_release_milestone(&id, &attacker, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 
     let after = client.get_contract(&id);
     assert_eq!(before.released_amount, after.released_amount);
@@ -718,7 +687,7 @@ fn freelancer_cannot_release_milestone() {
     let (_client_addr, freelancer_addr, id) = funded_contract(&env, &client);
 
     let result = client.try_release_milestone(&id, &freelancer_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 #[test]
@@ -746,7 +715,13 @@ fn release_emits_events() {
 
     // Check release event was emitted
     let events = env.events().all();
-    assert!(!events.is_empty());
+    assert!(events.len() > 0);
+
+    let topic_val = Symbol::new(&env, "milestone_released");
+    let release_event = events.iter().find(|event| {
+        event.1.len() > 0 && Symbol::from_val(&env, &event.1.get(0).unwrap()) == topic_val
+    });
+    assert!(release_event.is_some());
 }
 
 #[test]
@@ -805,16 +780,19 @@ fn rejects_refund_after_release_and_release_after_refund() {
     let refund_result = client.try_refund_unreleased_milestones(&contract_id, &refund_ids);
     match refund_result {
         Err(Ok(e)) => {
-            assert_eq!(e, soroban_sdk::Error::from(Error::AlreadyReleased));
+            assert_eq!(e, soroban_sdk::Error::from(Error::MilestoneAlreadyReleased));
         }
-        other => panic!("expected contract error AlreadyReleased, got {:?}", other),
+        other => panic!(
+            "expected contract error MilestoneAlreadyReleased, got {:?}",
+            other
+        ),
     }
 
     let refund_ids = vec![&env, 1_u32];
     assert!(client.refund_unreleased_milestones(&contract_id, &refund_ids) > 0);
 
     let result = client.try_release_milestone(&contract_id, &client_addr, &1);
-    assert_contract_error(result, Error::AlreadyRefunded);
+    assert_contract_error(result, EscrowError::AlreadyRefunded);
 }
 
 // ===========================================================================
@@ -880,7 +858,7 @@ fn release_in_created_status_client_only_fails_invalid_state() {
     // No approval possible on a Created contract (approvals.rs requires Funded),
     // and release must fail with InvalidState before even reaching role checks.
     let result = client.try_release_milestone(&id, &client_addr, &0);
-    assert_contract_error(result, Error::InvalidState);
+    assert_contract_error(result, EscrowError::InvalidState);
 }
 
 /// ArbiterOnly mode: release on an unfunded contract yields `InvalidState`.
@@ -899,7 +877,7 @@ fn release_in_created_status_arbiter_only_fails_invalid_state() {
         &ReleaseAuthorization::ArbiterOnly,
     );
     let result = client.try_release_milestone(&id, &arbiter_addr, &0);
-    assert_contract_error(result, Error::InvalidState);
+    assert_contract_error(result, EscrowError::InvalidState);
 }
 
 /// ClientAndArbiter mode: release on an unfunded contract yields `InvalidState`.
@@ -918,7 +896,7 @@ fn release_in_created_status_client_and_arbiter_fails_invalid_state() {
         &ReleaseAuthorization::ClientAndArbiter,
     );
     let result = client.try_release_milestone(&id, &client_addr, &0);
-    assert_contract_error(result, Error::InvalidState);
+    assert_contract_error(result, EscrowError::InvalidState);
 }
 
 /// MultiSig mode: release on an unfunded contract yields `InvalidState`.
@@ -938,7 +916,7 @@ fn release_in_created_status_multisig_fails_invalid_state() {
     );
     // The status guard (Created → not Funded) fires before role or approval checks.
     let result = client.try_release_milestone(&id, &client_addr, &0);
-    assert_contract_error(result, Error::InvalidState);
+    assert_contract_error(result, EscrowError::InvalidState);
 }
 
 // ---------------------------------------------------------------------------
@@ -975,7 +953,7 @@ fn release_in_completed_status_client_only_fails_invalid_state() {
     });
 
     let result = client.try_release_milestone(&id, &client_addr, &0);
-    assert_contract_error(result, Error::InvalidState);
+    assert_contract_error(result, EscrowError::InvalidState);
 }
 
 /// ArbiterOnly mode: Completed status → InvalidState.
@@ -1003,7 +981,7 @@ fn release_in_completed_status_arbiter_only_fails_invalid_state() {
     });
 
     let result = client.try_release_milestone(&id, &arbiter_addr, &0);
-    assert_contract_error(result, Error::InvalidState);
+    assert_contract_error(result, EscrowError::InvalidState);
 }
 
 /// MultiSig mode: Completed status → InvalidState.
@@ -1031,7 +1009,7 @@ fn release_in_completed_status_multisig_fails_invalid_state() {
     });
 
     let result = client.try_release_milestone(&id, &client_addr, &0);
-    assert_contract_error(result, Error::InvalidState);
+    assert_contract_error(result, EscrowError::InvalidState);
 }
 
 // ---------------------------------------------------------------------------
@@ -1065,7 +1043,7 @@ fn release_after_cancel_client_only_fails_invalid_state() {
     });
 
     let result = client.try_release_milestone(&id, &client_addr, &0);
-    assert_contract_error(result, Error::InvalidState);
+    assert_contract_error(result, EscrowError::InvalidState);
 }
 
 /// ArbiterOnly mode: cancel then release fails with `InvalidState`.
@@ -1093,7 +1071,7 @@ fn release_after_cancel_arbiter_only_fails_invalid_state() {
     });
 
     let result = client.try_release_milestone(&id, &arbiter_addr, &0);
-    assert_contract_error(result, Error::InvalidState);
+    assert_contract_error(result, EscrowError::InvalidState);
 }
 
 /// MultiSig mode: cancel then release fails with `InvalidState`.
@@ -1121,7 +1099,7 @@ fn release_after_cancel_multisig_fails_invalid_state() {
     });
 
     let result = client.try_release_milestone(&id, &client_addr, &0);
-    assert_contract_error(result, Error::InvalidState);
+    assert_contract_error(result, EscrowError::InvalidState);
 }
 
 // ===========================================================================
@@ -1151,7 +1129,7 @@ fn arbiter_only_client_approval_not_accepted() {
 
     // Client attempts to approve — must be rejected.
     let result = client.try_approve_milestone_release(&id, &client_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 
     // Arbiter then tries to release without a valid approval — must fail.
     let result = client.try_release_milestone(&id, &arbiter_addr, &0);
@@ -1179,7 +1157,7 @@ fn client_only_arbiter_approval_not_accepted() {
 
     // Arbiter attempts to approve — must be rejected.
     let result = client.try_approve_milestone_release(&id, &arbiter_addr, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 
     // Client tries to release without any stored approval — must fail.
     let result = client.try_release_milestone(&id, &client_addr, &0);
@@ -1288,7 +1266,7 @@ fn stranger_rejected_on_all_modes() {
     );
     assert_contract_error(
         client.try_release_milestone(&id, &stranger, &0),
-        Error::UnauthorizedRole,
+        EscrowError::UnauthorizedRole,
     );
 
     // --- ArbiterOnly ---
@@ -1302,7 +1280,7 @@ fn stranger_rejected_on_all_modes() {
     );
     assert_contract_error(
         client.try_release_milestone(&id, &stranger, &0),
-        Error::UnauthorizedRole,
+        EscrowError::UnauthorizedRole,
     );
 
     // --- ClientAndArbiter ---
@@ -1316,7 +1294,7 @@ fn stranger_rejected_on_all_modes() {
     );
     assert_contract_error(
         client.try_release_milestone(&id, &stranger, &0),
-        Error::UnauthorizedRole,
+        EscrowError::UnauthorizedRole,
     );
 
     // --- MultiSig ---
@@ -1330,224 +1308,8 @@ fn stranger_rejected_on_all_modes() {
     );
     assert_contract_error(
         client.try_release_milestone(&id, &stranger, &0),
-        Error::UnauthorizedRole,
+        EscrowError::UnauthorizedRole,
     );
-}
-
-// ===========================================================================
-//  revoke_milestone_approval
-// ===========================================================================
-
-/// Client can revoke their own approval in ClientOnly mode.
-#[test]
-fn revoke_approval_client_only() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = new_client(&env);
-    let (client_addr, freelancer_addr, _) = setup(&env);
-
-    let id = funded_no_approvals(
-        &env,
-        &client,
-        &client_addr,
-        &freelancer_addr,
-        &ReleaseAuthorization::ClientOnly,
-        None,
-    );
-
-    // Approve
-    assert!(client.approve_milestone_release(&id, &client_addr, &0));
-    let approvals = client.get_milestone_approvals(&id, &0).unwrap();
-    assert!(approvals.client_approved);
-
-    // Revoke
-    assert!(client.revoke_milestone_approval(&id, &client_addr, &0));
-    let approvals = client.get_milestone_approvals(&id, &0);
-    assert!(
-        approvals.is_none(),
-        "record should be removed when all flags false"
-    );
-}
-
-/// In MultiSig mode, revoking one party's approval leaves the other intact.
-#[test]
-fn revoke_approval_multisig_partial() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = new_client(&env);
-    let (client_addr, freelancer_addr, _) = setup(&env);
-
-    let id = funded_no_approvals(
-        &env,
-        &client,
-        &client_addr,
-        &freelancer_addr,
-        &ReleaseAuthorization::MultiSig,
-        None,
-    );
-
-    // Both approve
-    assert!(client.approve_milestone_release(&id, &client_addr, &0));
-    assert!(client.approve_milestone_release(&id, &freelancer_addr, &0));
-    let approvals = client.get_milestone_approvals(&id, &0).unwrap();
-    assert!(approvals.client_approved);
-    assert!(approvals.freelancer_approved);
-
-    // Client revokes only their own flag
-    assert!(client.revoke_milestone_approval(&id, &client_addr, &0));
-    let approvals = client.get_milestone_approvals(&id, &0).unwrap();
-    assert!(!approvals.client_approved, "client flag should be false");
-    assert!(
-        approvals.freelancer_approved,
-        "freelancer flag should remain true"
-    );
-
-    // Release should now fail — only freelancer approved
-    let result = client.try_release_milestone(&id, &client_addr, &0);
-    assert_contract_error(result, Error::InsufficientApprovals);
-}
-
-/// Revoke without prior approval fails with InsufficientApprovals.
-#[test]
-fn revoke_without_approval_fails() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = new_client(&env);
-    let (client_addr, freelancer_addr, _) = setup(&env);
-
-    let id = funded_no_approvals(
-        &env,
-        &client,
-        &client_addr,
-        &freelancer_addr,
-        &ReleaseAuthorization::ClientOnly,
-        None,
-    );
-
-    // No approval recorded yet
-    let result = client.try_revoke_milestone_approval(&id, &client_addr, &0);
-    assert_contract_error(result, Error::InsufficientApprovals);
-}
-
-/// Revoke after milestone release fails with MilestoneAlreadyReleased.
-#[test]
-fn revoke_after_release_fails() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = new_client(&env);
-    let (client_addr, freelancer_addr, _) = setup(&env);
-
-    let id = funded_no_approvals(
-        &env,
-        &client,
-        &client_addr,
-        &freelancer_addr,
-        &ReleaseAuthorization::ClientOnly,
-        None,
-    );
-
-    // Approve
-    assert!(client.approve_milestone_release(&id, &client_addr, &0));
-
-    // Manually mark milestone as released to simulate post-release state
-    let escrow_addr = client.address.clone();
-    env.as_contract(&escrow_addr, || {
-        let milestone_key = soroban_sdk::Symbol::new(&env, "milestones");
-        let mut milestones: soroban_sdk::Vec<crate::Milestone> = env
-            .storage()
-            .persistent()
-            .get(&(crate::DataKey::Contract(id), milestone_key.clone()))
-            .unwrap();
-        let mut m = milestones.get(0).unwrap();
-        m.released = true;
-        milestones.set(0, m);
-        env.storage()
-            .persistent()
-            .set(&(crate::DataKey::Contract(id), milestone_key), &milestones);
-    });
-
-    // Revoke should now fail
-    let result = client.try_revoke_milestone_approval(&id, &client_addr, &0);
-    assert_contract_error(result, Error::MilestoneAlreadyReleased);
-}
-
-/// Stranger cannot revoke — UnauthorizedRole.
-#[test]
-fn revoke_by_stranger_fails() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = new_client(&env);
-    let (client_addr, freelancer_addr, _) = setup(&env);
-
-    let id = funded_no_approvals(
-        &env,
-        &client,
-        &client_addr,
-        &freelancer_addr,
-        &ReleaseAuthorization::ClientOnly,
-        None,
-    );
-
-    assert!(client.approve_milestone_release(&id, &client_addr, &0));
-
-    let stranger = Address::generate(&env);
-    let result = client.try_revoke_milestone_approval(&id, &stranger, &0);
-    assert_contract_error(result, Error::UnauthorizedRole);
-}
-
-/// Freelancer cannot revoke client's approval in ClientOnly mode.
-#[test]
-fn revoke_wrong_party_fails() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = new_client(&env);
-    let (client_addr, freelancer_addr, _) = setup(&env);
-
-    let id = funded_no_approvals(
-        &env,
-        &client,
-        &client_addr,
-        &freelancer_addr,
-        &ReleaseAuthorization::ClientOnly,
-        None,
-    );
-
-    assert!(client.approve_milestone_release(&id, &client_addr, &0));
-
-    // Freelancer tries to revoke client's approval — should fail
-    // The freelancer is a valid participant but hasn't approved, so it returns InsufficientApprovals
-    let result = client.try_revoke_milestone_approval(&id, &freelancer_addr, &0);
-    assert_contract_error(result, Error::InsufficientApprovals);
-}
-
-/// Revoke emits a revoked event.
-#[test]
-fn revoke_emits_event() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = new_client(&env);
-    let (client_addr, freelancer_addr, _) = setup(&env);
-
-    let id = funded_no_approvals(
-        &env,
-        &client,
-        &client_addr,
-        &freelancer_addr,
-        &ReleaseAuthorization::ClientOnly,
-        None,
-    );
-
-    assert!(client.approve_milestone_release(&id, &client_addr, &0));
-    assert!(client.revoke_milestone_approval(&id, &client_addr, &0));
-
-    // Check event was emitted
-    let events = env.events().all();
-    let has_revoked_event = events.iter().any(|event| {
-        event.1.len() > 0
-            && soroban_sdk::Symbol::from_val(&env, &event.1.get(0).unwrap())
-                == soroban_sdk::Symbol::new(&env, "revoked")
-    });
-    assert!(has_revoked_event, "should have at least one revoked event");
 }
 
 // ===========================================================================

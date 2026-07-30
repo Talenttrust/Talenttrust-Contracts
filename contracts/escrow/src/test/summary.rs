@@ -14,7 +14,7 @@ const DOCS_CONTRACT: &str = include_str!("../../../../docs/escrow/contract.md");
 const CONTRACT_README: &str = include_str!("../../README.md");
 const ROOT_README: &str = include_str!("../../../../README.md");
 
-const IMPLEMENTED_ENTRYPOINTS: [&str; 19] = [
+const IMPLEMENTED_ENTRYPOINTS: [&str; 20] = [
     "initialize",
     "get_admin",
     "pause",
@@ -34,6 +34,7 @@ const IMPLEMENTED_ENTRYPOINTS: [&str; 19] = [
     "get_finalization_record",
     "get_reputation",
     "get_pending_reputation_credits",
+    "simulate_dispute_resolution",
 ];
 
 const PLANNED_ENTRYPOINTS: [&str; 14] = [
@@ -200,7 +201,7 @@ mod released_count_parity {
     }
 
     /// Assert count in summary equals count of `released` flags in milestone summaries.
-    fn assert_parity(count: u32, milestones: &soroban_sdk::Vec<crate::MilestoneSummary>) {
+    fn assert_parity(count: u32, milestones: &soroban_sdk::Vec<crate::types::MilestoneSummary>) {
         let from_vec = milestones.iter().filter(|m| m.released).count() as u32;
         assert_eq!(
             count, from_vec,

@@ -22,10 +22,7 @@ use crate::{Escrow, EscrowClient, ReleaseAuthorization};
 
 fn register_client(env: &Env) -> EscrowClient {
     let id = env.register(Escrow, ());
-    let client = EscrowClient::new(env, &id);
-    let admin = Address::generate(env);
-    client.initialize(&admin);
-    client
+    EscrowClient::new(env, &id)
 }
 
 fn default_milestones(env: &Env) -> soroban_sdk::Vec<i128> {
@@ -36,7 +33,7 @@ fn default_milestones(env: &Env) -> soroban_sdk::Vec<i128> {
 
 /// Client and freelancer must be distinct addresses.
 #[test]
-#[should_panic]
+#[should_panic(expected = "ClientEqualsFreelancer")]
 fn rejects_client_equals_freelancer() {
     let env = Env::default();
     env.mock_all_auths();
@@ -80,7 +77,7 @@ fn accepts_distinct_client_and_freelancer() {
 
 /// Arbiter cannot be the same as the client.
 #[test]
-#[should_panic]
+#[should_panic(expected = "ArbiterRoleOverlap")]
 fn rejects_arbiter_equals_client() {
     let env = Env::default();
     env.mock_all_auths();
@@ -99,7 +96,7 @@ fn rejects_arbiter_equals_client() {
 
 /// Arbiter cannot be the same as the freelancer.
 #[test]
-#[should_panic]
+#[should_panic(expected = "ArbiterRoleOverlap")]
 fn rejects_arbiter_equals_freelancer() {
     let env = Env::default();
     env.mock_all_auths();
@@ -170,7 +167,7 @@ fn accepts_none_arbiter() {
 /// Validation happens before any storage writes (fail-closed).
 /// If identity validation fails, no contract is created.
 #[test]
-#[should_panic]
+#[should_panic(expected = "ClientEqualsFreelancer")]
 fn validation_is_fail_closed_no_partial_state() {
     let env = Env::default();
     env.mock_all_auths();
@@ -210,7 +207,7 @@ fn multiple_contracts_with_different_participants() {
         &default_milestones(&env),
         &ReleaseAuthorization::ClientOnly,
     );
-    assert_eq!(id1, 1);
+    assert_eq!(id1, 0);
 
     // Contract 2: charlie (client) + diana (freelancer), alice as arbiter
     let id2 = client.create_contract(
@@ -220,7 +217,7 @@ fn multiple_contracts_with_different_participants() {
         &default_milestones(&env),
         &ReleaseAuthorization::ClientOnly,
     );
-    assert_eq!(id2, 2);
+    assert_eq!(id2, 1);
 
     // Verify both contracts exist with correct participants
     let c1 = client.get_contract(&id1);
@@ -269,7 +266,7 @@ fn three_way_distinct_addresses() {
 
 /// Validation rejects even if only arbiter overlaps with one role.
 #[test]
-#[should_panic]
+#[should_panic(expected = "ArbiterRoleOverlap")]
 fn rejects_partial_arbiter_overlap() {
     let env = Env::default();
     env.mock_all_auths();

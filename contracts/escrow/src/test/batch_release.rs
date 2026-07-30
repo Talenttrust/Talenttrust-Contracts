@@ -234,7 +234,7 @@ fn batch_release_rejects_already_released_milestone() {
     // Try to include index 0 in a batch
     let indices = vec![&env, 0u32, 1];
     let result = client.try_release_milestones_batch(&contract_id, &client_addr, &indices);
-    assert_contract_error(result, EscrowError::AlreadyReleased);
+    assert_contract_error(result, EscrowError::MilestoneAlreadyReleased);
 }
 
 #[test]

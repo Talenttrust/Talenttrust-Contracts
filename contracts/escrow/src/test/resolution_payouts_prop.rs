@@ -9,9 +9,9 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, Address, Env, Vec as SdkVec};
+use soroban_sdk::{testutils::Address as _, Address, Env, Vec as SdkVec};
 
-use crate::{Escrow, EscrowClient, MAX_BPS, ReleaseAuthorization};
+use crate::{Escrow, EscrowClient, ReleaseAuthorization};
 
 // ── Deterministic property-style tests ───────────────────────────────────────
 //
@@ -25,15 +25,12 @@ use crate::{Escrow, EscrowClient, MAX_BPS, ReleaseAuthorization};
 /// fee rate, asserting the invariant at every step.
 fn run_multi_release(amounts: &[i128], fee_bps: u32) {
     let env = Env::default();
-    env.mock_all_auths_allowing_non_root_auth();
+    env.mock_all_auths();
 
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     client.initialize(&admin);
-
-    let sac = env.register_stellar_asset_contract(admin.clone());
-    client.bind_settlement_token(&admin, &sac);
 
     if fee_bps > 0 {
         client.set_protocol_fee_bps(&fee_bps);
@@ -56,7 +53,6 @@ fn run_multi_release(amounts: &[i128], fee_bps: u32) {
     );
 
     let total: i128 = amounts.iter().sum();
-    StellarAssetClient::new(&env, &sac).mint(&client_addr, &total);
     client.deposit_funds(&id, &client_addr, &total);
 
     let mut expected_gross_released = 0i128;
@@ -159,13 +155,13 @@ fn prop_1000bps_boundary_milestone() {
 
 #[test]
 fn prop_max_fee_bps_single_milestone() {
-    // MAX_BPS = 100%: all funds become fees, freelancer gets 0
-    run_multi_release(&[1_000], MAX_BPS);
+    // 10000 bps = 100%: all funds become fees, freelancer gets 0
+    run_multi_release(&[1_000], 10_000);
 }
 
 #[test]
 fn prop_max_fee_bps_two_milestones() {
-    run_multi_release(&[1_000, 2_000], MAX_BPS);
+    run_multi_release(&[1_000, 2_000], 10_000);
 }
 
 // ── Large amounts ─────────────────────────────────────────────────────────────

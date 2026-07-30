@@ -1,5 +1,5 @@
 use super::{complete_contract, create_contract, default_milestones, register_client, total_milestone_amount};
-use crate::{EscrowError, ReleaseAuthorization, types::DataKey, MAX_RATING, MIN_RATING};
+use crate::{EscrowError, ReleaseAuthorization, types::DataKey};
 use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env};
 
 #[test]
@@ -24,7 +24,7 @@ fn multiple_contracts_for_same_freelancer() {
     assert!(client.release_milestone(&second_id, &client_addr, &0));
     assert!(client.release_milestone(&second_id, &client_addr, &1));
     assert!(client.release_milestone(&second_id, &client_addr, &2));
-    assert!(client.issue_reputation(&first_id, &first_client_addr, &freelancer_addr, &MAX_RATING));
+    assert!(client.issue_reputation(&first_id, &first_client_addr, &freelancer_addr, &5));
     assert!(client.issue_reputation(&second_id, &client_addr, &freelancer_addr, &4));
 
     let record = client.get_reputation(&freelancer_addr).unwrap();
@@ -40,7 +40,7 @@ fn scenario_reputation_invalid_rating_zero_fails() {
 
     let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
 
-    let result = client.try_issue_reputation(&contract_id, &client_addr, &freelancer_addr, &(MIN_RATING - 1));
+    let result = client.try_issue_reputation(&contract_id, &client_addr, &freelancer_addr, &0);
     super::assert_contract_error(result, EscrowError::InvalidRating);
 }
 
@@ -52,7 +52,7 @@ fn scenario_reputation_invalid_rating_six_fails() {
 
     let (client_addr, freelancer_addr, contract_id) = complete_contract(&env, &client);
 
-    let result = client.try_issue_reputation(&contract_id, &client_addr, &freelancer_addr, &(MAX_RATING + 1));
+    let result = client.try_issue_reputation(&contract_id, &client_addr, &freelancer_addr, &6);
     super::assert_contract_error(result, EscrowError::InvalidRating);
 }
 
@@ -84,5 +84,5 @@ fn release_milestone_emits_protocol_fee_event_when_fees_active() {
     assert!(client.release_milestone(&contract_id, &client_addr, &0));
 
     let events = env.events().all();
-    assert!(events.iter().any(|event| event.0 == symbol_short!("proto_fee")));
+    assert!(events.iter().any(|event| event.0 == symbol_short!("protocol_fee")));
 }

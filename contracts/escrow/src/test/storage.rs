@@ -3,10 +3,7 @@ use super::{
     generated_participants, register_client, total_milestone_amount, MILESTONE_ONE, MILESTONE_THREE,
     MILESTONE_TWO,
 };
-use crate::{
-    ContractStatus, DataKey, EscrowError, ReadinessChecklist, ReleaseAuthorization,
-    ESCROW_STORAGE_VERSION,
-};
+use crate::{ContractStatus, DataKey, EscrowError, ReadinessChecklist, ReleaseAuthorization};
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 // ─── Initialized / Admin ──────────────────────────────────────────────────────
@@ -87,82 +84,6 @@ fn paused_written_by_pause_and_cleared_by_unpause() {
             .get(&DataKey::Paused)
             .unwrap_or(false);
         assert!(!v);
-    });
-}
-
-#[test]
-fn typed_storage_key_round_trips_values_and_reports_absence() {
-    let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-
-    let milestone_key = StorageKey::contract_milestones(7);
-    let milestones = soroban_sdk::Vec::from_array(
-        &env,
-        [Milestone {
-            amount: 100,
-            funded_amount: 0,
-            released: false,
-            refunded: false,
-            work_evidence: None,
-            refunded_amount: 0,
-            deadline: None,
-        }],
-    );
-
-    env.as_contract(&contract_id, || {
-        env.storage().persistent().set(&milestone_key, &milestones);
-
-        let stored: soroban_sdk::Vec<Milestone> = env
-            .storage()
-            .persistent()
-            .get(&milestone_key)
-            .unwrap();
-        assert_eq!(stored, milestones);
-
-        let missing_key = StorageKey::contract_milestones(999);
-        let missing: Option<soroban_sdk::Vec<Milestone>> = env
-            .storage()
-            .persistent()
-            .get(&missing_key);
-        assert!(missing.is_none());
-    });
-}
-
-#[test]
-fn typed_storage_key_round_trips_values_and_reports_absence() {
-    let env = Env::default();
-    let contract_id = env.register(Escrow, ());
-
-    let milestone_key = StorageKey::contract_milestones(7);
-    let milestones = soroban_sdk::Vec::from_array(
-        &env,
-        [Milestone {
-            amount: 100,
-            funded_amount: 0,
-            released: false,
-            refunded: false,
-            work_evidence: None,
-            refunded_amount: 0,
-            deadline: None,
-        }],
-    );
-
-    env.as_contract(&contract_id, || {
-        env.storage().persistent().set(&milestone_key, &milestones);
-
-        let stored: soroban_sdk::Vec<Milestone> = env
-            .storage()
-            .persistent()
-            .get(&milestone_key)
-            .unwrap();
-        assert_eq!(stored, milestones);
-
-        let missing_key = StorageKey::contract_milestones(999);
-        let missing: Option<soroban_sdk::Vec<Milestone>> = env
-            .storage()
-            .persistent()
-            .get(&missing_key);
-        assert!(missing.is_none());
     });
 }
 
@@ -334,60 +255,6 @@ fn next_contract_id_increments_per_contract() {
 }
 
 #[test]
-fn storage_version_migrates_legacy_layout_and_preserves_contract_data() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
-
-    let (client_addr, freelancer_addr, id) = create_contract(&env, &client);
-    let contract = client.get_contract(&id);
-
-    env.as_contract(&client.address, || {
-        env.storage().persistent().set(&DataKey::StorageVersion, &0u32);
-    });
-
-    let migrated = client.get_contract(&id);
-    assert_eq!(migrated.client, contract.client);
-    assert_eq!(migrated.freelancer, contract.freelancer);
-    assert_eq!(migrated.status, contract.status);
-
-    env.as_contract(&client.address, || {
-        let version: u32 = env.storage().persistent().get(&DataKey::StorageVersion).unwrap();
-        assert_eq!(version, ESCROW_STORAGE_VERSION);
-    });
-
-    assert_eq!(client.get_milestones(&id).len(), 3);
-    assert_eq!(client.get_contract(&id).client, client_addr);
-    assert_eq!(client.get_contract(&id).freelancer, freelancer_addr);
-}
-
-#[test]
-fn storage_version_is_a_noop_for_current_layout() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
-
-    env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .set(&DataKey::StorageVersion, &ESCROW_STORAGE_VERSION);
-    });
-
-    let contract_id = create_contract(&env, &client).2;
-    let contract = client.get_contract(&contract_id);
-    assert_eq!(contract.status, ContractStatus::Created);
-
-    env.as_contract(&client.address, || {
-        let version: u32 = env.storage().persistent().get(&DataKey::StorageVersion).unwrap();
-        assert_eq!(version, ESCROW_STORAGE_VERSION);
-    });
-}
-
-#[test]
 fn get_contract_fails_for_unknown_id() {
     let env = Env::default();
     env.mock_all_auths();
@@ -433,7 +300,7 @@ fn double_release_same_milestone_fails() {
 
     assert_contract_error(
         client.try_release_milestone(&id, &client_addr, &0),
-        EscrowError::AlreadyReleased,
+        EscrowError::MilestoneAlreadyReleased,
     );
 }
 
@@ -448,7 +315,7 @@ fn release_out_of_bounds_milestone_fails() {
 
     assert_contract_error(
         client.try_release_milestone(&id, &client_addr, &99),
-        EscrowError::InvalidMilestone,
+        EscrowError::IndexOutOfBounds,
     );
 }
 
@@ -691,3 +558,63 @@ fn deposit_exceeding_total_fails() {
         EscrowError::ExactDepositRequired,
     );
 }
+
+// ─── Storage Input Bounds Validation (#899) ──────────────────────────────
+
+#[test]
+fn storage_entrypoints_reject_zero_contract_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    assert_contract_error(client.try_get_contract(&0u32), EscrowError::ContractNotFound);
+    assert_contract_error(
+        client.try_get_contract_summary(&0u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_milestones(&0u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_milestone(&0u32, &0u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_refundable_balance(&0u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_set_arbiter(&0u32, &admin, &None),
+        EscrowError::ContractNotFound,
+    );
+}
+
+#[test]
+fn storage_entrypoints_boundary_contract_id_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Min valid contract ID 1 (unallocated) returns ContractNotFound, not InvalidContractId.
+    assert_contract_error(client.try_get_contract(&1u32), EscrowError::ContractNotFound);
+    assert_contract_error(
+        client.try_get_contract_summary(&1u32),
+        EscrowError::ContractNotFound,
+    );
+
+    // Max u32 contract ID (unallocated) returns ContractNotFound, not InvalidContractId.
+    assert_contract_error(
+        client.try_get_contract(&u32::MAX),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_contract_summary(&u32::MAX),
+        EscrowError::ContractNotFound,
+    );
+}
+

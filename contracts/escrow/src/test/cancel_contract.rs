@@ -19,7 +19,7 @@ fn generate_participants(env: &Env) -> (Address, Address) {
 }
 
 fn setup_cancel_context(env: &Env) -> (EscrowClient<'_>, Address, Address, u32) {
-    env.mock_all_auths_allowing_non_root_auth();
+    env.mock_all_auths();
     let client = register_client(env);
     let (client_addr, freelancer_addr) = generate_participants(env);
     let admin = Address::generate(env);
@@ -145,7 +145,7 @@ fn cancel_rejects_unauthorized_caller() {
 
     super::assert_contract_error(
         client.try_cancel_contract(&contract_id, &unauthorized),
-        crate::EscrowError::UnauthorizedRole,
+        Error::UnauthorizedRole,
     );
 
     assert_eq!(
@@ -166,7 +166,7 @@ fn cancel_rejects_contract_after_a_release() {
 
     super::assert_contract_error(
         client.try_cancel_contract(&contract_id, &client_addr),
-        crate::EscrowError::InvalidStatusTransition,
+        Error::InvalidStatusTransition,
     );
 }
 
@@ -179,7 +179,7 @@ fn double_cancel_rejects_with_already_cancelled() {
 
     super::assert_contract_error(
         client.try_cancel_contract(&contract_id, &client_addr),
-        Error::AlreadyCancelled,
+        Error::ContractCancelled,
     );
 }
 
@@ -196,7 +196,7 @@ fn cancel_rejects_completed_contract() {
 
     super::assert_contract_error(
         client.try_cancel_contract(&contract_id, &client_addr),
-        crate::EscrowError::InvalidStatusTransition,
+        Error::InvalidStatusTransition,
     );
 }
 

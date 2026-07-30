@@ -28,12 +28,12 @@
 //!
 //! # Status Transitions
 //!
-//! - **Funded â†’ Refunded**: All unreleased milestones refunded (no releases)
-//! - **Funded â†’ Funded**: Partial refund (some milestones remain unreleased/unrefunded)
-//! - **Funded â†’ Completed**: All milestones either released or refunded (mixed state)
+//! - **Funded → Refunded**: All unreleased milestones refunded (no releases)
+//! - **Funded → Funded**: Partial refund (some milestones remain unreleased/unrefunded)
+//! - **Funded → Completed**: All milestones either released or refunded (mixed state)
 
-use crate::{Contract, ContractStatus, DataKey, EscrowError, Milestone};
-use soroban_sdk::{symbol_short, Env, Symbol, Vec};
+use crate::{keys, Contract, ContractStatus, DataKey, EscrowError, Milestone};
+use soroban_sdk::{Env, Vec};
 
 /// Refunds unreleased milestones back to the client.
 ///
@@ -93,15 +93,12 @@ pub fn refund_unreleased_milestones(
         env.panic_with_error(EscrowError::ContractCancelled);
     }
     if contract.status == ContractStatus::Refunded {
-        env.panic_with_error(EscrowError::ContractRefunded);
+        env.panic_with_error(EscrowError::InvalidState);
     }
 
     // Load milestones
-    let mut milestones: Vec<Milestone> = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Milestones(contract_id))
-        .unwrap();
+    let milestone_key = keys::milestone_key(env, contract_id);
+    let mut milestones: Vec<Milestone> = env.storage().persistent().get(&milestone_key).unwrap();
 
     // Validate all milestones and calculate total refund amount
     let total_refund_amount = validate_and_calculate_refund(env, &milestones, milestone_indices);
@@ -110,41 +107,37 @@ pub fn refund_unreleased_milestones(
     check_sufficient_balance(env, &contract, total_refund_amount);
 
     // Retrieve settlement token and perform transfer
-    let token_address: soroban_sdk::Address = contract.token.clone();
-    let balance = soroban_sdk::token::Client::new(env, &token_address).balance(&env.current_contract_address());
+    let token_address: soroban_sdk::Address = env
+        .storage()
+        .persistent()
+        .get(&DataKey::SettlementToken)
+        .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+    let balance = soroban_sdk::token::Client::new(env, &token_address)
+        .balance(&env.current_contract_address());
     if balance < total_refund_amount {
-        env.panic_with_error(EscrowError::InsufficientEscrowBalance);
+        env.panic_with_error(EscrowError::InsufficientFunds);
     }
-    soroban_sdk::token::Client::new(env, &token_address).transfer(&env.current_contract_address(), &contract.client, &total_refund_amount);
+    soroban_sdk::token::Client::new(env, &token_address).transfer(
+        &env.current_contract_address(),
+        &contract.client,
+        &total_refund_amount,
+    );
 
     // Mark milestones as refunded
     mark_milestones_refunded(&mut milestones, milestone_indices);
-    for idx in milestone_indices.iter() {
-        let m = milestones.get(idx).unwrap();
-        // Indexed event for off-chain milestone-history reconstruction.
-        env.events().publish(
-            (symbol_short!("mlstn_idx"), contract_id, idx),
-            (m.amount, m.released, m.refunded, env.ledger().timestamp()),
-        );
-    }
 
     // Update contract state
-    // FIX: use checked_add to prevent overflow on refunded_amount accumulation.
     contract.refunded_amount = contract
         .refunded_amount
         .checked_add(total_refund_amount)
         .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
     update_contract_status(&mut contract, &milestones);
 
-    // Persist changes via the typed [`MilestonesKey`] wrapper (issue #938).
-    env.storage()
-        .persistent()
-        .set(&DataKey::Milestones(contract_id), &milestones);
+    // Persist changes
+    env.storage().persistent().set(&milestone_key, &milestones);
     env.storage()
         .persistent()
         .set(&DataKey::Contract(contract_id), &contract);
-
-    crate::events::emit_contract_indexed_event(env, contract_id, &contract);
 
     total_refund_amount
 }
@@ -177,14 +170,14 @@ fn validate_and_calculate_refund(
     for idx in milestone_indices.iter() {
         // Guard: Check milestone exists
         if idx >= milestones.len() {
-            env.panic_with_error(EscrowError::InvalidMilestone);
+            env.panic_with_error(EscrowError::IndexOutOfBounds);
         }
 
         let milestone = milestones.get(idx).unwrap();
 
         // Guard: Cannot refund released milestones
         if milestone.released {
-            env.panic_with_error(EscrowError::AlreadyReleased);
+            env.panic_with_error(EscrowError::MilestoneAlreadyReleased);
         }
 
         // Guard: Cannot refund already-refunded milestones
@@ -192,7 +185,6 @@ fn validate_and_calculate_refund(
             env.panic_with_error(EscrowError::AlreadyRefunded);
         }
 
-        // FIX: use checked_add to prevent overflow when summing milestone amounts.
         total_refund_amount = total_refund_amount
             .checked_add(milestone.amount)
             .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
@@ -203,8 +195,11 @@ fn validate_and_calculate_refund(
 
 /// Checks if the contract has sufficient balance to process the refund.
 fn check_sufficient_balance(env: &Env, contract: &Contract, refund_amount: i128) {
-    let available_balance =
-        contract.funded_amount - contract.released_amount - contract.refunded_amount;
+    let available_balance = contract
+        .funded_amount
+        .checked_sub(contract.released_amount)
+        .and_then(|v| v.checked_sub(contract.refunded_amount))
+        .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
     if available_balance < refund_amount {
         env.panic_with_error(EscrowError::InsufficientFunds);
@@ -224,9 +219,9 @@ fn mark_milestones_refunded(milestones: &mut Vec<Milestone>, milestone_indices: 
 ///
 /// # Status Transition Logic
 ///
-/// - If all milestones are refunded â†’ `Refunded`
-/// - If all milestones are either released or refunded â†’ `Completed`
-/// - Otherwise â†’ remains `Funded`
+/// - If all milestones are refunded → `Refunded`
+/// - If all milestones are either released or refunded → `Completed`
+/// - Otherwise → remains `Funded`
 fn update_contract_status(contract: &mut Contract, milestones: &Vec<Milestone>) {
     let all_refunded_or_released = milestones.iter().all(|m| m.released || m.refunded);
 

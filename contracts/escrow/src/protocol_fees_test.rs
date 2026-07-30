@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{Escrow, EscrowClient, MAX_BPS};
+use crate::{Escrow, EscrowClient};
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
 
 // ── Unit tests for calculate_protocol_fee floor-division rounding ─────────
@@ -17,7 +17,7 @@ fn test_calculate_protocol_fee_zero_bps_returns_zero() {
 #[test]
 fn test_calculate_protocol_fee_250_bps_of_round_amount() {
     let env = Env::default();
-    // 1_000_000 * 250 / BASIS_POINT_DENOMINATOR = 25_000 exactly
+    // 1_000_000 * 250 / 10_000 = 25_000 exactly
     let fee = Escrow::calculate_protocol_fee(&env, 1_000_000, 250);
     assert_eq!(fee, 25_000);
     // Net payout must never be negative
@@ -26,7 +26,7 @@ fn test_calculate_protocol_fee_250_bps_of_round_amount() {
 
 /// Verifies floor rounding: an indivisible product rounds DOWN, never up.
 ///
-/// 1_001 * 250 = 250_250; 250_250 / BASIS_POINT_DENOMINATOR = 25 remainder 250 → floor == 25.
+/// 1_001 * 250 = 250_250; 250_250 / 10_000 = 25 remainder 250 → floor == 25.
 #[test]
 fn test_calculate_protocol_fee_floor_rounds_down_on_indivisible_product() {
     let env = Env::default();
@@ -35,10 +35,9 @@ fn test_calculate_protocol_fee_floor_rounds_down_on_indivisible_product() {
     assert!(1_001 - fee >= 0);
 }
 
-/// Verifies that a sub-threshold amount produces a zero fee
-/// (amount * bps < BASIS_POINT_DENOMINATOR).
+/// Verifies that a sub-threshold amount produces a zero fee (amount * bps < 10_000).
 ///
-/// 9 * 1_000 = 9_000; 9_000 / BASIS_POINT_DENOMINATOR = 0 (floors to zero).
+/// 9 * 1_000 = 9_000; 9_000 / 10_000 = 0 (floors to zero).
 #[test]
 fn test_calculate_protocol_fee_sub_threshold_amount_rounds_to_zero() {
     let env = Env::default();
@@ -63,8 +62,8 @@ fn test_calculate_protocol_fee_overflow_guard_fires() {
 fn test_net_payout_never_negative_for_valid_inputs() {
     let env = Env::default();
     let cases: &[(i128, u32)] = &[
-        (1, MAX_BPS),       // maximum fee rate, minimal amount
-        (MAX_BPS as i128, MAX_BPS),  // 100% fee rate
+        (1, 10_000),       // maximum fee rate, minimal amount
+        (10_000, 10_000),  // 100% fee rate
         (50_000, 500),     // 5% fee rate
         (3_333, 1_000),    // 10% fee rate, indivisible
         (1, 1),            // near-zero fee
