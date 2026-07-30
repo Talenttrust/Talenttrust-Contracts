@@ -7,9 +7,7 @@
 //! carry the correct payload.
 
 use crate::{Error, Escrow, EscrowClient, ReleaseAuthorization};
-use soroban_sdk::{
-    testutils::Address as _, token::StellarAssetClient, vec, Address, Env, String,
-};
+use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env, String};
 
 use super::assert_contract_error;
 
@@ -54,10 +52,7 @@ fn setup_full() -> TestEnv<'static> {
     }
 }
 
-fn create_funded_contract(
-    test_env: &TestEnv,
-    auth: &ReleaseAuthorization,
-) -> u32 {
+fn create_funded_contract(test_env: &TestEnv, auth: &ReleaseAuthorization) -> u32 {
     let milestones = vec![&test_env.env, 500_0000000_i128, 300_0000000_i128];
     let arbiter = match auth {
         ReleaseAuthorization::ArbiterOnly | ReleaseAuthorization::ClientAndArbiter => {
@@ -75,7 +70,9 @@ fn create_funded_contract(
     let total = 800_0000000_i128;
     StellarAssetClient::new(&test_env.env, &test_env.token_addr)
         .mint(&test_env.client_addr, &total);
-    test_env.client.deposit_funds(&id, &test_env.client_addr, &total);
+    test_env
+        .client
+        .deposit_funds(&id, &test_env.client_addr, &total);
     id
 }
 
@@ -175,7 +172,9 @@ fn events_submit_work_freelancer_allowed() {
     let t = setup_full();
     let id = create_funded_contract(&t, &ReleaseAuthorization::ClientOnly);
     let cid = String::from_str(&t.env, "QmTest1234567890");
-    assert!(t.client.submit_work_evidence(&id, &t.freelancer_addr, &0, &cid));
+    assert!(t
+        .client
+        .submit_work_evidence(&id, &t.freelancer_addr, &0, &cid));
 }
 
 #[test]
@@ -195,7 +194,8 @@ fn events_submit_work_client_denied() {
     let id = create_funded_contract(&t, &ReleaseAuthorization::ClientOnly);
     let cid = String::from_str(&t.env, "QmTest1234567890");
     assert_contract_error(
-        t.client.try_submit_work_evidence(&id, &t.client_addr, &0, &cid),
+        t.client
+            .try_submit_work_evidence(&id, &t.client_addr, &0, &cid),
         Error::UnauthorizedRole,
     );
 }
@@ -222,7 +222,8 @@ fn events_issue_reputation_stranger_denied() {
     t.client.release_milestone(&id, &t.client_addr, &0);
     let comment = String::from_str(&t.env, "Excellent");
     assert_contract_error(
-        t.client.try_issue_reputation(&id, &t.stranger_addr, &5, &comment),
+        t.client
+            .try_issue_reputation(&id, &t.stranger_addr, &5, &comment),
         Error::UnauthorizedRole,
     );
 }
@@ -268,7 +269,8 @@ fn events_admin_settlement_token_client_denied() {
     let t = setup_full();
     let new_token = t.env.register_stellar_asset_contract(t.admin.clone());
     assert_contract_error(
-        t.client.try_set_settlement_token(&t.client_addr, &new_token),
+        t.client
+            .try_set_settlement_token(&t.client_addr, &new_token),
         Error::UnauthorizedRole,
     );
 }

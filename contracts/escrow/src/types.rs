@@ -138,6 +138,15 @@ pub enum DataKey {
     ReputationConfigKey,
     ClientContracts(Address),
     FreelancerContracts(Address),
+    // Fee withdrawal rate-limiting
+    /// Maximum fraction of accumulated fees that can be withdrawn in one call,
+    /// expressed in basis points (10 000 = 100 %). Default: 5 000 = 50 %.
+    FeeWithdrawalCap,
+    /// Minimum number of ledgers that must elapse between successful
+    /// protocol-fee withdrawals. Stored as `u32`.
+    FeeWithdrawalCooldownLedgers,
+    /// Ledger sequence number of the last successful protocol-fee withdrawal.
+    LastFeeWithdrawalLedger,
 }
 
 // ── Event Types ──────────────────────────────────────────────────────────────
@@ -228,6 +237,10 @@ pub enum Error {
     SettlementTokenAlreadyBound = 61,
     ContractCancelled = 62,
     InvalidDepositAmount = 65,
+    /// The requested withdrawal amount exceeds the configured per-withdrawal cap.
+    FeeWithdrawalCapExceeded = 66,
+    /// A protocol-fee withdrawal was attempted before the cooldown interval elapsed.
+    FeeWithdrawalCooldownActive = 67,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────

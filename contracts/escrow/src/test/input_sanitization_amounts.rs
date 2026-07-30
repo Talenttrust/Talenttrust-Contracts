@@ -189,11 +189,7 @@ fn test_deposit_funds_rejects_amount_at_max_single_amount_plus_one() {
     );
     // Amount just above MAX_SINGLE_AMOUNT_STROOPS must be rejected by the
     // centralized single-amount validator rather than slipping through.
-    client.deposit_funds(
-        &contract_id,
-        &hiring_party,
-        &(1_000_000_0000000_i128 + 1),
-    );
+    client.deposit_funds(&contract_id, &hiring_party, &(1_000_000_0000000_i128 + 1));
 }
 
 #[test]
@@ -209,11 +205,7 @@ fn test_deposit_funds_accepts_amount_exactly_at_max_single_amount() {
         &ReleaseAuthorization::ClientOnly,
     );
     // Deposit exactly the max single amount must succeed.
-    assert!(client.deposit_funds(
-        &contract_id,
-        &hiring_party,
-        &1_000_000_0000000_i128
-    ));
+    assert!(client.deposit_funds(&contract_id, &hiring_party, &1_000_000_0000000_i128));
 }
 
 #[test]
