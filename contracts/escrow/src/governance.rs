@@ -316,4 +316,127 @@ impl Escrow {
     pub fn get_governed_parameters(env: Env) -> Option<GovernedParameters> {
         env.storage().persistent().get(&DataKey::GovernedParameters)
     }
+
+    // ── Fee withdrawal rate-limiting ────────────────────────────────────────
+
+    /// Set the maximum fraction of accumulated protocol fees that can be
+    /// withdrawn in a single call, expressed in basis points.
+    ///
+    /// Admin-gated, must be initialized.  A value of `0` disables the cap
+    /// (unlimited withdrawals, subject to the cooldown).  Values above
+    /// `10_000` (100 %) are rejected with [`Error::InvalidProtocolParameters`].
+    ///
+    /// Stored under [`DataKey::FeeWithdrawalCap`].  Default is `5_000` (50 %).
+    ///
+    /// # Events
+    /// `(Symbol("fee_cap"),)` → `(old_cap, new_cap, admin, timestamp)`
+    pub fn set_fee_withdrawal_cap(env: Env, cap_bps: u32) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
+        admin.require_auth();
+
+        if cap_bps > 10_000 {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        let old_cap: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeWithdrawalCap)
+            .unwrap_or(5_000u32);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::FeeWithdrawalCap, &cap_bps);
+
+        env.events().publish(
+            (Symbol::new(&env, "fee_cap"),),
+            (old_cap, cap_bps, admin.clone(), env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Return the current fee-withdrawal cap in basis points.
+    ///
+    /// Returns the stored value, or the default of `5_000` (50 %) when
+    /// no value has been explicitly set.
+    pub fn get_fee_withdrawal_cap(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FeeWithdrawalCap)
+            .unwrap_or(5_000u32)
+    }
+
+    /// Set the minimum number of ledgers that must elapse between successful
+    /// protocol-fee withdrawals.
+    ///
+    /// Admin-gated, must be initialized.  A value of `0` disables the cooldown
+    /// (unlimited frequency, subject to the cap).  Values above
+    /// `2_592_000` (≈150 days at 5 s ledgers) are rejected with
+    /// [`Error::InvalidProtocolParameters`].
+    ///
+    /// Stored under [`DataKey::FeeWithdrawalCooldownLedgers`].
+    /// Default is `17_280` (≈1 day at 5 s ledgers).
+    ///
+    /// # Events
+    /// `(Symbol("fee_cooldown"),)` → `(old_cooldown, new_cooldown, admin, timestamp)`
+    pub fn set_fee_withdrawal_cooldown(env: Env, cooldown_ledgers: u32) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
+        admin.require_auth();
+
+        // Cap at ~150 days to prevent accidental permanent lockout.
+        if cooldown_ledgers > 2_592_000 {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        let old_cooldown: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeWithdrawalCooldownLedgers)
+            .unwrap_or(17_280u32);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::FeeWithdrawalCooldownLedgers, &cooldown_ledgers);
+
+        env.events().publish(
+            (Symbol::new(&env, "fee_cooldown"),),
+            (
+                old_cooldown,
+                cooldown_ledgers,
+                admin.clone(),
+                env.ledger().timestamp(),
+            ),
+        );
+        true
+    }
+
+    /// Return the current fee-withdrawal cooldown in ledgers.
+    ///
+    /// Returns the stored value, or the default of `17_280` (≈1 day at
+    /// 5 s ledgers) when no value has been explicitly set.
+    pub fn get_fee_withdrawal_cooldown(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FeeWithdrawalCooldownLedgers)
+            .unwrap_or(17_280u32)
+    }
+
+    /// Return the ledger sequence of the last successful protocol-fee
+    /// withdrawal, or `0` if no withdrawal has occurred yet.
+    pub fn get_last_fee_withdrawal_ledger(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::LastFeeWithdrawalLedger)
+            .unwrap_or(0u32)
+    }
 }

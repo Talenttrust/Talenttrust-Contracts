@@ -2304,6 +2304,46 @@ impl Escrow {
     // * `env` - The contract environment
     // * `amount` - The amount of fees to withdraw
     // * `to` - The destination address for the withdrawn fees
+    /// Withdraw accumulated protocol fees to a destination address.
+    ///
+    /// # Rate-limiting
+    ///
+    /// Two governed parameters protect against a compromised admin key draining
+    /// the entire treasury in a single call:
+    ///
+    /// - **Per-withdrawal cap** (stored under [`DataKey::FeeWithdrawalCap`],
+    ///   default 5 000 bps = 50 %): the requested `amount` must not exceed
+    ///   `accumulated * cap_bps / 10_000`.  An admin can never withdraw more
+    ///   than the configured fraction of the accumulated fees in one
+    ///   transaction.
+    /// - **Cooldown interval** (stored under
+    ///   [`DataKey::FeeWithdrawalCooldownLedgers`], default 17 280 ledgers =
+    ///   1 day): at least this many ledgers must have elapsed since the last
+    ///   successful withdrawal recorded in
+    ///   [`DataKey::LastFeeWithdrawalLedger`].
+    ///
+    /// # Accounting
+    ///
+    /// Partial withdrawals are exact: [`DataKey::AccumulatedProtocolFees`] is
+    /// decremented by exactly `amount`, so the unconsumed remainder carries
+    /// forward to the next withdrawal.  The cap is evaluated against the
+    /// *current* accumulated balance at call time — subsequent fee accruals
+    /// increase the allowable withdrawal size.
+    ///
+    /// # Errors
+    /// * [`EscrowError::ContractPaused`] — contract is paused or in emergency.
+    /// * [`EscrowError::NotInitialized`] — `initialize` has not been called.
+    /// * [`EscrowError::UnauthorizedRole`] — `admin` didn't authorize.
+    /// * [`EscrowError::AmountMustBePositive`] — amount ≤ 0 or exceeds
+    ///   `MAX_SINGLE_AMOUNT_STROOPS`.
+    /// * [`EscrowError::InsufficientAccumulatedFees`] — amount > accumulated.
+    /// * [`EscrowError::FeeWithdrawalCapExceeded`] — exceeds the per-withdrawal
+    ///   fraction cap.
+    /// * [`EscrowError::FeeWithdrawalCooldownActive`] — cooldown has not
+    ///   elapsed since the last withdrawal.
+    ///
+    /// # Events
+    /// `("fee", "withdraw")` → `(admin, to, amount, timestamp)`
     pub fn withdraw_protocol_fees(env: Env, amount: i128, to: Address) -> bool {
         Self::require_initialized(&env);
 
@@ -2344,10 +2384,58 @@ impl Escrow {
             env.panic_with_error(EscrowError::InsufficientAccumulatedFees);
         }
 
+        // ── Per-withdrawal cap (basis points) ──────────────────────────────
+        // Default 5 000 bps = 50 % of accumulated fees per withdrawal.
+        let cap_bps: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeWithdrawalCap)
+            .unwrap_or(5_000u32);
+
+        if cap_bps > 0 {
+            // ceiling division: (accumulated * cap_bps + 9999) / 10000
+            let max_allowed: i128 = accumulated
+                .checked_mul(cap_bps as i128)
+                .and_then(|v| v.checked_add(9_999))
+                .and_then(|v| v.checked_div(10_000))
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+
+            if amount > max_allowed {
+                env.panic_with_error(EscrowError::FeeWithdrawalCapExceeded);
+            }
+        }
+
+        // ── Cooldown check ─────────────────────────────────────────────────
+        let cooldown_ledgers: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeWithdrawalCooldownLedgers)
+            .unwrap_or(17_280u32); // default: ~1 day (5s ledgers)
+
+        if cooldown_ledgers > 0 {
+            let current_ledger: u32 = env.ledger().sequence();
+            let last_withdrawal: u32 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::LastFeeWithdrawalLedger)
+                .unwrap_or(0u32);
+
+            if last_withdrawal > 0
+                && current_ledger.saturating_sub(last_withdrawal) < cooldown_ledgers
+            {
+                env.panic_with_error(EscrowError::FeeWithdrawalCooldownActive);
+            }
+        }
+
         let token = match Self::read_settlement_token(&env) {
             Some(t) => t,
             None => env.panic_with_error(Error::SettlementTokenNotConfigured),
         };
+
+        // ── Record last withdrawal ledger BEFORE transfer (CEI) ────────────
+        env.storage()
+            .persistent()
+            .set(&DataKey::LastFeeWithdrawalLedger, &env.ledger().sequence());
 
         let new_accumulated = accumulated - amount;
         env.storage()
