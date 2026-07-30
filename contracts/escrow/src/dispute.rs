@@ -18,6 +18,25 @@ pub const PARTIAL_REFUND_FREELANCER_PERCENT: i128 = 30;
 /// Percent base used with [`PARTIAL_REFUND_FREELANCER_PERCENT`].
 pub const PARTIAL_REFUND_PERCENT_BASE: i128 = 100;
 
+// ---------------------------------------------------------------------------
+// DisputeConfig default basis-point constants
+// ---------------------------------------------------------------------------
+
+/// Default freelancer share of a partial-refund dispute resolution, in basis points.
+///
+/// `3_000 bps = 30 %`. This is stored in [`DisputeConfig::partial_refund_freelancer_bps`]
+/// when no explicit arbiter configuration has been set via `set_arbiter_config`. The
+/// counterpart (client share) is [`DEFAULT_DISPUTE_CLIENT_BPS`] = 7_000 bps = 70 %.
+pub const DEFAULT_DISPUTE_FREELANCER_BPS: u32 = 3_000;
+
+/// Default client share of a partial-refund dispute resolution, in basis points.
+///
+/// `7_000 bps = 70 %`. The pair `(DEFAULT_DISPUTE_FREELANCER_BPS, DEFAULT_DISPUTE_CLIENT_BPS)`
+/// must sum to `10_000 bps (100 %)`. This constant is used as the default value of
+/// [`DisputeConfig::partial_refund_client_bps`] when the arbiter has not explicitly
+/// configured a dispute split via `set_arbiter_config`.
+pub const DEFAULT_DISPUTE_CLIENT_BPS: u32 = 7_000;
+
 #[soroban_sdk::contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisputeInfo {

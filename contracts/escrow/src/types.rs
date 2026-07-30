@@ -591,8 +591,8 @@ pub struct DisputeConfig {
 impl Default for DisputeConfig {
     fn default() -> Self {
         DisputeConfig {
-            partial_refund_freelancer_bps: 3000,
-            partial_refund_client_bps: 7000,
+            partial_refund_freelancer_bps: crate::dispute::DEFAULT_DISPUTE_FREELANCER_BPS,
+            partial_refund_client_bps: crate::dispute::DEFAULT_DISPUTE_CLIENT_BPS,
         }
     }
 }
