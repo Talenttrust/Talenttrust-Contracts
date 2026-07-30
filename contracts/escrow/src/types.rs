@@ -103,6 +103,8 @@ pub enum DataKey {
     AccumulatedProtocolFees,
     GovernedParameters,
     ReadinessChecklist,
+    // Global cap used for contributor waves (0-100 percentage)
+    GlobalCap,
     // Configurable limits
     MaxMilestones,
     MaxEscrowStroops,

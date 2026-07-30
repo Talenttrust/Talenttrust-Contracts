@@ -252,4 +252,50 @@ impl Escrow {
     pub fn get_governed_parameters(env: Env) -> Option<GovernedParameters> {
         env.storage().persistent().get(&DataKey::GovernedParameters)
     }
+
+    /// Emergency function to set the global contributor cap immediately.
+    ///
+    /// Admin-gated: the stored admin must match `admin` and authorize the call.
+    /// `new_cap` must be in the inclusive range 0..=100 (percent).
+    /// Emits `(symbol_short!("governance"), Symbol::new(&env, "EmergencyCapUpdated"))`
+    /// with payload `(old_cap, new_cap, admin, timestamp)` so monitoring can detect changes.
+    pub fn emergency_set_global_cap(env: Env, admin: Address, new_cap: u32) -> bool {
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&crate::DataKey::Initialized)
+            .unwrap_or(false)
+        {
+            env.panic_with_error(Error::NotInitialized);
+        }
+
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
+
+        if admin != stored_admin {
+            env.panic_with_error(Error::UnauthorizedRole);
+        }
+        admin.require_auth();
+
+        if new_cap > 100 {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        let old_cap: u32 = env.storage().persistent().get(&DataKey::GlobalCap).unwrap_or(0u32);
+        env.storage().persistent().set(&DataKey::GlobalCap, &new_cap);
+
+        env.events().publish(
+            (symbol_short!("governance"), Symbol::new(&env, "EmergencyCapUpdated")),
+            (old_cap, new_cap, admin.clone(), env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Read the current global cap (percent, 0-100). Defaults to 0 when unset.
+    pub fn get_global_cap(env: Env) -> u32 {
+        env.storage().persistent().get::<_, u32>(&DataKey::GlobalCap).unwrap_or(0)
+    }
 }
