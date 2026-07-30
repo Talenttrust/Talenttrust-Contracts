@@ -28,7 +28,7 @@
 use soroban_sdk::{testutils::Address as _, vec, Address, Env, Vec};
 
 use crate::{
-    ContractBounds, Escrow, EscrowClient, EscrowError, ReleaseAuthorization, MAX_MILESTONES,
+    types::ContractBounds, Escrow, EscrowClient, EscrowError, ReleaseAuthorization, MAX_MILESTONES,
     MAX_SINGLE_AMOUNT_STROOPS, MAX_TOTAL_ESCROW_STROOPS,
 };
 
@@ -205,6 +205,7 @@ fn get_bounds_result_type_has_no_participant_fields() {
         max_single_milestone_stroops,
         max_total_escrow_stroops,
         max_fee_bps,
+        max_settlement: _,
     } = bounds;
     assert!(max_milestones > 0);
     assert!(max_single_milestone_stroops > 0);

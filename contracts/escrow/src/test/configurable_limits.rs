@@ -1,6 +1,7 @@
 use super::register_client;
 use crate::{
-    EscrowError, Escrow, EscrowClient, MAX_MAX_MILESTONES, DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
+    Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization, DEFAULT_MAX_ARBITERS,
+    DEFAULT_MAX_TOTAL_ESCROW_STROOPS, MAX_MAX_ARBITERS, MAX_MAX_MILESTONES, MIN_MAX_ARBITERS,
     MIN_MAX_ESCROW_STROOPS,
 };
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
@@ -32,7 +33,18 @@ fn max_escrow_stroops_returns_default_before_any_set() {
     let (env, contract_id, _admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
 
-    assert_eq!(client.get_max_escrow_stroops(), DEFAULT_MAX_TOTAL_ESCROW_STROOPS);
+    assert_eq!(
+        client.get_max_escrow_stroops(),
+        DEFAULT_MAX_TOTAL_ESCROW_STROOPS
+    );
+}
+
+#[test]
+fn max_arbiters_returns_default_before_any_set() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    assert_eq!(client.get_max_arbiters(), DEFAULT_MAX_ARBITERS);
 }
 
 // ─── Setting limits ─────────────────────────────────────────────────────────
@@ -54,6 +66,15 @@ fn admin_can_set_max_escrow_stroops_within_bounds() {
     let new_limit: i128 = 5_000_000_000_000;
     assert!(client.set_max_escrow_stroops(&new_limit));
     assert_eq!(client.get_max_escrow_stroops(), new_limit);
+}
+
+#[test]
+fn admin_can_set_max_arbiters_within_bounds() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    assert!(client.set_max_arbiters(&3));
+    assert_eq!(client.get_max_arbiters(), 3);
 }
 
 // ─── Out-of-range rejection ──────────────────────────────────────────────────
@@ -103,6 +124,17 @@ fn set_max_escrow_stroops_rejects_above_mainnet_cap() {
     );
 }
 
+#[test]
+fn set_max_arbiters_rejects_above_maximum() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    super::assert_contract_error(
+        client.try_set_max_arbiters(&(MAX_MAX_ARBITERS + 1)),
+        EscrowError::LimitOutOfRange,
+    );
+}
+
 // ─── Requires initialization ─────────────────────────────────────────────────
 
 #[test]
@@ -112,10 +144,7 @@ fn set_max_milestones_requires_initialization() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
-    super::assert_contract_error(
-        client.try_set_max_milestones(&20),
-        EscrowError::NotInitialized,
-    );
+    super::assert_contract_error(client.try_set_max_milestones(&20), Error::NotInitialized);
 }
 
 #[test]
@@ -127,8 +156,18 @@ fn set_max_escrow_stroops_requires_initialization() {
 
     super::assert_contract_error(
         client.try_set_max_escrow_stroops(&5_000_000_000_000),
-        EscrowError::NotInitialized,
+        Error::NotInitialized,
     );
+}
+
+#[test]
+fn set_max_arbiters_requires_initialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    super::assert_contract_error(client.try_set_max_arbiters(&3), Error::NotInitialized);
 }
 
 // ─── create_contract respects configurable limits ────────────────────────────
@@ -144,7 +183,13 @@ fn create_contract_respects_lower_max_milestones() {
     let freelancer_addr = Address::generate(&env);
     let milestones = vec![&env, 100_i128, 200_i128, 300_i128];
     super::assert_contract_error(
-        client.try_create_contract(&client_addr, &freelancer_addr, &milestones),
+        client.try_create_contract(
+            &client_addr,
+            &freelancer_addr,
+            &None,
+            &milestones,
+            &ReleaseAuthorization::ClientOnly,
+        ),
         EscrowError::TooManyMilestones,
     );
 }
@@ -159,12 +204,17 @@ fn create_contract_respects_higher_max_milestones() {
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
     let milestones = vec![
-        &env, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
-        100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
-        100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
+        &env, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
+        100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
     ];
-    let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
-    let contract = client.get_contract(&id);
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    let contract = client.get_contract_summary(&id);
     assert_eq!(contract.milestones.len(), 15);
 }
 
@@ -173,13 +223,19 @@ fn create_contract_respects_lower_max_escrow() {
     let (env, contract_id, _admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
 
-    assert!(client.set_max_escrow_stroops(&500));
+    assert!(client.set_max_escrow_stroops(&5_000_000));
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env, 300_i128, 300_i128];
+    let milestones = vec![&env, 3_000_000_i128, 3_000_000_i128];
     super::assert_contract_error(
-        client.try_create_contract(&client_addr, &freelancer_addr, &milestones),
+        client.try_create_contract(
+            &client_addr,
+            &freelancer_addr,
+            &None,
+            &milestones,
+            &ReleaseAuthorization::ClientOnly,
+        ),
         EscrowError::InvalidMilestoneAmount,
     );
 }
@@ -189,13 +245,19 @@ fn create_contract_respects_higher_max_escrow() {
     let (env, contract_id, _admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
 
-    assert!(client.set_max_escrow_stroops(&50_000_000_000_000));
+    assert!(client.set_max_escrow_stroops(&5_000_000));
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
-    let milestones = vec![&env, 20_000_000_000_000_i128, 20_000_000_000_000_i128];
-    let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
-    let contract = client.get_contract(&id);
+    let milestones = vec![&env, 2_000_000_i128, 2_000_000_i128];
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    let contract = client.get_contract_summary(&id);
     assert_eq!(contract.milestones.len(), 2);
 }
 
@@ -222,6 +284,17 @@ fn set_max_escrow_at_minimum_boundary_succeeds() {
 }
 
 #[test]
+fn set_max_arbiters_at_boundary_succeeds() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    assert!(client.set_max_arbiters(&MIN_MAX_ARBITERS));
+    assert_eq!(client.get_max_arbiters(), MIN_MAX_ARBITERS);
+    assert!(client.set_max_arbiters(&MAX_MAX_ARBITERS));
+    assert_eq!(client.get_max_arbiters(), MAX_MAX_ARBITERS);
+}
+
+#[test]
 fn default_limits_apply_when_not_set() {
     let env = Env::default();
     env.mock_all_auths();
@@ -231,10 +304,16 @@ fn default_limits_apply_when_not_set() {
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
     let milestones = vec![
-        &env, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
-        100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
+        &env, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128, 100_i128,
+        100_i128, 100_i128,
     ];
-    let id = client.create_contract(&client_addr, &freelancer_addr, &milestones);
+    let id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
     assert_eq!(id, 1);
 }
 
@@ -254,4 +333,13 @@ fn set_max_escrow_stroops_event_is_emitted() {
 
     assert!(client.set_max_escrow_stroops(&25_000_000_000_000));
     assert_eq!(client.get_max_escrow_stroops(), 25_000_000_000_000);
+}
+
+#[test]
+fn set_max_arbiters_event_is_emitted() {
+    let (env, contract_id, _admin) = setup_initialized();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    assert!(client.set_max_arbiters(&4));
+    assert_eq!(client.get_max_arbiters(), 4);
 }

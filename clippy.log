@@ -1,0 +1,2496 @@
+   Compiling libc v0.2.183
+    Checking once_cell v1.21.4
+    Checking ahash v0.8.12
+    Checking hashbrown v0.13.2
+    Checking getrandom v0.2.17
+    Checking rand_core v0.6.4
+    Checking rand_chacha v0.3.1
+    Checking ff v0.13.1
+    Checking crypto-bigint v0.5.5
+    Checking signature v2.2.0
+    Checking group v0.13.0
+    Checking ed25519 v2.2.3
+    Checking ed25519-dalek v2.2.0
+    Checking rand v0.8.5
+    Checking ark-std v0.4.0
+    Checking ark-serialize v0.4.2
+    Checking ark-ff v0.4.2
+    Checking elliptic-curve v0.13.8
+    Checking ecdsa v0.16.9
+    Checking primeorder v0.13.6
+    Checking p256 v0.13.2
+    Checking k256 v0.13.4
+    Checking ark-poly v0.4.2
+    Checking ark-ec v0.4.2
+    Checking ark-bls12-381 v0.4.0
+    Checking soroban-env-host v22.1.3
+    Checking soroban-ledger-snapshot v22.0.11
+    Checking soroban-sdk v22.0.11
+    Checking escrow v0.1.0 (/home/semicolon/Drip/Talenttrust-Contracts/contracts/escrow)
+error[E0428]: the name `MAX_MILESTONES` is defined multiple times
+   --> contracts/escrow/src/lib.rs:183:1
+    |
+112 | pub const MAX_MILESTONES: u32 = DEFAULT_MAX_MILESTONES;
+    | ------------------------------------------------------- previous definition of the value `MAX_MILESTONES` here
+...
+183 | pub const MAX_MILESTONES: u32 = 10;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MAX_MILESTONES` redefined here
+    |
+    = note: `MAX_MILESTONES` must be defined only once in the value namespace of this module
+
+error[E0428]: the name `MAX_TOTAL_ESCROW_STROOPS` is defined multiple times
+   --> contracts/escrow/src/lib.rs:186:1
+    |
+115 | pub const MAX_TOTAL_ESCROW_STROOPS: i128 = DEFAULT_MAX_TOTAL_ESCROW_STROOPS;
+    | ---------------------------------------------------------------------------- previous definition of the value `MAX_TOTAL_ESCROW_STROOPS` here
+...
+186 | pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MAX_TOTAL_ESCROW_STROOPS` redefined here
+    |
+    = note: `MAX_TOTAL_ESCROW_STROOPS` must be defined only once in the value namespace of this module
+
+error[E0428]: the name `DEFAULT_MAX_MILESTONES` is defined multiple times
+   --> contracts/escrow/src/lib.rs:198:1
+    |
+106 | pub const DEFAULT_MAX_MILESTONES: u32 = 10;
+    | ------------------------------------------- previous definition of the value `DEFAULT_MAX_MILESTONES` here
+...
+198 | pub const DEFAULT_MAX_MILESTONES: u32 = 10;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `DEFAULT_MAX_MILESTONES` redefined here
+    |
+    = note: `DEFAULT_MAX_MILESTONES` must be defined only once in the value namespace of this module
+
+error[E0428]: the name `DEFAULT_MAX_TOTAL_ESCROW_STROOPS` is defined multiple times
+   --> contracts/escrow/src/lib.rs:200:1
+    |
+109 | pub const DEFAULT_MAX_TOTAL_ESCROW_STROOPS: i128 = 10_000_000_000_000;
+    | ---------------------------------------------------------------------- previous definition of the value `DEFAULT_MAX_TOTAL_ESCROW_STROOPS` here
+...
+200 | pub const DEFAULT_MAX_TOTAL_ESCROW_STROOPS: i128 = 10_000_000_000_000;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `DEFAULT_MAX_TOTAL_ESCROW_STROOPS` redefined here
+    |
+    = note: `DEFAULT_MAX_TOTAL_ESCROW_STROOPS` must be defined only once in the value namespace of this module
+
+error[E0428]: the name `MIN_MAX_MILESTONES` is defined multiple times
+   --> contracts/escrow/src/lib.rs:202:1
+    |
+118 | pub const MIN_MAX_MILESTONES: u32 = 1;
+    | -------------------------------------- previous definition of the value `MIN_MAX_MILESTONES` here
+...
+202 | pub const MIN_MAX_MILESTONES: u32 = 1;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MIN_MAX_MILESTONES` redefined here
+    |
+    = note: `MIN_MAX_MILESTONES` must be defined only once in the value namespace of this module
+
+error[E0428]: the name `MAX_MAX_MILESTONES` is defined multiple times
+   --> contracts/escrow/src/lib.rs:204:1
+    |
+121 | pub const MAX_MAX_MILESTONES: u32 = 100;
+    | ---------------------------------------- previous definition of the value `MAX_MAX_MILESTONES` here
+...
+204 | pub const MAX_MAX_MILESTONES: u32 = 100;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MAX_MAX_MILESTONES` redefined here
+    |
+    = note: `MAX_MAX_MILESTONES` must be defined only once in the value namespace of this module
+
+error[E0428]: the name `MIN_MAX_ESCROW_STROOPS` is defined multiple times
+   --> contracts/escrow/src/lib.rs:206:1
+    |
+124 | pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
+    | --------------------------------------------------- previous definition of the value `MIN_MAX_ESCROW_STROOPS` here
+...
+206 | pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MIN_MAX_ESCROW_STROOPS` redefined here
+    |
+    = note: `MIN_MAX_ESCROW_STROOPS` must be defined only once in the value namespace of this module
+
+error[E0428]: the name `MAINNET_PROTOCOL_VERSION` is defined multiple times
+   --> contracts/escrow/src/lib.rs:214:1
+    |
+126 | pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
+    | ----------------------------------------------- previous definition of the value `MAINNET_PROTOCOL_VERSION` here
+...
+214 | pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MAINNET_PROTOCOL_VERSION` redefined here
+    |
+    = note: `MAINNET_PROTOCOL_VERSION` must be defined only once in the value namespace of this module
+
+error[E0428]: the name `MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS` is defined multiple times
+   --> contracts/escrow/src/lib.rs:216:1
+    |
+127 | pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
+    | ------------------------------------------------------------------------------------------ previous definition of the value `MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS` here
+...
+216 | pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS` redefined here
+    |
+    = note: `MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS` must be defined only once in the value namespace of this module
+
+error[E0428]: the name `PAGE_CEILING` is defined multiple times
+   --> contracts/escrow/src/lib.rs:218:1
+    |
+128 | pub const PAGE_CEILING: u32 = 100;
+    | ---------------------------------- previous definition of the value `PAGE_CEILING` here
+...
+218 | pub const PAGE_CEILING: u32 = 50;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `PAGE_CEILING` redefined here
+    |
+    = note: `PAGE_CEILING` must be defined only once in the value namespace of this module
+
+error[E0255]: the name `MAX_SINGLE_AMOUNT_STROOPS` is defined multiple times
+   --> contracts/escrow/src/lib.rs:185:1
+    |
+ 88 | pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
+    |         -------------------------------------------- previous import of the value `MAX_SINGLE_AMOUNT_STROOPS` here
+...
+185 | pub const MAX_SINGLE_AMOUNT_STROOPS: i128 = crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MAX_SINGLE_AMOUNT_STROOPS` redefined here
+    |
+    = note: `MAX_SINGLE_AMOUNT_STROOPS` must be defined only once in the value namespace of this module
+help: you can use `as` to change the binding name of the import
+    |
+ 88 | pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS as OtherMAX_SINGLE_AMOUNT_STROOPS;
+    |                                                      +++++++++++++++++++++++++++++++++
+
+error[E0428]: the name `MaxMilestones` is defined multiple times
+  --> contracts/escrow/src/types.rs:96:5
+   |
+67 |     MaxMilestones,
+   |     ------------- previous definition of the type `MaxMilestones` here
+...
+96 |     MaxMilestones,
+   |     ^^^^^^^^^^^^^ `MaxMilestones` redefined here
+   |
+   = note: `MaxMilestones` must be defined only once in the type namespace of this enum
+
+error[E0428]: the name `__deposit_funds` is defined multiple times
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__deposit_funds` redefined here
+    |
+    = note: `__deposit_funds` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0428]: the name `__propose_client_migration` is defined multiple times
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__propose_client_migration` redefined here
+    |
+    = note: `__propose_client_migration` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0428]: the name `__accept_client_migration` is defined multiple times
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__accept_client_migration` redefined here
+    |
+    = note: `__accept_client_migration` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0428]: the name `__has_pending_client_migration` is defined multiple times
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__has_pending_client_migration` redefined here
+    |
+    = note: `__has_pending_client_migration` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0428]: the name `__get_pending_client_migration` is defined multiple times
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__get_pending_client_migration` redefined here
+    |
+    = note: `__get_pending_client_migration` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0428]: the name `__approve_milestone_release` is defined multiple times
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__approve_milestone_release` redefined here
+    |
+    = note: `__approve_milestone_release` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0428]: the name `__release_milestone` is defined multiple times
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__release_milestone` redefined here
+    |
+    = note: `__release_milestone` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0428]: the name `__propose_governance_admin` is defined multiple times
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__propose_governance_admin` redefined here
+    |
+    = note: `__propose_governance_admin` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0428]: the name `__accept_governance_admin` is defined multiple times
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^ `__accept_governance_admin` redefined here
+    |
+    = note: `__accept_governance_admin` must be defined only once in the type namespace of this module
+    = note: this error originates in the attribute macro `contractimpl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: contract function name is too long: 40, max is 32
+    --> contracts/escrow/src/lib.rs:2657:12
+     |
+2657 |     pub fn get_pending_governance_admin_proposed_at(env: Env) -> Option<u32> {
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0252]: the name `MilestoneIndexEvent` is defined multiple times
+ --> contracts/escrow/src/events.rs:5:9
+  |
+1 | use crate::types::{Contract, EventEntry, MilestoneIndexEvent};
+  |                                          ------------------- previous import of the type `MilestoneIndexEvent` here
+...
+5 | pub use crate::types::MilestoneIndexEvent;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MilestoneIndexEvent` reimported here
+  |
+  = note: `MilestoneIndexEvent` must be defined only once in the type namespace of this module
+
+error[E0255]: the name `MilestoneApprovals` is defined multiple times
+   --> contracts/escrow/src/lib.rs:148:1
+    |
+100 |     DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
+    |                                                                            ------------------ previous import of the type `MilestoneApprovals` here
+...
+148 | pub struct MilestoneApprovals {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MilestoneApprovals` redefined here
+    |
+    = note: `MilestoneApprovals` must be defined only once in the type namespace of this module
+help: you can use `as` to change the binding name of the import
+    |
+100 |     DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals as OtherMilestoneApprovals,
+    |                                                                                               ++++++++++++++++++++++++++
+
+error[E0432]: unresolved import `crate::types::ReleaseAuthorization`
+  --> contracts/escrow/src/approvals.rs:16:5
+   |
+16 |     ReleaseAuthorization, MAX_PAGINATION_LIMIT,
+   |     ^^^^^^^^^^^^^^^^^^^^ no `ReleaseAuthorization` in `types`
+
+error[E0432]: unresolved imports `crate::ReleaseAuthorization`, `crate::SimulateCreateContractOutcome`, `crate::SimulatedDeposit`, `crate::SimulatedRefund`, `crate::SimulatedRelease`
+ --> contracts/escrow/src/simulate.rs:3:55
+  |
+3 |     EscrowArgs, EscrowClient, EscrowError, Milestone, ReleaseAuthorization,
+  |                                                       ^^^^^^^^^^^^^^^^^^^^ no `ReleaseAuthorization` in the root
+4 |     SimulateCreateContractOutcome, SimulatedDeposit, SimulatedRefund, SimulatedRelease,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^ no `SimulatedRelease` in the root
+  |     |                              |                 |
+  |     |                              |                 no `SimulatedRefund` in the root
+  |     |                              no `SimulatedDeposit` in the root
+  |     no `SimulateCreateContractOutcome` in the root
+  |
+  = help: consider importing this struct instead:
+          crate::types::SimulateCreateContractOutcome
+  = help: consider importing this struct instead:
+          crate::types::SimulatedDeposit
+  = help: consider importing this struct instead:
+          crate::types::SimulatedRefund
+  = help: consider importing this struct instead:
+          crate::types::SimulatedRelease
+
+error[E0432]: unresolved import `types::DISPUTE_STORAGE_VERSION`
+  --> contracts/escrow/src/lib.rs:97:9
+   |
+97 | pub use types::DISPUTE_STORAGE_VERSION;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `DISPUTE_STORAGE_VERSION` in `types`
+
+error[E0432]: unresolved import `types::ReleaseAuthorization`
+   --> contracts/escrow/src/lib.rs:101:65
+    |
+101 |     MilestoneSummary, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation,
+    |                                                                 ^^^^^^^^^^^^^^^^^^^^ no `ReleaseAuthorization` in `types`
+    |
+    = note: unresolved item `crate::simulate::__simulate_refund::ReleaseAuthorization` exists but is inaccessible
+
+error: cannot find macro `symbol_short` in this scope
+   --> contracts/escrow/src/dispute.rs:268:36
+    |
+268 |         (symbol_short!("dispute"), symbol_short!("resolved")),
+    |                                    ^^^^^^^^^^^^
+    |
+help: consider importing one of these macros
+    |
+ 10 + use crate::symbol_short;
+    |
+ 10 + use soroban_sdk::symbol_short;
+    |
+
+error: cannot find macro `symbol_short` in this scope
+   --> contracts/escrow/src/dispute.rs:268:10
+    |
+268 |         (symbol_short!("dispute"), symbol_short!("resolved")),
+    |          ^^^^^^^^^^^^
+    |
+help: consider importing one of these macros
+    |
+ 10 + use crate::symbol_short;
+    |
+ 10 + use soroban_sdk::symbol_short;
+    |
+
+error: cannot find macro `symbol_short` in this scope
+   --> contracts/escrow/src/dispute.rs:219:36
+    |
+219 |         (symbol_short!("dispute"), symbol_short!("opened")),
+    |                                    ^^^^^^^^^^^^
+    |
+help: consider importing one of these macros
+    |
+ 10 + use crate::symbol_short;
+    |
+ 10 + use soroban_sdk::symbol_short;
+    |
+
+error: cannot find macro `symbol_short` in this scope
+   --> contracts/escrow/src/dispute.rs:219:10
+    |
+219 |         (symbol_short!("dispute"), symbol_short!("opened")),
+    |          ^^^^^^^^^^^^
+    |
+help: consider importing one of these macros
+    |
+ 10 + use crate::symbol_short;
+    |
+ 10 + use soroban_sdk::symbol_short;
+    |
+
+error[E0433]: failed to resolve: unresolved import
+   --> contracts/escrow/src/types.rs:394:36
+    |
+394 |             max_milestones: crate::contracts::DEFAULT_MAX_MILESTONES,
+    |                                    ^^^^^^^^^ unresolved import
+    |
+help: a struct with a similar name exists
+    |
+394 -             max_milestones: crate::contracts::DEFAULT_MAX_MILESTONES,
+394 +             max_milestones: crate::Contract::DEFAULT_MAX_MILESTONES,
+    |
+help: a similar path exists
+    |
+394 |             max_milestones: crate::core::contracts::DEFAULT_MAX_MILESTONES,
+    |                                      ++++++
+
+error[E0433]: failed to resolve: unresolved import
+   --> contracts/escrow/src/types.rs:395:40
+    |
+395 |             max_escrow_stroops: crate::contracts::DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
+    |                                        ^^^^^^^^^ unresolved import
+    |
+help: a struct with a similar name exists
+    |
+395 -             max_escrow_stroops: crate::contracts::DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
+395 +             max_escrow_stroops: crate::Contract::DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
+    |
+help: a similar path exists
+    |
+395 |             max_escrow_stroops: crate::core::contracts::DEFAULT_MAX_TOTAL_ESCROW_STROOPS,
+    |                                          ++++++
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `storage_validation`
+  --> contracts/escrow/src/deposit.rs:26:5
+   |
+26 |     storage_validation::validate_stroop_amount(env, amount);
+   |     ^^^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `storage_validation`
+   |
+help: to make use of source file contracts/escrow/src/storage_validation.rs, use `mod storage_validation` in this file to declare the module
+  --> contracts/escrow/src/lib.rs:60:1
+   |
+60 + mod storage_validation;
+   |
+help: consider importing this module
+   |
+ 1 + use crate::storage_validation;
+   |
+
+error[E0425]: cannot find value `MAX_SINGLE_AMOUNT_STROOPS` in this scope
+  --> contracts/escrow/src/deposit.rs:28:17
+   |
+28 |     if amount > MAX_SINGLE_AMOUNT_STROOPS {
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing one of these constants
+   |
+ 1 + use crate::MAX_SINGLE_AMOUNT_STROOPS;
+   |
+ 1 + use crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
+   |
+
+error[E0412]: cannot find type `Address` in this scope
+  --> contracts/escrow/src/events.rs:67:14
+   |
+67 |     caller: &Address,
+   |              ^^^^^^^ not found in this scope
+   |
+help: consider importing one of these items
+   |
+ 1 + use crate::Address;
+   |
+ 1 + use soroban_sdk::Address;
+   |
+ 1 + use soroban_sdk::testutils::Address;
+   |
+
+error[E0412]: cannot find type `ContractStatus` in this scope
+  --> contracts/escrow/src/events.rs:93:19
+   |
+93 |     final_status: ContractStatus,
+   |                   ^^^^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing this enum through its public re-export
+   |
+ 1 + use crate::ContractStatus;
+   |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `keys`
+   --> contracts/escrow/src/finalize.rs:103:29
+    |
+103 |         let milestone_key = keys::milestone_key(env, contract_id);
+    |                             ^^^^ use of unresolved module or unlinked crate `keys`
+    |
+help: to make use of source file contracts/escrow/src/keys.rs, use `mod keys` in this file to declare the module
+   --> contracts/escrow/src/lib.rs:60:1
+    |
+ 60 + mod keys;
+    |
+help: consider importing this module
+    |
+  1 + use crate::keys;
+    |
+
+error[E0412]: cannot find type `EscrowClient` in this scope
+ --> contracts/escrow/src/reputation.rs:6:1
+  |
+6 | #[contractimpl]
+  | ^^^^^^^^^^^^^^^ not found in this scope
+  |
+  = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this struct
+  |
+1 + use crate::EscrowClient;
+  |
+
+error[E0412]: cannot find type `EscrowArgs` in this scope
+ --> contracts/escrow/src/reputation.rs:6:1
+  |
+6 | #[contractimpl]
+  | ^^^^^^^^^^^^^^^ not found in this scope
+  |
+  = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this struct
+  |
+1 + use crate::EscrowArgs;
+  |
+
+error[E0412]: cannot find type `ReleaseAuthorization` in this scope
+   --> contracts/escrow/src/types.rs:265:32
+    |
+265 |     pub release_authorization: ReleaseAuthorization,
+    |                                ^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `ReleaseAuthorization` in this scope
+   --> contracts/escrow/src/types.rs:265:32
+    |
+265 |     pub release_authorization: ReleaseAuthorization,
+    |                                ^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+259 | pub struct SimulateCreateContractOutcome<ReleaseAuthorization> {
+    |                                         ++++++++++++++++++++++
+
+error[E0412]: cannot find type `ReleaseAuthorization` in this scope
+   --> contracts/escrow/src/types.rs:303:32
+    |
+303 |     pub release_authorization: ReleaseAuthorization,
+    |                                ^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `ReleaseAuthorization` in this scope
+   --> contracts/escrow/src/types.rs:303:32
+    |
+303 |     pub release_authorization: ReleaseAuthorization,
+    |                                ^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+294 | pub struct Contract<ReleaseAuthorization> {
+    |                    ++++++++++++++++++++++
+
+error[E0433]: failed to resolve: use of undeclared type `Symbol`
+   --> contracts/escrow/src/create_contract.rs:162:29
+    |
+162 |         let milestone_key = Symbol::new(&env, "milestones");
+    |                             ^^^^^^ use of undeclared type `Symbol`
+    |
+help: consider importing one of these structs
+    |
+  1 + use crate::Symbol;
+    |
+  1 + use soroban_sdk::Symbol;
+    |
+
+error[E0412]: cannot find type `Env` in this scope
+  --> contracts/escrow/src/dispute.rs:16:33
+   |
+16 | pub fn get_dispute_config(env: &Env) -> Option<DisputeConfig> {
+   |                                 ^^^ not found in this scope
+   |
+help: consider importing one of these structs
+   |
+10 + use crate::Env;
+   |
+10 + use soroban_sdk::Env;
+   |
+
+error[E0412]: cannot find type `DisputeConfig` in this scope
+  --> contracts/escrow/src/dispute.rs:16:48
+   |
+16 | pub fn get_dispute_config(env: &Env) -> Option<DisputeConfig> {
+   |                                                ^^^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing this struct through its public re-export
+   |
+10 + use crate::DisputeConfig;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `DataKey`
+  --> contracts/escrow/src/dispute.rs:17:37
+   |
+17 |     env.storage().persistent().get(&DataKey::DisputeConfigKey)
+   |                                     ^^^^^^^ use of undeclared type `DataKey`
+   |
+help: consider importing this enum through its public re-export
+   |
+10 + use crate::DataKey;
+   |
+
+error[E0412]: cannot find type `Env` in this scope
+  --> contracts/escrow/src/dispute.rs:21:33
+   |
+21 | pub fn set_dispute_config(env: &Env, config: DisputeConfig) {
+   |                                 ^^^ not found in this scope
+   |
+help: consider importing one of these structs
+   |
+10 + use crate::Env;
+   |
+10 + use soroban_sdk::Env;
+   |
+
+error[E0412]: cannot find type `DisputeConfig` in this scope
+  --> contracts/escrow/src/dispute.rs:21:46
+   |
+21 | pub fn set_dispute_config(env: &Env, config: DisputeConfig) {
+   |                                              ^^^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing this struct through its public re-export
+   |
+10 + use crate::DisputeConfig;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `DataKey`
+  --> contracts/escrow/src/dispute.rs:24:15
+   |
+24 |         .set(&DataKey::DisputeConfigKey, &config);
+   |               ^^^^^^^ use of undeclared type `DataKey`
+   |
+help: consider importing this enum through its public re-export
+   |
+10 + use crate::DataKey;
+   |
+
+error[E0412]: cannot find type `DisputeInfo` in this scope
+  --> contracts/escrow/src/dispute.rs:46:13
+   |
+46 | ) -> Result<DisputeInfo, Error> {
+   |             ^^^^^^^^^^^ not found in this scope
+   |
+help: you might be missing a type parameter
+   |
+43 | pub fn resolution_payouts<DisputeInfo>(
+   |                          +++++++++++++
+
+error[E0422]: cannot find struct, variant or union type `DisputeInfo` in this scope
+  --> contracts/escrow/src/dispute.rs:57:45
+   |
+57 |         DisputeResolution::FullRefund => Ok(DisputeInfo {
+   |                                             ^^^^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `DisputeInfo` in this scope
+  --> contracts/escrow/src/dispute.rs:73:45
+   |
+73 |         DisputeResolution::FullPayout => Ok(DisputeInfo {
+   |                                             ^^^^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `DisputeInfo` in this scope
+  --> contracts/escrow/src/dispute.rs:91:16
+   |
+91 |             Ok(DisputeInfo {
+   |                ^^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Env` in this scope
+   --> contracts/escrow/src/dispute.rs:117:37
+    |
+117 | pub fn store_dispute_metadata(env: &Env, contract_id: u32, metadata: &DisputeMetadata) {
+    |                                     ^^^ not found in this scope
+    |
+help: consider importing one of these structs
+    |
+ 10 + use crate::Env;
+    |
+ 10 + use soroban_sdk::Env;
+    |
+
+error[E0412]: cannot find type `DisputeMetadata` in this scope
+   --> contracts/escrow/src/dispute.rs:117:71
+    |
+117 | pub fn store_dispute_metadata(env: &Env, contract_id: u32, metadata: &DisputeMetadata) {
+    |                                                                       ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `DataKey`
+   --> contracts/escrow/src/dispute.rs:120:15
+    |
+120 |         .set(&DataKey::Dispute(contract_id), metadata);
+    |               ^^^^^^^ use of undeclared type `DataKey`
+    |
+help: consider importing this enum through its public re-export
+    |
+ 10 + use crate::DataKey;
+    |
+
+error[E0412]: cannot find type `Env` in this scope
+   --> contracts/escrow/src/dispute.rs:124:37
+    |
+124 | pub fn clear_dispute_metadata(env: &Env, contract_id: u32) {
+    |                                     ^^^ not found in this scope
+    |
+help: consider importing one of these structs
+    |
+ 10 + use crate::Env;
+    |
+ 10 + use soroban_sdk::Env;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `DataKey`
+   --> contracts/escrow/src/dispute.rs:127:18
+    |
+127 |         .remove(&DataKey::Dispute(contract_id));
+    |                  ^^^^^^^ use of undeclared type `DataKey`
+    |
+help: consider importing this enum through its public re-export
+    |
+ 10 + use crate::DataKey;
+    |
+
+error[E0412]: cannot find type `Env` in this scope
+   --> contracts/escrow/src/dispute.rs:131:42
+    |
+131 | pub fn get_dispute_storage_version(env: &Env, contract_id: u32) -> u32 {
+    |                                          ^^^ not found in this scope
+    |
+help: consider importing one of these structs
+    |
+ 10 + use crate::Env;
+    |
+ 10 + use soroban_sdk::Env;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `DataKey`
+   --> contracts/escrow/src/dispute.rs:135:15
+    |
+135 |         .has(&DataKey::Dispute(contract_id))
+    |               ^^^^^^^ use of undeclared type `DataKey`
+    |
+help: consider importing this enum through its public re-export
+    |
+ 10 + use crate::DataKey;
+    |
+
+error[E0425]: cannot find value `DISPUTE_STORAGE_VERSION` in this scope
+   --> contracts/escrow/src/dispute.rs:137:9
+    |
+137 |         DISPUTE_STORAGE_VERSION
+    |         ^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Env` in this scope
+   --> contracts/escrow/src/dispute.rs:146:36
+    |
+146 | pub fn load_dispute_metadata(env: &Env, contract_id: u32) -> DisputeMetadata {
+    |                                    ^^^ not found in this scope
+    |
+help: consider importing one of these structs
+    |
+ 10 + use crate::Env;
+    |
+ 10 + use soroban_sdk::Env;
+    |
+
+error[E0412]: cannot find type `DisputeMetadata` in this scope
+   --> contracts/escrow/src/dispute.rs:146:62
+    |
+146 | pub fn load_dispute_metadata(env: &Env, contract_id: u32) -> DisputeMetadata {
+    |                                                              ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `DataKey`
+   --> contracts/escrow/src/dispute.rs:150:37
+    |
+150 |         .get::<_, DisputeMetadata>(&DataKey::Dispute(contract_id))
+    |                                     ^^^^^^^ use of undeclared type `DataKey`
+    |
+help: consider importing this enum through its public re-export
+    |
+ 10 + use crate::DataKey;
+    |
+
+error[E0412]: cannot find type `DisputeMetadata` in this scope
+   --> contracts/escrow/src/dispute.rs:150:19
+    |
+150 |         .get::<_, DisputeMetadata>(&DataKey::Dispute(contract_id))
+    |                   ^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+146 | pub fn load_dispute_metadata<DisputeMetadata>(env: &Env, contract_id: u32) -> DisputeMetadata {
+    |                             +++++++++++++++++
+
+error[E0425]: cannot find value `DISPUTE_STORAGE_VERSION` in this scope
+   --> contracts/escrow/src/dispute.rs:152:34
+    |
+152 |         if meta.schema_version > DISPUTE_STORAGE_VERSION {
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `DataKey`
+   --> contracts/escrow/src/dispute.rs:161:39
+    |
+161 |         .get::<_, DisputeMetadataV0>(&DataKey::Dispute(contract_id))
+    |                                       ^^^^^^^ use of undeclared type `DataKey`
+    |
+help: consider importing this enum through its public re-export
+    |
+ 10 + use crate::DataKey;
+    |
+
+error[E0412]: cannot find type `DisputeMetadataV0` in this scope
+   --> contracts/escrow/src/dispute.rs:161:19
+    |
+161 |         .get::<_, DisputeMetadataV0>(&DataKey::Dispute(contract_id))
+    |                   ^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+146 | pub fn load_dispute_metadata<DisputeMetadataV0>(env: &Env, contract_id: u32) -> DisputeMetadata {
+    |                             +++++++++++++++++++
+
+error[E0412]: cannot find type `DisputeMetadataV0` in this scope
+   --> contracts/escrow/src/dispute.rs:172:46
+    |
+172 | pub fn migrate_dispute_metadata_v0_to_v1(v0: DisputeMetadataV0) -> DisputeMetadata {
+    |                                              ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `DisputeMetadata` in this scope
+   --> contracts/escrow/src/dispute.rs:172:68
+    |
+172 | pub fn migrate_dispute_metadata_v0_to_v1(v0: DisputeMetadataV0) -> DisputeMetadata {
+    |                                                                    ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `DisputeMetadata` in this scope
+   --> contracts/escrow/src/dispute.rs:173:5
+    |
+173 |     DisputeMetadata {
+    |     ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `DISPUTE_STORAGE_VERSION` in this scope
+   --> contracts/escrow/src/dispute.rs:174:25
+    |
+174 |         schema_version: DISPUTE_STORAGE_VERSION,
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `Env` in this scope
+   --> contracts/escrow/src/dispute.rs:185:40
+    |
+185 | pub(crate) fn raise_dispute_impl(env: &Env, contract_id: u32, caller: Address) -> bool {
+    |                                        ^^^ not found in this scope
+    |
+help: consider importing one of these structs
+    |
+ 10 + use crate::Env;
+    |
+ 10 + use soroban_sdk::Env;
+    |
+
+error[E0412]: cannot find type `Address` in this scope
+   --> contracts/escrow/src/dispute.rs:185:71
+    |
+185 | pub(crate) fn raise_dispute_impl(env: &Env, contract_id: u32, caller: Address) -> bool {
+    |                                                                       ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these items
+    |
+ 10 + use crate::Address;
+    |
+ 10 + use soroban_sdk::Address;
+    |
+ 10 + use soroban_sdk::testutils::Address;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `Escrow`
+   --> contracts/escrow/src/dispute.rs:186:5
+    |
+186 |     Escrow::require_initialized(env);
+    |     ^^^^^^ use of undeclared type `Escrow`
+    |
+help: consider importing this struct
+    |
+ 10 + use crate::Escrow;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `Escrow`
+   --> contracts/escrow/src/dispute.rs:187:5
+    |
+187 |     Escrow::require_not_paused(env);
+    |     ^^^^^^ use of undeclared type `Escrow`
+    |
+help: consider importing this struct
+    |
+ 10 + use crate::Escrow;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `DataKey`
+   --> contracts/escrow/src/dispute.rs:193:15
+    |
+193 |         .get(&DataKey::Contract(contract_id))
+    |               ^^^^^^^ use of undeclared type `DataKey`
+    |
+help: consider importing this enum through its public re-export
+    |
+ 10 + use crate::DataKey;
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts/escrow/src/dispute.rs:196:5
+    |
+196 |     ttl::extend_contract_ttl(env, contract_id);
+    |     ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+help: to make use of source file contracts/escrow/src/ttl.rs, use `mod ttl` in this file to declare the module
+   --> contracts/escrow/src/lib.rs:60:1
+    |
+ 60 + mod ttl;
+    |
+help: consider importing this module
+    |
+ 10 + use crate::ttl;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `Escrow`
+   --> contracts/escrow/src/dispute.rs:197:5
+    |
+197 |     Escrow::require_not_finalized(env, contract_id);
+    |     ^^^^^^ use of undeclared type `Escrow`
+    |
+help: consider importing this struct
+    |
+ 10 + use crate::Escrow;
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts/escrow/src/dispute.rs:210:22
+    |
+210 |     let milestones = ttl::load_milestones(env, contract_id);
+    |                      ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+help: to make use of source file contracts/escrow/src/ttl.rs, use `mod ttl` in this file to declare the module
+   --> contracts/escrow/src/lib.rs:60:1
+    |
+ 60 + mod ttl;
+    |
+help: consider importing this module
+    |
+ 10 + use crate::ttl;
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `rollback`
+   --> contracts/escrow/src/dispute.rs:211:5
+    |
+211 |     rollback::store_dispute_rollback(env, contract_id, &contract, &milestones);
+    |     ^^^^^^^^ use of unresolved module or unlinked crate `rollback`
+    |
+help: to make use of source file contracts/escrow/src/rollback.rs, use `mod rollback` in this file to declare the module
+   --> contracts/escrow/src/lib.rs:60:1
+    |
+ 60 + mod rollback;
+    |
+help: consider importing this module
+    |
+ 10 + use crate::rollback;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `DataKey`
+   --> contracts/escrow/src/dispute.rs:215:15
+    |
+215 |         .set(&DataKey::Contract(contract_id), &contract);
+    |               ^^^^^^^ use of undeclared type `DataKey`
+    |
+help: consider importing this enum through its public re-export
+    |
+ 10 + use crate::DataKey;
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts/escrow/src/dispute.rs:216:5
+    |
+216 |     ttl::extend_contract_ttl(env, contract_id);
+    |     ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+help: to make use of source file contracts/escrow/src/ttl.rs, use `mod ttl` in this file to declare the module
+   --> contracts/escrow/src/lib.rs:60:1
+    |
+ 60 + mod ttl;
+    |
+help: consider importing this module
+    |
+ 10 + use crate::ttl;
+    |
+
+error[E0412]: cannot find type `Env` in this scope
+   --> contracts/escrow/src/dispute.rs:227:11
+    |
+227 |     env: &Env,
+    |           ^^^ not found in this scope
+    |
+help: consider importing one of these structs
+    |
+ 10 + use crate::Env;
+    |
+ 10 + use soroban_sdk::Env;
+    |
+
+error[E0412]: cannot find type `Address` in this scope
+   --> contracts/escrow/src/dispute.rs:229:14
+    |
+229 |     arbiter: Address,
+    |              ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these items
+    |
+ 10 + use crate::Address;
+    |
+ 10 + use soroban_sdk::Address;
+    |
+ 10 + use soroban_sdk::testutils::Address;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `Escrow`
+   --> contracts/escrow/src/dispute.rs:232:5
+    |
+232 |     Escrow::require_initialized(env);
+    |     ^^^^^^ use of undeclared type `Escrow`
+    |
+help: consider importing this struct
+    |
+ 10 + use crate::Escrow;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `Escrow`
+   --> contracts/escrow/src/dispute.rs:233:5
+    |
+233 |     Escrow::require_not_paused(env);
+    |     ^^^^^^ use of undeclared type `Escrow`
+    |
+help: consider importing this struct
+    |
+ 10 + use crate::Escrow;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `DataKey`
+   --> contracts/escrow/src/dispute.rs:239:15
+    |
+239 |         .get(&DataKey::Contract(contract_id))
+    |               ^^^^^^^ use of undeclared type `DataKey`
+    |
+help: consider importing this enum through its public re-export
+    |
+ 10 + use crate::DataKey;
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts/escrow/src/dispute.rs:242:5
+    |
+242 |     ttl::extend_contract_ttl(env, contract_id);
+    |     ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+help: to make use of source file contracts/escrow/src/ttl.rs, use `mod ttl` in this file to declare the module
+   --> contracts/escrow/src/lib.rs:60:1
+    |
+ 60 + mod ttl;
+    |
+help: consider importing this module
+    |
+ 10 + use crate::ttl;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `Escrow`
+   --> contracts/escrow/src/dispute.rs:243:5
+    |
+243 |     Escrow::require_not_finalized(env, contract_id);
+    |     ^^^^^^ use of undeclared type `Escrow`
+    |
+help: consider importing this struct
+    |
+ 10 + use crate::Escrow;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `Escrow`
+   --> contracts/escrow/src/dispute.rs:259:9
+    |
+259 |         Escrow::grant_pending_reputation_credit(env, &contract.freelancer);
+    |         ^^^^^^ use of undeclared type `Escrow`
+    |
+help: consider importing this struct
+    |
+ 10 + use crate::Escrow;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `DataKey`
+   --> contracts/escrow/src/dispute.rs:264:15
+    |
+264 |         .set(&DataKey::Contract(contract_id), &contract);
+    |               ^^^^^^^ use of undeclared type `DataKey`
+    |
+help: consider importing this enum through its public re-export
+    |
+ 10 + use crate::DataKey;
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `rollback`
+   --> contracts/escrow/src/dispute.rs:265:5
+    |
+265 |     rollback::clear_dispute_rollback(env, contract_id);
+    |     ^^^^^^^^ use of unresolved module or unlinked crate `rollback`
+    |
+help: to make use of source file contracts/escrow/src/rollback.rs, use `mod rollback` in this file to declare the module
+   --> contracts/escrow/src/lib.rs:60:1
+    |
+ 60 + mod rollback;
+    |
+help: consider importing this module
+    |
+ 10 + use crate::rollback;
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `ttl`
+   --> contracts/escrow/src/dispute.rs:266:5
+    |
+266 |     ttl::extend_contract_ttl(env, contract_id);
+    |     ^^^ use of unresolved module or unlinked crate `ttl`
+    |
+help: to make use of source file contracts/escrow/src/ttl.rs, use `mod ttl` in this file to declare the module
+   --> contracts/escrow/src/lib.rs:60:1
+    |
+ 60 + mod ttl;
+    |
+help: consider importing this module
+    |
+ 10 + use crate::ttl;
+    |
+
+error[E0425]: cannot find value `MAX_FEE_BPS` in this scope
+   --> contracts/escrow/src/governance.rs:297:31
+    |
+297 |         if protocol_fee_bps > MAX_FEE_BPS {
+    |                               ^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing one of these constants
+    |
+ 10 + use crate::MAX_FEE_BPS;
+    |
+ 10 + use crate::milestones_consts::MAX_FEE_BPS;
+    |
+
+error[E0412]: cannot find type `EscrowClient` in this scope
+  --> contracts/escrow/src/governance.rs:18:1
+   |
+18 | #[soroban_sdk::contractimpl]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+   |
+   = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this struct
+   |
+10 + use crate::EscrowClient;
+   |
+
+error[E0412]: cannot find type `EscrowArgs` in this scope
+  --> contracts/escrow/src/governance.rs:18:1
+   |
+18 | #[soroban_sdk::contractimpl]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+   |
+   = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this struct
+   |
+10 + use crate::EscrowArgs;
+   |
+
+error[E0425]: cannot find function `create_contract_impl` in module `create_contract`
+   --> contracts/escrow/src/lib.rs:463:26
+    |
+463 |         create_contract::create_contract_impl(
+    |                          ^^^^^^^^^^^^^^^^^^^^ not found in `create_contract`
+
+error[E0425]: cannot find function `get_pending_client_migration_impl` in module `migration`
+   --> contracts/escrow/src/lib.rs:515:20
+    |
+515 |         migration::get_pending_client_migration_impl(&env, contract_id)
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in `migration`
+
+error[E0425]: cannot find value `MIN_MAX_BATCH_SETTLEMENT` in this scope
+   --> contracts/escrow/src/lib.rs:847:29
+    |
+847 |         if max_settlement < MIN_MAX_BATCH_SETTLEMENT || max_settlement > MAX_MAX_BATCH_SETTLEMENT {
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `MAX_MAX_BATCH_SETTLEMENT` in this scope
+   --> contracts/escrow/src/lib.rs:847:74
+    |
+847 |         if max_settlement < MIN_MAX_BATCH_SETTLEMENT || max_settlement > MAX_MAX_BATCH_SETTLEMENT {
+    |                                                                          ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `ContractBounds` in this scope
+   --> contracts/escrow/src/lib.rs:882:36
+    |
+882 |     pub fn get_bounds(env: Env) -> ContractBounds {
+    |                                    ^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this struct
+    |
+ 77 + use crate::types::ContractBounds;
+    |
+
+error[E0422]: cannot find struct, variant or union type `ContractBounds` in this scope
+   --> contracts/escrow/src/lib.rs:883:9
+    |
+883 |         ContractBounds {
+    |         ^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this struct
+    |
+ 77 + use crate::types::ContractBounds;
+    |
+
+error[E0412]: cannot find type `AuthorizationRecord` in this scope
+    --> contracts/escrow/src/lib.rs:1917:14
+     |
+1917 |     ) -> Vec<AuthorizationRecord> {
+     |              ^^^^^^^^^^^^^^^^^^^ not found in this scope
+     |
+help: consider importing this struct
+     |
+  77 + use crate::types::AuthorizationRecord;
+     |
+
+error[E0412]: cannot find type `AuthorizationRecord` in this scope
+    --> contracts/escrow/src/lib.rs:1927:14
+     |
+1927 |     ) -> Vec<AuthorizationRecord> {
+     |              ^^^^^^^^^^^^^^^^^^^ not found in this scope
+     |
+help: consider importing this struct
+     |
+  77 + use crate::types::AuthorizationRecord;
+     |
+
+error[E0412]: cannot find type `AuthorizationRecord` in this scope
+    --> contracts/escrow/src/lib.rs:1937:14
+     |
+1937 |     ) -> Vec<AuthorizationRecord> {
+     |              ^^^^^^^^^^^^^^^^^^^ not found in this scope
+     |
+help: consider importing this struct
+     |
+  77 + use crate::types::AuthorizationRecord;
+     |
+
+error[E0412]: cannot find type `EventInput` in this scope
+    --> contracts/escrow/src/lib.rs:2446:64
+     |
+2446 |     pub fn batch_events(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+     |                                                                ^^^^^^^^^^ not found in this scope
+     |
+help: you might be missing a type parameter
+     |
+ 329 | impl<EventInput> Escrow {
+     |     ++++++++++++
+
+error[E0412]: cannot find type `EventInput` in this scope
+    --> contracts/escrow/src/lib.rs:2466:69
+     |
+2466 |     pub fn emit_events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+     |                                                                     ^^^^^^^^^^ not found in this scope
+     |
+help: you might be missing a type parameter
+     |
+ 329 | impl<EventInput> Escrow {
+     |     ++++++++++++
+
+error[E0412]: cannot find type `EventInput` in this scope
+    --> contracts/escrow/src/lib.rs:2471:64
+     |
+2471 |     pub fn events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+     |                                                                ^^^^^^^^^^ not found in this scope
+     |
+help: you might be missing a type parameter
+     |
+ 329 | impl<EventInput> Escrow {
+     |     ++++++++++++
+
+error[E0425]: cannot find value `PROTOCOL_FEE_BPS_DENOMINATOR` in this scope
+    --> contracts/escrow/src/lib.rs:2721:19
+     |
+2721 |         product / PROTOCOL_FEE_BPS_DENOMINATOR as i128
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+     |
+help: consider importing this constant
+     |
+  77 + use crate::milestones_consts::PROTOCOL_FEE_BPS_DENOMINATOR;
+     |
+
+error[E0422]: cannot find struct, variant or union type `DisputeMetadata` in this scope
+    --> contracts/escrow/src/lib.rs:2806:24
+     |
+2806 |         let metadata = DisputeMetadata {
+     |                        ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `BytesN`
+    --> contracts/escrow/src/lib.rs:2809:26
+     |
+2809 |             reason_hash: BytesN::from_array(&env, &[0u8; 32]),
+     |                          ^^^^^^ use of undeclared type `BytesN`
+     |
+help: consider importing one of these items
+     |
+  77 + use soroban_sdk::BytesN;
+     |
+  77 + use soroban_sdk::testutils::BytesN;
+     |
+
+error[E0412]: cannot find type `DisputeMetadata` in this scope
+    --> contracts/escrow/src/lib.rs:2964:62
+     |
+2964 |     pub fn get_dispute(env: Env, contract_id: u32) -> Option<DisputeMetadata> {
+     |                                                              ^^^^^^^^^^^^^^^ not found in this scope
+     |
+help: you might be missing a type parameter
+     |
+ 329 | impl<DisputeMetadata> Escrow {
+     |     +++++++++++++++++
+
+error[E0412]: cannot find type `EventInput` in this scope
+    --> contracts/escrow/src/lib.rs:2446:64
+     |
+2446 |     pub fn batch_events(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+     |                                                                ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `EventInput` in this scope
+    --> contracts/escrow/src/lib.rs:2466:69
+     |
+2466 |     pub fn emit_events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+     |                                                                     ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `EventInput` in this scope
+    --> contracts/escrow/src/lib.rs:2471:64
+     |
+2471 |     pub fn events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+     |                                                                ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `DisputeMetadata` in this scope
+    --> contracts/escrow/src/lib.rs:2964:62
+     |
+2964 |     pub fn get_dispute(env: Env, contract_id: u32) -> Option<DisputeMetadata> {
+     |                                                              ^^^^^^^^^^^^^^^ not found in this scope
+
+error: unused imports: `EventEntry` and `MilestoneIndexEvent`
+ --> contracts/escrow/src/events.rs:1:30
+  |
+1 | use crate::types::{Contract, EventEntry, MilestoneIndexEvent};
+  |                              ^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `-D unused-imports` implied by `-D warnings`
+  = help: to override `-D warnings` add `#[allow(unused_imports)]`
+
+error: unused import: `DataKey`
+ --> contracts/escrow/src/events.rs:2:13
+  |
+2 | use crate::{DataKey, EscrowError};
+  |             ^^^^^^^
+
+error: unused import: `crate::types::MilestoneIndexEvent`
+ --> contracts/escrow/src/events.rs:5:9
+  |
+5 | pub use crate::types::MilestoneIndexEvent;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: unused import: `MAX_RATING`
+  --> contracts/escrow/src/storage_validation.rs:12:34
+   |
+12 |     MAX_FEE_BPS, MAX_MILESTONES, MAX_RATING, MIN_COMMENT_BYTES, MIN_RATING,
+   |                                  ^^^^^^^^^^
+
+error: unused import: `BytesN`
+ --> contracts/escrow/src/types.rs:1:57
+  |
+1 | use soroban_sdk::{contracterror, contracttype, Address, BytesN, String, Vec};
+  |                                                         ^^^^^^
+
+error: unused import: `amount_validation::MAX_SINGLE_AMOUNT_STROOPS`
+  --> contracts/escrow/src/lib.rs:88:9
+   |
+88 | pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: unused import: `MilestoneApprovals`
+   --> contracts/escrow/src/lib.rs:100:76
+    |
+100 |     DisputeResolution, DisputeSplit, Error, GovernedParameters, Milestone, MilestoneApprovals,
+    |                                                                            ^^^^^^^^^^^^^^^^^^
+
+error: unused imports: `EscrowArgs`, `EscrowClient`, `MAX_MILESTONES`, and `keys`
+ --> contracts/escrow/src/create_contract.rs:2:24
+  |
+2 |     amount_validation, keys, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowArgs,
+  |                        ^^^^                                                         ^^^^^^^^^^
+3 |     EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
+  |     ^^^^^^^^^^^^                                                                    ^^^^^^^^^^^^^^
+
+error: unused import: `contractimpl`
+ --> contracts/escrow/src/create_contract.rs:5:19
+  |
+5 | use soroban_sdk::{contractimpl, symbol_short, Address, Env, Vec};
+  |                   ^^^^^^^^^^^^
+
+error[E0081]: discriminant value `54` assigned more than once
+   --> contracts/escrow/src/types.rs:138:1
+    |
+138 | pub enum Error {
+    | ^^^^^^^^^^^^^^
+...
+194 |     EmptyEvidence = 54,
+    |                     -- `54` assigned here
+195 |     /// No safe rollback is available for the contract's current state.
+196 |     RollbackNotAllowed = 54,
+    |                          -- `54` assigned here
+
+error[E0592]: duplicate definitions with name `cancel_client_migration`
+   --> contracts/escrow/src/migration.rs:177:5
+    |
+177 |     pub fn cancel_client_migration(env: Env, contract_id: u32, current_client: Address) -> bool {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `cancel_client_migration`
+    |
+   ::: contracts/escrow/src/lib.rs:505:5
+    |
+505 |     pub fn cancel_client_migration(env: Env, contract_id: u32, current_client: Address) -> bool {
+    |     ------------------------------------------------------------------------------------------- other definition for `cancel_client_migration`
+
+error[E0592]: duplicate definitions with name `create_contract`
+   --> contracts/escrow/src/create_contract.rs:45:5
+    |
+ 45 | /     pub fn create_contract(
+ 46 | |         env: Env,
+ 47 | |         client: Address,
+ 48 | |         freelancer: Address,
+...   |
+ 51 | |         release_authorization: ReleaseAuthorization,
+ 52 | |     ) -> u32 {
+    | |____________^ duplicate definitions for `create_contract`
+    |
+   ::: contracts/escrow/src/lib.rs:455:5
+    |
+455 | /     pub fn create_contract(
+456 | |         env: Env,
+457 | |         client: Address,
+458 | |         freelancer: Address,
+...   |
+461 | |         release_authorization: ReleaseAuthorization,
+462 | |     ) -> u32 {
+    | |____________- other definition for `create_contract`
+
+error[E0592]: duplicate definitions with name `set_max_milestones`
+    --> contracts/escrow/src/governance.rs:80:5
+     |
+  80 |     pub fn set_max_milestones(env: Env, admin: Address, max_milestones: u32) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `set_max_milestones`
+     |
+    ::: contracts/escrow/src/lib.rs:2137:5
+     |
+2137 |     pub fn set_max_milestones(env: Env, max_milestones: u32) -> bool {
+     |     ---------------------------------------------------------------- other definition for `set_max_milestones`
+
+error[E0592]: duplicate definitions with name `get_max_milestones`
+    --> contracts/escrow/src/governance.rs:113:5
+     |
+ 113 |     pub fn get_max_milestones(env: Env) -> u32 {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `get_max_milestones`
+     |
+    ::: contracts/escrow/src/lib.rs:2162:5
+     |
+2162 |     pub fn get_max_milestones(env: Env) -> u32 {
+     |     ------------------------------------------ other definition for `get_max_milestones`
+
+error[E0592]: duplicate definitions with name `propose_governance_admin`
+    --> contracts/escrow/src/governance.rs:128:5
+     |
+ 128 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `propose_governance_admin`
+     |
+    ::: contracts/escrow/src/lib.rs:2611:5
+     |
+2611 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |     -------------------------------------------------------------------- other definition for `propose_governance_admin`
+
+error[E0592]: duplicate definitions with name `accept_governance_admin`
+    --> contracts/escrow/src/governance.rs:167:5
+     |
+ 167 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `accept_governance_admin`
+     |
+    ::: contracts/escrow/src/lib.rs:2621:5
+     |
+2621 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |     ------------------------------------------------ other definition for `accept_governance_admin`
+
+error[E0592]: duplicate definitions with name `deposit_funds`
+   --> contracts/escrow/src/lib.rs:952:5
+    |
+473 |     pub fn deposit_funds(env: Env, contract_id: u32, caller: Address, amount: i128) -> bool {
+    |     --------------------------------------------------------------------------------------- other definition for `deposit_funds`
+...
+952 |     pub fn deposit_funds(env: Env, contract_id: u32, caller: Address, amount: i128) -> bool {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `deposit_funds`
+
+error[E0592]: duplicate definitions with name `propose_client_migration`
+    --> contracts/escrow/src/lib.rs:1005:5
+     |
+ 490 | /     pub fn propose_client_migration(
+ 491 | |         env: Env,
+ 492 | |         contract_id: u32,
+ 493 | |         current_client: Address,
+ 494 | |         new_client: Address,
+ 495 | |     ) -> bool {
+     | |_____________- other definition for `propose_client_migration`
+...
+1005 | /     pub fn propose_client_migration(
+1006 | |         env: Env,
+1007 | |         contract_id: u32,
+1008 | |         current_client: Address,
+1009 | |         new_client: Address,
+1010 | |     ) -> bool {
+     | |_____________^ duplicate definitions for `propose_client_migration`
+
+error[E0592]: duplicate definitions with name `accept_client_migration`
+    --> contracts/escrow/src/lib.rs:1019:5
+     |
+ 500 |     pub fn accept_client_migration(env: Env, contract_id: u32, new_client: Address) -> bool {
+     |     --------------------------------------------------------------------------------------- other definition for `accept_client_migration`
+...
+1019 |     pub fn accept_client_migration(env: Env, contract_id: u32, new_client: Address) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `accept_client_migration`
+
+error[E0592]: duplicate definitions with name `has_pending_client_migration`
+    --> contracts/escrow/src/lib.rs:1027:5
+     |
+ 510 |     pub fn has_pending_client_migration(env: Env, contract_id: u32) -> bool {
+     |     ----------------------------------------------------------------------- other definition for `has_pending_client_migration`
+...
+1027 |     pub fn has_pending_client_migration(env: Env, contract_id: u32) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `has_pending_client_migration`
+
+error[E0592]: duplicate definitions with name `get_pending_client_migration`
+    --> contracts/escrow/src/lib.rs:1035:5
+     |
+ 514 |     pub fn get_pending_client_migration(env: Env, contract_id: u32) -> PendingClientMigration {
+     |     ----------------------------------------------------------------------------------------- other definition for `get_pending_client_migration`
+...
+1035 |     pub fn get_pending_client_migration(env: Env, contract_id: u32) -> PendingClientMigration {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `get_pending_client_migration`
+
+error[E0592]: duplicate definitions with name `approve_milestone_release`
+    --> contracts/escrow/src/lib.rs:1062:5
+     |
+ 520 | /     pub fn approve_milestone_release(
+ 521 | |         env: Env,
+ 522 | |         contract_id: u32,
+ 523 | |         caller: Address,
+ 524 | |         milestone_index: u32,
+ 525 | |     ) -> bool {
+     | |_____________- other definition for `approve_milestone_release`
+...
+1062 | /     pub fn approve_milestone_release(
+1063 | |         env: Env,
+1064 | |         contract_id: u32,
+1065 | |         caller: Address,
+1066 | |         milestone_index: u32,
+1067 | |     ) -> bool {
+     | |_____________^ duplicate definitions for `approve_milestone_release`
+
+error[E0592]: duplicate definitions with name `release_milestone`
+    --> contracts/escrow/src/lib.rs:1146:5
+     |
+ 532 | /     pub fn release_milestone(
+ 533 | |         env: Env,
+ 534 | |         contract_id: u32,
+ 535 | |         caller: Address,
+ 536 | |         milestone_index: u32,
+ 537 | |     ) -> bool {
+     | |_____________- other definition for `release_milestone`
+...
+1146 | /     pub fn release_milestone(
+1147 | |         env: Env,
+1148 | |         contract_id: u32,
+1149 | |         caller: Address,
+1150 | |         milestone_index: u32,
+1151 | |     ) -> bool {
+     | |_____________^ duplicate definitions for `release_milestone`
+
+error[E0592]: duplicate definitions with name `propose_governance_admin`
+    --> contracts/escrow/src/lib.rs:2669:5
+     |
+2611 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |     -------------------------------------------------------------------- other definition for `propose_governance_admin`
+...
+2669 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `propose_governance_admin`
+
+error[E0592]: duplicate definitions with name `accept_governance_admin`
+    --> contracts/escrow/src/lib.rs:2674:5
+     |
+2621 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |     ------------------------------------------------ other definition for `accept_governance_admin`
+...
+2674 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ duplicate definitions for `accept_governance_admin`
+
+error[E0592]: duplicate definitions with name `deposit_funds`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `deposit_funds`
+    | other definition for `deposit_funds`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `propose_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `propose_client_migration`
+    | other definition for `propose_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `accept_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `accept_client_migration`
+    | other definition for `accept_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `has_pending_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `has_pending_client_migration`
+    | other definition for `has_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `get_pending_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `get_pending_client_migration`
+    | other definition for `get_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `approve_milestone_release`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `approve_milestone_release`
+    | other definition for `approve_milestone_release`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `release_milestone`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `release_milestone`
+    | other definition for `release_milestone`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `propose_governance_admin`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `propose_governance_admin`
+    | other definition for `propose_governance_admin`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `accept_governance_admin`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `accept_governance_admin`
+    | other definition for `accept_governance_admin`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractargs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `deposit_funds`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `deposit_funds`
+    | other definition for `deposit_funds`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `try_deposit_funds`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_deposit_funds`
+    | other definition for `try_deposit_funds`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `propose_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `propose_client_migration`
+    | other definition for `propose_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `try_propose_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_propose_client_migration`
+    | other definition for `try_propose_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `accept_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `accept_client_migration`
+    | other definition for `accept_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `try_accept_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_accept_client_migration`
+    | other definition for `try_accept_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `has_pending_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `has_pending_client_migration`
+    | other definition for `has_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `try_has_pending_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_has_pending_client_migration`
+    | other definition for `try_has_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `get_pending_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `get_pending_client_migration`
+    | other definition for `get_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `try_get_pending_client_migration`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_get_pending_client_migration`
+    | other definition for `try_get_pending_client_migration`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `approve_milestone_release`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `approve_milestone_release`
+    | other definition for `approve_milestone_release`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `try_approve_milestone_release`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_approve_milestone_release`
+    | other definition for `try_approve_milestone_release`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `release_milestone`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `release_milestone`
+    | other definition for `release_milestone`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `try_release_milestone`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_release_milestone`
+    | other definition for `try_release_milestone`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `propose_governance_admin`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `propose_governance_admin`
+    | other definition for `propose_governance_admin`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `try_propose_governance_admin`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_propose_governance_admin`
+    | other definition for `try_propose_governance_admin`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `accept_governance_admin`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `accept_governance_admin`
+    | other definition for `accept_governance_admin`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0592]: duplicate definitions with name `try_accept_governance_admin`
+   --> contracts/escrow/src/lib.rs:328:1
+    |
+328 | #[contractimpl]
+    | ^^^^^^^^^^^^^^^
+    | |
+    | duplicate definitions for `try_accept_governance_admin`
+    | other definition for `try_accept_governance_admin`
+    |
+    = note: this error originates in the attribute macro `soroban_sdk::contractclient` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0599]: no variant or associated item named `RoleOverlap` found for enum `EscrowError` in the current scope
+   --> contracts/escrow/src/migration.rs:59:47
+    |
+ 59 |             env.panic_with_error(EscrowError::RoleOverlap);
+    |                                               ^^^^^^^^^^^ variant or associated item not found in `EscrowError`
+    |
+   ::: contracts/escrow/src/lib.rs:231:1
+    |
+231 | pub enum EscrowError {
+    | -------------------- variant or associated item `RoleOverlap` not found for this enum
+
+error[E0599]: no variant or associated item named `NoPendingReputationCredits` found for enum `types::Error` in the current scope
+   --> contracts/escrow/src/reputation.rs:223:41
+    |
+223 |             env.panic_with_error(Error::NoPendingReputationCredits);
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^ variant or associated item not found in `types::Error`
+    |
+   ::: contracts/escrow/src/types.rs:138:1
+    |
+138 | pub enum Error {
+    | -------------- variant or associated item `NoPendingReputationCredits` not found for this enum
+
+error[E0308]: mismatched types
+   --> contracts/escrow/src/reputation.rs:348:27
+    |
+348 |         if start_usize >= total {
+    |            -----------    ^^^^^ expected `usize`, found `u32`
+    |            |
+    |            expected because this is `usize`
+    |
+help: you can convert a `u32` to a `usize` and panic if the converted value doesn't fit
+    |
+348 |         if start_usize >= total.try_into().unwrap() {
+    |                                ++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> contracts/escrow/src/reputation.rs:351:54
+    |
+351 |         let end = (start_usize + limit as usize).min(total);
+    |                                                  --- ^^^^^ expected `usize`, found `u32`
+    |                                                  |
+    |                                                  arguments to this method are incorrect
+    |
+help: the return type of this call is `u32` due to the type of the argument passed
+   --> contracts/escrow/src/reputation.rs:351:19
+    |
+351 |         let end = (start_usize + limit as usize).min(total);
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-----^
+    |                                                      |
+    |                                                      this argument influences the return type of `min`
+note: method defined here
+   --> /rustc/f8297e351a40c1439a467bbbb6879088047f50b3/library/core/src/cmp.rs:1062:8
+help: you can convert a `u32` to a `usize` and panic if the converted value doesn't fit
+    |
+351 |         let end = (start_usize + limit as usize).min(total.try_into().unwrap());
+    |                                                           ++++++++++++++++++++
+
+error[E0599]: no variant or associated item named `AlreadyReleased` found for enum `types::Error` in the current scope
+   --> contracts/escrow/src/simulate.rs:386:35
+    |
+386 |                 return err(Error::AlreadyReleased as u32);
+    |                                   ^^^^^^^^^^^^^^^ variant or associated item not found in `types::Error`
+    |
+   ::: contracts/escrow/src/types.rs:138:1
+    |
+138 | pub enum Error {
+    | -------------- variant or associated item `AlreadyReleased` not found for this enum
+    |
+help: there is a variant with a similar name
+    |
+386 -                 return err(Error::AlreadyReleased as u32);
+386 +                 return err(Error::AlreadyRefunded as u32);
+    |
+
+error[E0425]: cannot find function `next_contract_id` in this scope
+   --> contracts/escrow/src/create_contract.rs:136:18
+    |
+136 |         let id = next_contract_id(&env);
+    |                  ^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider using the associated function on `Self`
+    |
+136 |         let id = Self::next_contract_id(&env);
+    |                  ++++++
+
+error[E0614]: type `i128` cannot be dereferenced
+   --> contracts/escrow/src/create_contract.rs:167:25
+    |
+167 |                 amount: *amount,
+    |                         ^^^^^^^ can't be dereferenced
+
+error[E0599]: no variant or associated item named `UnsupportedDisputeStorageVersion` found for enum `types::Error` in the current scope
+   --> contracts/escrow/src/dispute.rs:153:41
+    |
+153 |             env.panic_with_error(Error::UnsupportedDisputeStorageVersion);
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ variant or associated item not found in `types::Error`
+    |
+   ::: contracts/escrow/src/types.rs:138:1
+    |
+138 | pub enum Error {
+    | -------------- variant or associated item `UnsupportedDisputeStorageVersion` not found for this enum
+
+error[E0599]: no variant or associated item named `DisputeNotFound` found for enum `types::Error` in the current scope
+   --> contracts/escrow/src/dispute.rs:168:33
+    |
+168 |     env.panic_with_error(Error::DisputeNotFound)
+    |                                 ^^^^^^^^^^^^^^^ variant or associated item not found in `types::Error`
+    |
+   ::: contracts/escrow/src/types.rs:138:1
+    |
+138 | pub enum Error {
+    | -------------- variant or associated item `DisputeNotFound` not found for this enum
+
+error[E0599]: no variant or associated item named `InvalidProtocolParameters` found for enum `EscrowError` in the current scope
+   --> contracts/escrow/src/governance.rs:44:47
+    |
+ 44 |             env.panic_with_error(EscrowError::InvalidProtocolParameters);
+    |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^ variant or associated item not found in `EscrowError`
+    |
+   ::: contracts/escrow/src/lib.rs:231:1
+    |
+231 | pub enum EscrowError {
+    | -------------------- variant or associated item `InvalidProtocolParameters` not found for this enum
+
+error[E0034]: multiple applicable items in scope
+    --> contracts/escrow/src/governance.rs:80:12
+     |
+  80 |     pub fn set_max_milestones(env: Env, admin: Address, max_milestones: u32) -> bool {
+     |            ^^^^^^^^^^^^^^^^^^ multiple `set_max_milestones` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/lib.rs:2137:5
+     |
+2137 |     pub fn set_max_milestones(env: Env, max_milestones: u32) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/governance.rs:80:5
+     |
+  80 |     pub fn set_max_milestones(env: Env, admin: Address, max_milestones: u32) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0034]: multiple applicable items in scope
+    --> contracts/escrow/src/governance.rs:113:12
+     |
+ 113 |     pub fn get_max_milestones(env: Env) -> u32 {
+     |            ^^^^^^^^^^^^^^^^^^ multiple `get_max_milestones` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/lib.rs:2162:5
+     |
+2162 |     pub fn get_max_milestones(env: Env) -> u32 {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/governance.rs:113:5
+     |
+ 113 |     pub fn get_max_milestones(env: Env) -> u32 {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0034]: multiple applicable items in scope
+    --> contracts/escrow/src/governance.rs:128:12
+     |
+ 128 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^ multiple `propose_governance_admin` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/lib.rs:2611:5
+     |
+2611 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/governance.rs:128:5
+     |
+ 128 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0034]: multiple applicable items in scope
+    --> contracts/escrow/src/governance.rs:167:12
+     |
+ 167 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |            ^^^^^^^^^^^^^^^^^^^^^^^ multiple `accept_governance_admin` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/lib.rs:2621:5
+     |
+2621 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/governance.rs:167:5
+     |
+ 167 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `cancel_client_migration_impl` found for struct `Escrow` in the current scope
+    --> contracts/escrow/src/lib.rs:507:15
+     |
+ 221 | pub struct Escrow;
+     | ----------------- function or associated item `cancel_client_migration_impl` not found for this struct
+...
+ 507 |         Self::cancel_client_migration_impl(&env, contract_id, current_client)
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function or associated item not found in `Escrow`
+     |
+note: if you're trying to build a new `Escrow`, consider using `Escrow::get_dispute` which returns `core::option::Option<{type error}>`
+    --> contracts/escrow/src/lib.rs:2964:5
+     |
+2964 |     pub fn get_dispute(env: Env, contract_id: u32) -> Option<DisputeMetadata> {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is an associated function `accept_client_migration_impl` with a similar name
+     |
+ 507 -         Self::cancel_client_migration_impl(&env, contract_id, current_client)
+ 507 +         Self::accept_client_migration_impl(&env, contract_id, current_client)
+     |
+
+error[E0599]: no variant or associated item named `MaxSettlement` found for enum `types::DataKey` in the current scope
+   --> contracts/escrow/src/lib.rs:853:28
+    |
+853 |             .set(&DataKey::MaxSettlement, &max_settlement);
+    |                            ^^^^^^^^^^^^^ variant or associated item not found in `types::DataKey`
+    |
+   ::: contracts/escrow/src/types.rs:61:1
+    |
+ 61 | pub enum DataKey {
+    | ---------------- variant or associated item `MaxSettlement` not found for this enum
+
+error[E0599]: no function or associated item named `effective_max_settlement` found for struct `Escrow` in the current scope
+    --> contracts/escrow/src/lib.rs:868:15
+     |
+ 221 | pub struct Escrow;
+     | ----------------- function or associated item `effective_max_settlement` not found for this struct
+...
+ 868 |         Self::effective_max_settlement(&env)
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^ function or associated item not found in `Escrow`
+     |
+note: if you're trying to build a new `Escrow`, consider using `Escrow::get_dispute` which returns `core::option::Option<{type error}>`
+    --> contracts/escrow/src/lib.rs:2964:5
+     |
+2964 |     pub fn get_dispute(env: Env, contract_id: u32) -> Option<DisputeMetadata> {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is an associated function `get_max_settlement` with a similar name
+     |
+ 868 -         Self::effective_max_settlement(&env)
+ 868 +         Self::get_max_settlement(&env)
+     |
+
+error[E0599]: no function or associated item named `effective_max_settlement` found for struct `Escrow` in the current scope
+    --> contracts/escrow/src/lib.rs:888:35
+     |
+ 221 | pub struct Escrow;
+     | ----------------- function or associated item `effective_max_settlement` not found for this struct
+...
+ 888 |             max_settlement: Self::effective_max_settlement(&env),
+     |                                   ^^^^^^^^^^^^^^^^^^^^^^^^ function or associated item not found in `Escrow`
+     |
+note: if you're trying to build a new `Escrow`, consider using `Escrow::get_dispute` which returns `core::option::Option<{type error}>`
+    --> contracts/escrow/src/lib.rs:2964:5
+     |
+2964 |     pub fn get_dispute(env: Env, contract_id: u32) -> Option<DisputeMetadata> {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is an associated function `get_max_settlement` with a similar name
+     |
+ 888 -             max_settlement: Self::effective_max_settlement(&env),
+ 888 +             max_settlement: Self::get_max_settlement(&env),
+     |
+
+error[E0599]: no variant or associated item named `ClientContracts` found for enum `types::DataKey` in the current scope
+    --> contracts/escrow/src/lib.rs:1703:27
+     |
+1703 |             0 => DataKey::ClientContracts(participant),
+     |                           ^^^^^^^^^^^^^^^ variant or associated item not found in `types::DataKey`
+     |
+    ::: contracts/escrow/src/types.rs:61:1
+     |
+  61 | pub enum DataKey {
+     | ---------------- variant or associated item `ClientContracts` not found for this enum
+
+error[E0599]: no variant or associated item named `FreelancerContracts` found for enum `types::DataKey` in the current scope
+    --> contracts/escrow/src/lib.rs:1704:27
+     |
+1704 |             1 => DataKey::FreelancerContracts(participant),
+     |                           ^^^^^^^^^^^^^^^^^^^ variant or associated item not found in `types::DataKey`
+     |
+    ::: contracts/escrow/src/types.rs:61:1
+     |
+  61 | pub enum DataKey {
+     | ---------------- variant or associated item `FreelancerContracts` not found for this enum
+
+error[E0599]: no variant or associated item named `BatchCapExceeded` found for enum `types::Error` in the current scope
+    --> contracts/escrow/src/lib.rs:2452:41
+     |
+2452 |             env.panic_with_error(Error::BatchCapExceeded);
+     |                                         ^^^^^^^^^^^^^^^^ variant or associated item not found in `types::Error`
+     |
+    ::: contracts/escrow/src/types.rs:138:1
+     |
+ 138 | pub enum Error {
+     | -------------- variant or associated item `BatchCapExceeded` not found for this enum
+
+error[E0599]: no variant or associated item named `InvalidWithdrawalAmount` found for enum `EscrowError` in the current scope
+    --> contracts/escrow/src/lib.rs:2562:47
+     |
+ 231 | pub enum EscrowError {
+     | -------------------- variant or associated item `InvalidWithdrawalAmount` not found for this enum
+...
+2562 |             env.panic_with_error(EscrowError::InvalidWithdrawalAmount);
+     |                                               ^^^^^^^^^^^^^^^^^^^^^^^ variant or associated item not found in `EscrowError`
+
+error[E0599]: no variant or associated item named `Dispute` found for enum `types::DataKey` in the current scope
+    --> contracts/escrow/src/lib.rs:2967:28
+     |
+2967 |             .get(&DataKey::Dispute(contract_id))
+     |                            ^^^^^^^ variant or associated item not found in `types::DataKey`
+     |
+    ::: contracts/escrow/src/types.rs:61:1
+     |
+  61 | pub enum DataKey {
+     | ---------------- variant or associated item `Dispute` not found for this enum
+
+error[E0034]: multiple applicable items in scope
+   --> contracts/escrow/src/lib.rs:455:12
+    |
+455 |     pub fn create_contract(
+    |            ^^^^^^^^^^^^^^^ multiple `create_contract` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts/escrow/src/lib.rs:455:5
+    |
+455 | /     pub fn create_contract(
+456 | |         env: Env,
+457 | |         client: Address,
+458 | |         freelancer: Address,
+...   |
+461 | |         release_authorization: ReleaseAuthorization,
+462 | |     ) -> u32 {
+    | |____________^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts/escrow/src/create_contract.rs:45:5
+    |
+ 45 | /     pub fn create_contract(
+ 46 | |         env: Env,
+ 47 | |         client: Address,
+ 48 | |         freelancer: Address,
+...   |
+ 51 | |         release_authorization: ReleaseAuthorization,
+ 52 | |     ) -> u32 {
+    | |____________^
+
+error[E0034]: multiple applicable items in scope
+   --> contracts/escrow/src/lib.rs:505:12
+    |
+505 |     pub fn cancel_client_migration(env: Env, contract_id: u32, current_client: Address) -> bool {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^ multiple `cancel_client_migration` found
+    |
+note: candidate #1 is defined in an impl for the type `Escrow`
+   --> contracts/escrow/src/lib.rs:505:5
+    |
+505 |     pub fn cancel_client_migration(env: Env, contract_id: u32, current_client: Address) -> bool {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+   --> contracts/escrow/src/migration.rs:177:5
+    |
+177 |     pub fn cancel_client_migration(env: Env, contract_id: u32, current_client: Address) -> bool {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0034]: multiple applicable items in scope
+    --> contracts/escrow/src/lib.rs:2137:12
+     |
+2137 |     pub fn set_max_milestones(env: Env, max_milestones: u32) -> bool {
+     |            ^^^^^^^^^^^^^^^^^^ multiple `set_max_milestones` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/lib.rs:2137:5
+     |
+2137 |     pub fn set_max_milestones(env: Env, max_milestones: u32) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/governance.rs:80:5
+     |
+  80 |     pub fn set_max_milestones(env: Env, admin: Address, max_milestones: u32) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0034]: multiple applicable items in scope
+    --> contracts/escrow/src/lib.rs:2162:12
+     |
+2162 |     pub fn get_max_milestones(env: Env) -> u32 {
+     |            ^^^^^^^^^^^^^^^^^^ multiple `get_max_milestones` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/lib.rs:2162:5
+     |
+2162 |     pub fn get_max_milestones(env: Env) -> u32 {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/governance.rs:113:5
+     |
+ 113 |     pub fn get_max_milestones(env: Env) -> u32 {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0034]: multiple applicable items in scope
+    --> contracts/escrow/src/lib.rs:2611:12
+     |
+2611 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^ multiple `propose_governance_admin` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/lib.rs:2611:5
+     |
+2611 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/governance.rs:128:5
+     |
+ 128 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0034]: multiple applicable items in scope
+    --> contracts/escrow/src/lib.rs:2621:12
+     |
+2621 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |            ^^^^^^^^^^^^^^^^^^^^^^^ multiple `accept_governance_admin` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/lib.rs:2621:5
+     |
+2621 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/governance.rs:167:5
+     |
+ 167 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0034]: multiple applicable items in scope
+    --> contracts/escrow/src/lib.rs:2669:12
+     |
+2669 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^ multiple `propose_governance_admin` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/lib.rs:2611:5
+     |
+2611 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/governance.rs:128:5
+     |
+ 128 |     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0034]: multiple applicable items in scope
+    --> contracts/escrow/src/lib.rs:2674:12
+     |
+2674 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |            ^^^^^^^^^^^^^^^^^^^^^^^ multiple `accept_governance_admin` found
+     |
+note: candidate #1 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/lib.rs:2621:5
+     |
+2621 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: candidate #2 is defined in an impl for the type `Escrow`
+    --> contracts/escrow/src/governance.rs:167:5
+     |
+ 167 |     pub fn accept_governance_admin(env: Env) -> bool {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0594]: cannot assign to `contract.client`, as `contract` is not declared as mutable
+   --> contracts/escrow/src/migration.rs:158:9
+    |
+158 |         contract.client = new_client.clone();
+    |         ^^^^^^^^^^^^^^^ cannot assign
+    |
+help: consider changing this to be mutable
+    |
+137 |         let mut contract = Self::load_contract(&env, contract_id);
+    |             +++
+
+error[E0004]: non-exhaustive patterns: `&types::DataKey::MaxMilestones` not covered
+  --> contracts/escrow/src/types.rs:60:10
+   |
+60 | #[derive(Clone, Debug, Eq, PartialEq)]
+   |          ^^^^^ pattern `&types::DataKey::MaxMilestones` not covered
+   |
+note: `types::DataKey` defined here
+  --> contracts/escrow/src/types.rs:61:10
+   |
+61 | pub enum DataKey {
+   |          ^^^^^^^
+...
+96 |     MaxMilestones,
+   |     ------------- not covered
+   = note: the matched value is of type `&types::DataKey`
+
+error[E0004]: non-exhaustive patterns: `&types::DataKey::MaxMilestones` not covered
+  --> contracts/escrow/src/types.rs:60:17
+   |
+60 | #[derive(Clone, Debug, Eq, PartialEq)]
+   |                 ^^^^^ pattern `&types::DataKey::MaxMilestones` not covered
+   |
+note: `types::DataKey` defined here
+  --> contracts/escrow/src/types.rs:61:10
+   |
+61 | pub enum DataKey {
+   |          ^^^^^^^
+...
+96 |     MaxMilestones,
+   |     ------------- not covered
+   = note: the matched value is of type `&types::DataKey`
+
+error: unreachable pattern
+  --> contracts/escrow/src/types.rs:61:10
+   |
+61 |    pub enum DataKey {
+   |   __________^
+   |  |__________|
+62 | ||     // Admin / pause / emergency
+63 | ||     Initialized,
+64 | ||     Admin,
+65 | ||     Paused,
+66 | ||     Emergency,
+67 | ||     MaxMilestones,
+   | ||_________________- matches all the relevant values
+...  |
+96 | |      MaxMilestones,
+   | |__________________^ no value can reach this
+   |
+   = note: `-D unreachable-patterns` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(unreachable_patterns)]`
+
+error[E0004]: non-exhaustive patterns: `&types::DataKey::MaxMilestones` not covered
+  --> contracts/escrow/src/types.rs:59:1
+   |
+59 | #[contracttype]
+   | ^^^^^^^^^^^^^^^ pattern `&types::DataKey::MaxMilestones` not covered
+   |
+note: `types::DataKey` defined here
+  --> contracts/escrow/src/types.rs:61:10
+   |
+61 | pub enum DataKey {
+   |          ^^^^^^^
+...
+96 |     MaxMilestones,
+   |     ------------- not covered
+   = note: the matched value is of type `&types::DataKey`
+   = note: this error originates in the attribute macro `contracttype` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+   |
+59 | #[contracttype], &types::DataKey::MaxMilestones => todo!()
+   |                +++++++++++++++++++++++++++++++++++++++++++
+
+error: unreachable pattern
+  --> contracts/escrow/src/types.rs:61:10
+   |
+61 |    pub enum DataKey {
+   |   __________^
+   |  |__________|
+62 | ||     // Admin / pause / emergency
+63 | ||     Initialized,
+64 | ||     Admin,
+65 | ||     Paused,
+66 | ||     Emergency,
+67 | ||     MaxMilestones,
+   | ||_________________- matches all the relevant values
+...  |
+96 | |      MaxMilestones,
+   | |__________________^ no value can reach this
+
+error[E0004]: non-exhaustive patterns: `&types::_::ArbitraryDataKey::MaxMilestones` not covered
+  --> contracts/escrow/src/types.rs:59:1
+   |
+59 | #[contracttype]
+   | ^^^^^^^^^^^^^^^ pattern `&types::_::ArbitraryDataKey::MaxMilestones` not covered
+   |
+note: `types::_::ArbitraryDataKey` defined here
+  --> contracts/escrow/src/types.rs:61:10
+   |
+61 | pub enum DataKey {
+   |          ^^^^^^^
+...
+96 |     MaxMilestones,
+   |     ------------- not covered
+   = note: the matched value is of type `&types::_::ArbitraryDataKey`
+
+error[E0004]: non-exhaustive patterns: `&types::_::ArbitraryDataKey::MaxMilestones` not covered
+  --> contracts/escrow/src/types.rs:59:1
+   |
+59 | #[contracttype]
+   | ^^^^^^^^^^^^^^^ pattern `&types::_::ArbitraryDataKey::MaxMilestones` not covered
+   |
+note: `types::_::ArbitraryDataKey` defined here
+  --> contracts/escrow/src/types.rs:61:10
+   |
+61 | pub enum DataKey {
+   |          ^^^^^^^
+...
+96 |     MaxMilestones,
+   |     ------------- not covered
+   = note: the matched value is of type `&types::_::ArbitraryDataKey`
+   = note: this error originates in the attribute macro `contracttype` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+   |
+107~     ReputationConfigKey,
+108~ &types::_::ArbitraryDataKey::MaxMilestones => todo!(),
+   |
+
+error: unused variable: `old_status`
+    --> contracts/escrow/src/lib.rs:2242:13
+     |
+2242 |         let old_status = contract.status;
+     |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_old_status`
+     |
+     = note: `-D unused-variables` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(unused_variables)]`
+
+Some errors have detailed explanations: E0004, E0034, E0081, E0252, E0255, E0308, E0412, E0422, E0425...
+For more information about an error, try `rustc --explain E0004`.
+error: could not compile `escrow` (lib) due to 217 previous errors

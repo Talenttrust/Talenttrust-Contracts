@@ -175,6 +175,40 @@ fn test_deposit_funds_accepts_valid_amounts() {
 }
 
 #[test]
+#[should_panic]
+fn test_deposit_funds_rejects_amount_at_max_single_amount_plus_one() {
+    let env = Env::default();
+    let (client, hiring_party, service_provider) = setup(&env);
+    let milestones = vec![&env, 1_000_000_0000000_i128]; // Max total equals one max milestone
+    let contract_id = client.create_contract(
+        &hiring_party,
+        &service_provider,
+        &None,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    // Amount just above MAX_SINGLE_AMOUNT_STROOPS must be rejected by the
+    // centralized single-amount validator rather than slipping through.
+    client.deposit_funds(&contract_id, &hiring_party, &(1_000_000_0000000_i128 + 1));
+}
+
+#[test]
+fn test_deposit_funds_accepts_amount_exactly_at_max_single_amount() {
+    let env = Env::default();
+    let (client, hiring_party, service_provider) = setup(&env);
+    let milestones = vec![&env, 2_000_000_0000000_i128]; // 2M total
+    let contract_id = client.create_contract(
+        &hiring_party,
+        &service_provider,
+        &None,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    // Deposit exactly the max single amount must succeed.
+    assert!(client.deposit_funds(&contract_id, &hiring_party, &1_000_000_0000000_i128));
+}
+
+#[test]
 fn test_single_amount_validation() {
     // Valid amounts
     assert!(validate_single_amount(1).is_ok()); // Minimum positive

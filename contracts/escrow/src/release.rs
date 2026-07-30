@@ -1,5 +1,5 @@
 use crate::{
-    approvals, ttl, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
+    approvals, keys, ttl, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
     ReleaseAuthorization,
 };
 use soroban_sdk::{Address, Env, Symbol, Vec};
@@ -64,12 +64,9 @@ impl Escrow {
             }
         }
 
-        let milestone_key = Symbol::new(&env, "milestones");
-        let mut milestones: Vec<Milestone> = env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key.clone()))
-            .unwrap();
+        let milestone_key = keys::milestone_key(&env, contract_id);
+        let mut milestones: Vec<Milestone> =
+            env.storage().persistent().get(&milestone_key).unwrap();
 
         ttl::extend_milestone_ttl(&env, contract_id);
 
@@ -90,8 +87,11 @@ impl Escrow {
         approvals::check_approvals(&env, &contract, contract_id, milestone_index)
             .unwrap_or_else(|e| env.panic_with_error(e));
 
-        let available_balance =
-            contract.funded_amount - contract.released_amount - contract.refunded_amount;
+        let available_balance = contract
+            .funded_amount
+            .checked_sub(contract.released_amount)
+            .and_then(|a| a.checked_sub(contract.refunded_amount))
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
         if available_balance < milestone.amount {
             env.panic_with_error(Error::InsufficientFunds);
         }
@@ -99,21 +99,26 @@ impl Escrow {
         let _release_amount = milestone.amount;
         milestone.released = true;
         milestones.set(milestone_index, milestone.clone());
-        contract.released_amount += milestone.amount;
+        contract.released_amount = contract
+            .released_amount
+            .checked_add(milestone.amount)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
-        if is_initialized(&env) {
-            let fee_bps = get_protocol_fee_bps(&env);
+        if Self::is_initialized(&env) {
+            let fee_bps = Self::read_protocol_fee_bps(&env);
             if fee_bps > 0 {
-                let fee = calculate_protocol_fee(milestone.amount, fee_bps);
+                let fee = Self::calculate_protocol_fee(&env, milestone.amount, fee_bps);
                 let current_accumulated: i128 = env
                     .storage()
                     .persistent()
                     .get(&DataKey::AccumulatedProtocolFees)
                     .unwrap_or(0);
-                env.storage().persistent().set(
-                    &DataKey::AccumulatedProtocolFees,
-                    &(current_accumulated + fee),
-                );
+                let new_accumulated = current_accumulated
+                    .checked_add(fee)
+                    .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::AccumulatedProtocolFees, &new_accumulated);
             }
         }
 
@@ -124,13 +129,13 @@ impl Escrow {
             contract.status = ContractStatus::Completed;
             let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
             let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
-            env.storage().persistent().set(&pending_key, &(pending + 1));
+            let new_pending = pending
+                .checked_add(1)
+                .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+            env.storage().persistent().set(&pending_key, &new_pending);
         }
 
-        env.storage().persistent().set(
-            &(DataKey::Contract(contract_id), milestone_key),
-            &milestones,
-        );
+        env.storage().persistent().set(&milestone_key, &milestones);
         env.storage()
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);

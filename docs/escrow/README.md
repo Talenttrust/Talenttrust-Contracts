@@ -49,6 +49,8 @@ Read-only queries:
 - `get_protocol_fee_bps() -> u32`
 - `get_accumulated_protocol_fees() -> i128`
 - `get_bounds() -> ContractBounds` *(returns the compile-time protocol bounds: max milestones, max single milestone amount, max total escrow amount, max fee bps; see [`ContractBounds`](../../contracts/escrow/src/types.rs))*
+- `get_milestone_progress(contract_id) -> MilestoneProgress` — returns a struct carrying `completed` and `total` milestone counts; returns `completed: 0, total: 0` for an unknown id instead of panicking, unlike other getters below
+
 
 ### Read-only getter semantics
 
@@ -93,6 +95,11 @@ Per-getter details:
   when the contract id is unknown. Does not extend persistent TTL because
   approvals live in temporary storage bounded by
   `PENDING_APPROVAL_TTL_LEDGERS`.
+- `get_milestone_progress(contract_id)` returns the completed and total milestone
+  counts. It does not panic on an unknown contract id; it returns `completed: 0`
+  and `total: 0` instead. On a valid contract, it extends the contract's and
+  milestones' TTL.
+
 
 These properties are locked in by tests under
 `contracts/escrow/src/test/persistence.rs` (issue #475).
@@ -111,7 +118,8 @@ but serve different purposes and must not be conflated:
 milestones vector. Its `schema_version` tracks the limits ABI only.
 `ContractSummary` is the per-contract snapshot used by `get_contract_summary`
 and embedded in `FinalizationRecord`; its schema version tracks per-contract
-data.
+data. Note that `reputation_issued` in `ContractSummary` tracks whether a rating
+was given for the contract by reading the storage-backed `DataKey::ReputationIssued`.
 
 Indexers discovering limits should call `get_bounds()`. Indexers snapshotting
 contract state should call `get_contract_summary()`.
@@ -602,7 +610,7 @@ treated as roadmap text, not live integration guidance.
 
 Participants can approve milestone items prior to fund distribution payouts. If an authorization mistake is discovered prior to complete disbursement release configurations, the approving party can rescind authority.
 
-#### `revoke_approval(contract_id: Address, caller: Address, milestone_index: u32)`
+#### `revoke_milestone_approval(contract_id: u32, caller: Address, milestone_index: u32) -> bool`
 - **Authorization Required:** `caller.require_auth()`
-- **Behavior:** Explicitly removes individual state flags (`client_approved` | `freelancer_approved` | `arbiter_approved`). When all structural components drop to `false`, temporary records are scrubbed entirely to maximize gas savings.
-- **Errors raised:** `Error::MilestoneAlreadyReleased`, `Error::ApprovalRecordNotFound`.
+- **Behavior:** Explicitly removes the caller's own approval flag (`client_approved` | `freelancer_approved` | `arbiter_approved`). Other parties' flags are left intact. When all three flags become `false`, the temporary record is removed entirely to maximize gas savings.
+- **Errors raised:** `Error::ContractNotFound`, `Error::IndexOutOfBounds`, `Error::MilestoneAlreadyReleased`, `Error::UnauthorizedRole`, `Error::InsufficientApprovals` (when no approval record exists or the caller has not approved).

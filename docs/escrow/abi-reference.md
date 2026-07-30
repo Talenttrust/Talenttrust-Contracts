@@ -285,6 +285,15 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: `("dispute", "resolved")`
 - Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `UnauthorizedRole`, `InvalidStatusTransition`, `InvalidDisputeSplit`, `AccountingInvariantViolated`, `PotentialOverflow`, `AlreadyFinalized`
 
+### rollback_dispute
+
+- Signature: `rollback_dispute(env: Env, contract_id: u32) -> bool`
+- Kind: Mutating
+- Auth: Stored admin `require_auth()`
+- Semantics: Restores an unresolved dispute to its recorded `Funded` or `PartiallyFunded` status only when the contract and milestones are unchanged since the dispute opened. Refund, resolution, or finalization permanently closes the rollback window.
+- Events: `("rollback", contract_id)` with `(admin, Disputed, restored_status, timestamp)`
+- Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `AlreadyFinalized`, `RollbackNotAllowed`, `RollbackStateChanged`
+
 ### issue_reputation
 
 - Signature: `issue_reputation(env: Env, contract_id: u32, caller: Address, rating: u32, comment: String) -> bool`
@@ -327,6 +336,15 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Kind: Read-only
 - Auth: None
 - Semantics: Returns the pending reputation credits for the freelancer.
+- Events: None
+- Errors: None
+
+### get_reputations_page
+
+- Signature: `get_reputations_page(env: Env, start: u32, limit: u32) -> Vec<types::ReputationEntry>`
+- Kind: Read-only
+- Auth: None
+- Semantics: Returns a bounded, paginated slice over known reputation records. `start` is a zero-based offset into the reputations index and `limit` is capped by the pagination ceiling to control host cost. Returns an empty vector for missing index, out-of-range offsets, or `limit == 0`.
 - Events: None
 - Errors: None
 
@@ -426,6 +444,24 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Kind: Read-only
 - Auth: None
 - Semantics: Returns the stored governance parameters, if present.
+- Events: None
+- Errors: None
+
+### set_max_milestones
+
+- Signature: `set_max_milestones(env: Env, admin: Address, max_milestones: u32) -> bool`
+- Kind: Mutating
+- Auth: stored admin
+- Semantics: Admin-controlled setter for the per-contract maximum number of milestones. The value must be within the safe bounds `MIN_MAX_MILESTONES..=MAX_MAX_MILESTONES`.
+- Events: None
+- Errors: `NotInitialized`, `UnauthorizedRole`, `InvalidProtocolParameters`
+
+### get_max_milestones
+
+- Signature: `get_max_milestones(env: Env) -> u32`
+- Kind: Read-only
+- Auth: None
+- Semantics: Returns the configured maximum milestones per contract, or the compile-time default `MAX_MILESTONES` when unset.
 - Events: None
 - Errors: None
 

@@ -7,14 +7,15 @@
 //! Money movement for protocol-fee withdrawal remains in the crate root because
 //! it performs settlement-token transfers.
 
+use crate::storage_validation;
 use crate::ttl::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
 use crate::{
     DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, PendingAdminProposal,
-    ReadinessChecklist,
+    ReadinessChecklist, MAX_FEE_BPS, MAX_MAX_MILESTONES, MIN_MAX_MILESTONES,
 };
-use soroban_sdk::{symbol_short, Address, Env, Symbol};
+use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol};
 
-#[soroban_sdk::contractimpl]
+#[contractimpl]
 impl Escrow {
     /// Set the protocol fee in basis points.
     ///
@@ -37,6 +38,11 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
         admin.require_auth();
+
+        storage_validation::validate_protocol_fee_bps(&env, new_bps);
+        if new_bps > 10_000 {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
 
         let old_bps: u32 = env
             .storage()
@@ -66,7 +72,50 @@ impl Escrow {
             .unwrap_or(0)
     }
 
+    /// Set the maximum allowed milestones per contract (admin-controlled).
+    ///
+    /// The stored admin must authorize the call. The provided
+    /// `max_milestones` is validated against compile-time safe bounds and a
+    /// typed `LimitOutOfRange` error is returned for invalid values.
+    pub fn set_max_milestones(env: Env, max_milestones: u32) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
+        admin.require_auth();
+
+        if max_milestones < MIN_MAX_MILESTONES || max_milestones > MAX_MAX_MILESTONES {
+            env.panic_with_error(Error::LimitOutOfRange);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxMilestones, &max_milestones);
+        true
+    }
+
+    /// Read-only accessor for the configured maximum milestones per contract.
+    /// Returns the stored value or the compile-time default (`MAX_MILESTONES`).
+    pub fn get_max_milestones(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get::<_, u32>(&DataKey::MaxMilestones)
+            .unwrap_or(crate::MAX_MILESTONES)
+    }
+
     // ── Two-step admin transfer ───────────────────────────────────────────────
+
+    /// Propose a new governance admin. Stores the proposal with a timelock.
+    ///
+    /// Public entrypoint that delegates to [`propose_governance_admin_impl`].
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
+    pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+        Self::propose_governance_admin_impl(&env, proposed)
+    }
 
     /// Propose a new governance admin. Stores the proposal with a timelock.
     ///
@@ -95,6 +144,16 @@ impl Escrow {
             (admin, proposed.clone(), env.ledger().timestamp()),
         );
         true
+    }
+
+    /// Accept a pending admin proposal, enforcing the timelock.
+    ///
+    /// Public entrypoint that delegates to [`accept_governance_admin_impl`].
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("accepted"))` → `(old_admin, new_admin, timestamp)`
+    pub fn accept_governance_admin(env: Env) -> bool {
+        Self::accept_governance_admin_impl(&env)
     }
 
     /// Accept a pending admin proposal, enforcing the timelock.
@@ -223,7 +282,12 @@ impl Escrow {
         }
         admin.require_auth();
 
-        if protocol_fee_bps > 10_000 {
+        if protocol_fee_bps > MAX_FEE_BPS {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        storage_validation::validate_escrow_total_cap(&env, max_escrow_total_stroops);
+        if max_escrow_total_stroops <= 0 {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
