@@ -111,8 +111,6 @@ pub enum DataKey {
     // Client migration
     PendingClientMigration(u32),
     // Protocol / governance
-    GovernanceAdmin,
-    PendingGovernanceAdmin,
     ProtocolParameters,
     ProtocolFeeBps,
     // Two-step admin transfer: pending admin stored here while proposal awaits acceptance
@@ -241,6 +239,12 @@ pub enum Error {
     FeeWithdrawalCapExceeded = 66,
     /// A protocol-fee withdrawal was attempted before the cooldown interval elapsed.
     FeeWithdrawalCooldownActive = 67,
+    /// A pending admin proposal was not accepted within
+    /// `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` of being proposed and must be
+    /// re-proposed.
+    AdminProposalExpired = 68,
+    /// `propose_admin` was called with the current admin's own address.
+    CannotProposeSelf = 69,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
@@ -454,7 +458,7 @@ impl Default for ContractsParameters {
     }
 }
 
-/// Stores a pending governance admin proposal with the proposed address
+/// Stores a pending admin proposal with the proposed address
 /// and the ledger sequence when it was proposed.
 /// Used for the admin rotation timelock mechanism.
 #[contracttype]

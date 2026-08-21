@@ -118,7 +118,10 @@ pub use dispute::DisputeInfo;
 pub use events::{EventInput, MAX_EVENT_BATCH_SIZE};
 pub use migration::PendingClientMigration;
 pub use milestones_consts::PROTOCOL_FEE_BPS_DENOMINATOR;
-pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
+pub use ttl::{
+    ADMIN_ROTATION_MIN_DELAY_LEDGERS, ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS,
+    PENDING_MIGRATION_TTL_LEDGERS,
+};
 pub use types::{
     AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
     DepositMode, DisputeConfig, DisputeMetadata, DisputeResolution, DisputeSplit,
@@ -2461,67 +2464,26 @@ impl Escrow {
 
     /// Returns the ledger sequence at which the pending admin proposal was made.
     ///
-    /// Returns `None` if there is no pending proposal. This allows off-chain
-    /// Propose a new governance admin. Stores the proposal with a timelock.
-    ///
-    /// Delegates to `propose_governance_admin_impl`. The stored admin must authorize.
-    ///
-    /// # Events
-    /// `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
-
-    /// Accept a pending governance admin proposal, enforcing the timelock.
-    ///
-    /// Delegates to `accept_governance_admin_impl`. The proposed admin must authorize.
-    ///
-    /// # Events
-    /// `(symbol_short!("admin"), Symbol("accepted"))` → `(old_admin, new_admin, timestamp)`
-
-    /// Cancel a pending governance admin proposal, aborting a two-step transfer.
-    ///
-    /// Delegates to `cancel_governance_admin_proposal_impl`. Only the current admin may cancel.
-    ///
-    /// # Events
-    /// `(symbol_short!("admin"), Symbol("cancelled"))` → `(admin, cancelled_proposal, timestamp)`
-    pub fn cancel_governance_admin_proposal(env: Env) -> bool {
-        Self::cancel_governance_admin_proposal_impl(&env)
-    }
-
-    /// Returns the currently pending governance admin address, if any.
-    ///
-    /// Delegates to `get_pending_governance_admin_impl` which correctly decodes
-    /// the stored [`PendingAdminProposal`] struct and returns only the proposed
-    /// admin address. This ensures the same storage shape is used across
-    /// propose/accept/read paths.
-    ///
-    /// # Returns
-    /// * `Some(Address)` — the proposed governance admin address
-    /// * `None` — no pending proposal exists
-    pub fn get_pending_governance_admin(env: Env) -> Option<Address> {
-        Self::get_pending_governance_admin_impl(&env)
-    }
-
-    /// Returns the ledger sequence at which the pending admin proposal was made.
-    ///
     /// Alias for [`get_pending_admin_proposed_at`]. This is the canonical typed
     /// accessor for reading the timelock anchor ledger from a
     /// [`PendingAdminProposal`] so off-chain indexers can compute the remaining
     /// delay before the proposal can be accepted.
     ///
     /// Returns `None` if there is no pending proposal.
-    pub fn pending_gov_admin_proposed_at(env: Env) -> Option<u32> {
+    pub fn pending_admin_proposed_at(env: Env) -> Option<u32> {
         Self::get_pending_admin_proposed_at(env)
     }
+
+    /// Returns the ledger sequence at which the pending admin proposal was made.
+    ///
+    /// Returns `None` if there is no pending proposal. This allows off-chain
     /// indexers and governance dashboards to compute the remaining timelock
-    /// before the proposal can be accepted via `accept_governance_admin`.
+    /// before the proposal can be accepted via `accept_admin`.
     pub fn get_pending_admin_proposed_at(env: Env) -> Option<u32> {
         let proposal: Option<PendingAdminProposal> =
             env.storage().persistent().get(&DataKey::PendingAdmin);
         proposal.map(|p| p.proposed_at_ledger)
     }
-
-    /// Propose a new governance admin. Only the existing admin can call this.
-
-    /// Accept an existing governance admin proposal.
 
     // ── Protocol fee helpers ─────────────────────────────────────────────────
 

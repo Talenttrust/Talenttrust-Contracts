@@ -32,9 +32,9 @@ pub type Admin = Address; // soroban_sdk::Address
 **Access Patterns**:
 
 - Read in `set_protocol_fee_bps()` to verify caller authorization
-- Read in `propose_governance_admin()` to enforce current-admin-only access
-- Read via `get_governance_admin()` public query
-- Updated via `finalize_governance_admin()` after timelock expires
+- Read in `propose_admin_impl()` and `cancel_admin_impl()` to enforce current-admin-only access
+- Read via `get_admin()` public query
+- Updated via `accept_admin_impl()` once the timelock has elapsed (and before the proposal expires)
 
 **TTL Configuration**:
 
@@ -67,32 +67,36 @@ pub struct PendingAdminProposal {
 }
 ```
 
-**Initialization**: None initially; created by `propose_governance_admin(proposed: Address)`.
+**Initialization**: None initially; created by `propose_admin(proposed: Address)`.
 
 **Access Patterns**:
 
-- Written by `propose_governance_admin()` when current admin proposes a new admin
-- Read by `finalize_governance_admin()` to check the timelock has elapsed
-- Deleted by `finalize_governance_admin()` after the new admin is confirmed
-- Deleted by `propose_governance_admin()` if a new proposal overwrites a pending one
+- Written by `propose_admin_impl()` when current admin proposes a new admin
+- Read by `accept_admin_impl()` to check the timelock/expiry window
+- Read by `cancel_admin_impl()` and `get_pending_admin()` / `get_pending_admin_proposed_at()`
+- Deleted by `accept_admin_impl()` after the new admin is confirmed
+- Deleted by `cancel_admin_impl()` when the current admin aborts the proposal
+- Overwritten by `propose_admin_impl()` if a new proposal replaces a pending one
 
 **TTL Configuration**:
 
 - **Initial TTL**: `PERSISTENT_TTL_LEDGERS` = 518,400 ledgers (~30 days)
 - **Bump Threshold**: `PERSISTENT_BUMP_THRESHOLD` = 120,960 ledgers (~7 days)
-- **Bump-on-Read**: Extended when read by `finalize_governance_admin()`
+- **Bump-on-Read**: Extended when read by `accept_admin_impl()`
 
-**Timelock Enforcement**:
+**Timelock and Expiry Enforcement**:
 
 - **Minimum Delay**: `ADMIN_ROTATION_MIN_DELAY_LEDGERS` = 34,560 ledgers (~2 days)
-- **Enforcement**: `finalize_governance_admin()` checks `current_ledger - proposed_at_ledger >= ADMIN_ROTATION_MIN_DELAY_LEDGERS`
-- **Purpose**: Allows stakeholders time to detect and react to unexpected admin changes
+- **Expiry**: `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` = 155,520 ledgers (~9 days), measured from the same `proposed_at_ledger` anchor
+- **Enforcement**: `accept_admin_impl()` checks `ADMIN_ROTATION_MIN_DELAY_LEDGERS <= (current_ledger - proposed_at_ledger) <= ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS`, panicking with `TimelockNotElapsed` below the window and `AdminProposalExpired` above it
+- **Purpose**: The minimum delay gives stakeholders time to detect and react to an unexpected proposal; the expiry bounds how long a forgotten or unaddressed proposal (e.g. from a since-remediated key compromise) can still be accepted
 
 **Invariants**:
 
-- Cannot be finalized until the minimum delay has elapsed
-- `proposed` must differ from the current `Admin` (enforced by caller in business logic, not storage)
+- Cannot be accepted until the minimum delay has elapsed, and cannot be accepted once the expiry window has passed (a fresh `propose_admin` is required instead)
+- `proposed` must differ from the current `Admin`, enforced in `propose_admin_impl()` (`Error::CannotProposeSelf`), not by a storage-level constraint
 - Only one pending proposal can exist at a time (new proposal overwrites the previous one)
+- An expired proposal is *not* auto-cleared: since a panic rolls back all state changes, `cancel_admin` or a fresh `propose_admin` is required to remove it
 
 ### `DataKey::ProtocolFeeBps`
 
