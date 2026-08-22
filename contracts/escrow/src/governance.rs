@@ -237,6 +237,26 @@ impl Escrow {
         true
     }
 
+    /// Propose a new admin (alias for propose_governance_admin).
+    pub fn propose_admin(env: Env, proposed: Address) -> bool {
+        Self::propose_governance_admin_impl(&env, proposed)
+    }
+
+    /// Accept a pending admin proposal (alias for accept_governance_admin).
+    pub fn accept_admin(env: Env) -> bool {
+        Self::accept_governance_admin_impl(&env)
+    }
+
+    /// Cancel a pending admin proposal (alias for cancel_governance_admin_proposal).
+    pub fn cancel_admin(env: Env) -> bool {
+        Self::cancel_governance_admin_proposal_impl(&env)
+    }
+
+    /// Cancel a pending governance admin proposal.
+    pub fn cancel_governance_admin(env: Env) -> bool {
+        Self::cancel_governance_admin_proposal_impl(&env)
+    }
+
     /// Internal: return the currently pending admin address, if any.
     pub(crate) fn get_pending_governance_admin_impl(env: &Env) -> Option<Address> {
         let proposal: Option<PendingAdminProposal> =

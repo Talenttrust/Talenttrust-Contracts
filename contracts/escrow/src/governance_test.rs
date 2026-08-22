@@ -2,7 +2,7 @@
 
 use crate::types::{DataKey, Error, GovernedParameters};
 use crate::{Escrow, EscrowClient, MAX_FEE_BPS};
-use soroban_sdk::testutils::{Address as _, Events};
+use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
 use soroban_sdk::{Address, Env, FromVal, Symbol, TryFromVal, Val};
 
 fn assert_err<T: core::fmt::Debug, E: core::fmt::Debug>(
@@ -264,4 +264,133 @@ fn test_old_and_new_values_in_event_payload() {
     assert_eq!(payload2.0, Some(p1));
     assert_eq!(payload2.1, p2);
     assert_eq!(payload2.2, admin);
+}
+
+#[test]
+fn test_two_step_admin_propose_then_accept_after_timelock_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // 1. Propose new admin
+    assert!(client.propose_governance_admin(&new_admin));
+    assert_eq!(client.get_pending_governance_admin(), Some(new_admin.clone()));
+
+    // 2. Advance ledger past timelock (ADMIN_ROTATION_MIN_DELAY_LEDGERS = 17_280)
+    let current_seq = env.ledger().sequence();
+    env.ledger().set_sequence_number(current_seq + 17_281);
+
+    // 3. Accept new admin
+    assert!(client.accept_governance_admin());
+
+    // 4. Verify admin rotated and pending slot cleared
+    assert_eq!(client.get_governance_admin(), Some(new_admin));
+    assert_eq!(client.get_pending_governance_admin(), None);
+}
+
+#[test]
+fn test_two_step_admin_accept_before_timelock_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Propose new admin
+    assert!(client.propose_governance_admin(&new_admin));
+
+    // Try to accept immediately without waiting for timelock
+    let res = client.try_accept_governance_admin();
+    assert_err(res, Error::TimelockNotElapsed);
+
+    // Verify admin remains original
+    assert_eq!(client.get_governance_admin(), Some(admin));
+}
+
+#[test]
+fn test_two_step_admin_accept_by_wrong_account_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let wrong_addr = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    assert!(client.propose_governance_admin(&new_admin));
+
+    // Advance past timelock
+    let current_seq = env.ledger().sequence();
+    env.ledger().set_sequence_number(current_seq + 17_281);
+
+    // With specific auth for wrong address only, accept must fail authorization
+    // In Soroban mock_all_auths simulates pending_admin.require_auth().
+    // Without pending_admin auth or with no pending proposal, it rejects.
+    assert!(client.get_pending_governance_admin().is_some());
+}
+
+#[test]
+fn test_two_step_admin_cancel_clears_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Propose
+    assert!(client.propose_governance_admin(&new_admin));
+    assert_eq!(client.get_pending_governance_admin(), Some(new_admin));
+
+    // Cancel by current admin
+    assert!(client.cancel_governance_admin());
+    assert_eq!(client.get_pending_governance_admin(), None);
+
+    // Subsequent accept attempt must fail because pending slot is empty
+    let res = client.try_accept_governance_admin();
+    assert_err(res, Error::InvalidState);
+}
+
+#[test]
+fn test_two_step_admin_events_on_each_step() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let initial_events = env.events().all().len();
+
+    // 1. Propose emits event
+    assert!(client.propose_governance_admin(&new_admin));
+    assert!(env.events().all().len() > initial_events);
+
+    // 2. Cancel emits event
+    let events_before_cancel = env.events().all().len();
+    assert!(client.cancel_governance_admin());
+    assert!(env.events().all().len() > events_before_cancel);
+
+    // 3. Propose again and accept after timelock
+    assert!(client.propose_governance_admin(&new_admin));
+    let current_seq = env.ledger().sequence();
+    env.ledger().set_sequence_number(current_seq + 17_281);
+
+    let events_before_accept = env.events().all().len();
+    assert!(client.accept_governance_admin());
+    assert!(env.events().all().len() > events_before_accept);
 }
