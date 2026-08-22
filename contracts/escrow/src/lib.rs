@@ -2863,6 +2863,8 @@ impl Escrow {
 mod test;
 #[cfg(test)]
 mod schema_migration_test;
+#[cfg(test)]
+mod governance_test;
 
 #[contractimpl]
 impl Escrow {
