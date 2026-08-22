@@ -3086,6 +3086,8 @@ mod test_batch_release;
 mod indexer_events_test;
 #[cfg(test)]
 mod pause_emergency_test;
+#[cfg(test)]
+mod namespaced_keys_test;
 
 #[contractimpl]
 impl Escrow {
