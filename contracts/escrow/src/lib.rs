@@ -2865,6 +2865,8 @@ mod test;
 mod schema_migration_test;
 #[cfg(test)]
 mod governance_test;
+#[cfg(test)]
+mod settlement_guard_test;
 
 #[contractimpl]
 impl Escrow {
