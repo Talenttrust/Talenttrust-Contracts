@@ -3084,6 +3084,8 @@ mod error_taxonomy_test;
 mod test_batch_release;
 #[cfg(test)]
 mod indexer_events_test;
+#[cfg(test)]
+mod pause_emergency_test;
 
 #[contractimpl]
 impl Escrow {
