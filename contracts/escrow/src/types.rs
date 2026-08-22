@@ -147,6 +147,8 @@ pub enum DataKey {
     FeeWithdrawalCooldownLedgers,
     /// Ledger sequence number of the last successful protocol-fee withdrawal.
     LastFeeWithdrawalLedger,
+    /// Storage layout / schema version for the escrow contract (stored as u32).
+    SchemaVersion,
 }
 
 // ── Event Types ──────────────────────────────────────────────────────────────
@@ -241,6 +243,12 @@ pub enum Error {
     FeeWithdrawalCapExceeded = 66,
     /// A protocol-fee withdrawal was attempted before the cooldown interval elapsed.
     FeeWithdrawalCooldownActive = 67,
+    /// Target migration version is invalid, unsupported, or attempts an illegal downgrade.
+    InvalidMigrationVersion = 68,
+    /// Storage schema is already at or beyond the requested target version.
+    MigrationNotRequired = 69,
+    /// Caller is not authorized.
+    Unauthorized = 70,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────

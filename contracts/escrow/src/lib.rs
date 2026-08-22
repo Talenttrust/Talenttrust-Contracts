@@ -84,6 +84,7 @@ mod refund_impl;
 mod release;
 mod reputation;
 mod rollback;
+mod schema_migration;
 mod settlement;
 mod simulate;
 mod storage;
@@ -2841,11 +2842,27 @@ impl Escrow {
 
         MilestoneProgress { completed, total }
     }
+
+    /// Read the current on-ledger storage schema version for the escrow contract.
+    pub fn get_schema_version(env: Env) -> u32 {
+        Self::get_schema_version_impl(&env)
+    }
+
+    /// Upgrade storage schema to `target_version` with admin authorization and events.
+    pub fn migrate_escrow_storage(
+        env: Env,
+        admin: Address,
+        target_version: u32,
+    ) -> Result<u32, Error> {
+        Self::migrate_escrow_storage_impl(&env, admin, target_version)
+    }
 }
 
 /// Test fixtures and suites are compiled only for native test builds, never wasm.
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod schema_migration_test;
 
 #[contractimpl]
 impl Escrow {
