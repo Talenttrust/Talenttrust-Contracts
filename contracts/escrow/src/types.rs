@@ -241,6 +241,12 @@ pub enum Error {
     FeeWithdrawalCapExceeded = 66,
     /// A protocol-fee withdrawal was attempted before the cooldown interval elapsed.
     FeeWithdrawalCooldownActive = 67,
+    /// The batch release request is empty.
+    EmptyBatch = 71,
+    /// The batch size exceeds the allowed limit.
+    BatchLimitExceeded = 72,
+    /// Duplicate milestone index found in batch release request.
+    DuplicateMilestoneInBatch = 73,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
