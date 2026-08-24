@@ -76,7 +76,14 @@ impl Escrow {
 
         let mut milestone = milestones.get(milestone_index).unwrap().clone();
 
-        if milestone.released {
+        let milestone_released_key = DataKey::MilestoneReleased(contract_id, milestone_index);
+        let is_already_released: bool = env
+            .storage()
+            .persistent()
+            .get(&milestone_released_key)
+            .unwrap_or(false);
+
+        if milestone.released || is_already_released {
             env.panic_with_error(Error::MilestoneAlreadyReleased);
         }
 
@@ -95,6 +102,11 @@ impl Escrow {
         if available_balance < milestone.amount {
             env.panic_with_error(Error::InsufficientFunds);
         }
+
+        // Checks-Effects-Interactions: commit settled flag atomically before outward accounting
+        env.storage()
+            .persistent()
+            .set(&milestone_released_key, &true);
 
         let _release_amount = milestone.amount;
         milestone.released = true;
