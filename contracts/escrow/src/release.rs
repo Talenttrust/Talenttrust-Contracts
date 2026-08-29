@@ -33,7 +33,12 @@ impl Escrow {
         Self::require_not_paused(&env);
         Self::require_not_finalized(&env, contract_id);
 
-        if contract.status != ContractStatus::Funded {
+        // Disputed contracts are release-locked until an arbiter resolution is
+        // applied through the dispute path. This gate keeps payroll settlement
+        // atomic with dispute handling and prevents funds moving during an open
+        // dispute.
+        if contract.status == ContractStatus::Disputed || contract.status != ContractStatus::Funded
+        {
             env.panic_with_error(Error::InvalidState);
         }
 
