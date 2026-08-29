@@ -6,9 +6,30 @@
 //! readiness state, and `PendingAdmin` for two-step admin rotation proposals.
 //! Money movement for protocol-fee withdrawal remains in the crate root because
 //! it performs settlement-token transfers.
+//!
+//! ## Two-step admin transfer
+//!
+//! `DataKey::Admin` is a single address, so a typo'd or compromised
+//! `initialize`/prior transfer hands over the whole contract irrevocably if
+//! rotation were a single call. Instead rotation is propose/accept/cancel:
+//!
+//! 1. `propose_admin(new)` — current admin stores `new` under `PendingAdmin`
+//!    with the current ledger sequence. Self-proposals are rejected.
+//! 2. `accept_admin()` — the *proposed* address, not the current admin,
+//!    authorizes this call. It must arrive no earlier than
+//!    `ADMIN_ROTATION_MIN_DELAY_LEDGERS` after the proposal (the reaction
+//!    window) and no later than `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` after it
+//!    (so a stale, unaddressed proposal cannot be accepted long after the
+//!    circumstances that produced it have changed).
+//! 3. `cancel_admin()` — the current admin can abort a pending proposal at any
+//!    time, expired or not.
+//!
+//! Every transition clears or overwrites `PendingAdmin` so an accept can never
+//! be replayed against a cancelled or already-consumed proposal: it simply
+//! finds nothing pending and fails with `Error::InvalidState`.
 
 use crate::storage_validation;
-use crate::ttl::{self, ADMIN_ROTATION_MIN_DELAY_LEDGERS};
+use crate::ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS};
 use crate::{
     DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, PendingAdminProposal,
     ReadinessChecklist, MAX_FEE_BPS, MAX_MAX_MILESTONES, MIN_MAX_MILESTONES,
@@ -61,10 +82,6 @@ impl Escrow {
         true
     }
 
-    pub fn get_governance_admin(env: Env) -> Option<Address> {
-        env.storage().persistent().get(&DataKey::Admin)
-    }
-
     /// Returns the current protocol fee in basis points.
     pub fn get_protocol_fee_bps(env: Env) -> u32 {
         env.storage()
@@ -108,21 +125,25 @@ impl Escrow {
 
     // ── Two-step admin transfer ───────────────────────────────────────────────
 
-    /// Propose a new governance admin. Stores the proposal with a timelock.
+    /// Propose a new admin. Stores the proposal with a timelock.
     ///
-    /// Public entrypoint that delegates to [`propose_governance_admin_impl`].
+    /// Public entrypoint that delegates to [`propose_admin_impl`].
     ///
     /// # Events
     /// `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
-    pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
-        Self::propose_governance_admin_impl(&env, proposed)
+    pub fn propose_admin(env: Env, proposed: Address) -> bool {
+        Self::propose_admin_impl(&env, proposed)
     }
 
-    /// Propose a new governance admin. Stores the proposal with a timelock.
+    /// Propose a new admin. Stores the proposal with a timelock.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`] — `initialize` has not been called.
+    /// * [`Error::CannotProposeSelf`] — `proposed` is the current admin.
     ///
     /// # Events
     /// `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
-    pub(crate) fn propose_governance_admin_impl(env: &Env, proposed: Address) -> bool {
+    pub(crate) fn propose_admin_impl(env: &Env, proposed: Address) -> bool {
         Self::require_initialized(env);
 
         let admin: Address = env
@@ -131,6 +152,10 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
         admin.require_auth();
+
+        if proposed == admin {
+            env.panic_with_error(Error::CannotProposeSelf);
+        }
 
         env.storage().persistent().set(
             &DataKey::PendingAdmin,
@@ -147,21 +172,33 @@ impl Escrow {
         true
     }
 
-    /// Accept a pending admin proposal, enforcing the timelock.
+    /// Accept a pending admin proposal, enforcing the timelock and expiry window.
     ///
-    /// Public entrypoint that delegates to [`accept_governance_admin_impl`].
+    /// Public entrypoint that delegates to [`accept_admin_impl`].
     ///
     /// # Events
     /// `(symbol_short!("admin"), Symbol("accepted"))` → `(old_admin, new_admin, timestamp)`
-    pub fn accept_governance_admin(env: Env) -> bool {
-        Self::accept_governance_admin_impl(&env)
+    pub fn accept_admin(env: Env) -> bool {
+        Self::accept_admin_impl(&env)
     }
 
-    /// Accept a pending admin proposal, enforcing the timelock.
+    /// Accept a pending admin proposal, enforcing the timelock and expiry window.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`] — `initialize` has not been called.
+    /// * [`Error::InvalidState`] — there is no pending proposal.
+    /// * [`Error::TimelockNotElapsed`] — called before
+    ///   `ADMIN_ROTATION_MIN_DELAY_LEDGERS` ledgers have elapsed since the
+    ///   proposal.
+    /// * [`Error::AdminProposalExpired`] — called after
+    ///   `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` ledgers have elapsed since the
+    ///   proposal. The stale proposal is left in place (a panic rolls back
+    ///   any state change, so there is nothing to clear here) — call
+    ///   [`Escrow::cancel_admin`] or `propose_admin` again to replace it.
     ///
     /// # Events
     /// `(symbol_short!("admin"), Symbol("accepted"))` → `(old_admin, new_admin, timestamp)`
-    pub(crate) fn accept_governance_admin_impl(env: &Env) -> bool {
+    pub(crate) fn accept_admin_impl(env: &Env) -> bool {
         Self::require_initialized(env);
 
         let pending: PendingAdminProposal = env
@@ -176,6 +213,9 @@ impl Escrow {
             .saturating_sub(pending.proposed_at_ledger);
         if elapsed < ADMIN_ROTATION_MIN_DELAY_LEDGERS {
             env.panic_with_error(Error::TimelockNotElapsed);
+        }
+        if elapsed > ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS {
+            env.panic_with_error(Error::AdminProposalExpired);
         }
 
         let pending_admin = pending.proposed;
@@ -199,13 +239,24 @@ impl Escrow {
         true
     }
 
-    /// Cancel a pending governance admin proposal, aborting a two-step transfer.
+    /// Cancel a pending admin proposal, aborting a two-step transfer.
+    ///
+    /// Public entrypoint that delegates to [`cancel_admin_impl`].
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("cancelled"))` → `(admin, cancelled_proposal, timestamp)`
+    pub fn cancel_admin(env: Env) -> bool {
+        Self::cancel_admin_impl(&env)
+    }
+
+    /// Cancel a pending admin proposal, aborting a two-step transfer.
     ///
     /// Only the current admin (the address stored under [`DataKey::Admin`]) may
     /// cancel, and the contract must be initialized. On success the pending
     /// proposal is removed so the previously proposed address can no longer call
-    /// [`Escrow::accept_governance_admin`] — a subsequent accept panics with
-    /// [`Error::InvalidState`].
+    /// [`Escrow::accept_admin`] — a subsequent accept panics with
+    /// [`Error::InvalidState`]. Works on an expired proposal too, since expiry
+    /// only bounds *acceptance*, not cancellation.
     ///
     /// # Errors
     /// * [`Error::NotInitialized`] — `initialize` has not been called.
@@ -213,7 +264,7 @@ impl Escrow {
     ///
     /// # Events
     /// `(symbol_short!("admin"), Symbol("cancelled"))` → `(admin, cancelled_proposal, timestamp)`
-    pub(crate) fn cancel_governance_admin_proposal_impl(env: &Env) -> bool {
+    pub(crate) fn cancel_admin_impl(env: &Env) -> bool {
         Self::require_initialized(env);
 
         let admin: Address = env
@@ -238,36 +289,18 @@ impl Escrow {
         true
     }
 
-    /// Propose a new admin (alias for propose_governance_admin).
-    pub fn propose_admin(env: Env, proposed: Address) -> bool {
-        Self::propose_governance_admin_impl(&env, proposed)
-    }
-
-    /// Accept a pending admin proposal (alias for accept_governance_admin).
-    pub fn accept_admin(env: Env) -> bool {
-        Self::accept_governance_admin_impl(&env)
-    }
-
-    /// Cancel a pending admin proposal (alias for cancel_governance_admin_proposal).
-    pub fn cancel_admin(env: Env) -> bool {
-        Self::cancel_governance_admin_proposal_impl(&env)
-    }
-
-    /// Cancel a pending governance admin proposal.
-    pub fn cancel_governance_admin(env: Env) -> bool {
-        Self::cancel_governance_admin_proposal_impl(&env)
+    /// Returns the currently pending admin address, if any.
+    ///
+    /// Public entrypoint that delegates to [`get_pending_admin_impl`].
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        Self::get_pending_admin_impl(&env)
     }
 
     /// Internal: return the currently pending admin address, if any.
-    pub(crate) fn get_pending_governance_admin_impl(env: &Env) -> Option<Address> {
+    pub(crate) fn get_pending_admin_impl(env: &Env) -> Option<Address> {
         let proposal: Option<PendingAdminProposal> =
             env.storage().persistent().get(&DataKey::PendingAdmin);
         proposal.map(|p| p.proposed)
-    }
-
-    /// Internal: return the current admin address.
-    pub(crate) fn get_governance_admin_impl(env: Env) -> Option<Address> {
-        env.storage().persistent().get(&DataKey::Admin)
     }
 
     /// Set both governance parameters at once and update the readiness checklist.

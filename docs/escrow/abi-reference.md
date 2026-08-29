@@ -393,39 +393,48 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: None
 - Errors: None
 
-### propose_governance_admin
+### propose_admin
 
-- Signature: `propose_governance_admin(env: Env, proposed: Address) -> bool`
+- Signature: `propose_admin(env: Env, proposed: Address) -> bool`
 - Kind: Mutating
 - Auth: stored admin
-- Semantics: Starts a two-step governance-admin transfer proposal with a timelock.
+- Semantics: Starts a two-step admin transfer proposal with a timelock. Overwrites any existing pending proposal.
 - Events: `("admin", "proposed")`
-- Errors: `NotInitialized`, `UnauthorizedRole`, `InvalidState` (for missing proposal state in helper paths)
+- Errors: `NotInitialized`, `UnauthorizedRole`, `CannotProposeSelf`
 
-### accept_governance_admin
+### accept_admin
 
-- Signature: `accept_governance_admin(env: Env) -> bool`
+- Signature: `accept_admin(env: Env) -> bool`
 - Kind: Mutating
 - Auth: proposed admin
-- Semantics: Completes the timelocked governance-admin transfer if the timelock has elapsed.
+- Semantics: Completes the timelocked admin transfer once `ADMIN_ROTATION_MIN_DELAY_LEDGERS` have elapsed since the proposal and before `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` have elapsed.
 - Events: `("admin", "accepted")`
-- Errors: `NotInitialized`, `InvalidState`, `TimelockNotElapsed`, `UnauthorizedRole`
+- Errors: `NotInitialized`, `InvalidState`, `TimelockNotElapsed`, `AdminProposalExpired`, `UnauthorizedRole`
 
-### get_pending_governance_admin
+### cancel_admin
 
-- Signature: `get_pending_governance_admin(env: Env) -> Option<Address>`
+- Signature: `cancel_admin(env: Env) -> bool`
+- Kind: Mutating
+- Auth: stored admin
+- Semantics: Aborts a pending admin transfer proposal (expired or not).
+- Events: `("admin", "cancelled")`
+- Errors: `NotInitialized`, `InvalidState`, `UnauthorizedRole`
+
+### get_pending_admin
+
+- Signature: `get_pending_admin(env: Env) -> Option<Address>`
 - Kind: Read-only
 - Auth: None
-- Semantics: Returns the pending governance-admin proposal, if any.
+- Semantics: Returns the pending admin proposal's proposed address, if any.
 - Events: None
 - Errors: None
 
-### get_governance_admin
+### get_pending_admin_proposed_at / pending_admin_proposed_at
 
-- Signature: `get_governance_admin(env: Env) -> Option<Address>`
+- Signature: `get_pending_admin_proposed_at(env: Env) -> Option<u32>` (alias `pending_admin_proposed_at`)
 - Kind: Read-only
 - Auth: None
-- Semantics: Returns the current governance admin address, if any.
+- Semantics: Returns the ledger sequence the pending proposal was made at, if any.
 - Events: None
 - Errors: None
 

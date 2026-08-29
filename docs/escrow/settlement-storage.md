@@ -94,7 +94,7 @@ env.storage().persistent().set(
 | **Key** | `DataKey::Admin` (bare enum variant) |
 | **Type** | `Address` |
 | **Storage class** | `persistent()` |
-| **Written by** | `initialize`, `accept_governance_admin_impl` |
+| **Written by** | `initialize`, `accept_admin_impl` |
 | **Read by** | All admin-gated entrypoints |
 | **TTL bump on write** | None |
 | **TTL bump on read** | None |

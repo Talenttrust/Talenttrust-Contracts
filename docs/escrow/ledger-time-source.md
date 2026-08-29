@@ -67,9 +67,9 @@ indexers. These are not semantic time checks and read the ledger directly:
 | `activate_emergency_pause` | `pause` |
 | `resolve_emergency` | `unpaused` |
 | `set_protocol_fee_bps` | `protocol_fee_bps` |
-| `propose_governance_admin_impl` | `admin` / `proposed` |
-| `accept_governance_admin_impl` | `admin` / `accepted` |
-| `cancel_governance_admin_proposal_impl` | `admin` / `cancelled` |
+| `propose_admin_impl` | `admin` / `proposed` |
+| `accept_admin_impl` | `admin` / `accepted` |
+| `cancel_admin_impl` | `admin` / `cancelled` |
 | `accept_client_migration_impl` | `client_migration_accepted` |
 | `cancel_client_migration_impl` | `client_migration_cancelled` |
 | `create_contract` (via `create_contract.rs`) | `contract_created` |
@@ -82,7 +82,7 @@ These features measure **elapsed ledgers**, not wall-clock time:
 
 | Mechanism | Module | Detail |
 | --- | --- | --- |
-| Admin rotation timelock | `governance.rs` | Uses `env.ledger().sequence()` to enforce `ADMIN_ROTATION_MIN_DELAY_LEDGERS` (~2 days in ledgers). |
+| Admin rotation timelock + expiry | `governance.rs` | Uses `env.ledger().sequence()` to enforce a minimum delay (`ADMIN_ROTATION_MIN_DELAY_LEDGERS`, ~2 days) before `accept_admin` and a maximum age (`ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS`, ~9 days) after which it expires. |
 | Migration TTL | `migration.rs` | Uses `env.ledger().sequence()` to stamp `requested_at_ledger` and `expires_at_ledger`; eviction happens via Soroban temporary-storage TTL. |
 | Approval expiry | `approvals.rs` | Temporary-storage TTL (`PENDING_APPROVAL_TTL_LEDGERS`). |
 | Persistent storage renewal | `ttl.rs` | Bump-on-read thresholds expressed in ledger counts. |
