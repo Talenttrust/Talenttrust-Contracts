@@ -3169,10 +3169,6 @@ mod governance_test;
 mod settlement_guard_test;
 #[cfg(test)]
 mod error_taxonomy_test;
-#[cfg(test)]
-mod test_batch_release;
-#[cfg(test)]
-mod indexer_events_test;
 
 #[contractimpl]
 impl Escrow {

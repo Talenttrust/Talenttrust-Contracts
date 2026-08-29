@@ -289,12 +289,6 @@ pub enum Error {
     MigrationNotRequired = 69,
     /// Caller is not authorized.
     Unauthorized = 70,
-    /// The batch release request is empty.
-    EmptyBatch = 71,
-    /// The batch size exceeds the allowed limit.
-    BatchLimitExceeded = 72,
-    /// Duplicate milestone index found in batch release request.
-    DuplicateMilestoneInBatch = 73,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
