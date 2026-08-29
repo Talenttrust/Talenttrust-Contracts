@@ -1,5 +1,5 @@
 use crate::{
-    approvals, keys, ttl, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
+    approvals, keys, ttl, milestone_transitions, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
     ReleaseAuthorization,
 };
 use soroban_sdk::{Address, Env, Symbol, Vec};
@@ -9,6 +9,10 @@ impl Escrow {
     ///
     /// Called from the single `#[contractimpl]` block in lib.rs after the
     /// initialization, pause, and auth guards have been checked.
+    ///
+    /// This function routes the milestone status change through the centralized
+    /// transition validator (`validate_milestone_transition`) to ensure consistent
+    /// state-machine enforcement across all mutation paths (Issue #1340).
     pub(crate) fn release_milestone_impl(
         env: &Env,
         contract_id: u32,
@@ -33,7 +37,12 @@ impl Escrow {
         Self::require_not_paused(&env);
         Self::require_not_finalized(&env, contract_id);
 
-        if contract.status != ContractStatus::Funded {
+        // Disputed contracts are release-locked until an arbiter resolution is
+        // applied through the dispute path. This gate keeps payroll settlement
+        // atomic with dispute handling and prevents funds moving during an open
+        // dispute.
+        if contract.status == ContractStatus::Disputed || contract.status != ContractStatus::Funded
+        {
             env.panic_with_error(Error::InvalidState);
         }
 
@@ -76,33 +85,68 @@ impl Escrow {
 
         let mut milestone = milestones.get(milestone_index).unwrap().clone();
 
-        if milestone.released {
+        let milestone_released_key = DataKey::MilestoneReleased(contract_id, milestone_index);
+        let is_already_released: bool = env
+            .storage()
+            .persistent()
+            .get(&milestone_released_key)
+            .unwrap_or(false);
+
+        if milestone.released || is_already_released {
             env.panic_with_error(Error::MilestoneAlreadyReleased);
         }
 
-        if milestone.refunded {
-            env.panic_with_error(Error::AlreadyRefunded);
-        }
+        milestone_transitions::validate_milestone_transition(current_state, requested_state)
+            .unwrap_or_else(|e| env.panic_with_error(e));
 
         approvals::check_approvals(&env, &contract, contract_id, milestone_index)
             .unwrap_or_else(|e| env.panic_with_error(e));
+
+        let gross_amount = milestone.amount;
+        let protocol_fee: i128 = if Self::is_initialized(&env) {
+            let fee_bps = Self::read_protocol_fee_bps(&env);
+            if fee_bps > 0 {
+                Self::calculate_protocol_fee(&env, gross_amount, fee_bps)
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        let net_amount = gross_amount - protocol_fee;
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
 
         let available_balance = contract
             .funded_amount
             .checked_sub(contract.released_amount)
             .and_then(|a| a.checked_sub(contract.refunded_amount))
+            .and_then(|a| a.checked_sub(accumulated_fees))
             .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-        if available_balance < milestone.amount {
+        if available_balance < gross_amount {
             env.panic_with_error(Error::InsufficientFunds);
         }
+
+        // Checks-Effects-Interactions: commit settled flag atomically before outward accounting
+        env.storage()
+            .persistent()
+            .set(&milestone_released_key, &true);
 
         let _release_amount = milestone.amount;
         milestone.released = true;
         milestones.set(milestone_index, milestone.clone());
         contract.released_amount = contract
             .released_amount
-            .checked_add(milestone.amount)
+            .checked_add(net_amount)
             .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+
+        // ── Atomic Version/Actor Persistence ──────────────────────────────────
+        // Record who performed this transition and increment the version
+        milestone_transitions::store_milestone_transition(env, contract_id, milestone_index, caller.clone());
 
         if Self::is_initialized(&env) {
             let fee_bps = Self::read_protocol_fee_bps(&env);
