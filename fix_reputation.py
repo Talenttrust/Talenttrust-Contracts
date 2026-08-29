@@ -2,6 +2,7 @@ import re
 
 filepath = 'contracts/escrow/src/test/reputation.rs'
 with open(filepath, 'r') as f:
+    
     content = f.read()
 
 content = content.replace('complete_contract(', 'complete_contract_for(')

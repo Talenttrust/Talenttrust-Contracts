@@ -109,3 +109,85 @@ pub fn emit_dispute_resolved_event(
         ),
     );
 }
+
+/// Emits an event when a milestone is released to a freelancer.
+pub fn emit_milestone_released_event(
+    env: &Env,
+    contract_id: u32,
+    milestone_index: u32,
+    amount: i128,
+    gross_amount: i128,
+    fee: i128,
+    recipient: &Address,
+) {
+    env.events().publish(
+        (symbol_short!("milestone"), symbol_short!("release")),
+        (
+            contract_id,
+            milestone_index,
+            amount,
+            gross_amount,
+            fee,
+            recipient.clone(),
+            env.ledger().timestamp(),
+        ),
+    );
+}
+
+/// Emits an event when a milestone is refunded to the client.
+pub fn emit_milestone_refunded_event(
+    env: &Env,
+    contract_id: u32,
+    milestone_index: u32,
+    amount: i128,
+    recipient: &Address,
+) {
+    env.events().publish(
+        (symbol_short!("milestone"), symbol_short!("refund")),
+        (
+            contract_id,
+            milestone_index,
+            amount,
+            recipient.clone(),
+            env.ledger().timestamp(),
+        ),
+    );
+}
+
+/// Emits an event when a milestone is approved by client or arbiter.
+pub fn emit_milestone_approved_event(
+    env: &Env,
+    contract_id: u32,
+    milestone_index: u32,
+    approver: &Address,
+) {
+    env.events().publish(
+        (symbol_short!("milestone"), symbol_short!("approved")),
+        (
+            contract_id,
+            milestone_index,
+            approver.clone(),
+            env.ledger().timestamp(),
+        ),
+    );
+}
+
+/// Emits an event when work evidence is submitted for a milestone.
+pub fn emit_work_evidence_submitted_event(
+    env: &Env,
+    contract_id: u32,
+    milestone_index: u32,
+    submitter: &Address,
+    evidence: &soroban_sdk::String,
+) {
+    env.events().publish(
+        (symbol_short!("milestone"), symbol_short!("evidence")),
+        (
+            contract_id,
+            milestone_index,
+            submitter.clone(),
+            evidence.clone(),
+            env.ledger().timestamp(),
+        ),
+    );
+}

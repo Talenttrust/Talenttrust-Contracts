@@ -10,6 +10,7 @@ use crate::{
 
 // --- Submodules ---
 mod access_control;
+mod admin_auth_helper;
 mod approval_expiry;
 mod budget;
 mod cancel_contract;
@@ -24,12 +25,16 @@ mod deposit;
 // mod disputes_page;
 mod emergency_controls;
 mod events_auth_matrix;
+mod governance;
+mod governance_events;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
+mod milestone_transitions_integration;
 mod protocol_fees;
 // mod mainnet_readiness;
 mod milestone_progress;
 mod pause_controls;
+mod test_pause_scope;
 mod performance;
 mod persistence;
 mod refund;

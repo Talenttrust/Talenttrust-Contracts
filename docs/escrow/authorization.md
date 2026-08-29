@@ -39,9 +39,9 @@ All of these require the address stored under `DataKey::Admin` to have authorize
 | `resolve_emergency()` | Stored admin | Contract must be initialized |
 | `set_protocol_fee_bps(new_bps)` | Stored admin | Contract initialized; `new_bps ≤ 10_000` |
 | `set_governed_params(admin, fee_bps, max_stroops)` | `admin` == stored admin | Contract initialized; `fee_bps ≤ 10_000` |
-| `propose_governance_admin(proposed)` | Stored admin | Contract initialized |
-| `accept_governance_admin()` | The pending proposed admin | Timelock of `ADMIN_ROTATION_MIN_DELAY_LEDGERS` (≈ 2 days) must have elapsed since `propose_governance_admin` |
-| `cancel_governance_admin_proposal()` | Stored admin | A pending proposal must exist |
+| `propose_admin(proposed)` | Stored admin | Contract initialized; `proposed` must not equal the stored admin (`CannotProposeSelf`) |
+| `accept_admin()` | The pending proposed admin | Timelock of `ADMIN_ROTATION_MIN_DELAY_LEDGERS` (≈ 2 days) must have elapsed since `propose_admin`, and no more than `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` (≈ 9 days) |
+| `cancel_admin()` | Stored admin | A pending proposal must exist (expired proposals may still be cancelled) |
 | `withdraw_protocol_fees(admin, amount)` | Stored admin | Settlement token must be bound; `AccumulatedProtocolFees ≥ amount` |
 
 ### Contract-lifecycle entrypoints
@@ -244,11 +244,11 @@ Each flag in `MilestoneApprovals` starts `false`. If the flag is already `true` 
 
 **Source:** `finalize.rs::require_finalizer_role`.
 
-### I12 — Admin rotation enforces a timelock
+### I12 — Admin rotation enforces a timelock and an expiry window
 
-`accept_governance_admin` reads `pending.proposed_at_ledger` and computes `elapsed = current_ledger − proposed_at_ledger`. If `elapsed < ADMIN_ROTATION_MIN_DELAY_LEDGERS` (≈2 days), it panics with `TimelockNotElapsed`. Only after the delay may the pending admin call `accept_governance_admin` with their own `require_auth`.
+`accept_admin` reads `pending.proposed_at_ledger` and computes `elapsed = current_ledger − proposed_at_ledger`. If `elapsed < ADMIN_ROTATION_MIN_DELAY_LEDGERS` (≈2 days), it panics with `TimelockNotElapsed`. If `elapsed > ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` (≈9 days), it panics with `AdminProposalExpired` instead — since a panic rolls back all state, the stale proposal is left in place and must be cleared with `cancel_admin` or replaced with a fresh `propose_admin`. Only inside that window may the pending admin call `accept_admin` with their own `require_auth`.
 
-**Source:** `governance.rs::accept_governance_admin_impl`.
+**Source:** `governance.rs::accept_admin_impl`.
 
 ### I13 — Pause gate runs before auth checks on lifecycle entrypoints
 
