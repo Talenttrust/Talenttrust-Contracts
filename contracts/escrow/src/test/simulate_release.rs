@@ -358,7 +358,7 @@ fn simulate_with_protocol_fees() {
     let escrow = fixture.escrow();
 
     // Set a 10% protocol fee
-    escrow.set_protocol_fee_bps(&1_000);
+    escrow.set_protocol_fee_bps(&1_000, &1u64);
 
     escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
 

@@ -96,6 +96,10 @@ impl Escrow {
             env.panic_with_error(Error::MilestoneAlreadyReleased);
         }
 
+        let current_state = milestone_transitions::MilestoneState::from_milestone(&milestone)
+            .unwrap_or_else(|e| env.panic_with_error(e));
+        let requested_state = milestone_transitions::MilestoneState::Released;
+
         milestone_transitions::validate_milestone_transition(current_state, requested_state)
             .unwrap_or_else(|e| env.panic_with_error(e));
 

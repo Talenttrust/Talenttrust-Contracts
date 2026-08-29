@@ -278,19 +278,19 @@ fn test_two_step_admin_propose_then_accept_after_timelock_succeeds() {
     client.initialize(&admin);
 
     // 1. Propose new admin
-    assert!(client.propose_governance_admin(&new_admin));
-    assert_eq!(client.get_pending_governance_admin(), Some(new_admin.clone()));
+    assert!(client.propose_admin(&new_admin));
+    assert_eq!(client.get_pending_admin(), Some(new_admin.clone()));
 
     // 2. Advance ledger past timelock (ADMIN_ROTATION_MIN_DELAY_LEDGERS = 17_280)
     let current_seq = env.ledger().sequence();
     env.ledger().set_sequence_number(current_seq + 17_281);
 
     // 3. Accept new admin
-    assert!(client.accept_governance_admin());
+    assert!(client.accept_admin());
 
     // 4. Verify admin rotated and pending slot cleared
-    assert_eq!(client.get_governance_admin(), Some(new_admin));
-    assert_eq!(client.get_pending_governance_admin(), None);
+    assert_eq!(client.get_admin(), Some(new_admin));
+    assert_eq!(client.get_pending_admin(), None);
 }
 
 #[test]
@@ -305,14 +305,14 @@ fn test_two_step_admin_accept_before_timelock_rejected() {
     client.initialize(&admin);
 
     // Propose new admin
-    assert!(client.propose_governance_admin(&new_admin));
+    assert!(client.propose_admin(&new_admin));
 
     // Try to accept immediately without waiting for timelock
-    let res = client.try_accept_governance_admin();
+    let res = client.try_accept_admin();
     assert_err(res, Error::TimelockNotElapsed);
 
     // Verify admin remains original
-    assert_eq!(client.get_governance_admin(), Some(admin));
+    assert_eq!(client.get_admin(), Some(admin));
 }
 
 #[test]
@@ -327,7 +327,7 @@ fn test_two_step_admin_accept_by_wrong_account_rejected() {
 
     env.mock_all_auths();
     client.initialize(&admin);
-    assert!(client.propose_governance_admin(&new_admin));
+    assert!(client.propose_admin(&new_admin));
 
     // Advance past timelock
     let current_seq = env.ledger().sequence();
@@ -336,7 +336,7 @@ fn test_two_step_admin_accept_by_wrong_account_rejected() {
     // With specific auth for wrong address only, accept must fail authorization
     // In Soroban mock_all_auths simulates pending_admin.require_auth().
     // Without pending_admin auth or with no pending proposal, it rejects.
-    assert!(client.get_pending_governance_admin().is_some());
+    assert!(client.get_pending_admin().is_some());
 }
 
 #[test]
@@ -351,15 +351,15 @@ fn test_two_step_admin_cancel_clears_pending() {
     client.initialize(&admin);
 
     // Propose
-    assert!(client.propose_governance_admin(&new_admin));
-    assert_eq!(client.get_pending_governance_admin(), Some(new_admin));
+    assert!(client.propose_admin(&new_admin));
+    assert_eq!(client.get_pending_admin(), Some(new_admin));
 
     // Cancel by current admin
-    assert!(client.cancel_governance_admin());
-    assert_eq!(client.get_pending_governance_admin(), None);
+    assert!(client.cancel_admin());
+    assert_eq!(client.get_pending_admin(), None);
 
     // Subsequent accept attempt must fail because pending slot is empty
-    let res = client.try_accept_governance_admin();
+    let res = client.try_accept_admin();
     assert_err(res, Error::InvalidState);
 }
 
@@ -377,20 +377,20 @@ fn test_two_step_admin_events_on_each_step() {
     let initial_events = env.events().all().len();
 
     // 1. Propose emits event
-    assert!(client.propose_governance_admin(&new_admin));
+    assert!(client.propose_admin(&new_admin));
     assert!(env.events().all().len() > initial_events);
 
     // 2. Cancel emits event
     let events_before_cancel = env.events().all().len();
-    assert!(client.cancel_governance_admin());
+    assert!(client.cancel_admin());
     assert!(env.events().all().len() > events_before_cancel);
 
     // 3. Propose again and accept after timelock
-    assert!(client.propose_governance_admin(&new_admin));
+    assert!(client.propose_admin(&new_admin));
     let current_seq = env.ledger().sequence();
     env.ledger().set_sequence_number(current_seq + 17_281);
 
     let events_before_accept = env.events().all().len();
-    assert!(client.accept_governance_admin());
+    assert!(client.accept_admin());
     assert!(env.events().all().len() > events_before_accept);
 }

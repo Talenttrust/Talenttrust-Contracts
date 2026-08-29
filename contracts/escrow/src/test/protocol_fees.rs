@@ -32,7 +32,7 @@ fn setup_with_accumulated_fees(env: &Env) -> (EscrowClient<'_>, Address, Address
     let (client, admin, _cid) = setup(env);
     let token = env.register_stellar_asset_contract(admin.clone());
     client.bind_settlement_token(&admin, &token);
-    client.set_protocol_fee_bps(&1000u32);
+    client.set_protocol_fee_bps(&1000u32, &1u64);
 
     let client_addr = Address::generate(env);
     let freelancer = Address::generate(env);
@@ -420,7 +420,7 @@ fn partial_withdrawal_keeps_exact_accounting() {
 fn withdraw_rejected_when_paused() {
     let env = Env::default();
     let (client, _admin, destination, _acc, _tok) = setup_with_accumulated_fees(&env);
-    client.pause();
+    client.pause(&1u64);
     super::assert_contract_error(
         client.try_withdraw_protocol_fees(&1_i128, &destination),
         EscrowError::ContractPaused,

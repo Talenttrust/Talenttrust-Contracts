@@ -29,6 +29,7 @@
 //! finds nothing pending and fails with `Error::InvalidState`.
 
 use crate::storage_validation;
+use crate::ttl;
 use crate::ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS};
 use crate::{
     DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, PendingAdminProposal,

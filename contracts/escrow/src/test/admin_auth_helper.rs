@@ -36,7 +36,7 @@ fn setup_uninitialized(env: &Env) -> EscrowClient<'_> {
 fn pause_before_initialize_panics_not_initialized() {
     let env = Env::default();
     let client = setup_uninitialized(&env);
-    super::assert_contract_error(client.try_pause(), EscrowError::NotInitialized);
+    super::assert_contract_error(client.try_pause(&1u64), EscrowError::NotInitialized);
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn resolve_emergency_before_initialize_panics_not_initialized() {
 fn pause_succeeds_with_admin_auth() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
-    assert!(client.pause(), "pause must return true");
+    assert!(client.pause(&1u64), "pause must return true");
     assert!(client.is_paused(), "contract must be in paused state");
 }
 
@@ -80,7 +80,7 @@ fn pause_succeeds_with_admin_auth() {
 fn unpause_succeeds_after_pause() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
-    client.pause();
+    client.pause(&1u64);
     assert!(client.unpause(), "unpause must return true");
     assert!(!client.is_paused(), "contract must be unpaused");
 }
@@ -195,7 +195,7 @@ fn pause_unpause_does_not_affect_emergency_flag() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
 
-    client.pause();
+    client.pause(&1u64);
     assert!(!client.is_emergency(), "pause must not set emergency flag");
 
     client.unpause();

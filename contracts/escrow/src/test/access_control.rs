@@ -985,7 +985,7 @@ fn submit_work_evidence_blocked_while_paused() {
     let f = EscrowFixtureBuilder::new().funded().build();
     let escrow = f.escrow();
     // Pause requires admin auth; mock_all_auths covers it.
-    escrow.pause();
+    escrow.pause(&1u64);
 
     let evidence = s(&f.env, "ipfs://QmPaused");
     let result = escrow.try_submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &evidence);
@@ -997,7 +997,7 @@ fn submit_work_evidence_blocked_while_paused() {
 fn submit_work_evidence_accepted_after_unpause() {
     let f = EscrowFixtureBuilder::new().funded().build();
     let escrow = f.escrow();
-    escrow.pause();
+    escrow.pause(&1u64);
     escrow.unpause();
 
     let evidence = s(&f.env, "ipfs://QmUnpaused");
@@ -1053,4 +1053,100 @@ fn submit_work_evidence_independent_per_milestone() {
 
     assert_eq!(escrow.get_work_evidence(&contract_id, &0), Some(ev0));
     assert_eq!(escrow.get_work_evidence(&contract_id, &1), Some(ev1));
+}
+
+// ── EvidenceLocked after approval (Issue #1356) ─────────────────────────────
+
+/// Evidence can be submitted before any approval exists.
+#[test]
+fn submit_work_evidence_succeeds_before_approval() {
+    let f = EscrowFixtureBuilder::new().funded().build();
+    let escrow = f.escrow();
+    let ev = s(&f.env, "ipfs://QmBeforeApproval");
+    assert!(escrow.submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &ev));
+    assert_eq!(escrow.get_work_evidence(&f.escrow_id, &0), Some(ev));
+}
+
+/// After the client approves a milestone for release, evidence changes
+/// must be rejected with `EvidenceLocked`.
+#[test]
+fn submit_work_evidence_rejected_after_approval() {
+    let f = EscrowFixtureBuilder::new().funded().build();
+    let escrow = f.escrow();
+
+    // Submit initial evidence
+    let ev1 = s(&f.env, "ipfs://QmInitial");
+    assert!(escrow.submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &ev1));
+
+    // Client approves the milestone for release
+    assert!(escrow.approve_milestone_release(&f.escrow_id, &f.client, &0));
+
+    // Attempting to update evidence after approval must fail
+    let ev2 = s(&f.env, "ipfs://QmUpdated");
+    let result = escrow.try_submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &ev2);
+    crate::test::assert_contract_error(result, crate::Error::EvidenceLocked);
+
+    // Original evidence must remain unchanged
+    assert_eq!(escrow.get_work_evidence(&f.escrow_id, &0), Some(ev1));
+}
+
+/// Overwriting evidence before approval still works (regression guard).
+#[test]
+fn submit_work_evidence_overwrite_allowed_before_approval() {
+    let f = EscrowFixtureBuilder::new().funded().build();
+    let escrow = f.escrow();
+
+    let ev1 = s(&f.env, "ipfs://QmFirst");
+    let ev2 = s(&f.env, "ipfs://QmSecond");
+    assert!(escrow.submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &ev1));
+    assert!(escrow.submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &ev2));
+    assert_eq!(escrow.get_work_evidence(&f.escrow_id, &0), Some(ev2));
+}
+
+/// With MultiSig, evidence must be locked once both approvals are present.
+#[test]
+fn submit_work_evidence_rejected_after_multisig_approval() {
+    let f = EscrowFixtureBuilder::new()
+        .funded()
+        .release_authorization(crate::ReleaseAuthorization::MultiSig)
+        .build();
+    let escrow = f.escrow();
+
+    let ev1 = s(&f.env, "ipfs://QmMultisig");
+    assert!(escrow.submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &ev1));
+
+    // Both client and freelancer approve
+    assert!(escrow.approve_milestone_release(&f.escrow_id, &f.client, &0));
+    assert!(escrow.approve_milestone_release(&f.escrow_id, &f.freelancer, &0));
+
+    let ev2 = s(&f.env, "ipfs://QmLocked");
+    let result = escrow.try_submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &ev2);
+    crate::test::assert_contract_error(result, crate::Error::EvidenceLocked);
+    assert_eq!(escrow.get_work_evidence(&f.escrow_id, &0), Some(ev1));
+}
+
+/// Evidence on a different milestone is unaffected when another milestone is approved.
+#[test]
+fn submit_work_evidence_other_milestone_not_locked() {
+    let f = EscrowFixtureBuilder::new().funded().build();
+    let escrow = f.escrow();
+
+    let ev0 = s(&f.env, "ipfs://QmMilestone0");
+    let ev1 = s(&f.env, "ipfs://QmMilestone1");
+    assert!(escrow.submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &ev0));
+    assert!(escrow.submit_work_evidence(&f.escrow_id, &f.freelancer, &1, &ev1));
+
+    // Approve milestone 0 only
+    assert!(escrow.approve_milestone_release(&f.escrow_id, &f.client, &0));
+
+    // Milestone 0 is locked
+    let ev0b = s(&f.env, "ipfs://QmUpdated0");
+    let result = escrow.try_submit_work_evidence(&f.escrow_id, &f.freelancer, &0, &ev0b);
+    crate::test::assert_contract_error(result, crate::Error::EvidenceLocked);
+    assert_eq!(escrow.get_work_evidence(&f.escrow_id, &0), Some(ev0));
+
+    // Milestone 1 is still editable
+    let ev1b = s(&f.env, "ipfs://QmUpdated1");
+    assert!(escrow.submit_work_evidence(&f.escrow_id, &f.freelancer, &1, &ev1b));
+    assert_eq!(escrow.get_work_evidence(&f.escrow_id, &1), Some(ev1b));
 }

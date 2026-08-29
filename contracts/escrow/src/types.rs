@@ -287,6 +287,21 @@ pub enum Error {
     AdminProposalExpired = 68,
     /// `propose_admin` was called with the current admin's own address.
     CannotProposeSelf = 69,
+    /// The milestone has pending release approvals; deliverable metadata
+    /// cannot be changed after acceptance.
+    EvidenceLocked = 70,
+    /// The batch of milestone indices is empty.
+    EmptyBatch = 71,
+    /// The batch exceeds the maximum allowed milestone release count.
+    BatchLimitExceeded = 72,
+    /// The batch contains duplicate milestone indices.
+    DuplicateMilestoneInBatch = 73,
+    /// Pause scope guard failed (the operation is not covered by the active pause target).
+    PauseScopeActive = 74,
+    /// The migration version does not match the expected on-ledger schema version.
+    InvalidMigrationVersion = 75,
+    /// The admin nonce does not match the expected replay-protection counter.
+    StaleNonce = 76,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────

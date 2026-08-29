@@ -163,8 +163,8 @@ pub fn read_milestone_version_and_actor(
         .persistent()
         .get(&actor_key)
         .unwrap_or_else(|| {
-            // Default to zero address for backward compatibility
-            Address::from_contract_id(env, &BytesN::from_array(env, &[0u8; 32]))
+            // Default to current contract address for backward compatibility
+            env.current_contract_address()
         });
 
     MilestoneTransitionMetadata {
@@ -238,8 +238,7 @@ pub fn check_version_for_concurrency(
 
 // ── Re-exports for convenient use ─────────────────────────────────────────────────
 
-pub use self::validate_milestone_transition;
-pub use MilestoneState;
+
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
