@@ -201,7 +201,7 @@ impl Escrow {
         caller: Address,
         milestone_indices: Vec<u32>,
     ) -> bool {
-        Self::require_not_paused(&env);
+        Self::require_not_paused(env);
         caller.require_auth();
 
         if milestone_indices.is_empty() {
@@ -212,7 +212,7 @@ impl Escrow {
             env.panic_with_error(Error::BatchLimitExceeded);
         }
 
-        Self::require_not_finalized(&env, contract_id);
+        Self::require_not_finalized(env, contract_id);
 
         let mut contract: Contract = env
             .storage()
@@ -220,7 +220,7 @@ impl Escrow {
             .get(&DataKey::Contract(contract_id))
             .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
-        ttl::extend_contract_ttl(&env, contract_id);
+        ttl::extend_contract_ttl(env, contract_id);
 
         if contract.status != ContractStatus::Funded {
             env.panic_with_error(Error::InvalidState);
@@ -253,11 +253,11 @@ impl Escrow {
             }
         }
 
-        let milestone_key = keys::milestone_key(&env, contract_id);
+        let milestone_key = keys::milestone_key(env, contract_id);
         let mut milestones: Vec<Milestone> =
             env.storage().persistent().get(&milestone_key).unwrap();
 
-        ttl::extend_milestone_ttl(&env, contract_id);
+        ttl::extend_milestone_ttl(env, contract_id);
 
         let batch_len = milestone_indices.len();
         for i in 0..batch_len {
@@ -293,7 +293,7 @@ impl Escrow {
                 env.panic_with_error(Error::AlreadyRefunded);
             }
 
-            approvals::check_approvals(&env, &contract, contract_id, milestone_index)
+            approvals::check_approvals(env, &contract, contract_id, milestone_index)
                 .unwrap_or_else(|e| env.panic_with_error(e));
 
             total_amount = total_amount
@@ -311,8 +311,8 @@ impl Escrow {
             env.panic_with_error(Error::InsufficientFunds);
         }
 
-        let fee_bps = if Self::is_initialized(&env) {
-            Self::read_protocol_fee_bps(&env)
+        let fee_bps = if Self::is_initialized(env) {
+            Self::read_protocol_fee_bps(env)
         } else {
             0
         };
@@ -335,7 +335,7 @@ impl Escrow {
                 .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
             if fee_bps > 0 {
-                let fee = Self::calculate_protocol_fee(&env, milestone.amount, fee_bps);
+                let fee = Self::calculate_protocol_fee(env, milestone.amount, fee_bps);
                 let current_accumulated: i128 = env
                     .storage()
                     .persistent()
@@ -349,10 +349,10 @@ impl Escrow {
                     .set(&DataKey::AccumulatedProtocolFees, &new_accumulated);
             }
 
-            approvals::clear_approvals(&env, contract_id, milestone_index);
+            approvals::clear_approvals(env, contract_id, milestone_index);
 
             env.events().publish(
-                (Symbol::new(&env, "milestone_released"), contract_id),
+                (Symbol::new(env, "milestone_released"), contract_id),
                 (caller.clone(), milestone_index, milestone.amount),
             );
         }

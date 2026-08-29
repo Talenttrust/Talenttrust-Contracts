@@ -955,6 +955,25 @@ impl Escrow {
 
         true
     }
+
+    /// Releases multiple milestones atomically in a single bounded batch invocation.
+    ///
+    /// # Safety & Invariants
+    /// - Bounded: `milestone_indices` length must be between 1 and `MAX_BATCH_MILESTONES` (10).
+    /// - All-or-nothing: All items are strictly validated before any state mutation or token transfer.
+    ///   If any index is out of bounds, already released, refunded, unapproved, duplicated, or if
+    ///   the combined gross amount exceeds available balance, the entire batch reverts.
+    /// - Emits a `mlstn_rls` event for every successfully released milestone.
+    /// - If the contract transitions to all-milestones-settled, marks `ContractStatus::Completed` and emits `ctrct_cmp`.
+    pub fn release_milestone_batch(
+        env: Env,
+        contract_id: u32,
+        caller: Address,
+        milestone_indices: Vec<u32>,
+    ) -> bool {
+        Self::release_milestone_batch_impl(&env, contract_id, caller, milestone_indices)
+    }
+
     /// Deprecated thin delegate for [`bind_settlement_token`](Self::bind_settlement_token).
     ///
     /// Retained for backward compatibility with external callers that used the historical API name.
