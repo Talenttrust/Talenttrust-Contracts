@@ -1,6 +1,7 @@
 use crate::{
     approvals,
     milestones_consts::{MAX_MILESTONES, MAX_WORK_EVIDENCE_BYTES, MIN_WORK_EVIDENCE_BYTES},
+    milestone_transitions,
     ttl,
     utils::now_seconds,
     Contract, ContractStatus, DataKey, Error, Escrow, EscrowError, Milestone, MilestoneApprovals,
@@ -128,12 +129,14 @@ impl Escrow {
             env.panic_with_error(EscrowError::InvalidState);
         }
 
+        let refund_caller = contract.client.clone();
         contract.client.require_auth();
 
         let mut milestones: Vec<Milestone> = ttl::load_milestones(env, contract_id);
 
         let mut total_refund_amount: i128 = 0;
 
+        // First pass: validate all transitions and amounts
         for idx in milestone_indices.iter() {
             if idx >= milestones.len() {
                 env.panic_with_error(Error::IndexOutOfBounds);
@@ -141,13 +144,14 @@ impl Escrow {
 
             let milestone = milestones.get(idx).unwrap();
 
-            if milestone.released {
-                env.panic_with_error(Error::MilestoneAlreadyReleased);
-            }
+            // ── Centralized Transition Validation (Issue #1340) ──────────────────────
+            // Construct the current milestone state and validate the transition
+            let current_state = milestone_transitions::MilestoneState::from_milestone(&milestone)
+                .unwrap_or_else(|e| env.panic_with_error(e));
+            let requested_state = milestone_transitions::MilestoneState::Refunded;
 
-            if milestone.refunded {
-                env.panic_with_error(EscrowError::AlreadyRefunded);
-            }
+            milestone_transitions::validate_milestone_transition(current_state, requested_state)
+                .unwrap_or_else(|e| env.panic_with_error(e));
 
             if let Some(deadline) = milestone.deadline {
                 if !Self::is_milestone_overdue_impl(env, contract_id, idx) {
@@ -174,11 +178,16 @@ impl Escrow {
             &total_refund_amount,
         );
 
+        // Second pass: apply transitions and record version/actor atomically
         for idx in milestone_indices.iter() {
             let mut milestone = milestones.get(idx).unwrap();
             milestone.refunded = true;
             milestone.refunded_amount = milestone.amount;
             milestones.set(idx, milestone);
+
+            // ── Atomic Version/Actor Persistence ──────────────────────────────────
+            // Record who performed this transition and increment the version
+            milestone_transitions::store_milestone_transition(env, contract_id, idx, refund_caller.clone());
         }
 
         contract.refunded_amount = contract
@@ -211,6 +220,13 @@ impl Escrow {
                 contract.status,
                 env.ledger().timestamp(),
             ),
+        );
+
+        let token_client = token::Client::new(env, &token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &contract.client,
+            &total_refund_amount,
         );
 
         total_refund_amount

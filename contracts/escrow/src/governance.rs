@@ -8,7 +8,7 @@
 //! it performs settlement-token transfers.
 
 use crate::storage_validation;
-use crate::ttl::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
+use crate::ttl::{self, ADMIN_ROTATION_MIN_DELAY_LEDGERS};
 use crate::{
     DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, PendingAdminProposal,
     ReadinessChecklist, MAX_FEE_BPS, MAX_MAX_MILESTONES, MIN_MAX_MILESTONES,
@@ -30,7 +30,7 @@ impl Escrow {
     ///
     /// # Events
     /// `(Symbol("protocol_fee_bps"),)` → `(old_bps, new_bps, admin, timestamp)`
-    pub fn set_protocol_fee_bps(env: Env, new_bps: u32) -> bool {
+    pub fn set_protocol_fee_bps(env: Env, new_bps: u32, admin_nonce: u64) -> bool {
         Self::require_initialized(&env);
         let admin: Address = env
             .storage()
@@ -38,6 +38,7 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
         admin.require_auth();
+        crate::storage::consume_admin_nonce(&env, admin_nonce);
 
         storage_validation::validate_protocol_fee_bps(&env, new_bps);
         if new_bps > 10_000 {
@@ -237,6 +238,26 @@ impl Escrow {
         true
     }
 
+    /// Propose a new admin (alias for propose_governance_admin).
+    pub fn propose_admin(env: Env, proposed: Address) -> bool {
+        Self::propose_governance_admin_impl(&env, proposed)
+    }
+
+    /// Accept a pending admin proposal (alias for accept_governance_admin).
+    pub fn accept_admin(env: Env) -> bool {
+        Self::accept_governance_admin_impl(&env)
+    }
+
+    /// Cancel a pending admin proposal (alias for cancel_governance_admin_proposal).
+    pub fn cancel_admin(env: Env) -> bool {
+        Self::cancel_governance_admin_proposal_impl(&env)
+    }
+
+    /// Cancel a pending governance admin proposal.
+    pub fn cancel_governance_admin(env: Env) -> bool {
+        Self::cancel_governance_admin_proposal_impl(&env)
+    }
+
     /// Internal: return the currently pending admin address, if any.
     pub(crate) fn get_pending_governance_admin_impl(env: &Env) -> Option<Address> {
         let proposal: Option<PendingAdminProposal> =
@@ -256,20 +277,36 @@ impl Escrow {
     ///
     /// See [`docs/escrow/protocol-fees.md`](../../../docs/escrow/protocol-fees.md) for
     /// the full basis-point model and fee lifecycle.
+    ///
+    /// # Events
+    /// `(Symbol("governed_parameters"),)` → `(old_parameters, new_parameters, admin, timestamp)`
     pub fn set_governed_params(
         env: Env,
         admin: Address,
         protocol_fee_bps: u32,
         max_escrow_total_stroops: i128,
     ) -> bool {
-        if !env
-            .storage()
-            .persistent()
-            .get::<_, bool>(&crate::DataKey::Initialized)
-            .unwrap_or(false)
-        {
-            env.panic_with_error(Error::NotInitialized);
-        }
+        let new_parameters = GovernedParameters {
+            protocol_fee_bps,
+            max_escrow_total_stroops,
+        };
+        Self::set_governed_parameters(env, admin, new_parameters)
+    }
+
+    /// Admin-guarded setter for structured GovernedParameters.
+    ///
+    /// Validates bounds against compile-time constants (MAX_FEE_BPS, positive stroops),
+    /// enforces admin authorization, records old and new parameters in an event,
+    /// and marks the readiness checklist.
+    ///
+    /// # Events
+    /// `(Symbol("governed_parameters"),)` → `(old_parameters, new_parameters, admin, timestamp)`
+    pub fn set_governed_parameters(
+        env: Env,
+        admin: Address,
+        new_parameters: GovernedParameters,
+    ) -> bool {
+        Self::require_initialized(&env);
 
         let stored_admin: Address = env
             .storage()
@@ -282,22 +319,23 @@ impl Escrow {
         }
         admin.require_auth();
 
-        if protocol_fee_bps > MAX_FEE_BPS {
+        if new_parameters.protocol_fee_bps > MAX_FEE_BPS {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
-        storage_validation::validate_escrow_total_cap(&env, max_escrow_total_stroops);
-        if max_escrow_total_stroops <= 0 {
+        storage_validation::validate_escrow_total_cap(&env, new_parameters.max_escrow_total_stroops);
+        if new_parameters.max_escrow_total_stroops <= 0 {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
-        let params = GovernedParameters {
-            protocol_fee_bps,
-            max_escrow_total_stroops,
-        };
+        let old_parameters: Option<GovernedParameters> =
+            env.storage().persistent().get(&DataKey::GovernedParameters);
+
         env.storage()
             .persistent()
-            .set(&DataKey::GovernedParameters, &params);
+            .set(&DataKey::GovernedParameters, &new_parameters);
+
+        ttl::extend_governed_parameters_ttl(&env);
 
         let mut checklist: ReadinessChecklist = env
             .storage()
@@ -309,12 +347,27 @@ impl Escrow {
             .persistent()
             .set(&DataKey::ReadinessChecklist, &checklist);
 
+        env.events().publish(
+            (Symbol::new(&env, "governed_parameters"),),
+            (
+                old_parameters,
+                new_parameters,
+                admin,
+                env.ledger().timestamp(),
+            ),
+        );
+
         true
     }
 
-    /// Retrieve the current governed parameters.
+    /// Retrieve the current governed parameters with persistent TTL renewal.
     pub fn get_governed_parameters(env: Env) -> Option<GovernedParameters> {
-        env.storage().persistent().get(&DataKey::GovernedParameters)
+        let params: Option<GovernedParameters> =
+            env.storage().persistent().get(&DataKey::GovernedParameters);
+        if params.is_some() {
+            ttl::extend_governed_parameters_ttl(&env);
+        }
+        params
     }
 
     // ── Fee withdrawal rate-limiting ────────────────────────────────────────
