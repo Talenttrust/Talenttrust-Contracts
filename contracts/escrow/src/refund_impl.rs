@@ -117,12 +117,6 @@ pub fn refund_unreleased_milestones(
     if balance < total_refund_amount {
         env.panic_with_error(EscrowError::InsufficientFunds);
     }
-    soroban_sdk::token::Client::new(env, &token_address).transfer(
-        &env.current_contract_address(),
-        &contract.client,
-        &total_refund_amount,
-    );
-
     // Mark milestones as refunded
     mark_milestones_refunded(&mut milestones, milestone_indices);
 
@@ -138,6 +132,12 @@ pub fn refund_unreleased_milestones(
     env.storage()
         .persistent()
         .set(&DataKey::Contract(contract_id), &contract);
+
+    soroban_sdk::token::Client::new(env, &token_address).transfer(
+        &env.current_contract_address(),
+        &contract.client,
+        &total_refund_amount,
+    );
 
     total_refund_amount
 }
