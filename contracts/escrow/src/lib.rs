@@ -437,17 +437,18 @@ impl Escrow {
         };
 
         let net_amount = gross_amount - protocol_fee;
-
         let accumulated_fees: i128 = env
             .storage()
             .persistent()
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
 
-        let available_balance = contract.funded_amount
-            - contract.released_amount
-            - contract.refunded_amount
-            - accumulated_fees;
+        let available_balance = contract
+            .funded_amount
+            .checked_sub(contract.released_amount)
+            .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
+            .and_then(|remaining| remaining.checked_sub(accumulated_fees))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
         if available_balance < gross_amount {
             env.panic_with_error(EscrowError::InsufficientFunds);
@@ -463,10 +464,12 @@ impl Escrow {
         );
 
         if protocol_fee > 0 {
-            env.storage().persistent().set(
-                &DataKey::AccumulatedProtocolFees,
-                &(accumulated_fees + protocol_fee),
-            );
+            let new_accumulated = accumulated_fees
+                .checked_add(protocol_fee)
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+            env.storage()
+                .persistent()
+                .set(&DataKey::AccumulatedProtocolFees, &new_accumulated);
         }
 
         milestone.released = true;

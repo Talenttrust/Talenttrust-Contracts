@@ -87,39 +87,49 @@ impl Escrow {
         approvals::check_approvals(&env, &contract, contract_id, milestone_index)
             .unwrap_or_else(|e| env.panic_with_error(e));
 
+        let gross_amount = milestone.amount;
+        let protocol_fee: i128 = if Self::is_initialized(&env) {
+            let fee_bps = Self::read_protocol_fee_bps(&env);
+            if fee_bps > 0 {
+                Self::calculate_protocol_fee(&env, gross_amount, fee_bps)
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        let net_amount = gross_amount - protocol_fee;
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+
         let available_balance = contract
             .funded_amount
             .checked_sub(contract.released_amount)
             .and_then(|a| a.checked_sub(contract.refunded_amount))
+            .and_then(|a| a.checked_sub(accumulated_fees))
             .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-        if available_balance < milestone.amount {
+        if available_balance < gross_amount {
             env.panic_with_error(Error::InsufficientFunds);
         }
 
-        let _release_amount = milestone.amount;
         milestone.released = true;
         milestones.set(milestone_index, milestone.clone());
         contract.released_amount = contract
             .released_amount
-            .checked_add(milestone.amount)
+            .checked_add(net_amount)
             .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
-        if Self::is_initialized(&env) {
-            let fee_bps = Self::read_protocol_fee_bps(&env);
-            if fee_bps > 0 {
-                let fee = Self::calculate_protocol_fee(&env, milestone.amount, fee_bps);
-                let current_accumulated: i128 = env
-                    .storage()
-                    .persistent()
-                    .get(&DataKey::AccumulatedProtocolFees)
-                    .unwrap_or(0);
-                let new_accumulated = current_accumulated
-                    .checked_add(fee)
-                    .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-                env.storage()
-                    .persistent()
-                    .set(&DataKey::AccumulatedProtocolFees, &new_accumulated);
-            }
+        if protocol_fee > 0 {
+            let new_accumulated = accumulated_fees
+                .checked_add(protocol_fee)
+                .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+            env.storage()
+                .persistent()
+                .set(&DataKey::AccumulatedProtocolFees, &new_accumulated);
         }
 
         approvals::clear_approvals(&env, contract_id, milestone_index);
