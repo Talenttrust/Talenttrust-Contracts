@@ -160,6 +160,80 @@ pub(crate) fn require_not_paused(env: &Env) -> bool {
     true
 }
 
+/// Check that the given [`PauseTarget`] is not blocked by an active scoped pause.
+///
+/// This is the entrypoint-facing guard used by payout and dispute operations.
+/// If a [`PauseScope`] is stored, its target is compared against the requested
+/// operation. A `Global` scope blocks everything; `Payout` blocks release,
+/// refund, cancel; `Dispute` blocks raise, resolve, rollback.
+///
+/// The legacy bare `bool` under `DataKey::Paused` is also checked for backward
+/// compatibility — it acts as a `Global` pause.
+pub(crate) fn require_pause_scope(env: &Env, target: &crate::PauseTarget) {
+    // Legacy boolean pause acts as Global
+    if env
+        .storage()
+        .persistent()
+        .get::<_, bool>(&DataKey::Paused)
+        .unwrap_or(false)
+    {
+        env.panic_with_error(Error::ContractPaused);
+    }
+
+    // Emergency always blocks everything
+    if env
+        .storage()
+        .persistent()
+        .get::<_, bool>(&DataKey::Emergency)
+        .unwrap_or(false)
+    {
+        env.panic_with_error(Error::EmergencyActive);
+    }
+
+    // Scoped pause
+    if let Some(scope) = env
+        .storage()
+        .persistent()
+        .get::<_, crate::PauseScope>(&DataKey::PauseScope)
+    {
+        match (&scope.target, target) {
+            (crate::PauseTarget::Global, _) | (_, crate::PauseTarget::Global) => {
+                env.panic_with_error(Error::PauseScopeActive);
+            }
+            (crate::PauseTarget::Payout, crate::PauseTarget::Payout) => {
+                env.panic_with_error(Error::PauseScopeActive);
+            }
+            (crate::PauseTarget::Dispute, crate::PauseTarget::Dispute) => {
+                env.panic_with_error(Error::PauseScopeActive);
+            }
+            _ => {} // Non-overlapping scope: allow
+        }
+    }
+}
+
+/// Consume the next expected admin nonce, rejecting stale or future values.
+///
+/// Stores a monotonic `u64` under [`DataKey::AdminNonce`]. On the first call
+/// the expected nonce is `1` (zero means uninitialized). After a successful
+/// call the stored nonce is incremented atomically.
+///
+/// # Panics
+/// Panics with [`Error::StaleNonce`] if the provided nonce does not match.
+pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
+    let current: u64 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::AdminNonce)
+        .unwrap_or(0);
+    let expected = current + 1;
+    if provided_nonce != expected {
+        env.panic_with_error(Error::StaleNonce);
+    }
+    env.storage()
+        .persistent()
+        .set(&DataKey::AdminNonce, &expected);
+}
+
 /// Check if a contract has been finalized.
 ///
 /// # Arguments
