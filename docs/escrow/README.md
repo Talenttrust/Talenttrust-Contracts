@@ -49,6 +49,8 @@ Read-only queries:
 - `get_protocol_fee_bps() -> u32`
 - `get_accumulated_protocol_fees() -> i128`
 - `get_bounds() -> ContractBounds` *(returns the compile-time protocol bounds: max milestones, max single milestone amount, max total escrow amount, max fee bps; see [`ContractBounds`](../../contracts/escrow/src/types.rs))*
+- `get_milestone_progress(contract_id) -> MilestoneProgress` — returns a struct carrying `completed` and `total` milestone counts; returns `completed: 0, total: 0` for an unknown id instead of panicking, unlike other getters below
+
 
 ### Read-only getter semantics
 
@@ -93,6 +95,11 @@ Per-getter details:
   when the contract id is unknown. Does not extend persistent TTL because
   approvals live in temporary storage bounded by
   `PENDING_APPROVAL_TTL_LEDGERS`.
+- `get_milestone_progress(contract_id)` returns the completed and total milestone
+  counts. It does not panic on an unknown contract id; it returns `completed: 0`
+  and `total: 0` instead. On a valid contract, it extends the contract's and
+  milestones' TTL.
+
 
 These properties are locked in by tests under
 `contracts/escrow/src/test/persistence.rs` (issue #475).
@@ -111,7 +118,8 @@ but serve different purposes and must not be conflated:
 milestones vector. Its `schema_version` tracks the limits ABI only.
 `ContractSummary` is the per-contract snapshot used by `get_contract_summary`
 and embedded in `FinalizationRecord`; its schema version tracks per-contract
-data.
+data. Note that `reputation_issued` in `ContractSummary` tracks whether a rating
+was given for the contract by reading the storage-backed `DataKey::ReputationIssued`.
 
 Indexers discovering limits should call `get_bounds()`. Indexers snapshotting
 contract state should call `get_contract_summary()`.
@@ -124,13 +132,14 @@ Operational controls:
 - `activate_emergency_pause() -> bool`
 - `resolve_emergency() -> bool`
 
-Governance admin transfer (two-step):
+Admin transfer (two-step, timelocked):
 
-- `propose_governance_admin(proposed) -> bool`
-- `accept_governance_admin() -> bool`
-- `cancel_governance_admin_proposal() -> bool`
-- `get_governance_admin() -> Option<Address>`
-- `get_pending_governance_admin() -> Option<Address>`
+- `propose_admin(proposed) -> bool`
+- `accept_admin() -> bool`
+- `cancel_admin() -> bool`
+- `get_admin() -> Option<Address>`
+- `get_pending_admin() -> Option<Address>`
+- `get_pending_admin_proposed_at() -> Option<u32>`
 
 ## Canonical Happy Path
 
@@ -397,27 +406,37 @@ days** at ~5s/ledger. The record's `expires_at_ledger` is set to
 Security assumption: an expired proposal cannot transfer client rights. Once the
 TTL lapses the stale proposal is unrecoverable; the current client must submit a
 fresh `propose_client_migration` call to start a new window.
-## Two-Step Governance Admin Transfer
+## Two-Step Admin Transfer
 
-The admin transfer uses a propose-accept (two-step) pattern:
+The admin transfer uses a propose-accept (two-step) pattern with a timelock and
+an expiry window, so a typo'd address or a compromised admin key can't hand
+over the contract irrevocably in a single call:
 
 ```rust
 // Step 1: current admin proposes next admin
-escrow.propose_governance_admin(&next_admin);
+escrow.propose_admin(&next_admin);
 
-// Step 2: next admin accepts (requires next_admin.require_auth())
-escrow.accept_governance_admin();
+// Step 2 (after ADMIN_ROTATION_MIN_DELAY_LEDGERS, ~2 days): next admin
+// accepts (requires next_admin.require_auth())
+escrow.accept_admin();
 ```
 
 ### Rules
 - **Self-proposal is rejected**: proposing the current admin as the new admin
   panics with `CannotProposeSelf`.
-- **Re-proposing overwrites**: calling `propose_governance_admin` while a
-  pending proposal exists silently replaces it (no explicit cancellation
-  required).
-- **Cancellation**: `cancel_governance_admin_proposal` is admin-gated (only
-  the current admin may cancel). It clears the pending admin and emits a
-  `("admin", "cancelled")` event.
+- **Re-proposing overwrites**: calling `propose_admin` while a pending
+  proposal exists silently replaces it (no explicit cancellation required).
+- **Timelock**: `accept_admin` panics with `TimelockNotElapsed` if called
+  before `ADMIN_ROTATION_MIN_DELAY_LEDGERS` (~2 days) have elapsed since the
+  proposal.
+- **Expiry**: `accept_admin` panics with `AdminProposalExpired` if called
+  after `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` (~9 days) have elapsed since the
+  proposal. Because a panic rolls back all state, the stale proposal is left
+  in place — `cancel_admin` or a fresh `propose_admin` is required to move
+  past it.
+- **Cancellation**: `cancel_admin` is admin-gated (only the current admin may
+  cancel), and works on an expired proposal too. It clears the pending admin
+  and emits a `("admin", "cancelled")` event.
 - **No stale acceptance**: accepting after cancellation panics with
   `InvalidState` because the pending proposal has been removed.
 - All operations require the contract to be initialized.
@@ -425,9 +444,9 @@ escrow.accept_governance_admin();
 ### Events
 | Topic | Data | Trigger |
 |---|---|---|
-| `("admin", "proposed")` | `(admin, proposed, timestamp)` | `propose_governance_admin` |
-| `("admin", "accepted")` | `(old_admin, new_admin, timestamp)` | `accept_governance_admin` |
-| `("admin", "cancelled")` | `(admin, cancelled_proposal, timestamp)` | `cancel_governance_admin_proposal` |
+| `("admin", "proposed")` | `(admin, proposed, timestamp)` | `propose_admin` |
+| `("admin", "accepted")` | `(old_admin, new_admin, timestamp)` | `accept_admin` |
+| `("admin", "cancelled")` | `(admin, cancelled_proposal, timestamp)` | `cancel_admin` |
 
 ## Pause and Emergency Controls
 
@@ -602,7 +621,7 @@ treated as roadmap text, not live integration guidance.
 
 Participants can approve milestone items prior to fund distribution payouts. If an authorization mistake is discovered prior to complete disbursement release configurations, the approving party can rescind authority.
 
-#### `revoke_approval(contract_id: Address, caller: Address, milestone_index: u32)`
+#### `revoke_milestone_approval(contract_id: u32, caller: Address, milestone_index: u32) -> bool`
 - **Authorization Required:** `caller.require_auth()`
-- **Behavior:** Explicitly removes individual state flags (`client_approved` | `freelancer_approved` | `arbiter_approved`). When all structural components drop to `false`, temporary records are scrubbed entirely to maximize gas savings.
-- **Errors raised:** `Error::MilestoneAlreadyReleased`, `Error::ApprovalRecordNotFound`.
+- **Behavior:** Explicitly removes the caller's own approval flag (`client_approved` | `freelancer_approved` | `arbiter_approved`). Other parties' flags are left intact. When all three flags become `false`, the temporary record is removed entirely to maximize gas savings.
+- **Errors raised:** `Error::ContractNotFound`, `Error::IndexOutOfBounds`, `Error::MilestoneAlreadyReleased`, `Error::UnauthorizedRole`, `Error::InsufficientApprovals` (when no approval record exists or the caller has not approved).

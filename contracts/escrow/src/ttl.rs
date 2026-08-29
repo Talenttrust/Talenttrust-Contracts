@@ -14,6 +14,8 @@
 //! | `PENDING_APPROVAL_BUMP_THRESHOLD`    | 17_280       | 1        | when a read occurs within this many ledgers of expiry, its TTL is bumped
 //! | `PENDING_MIGRATION_BUMP_THRESHOLD`   | 51_840       | 3        | same, but for migrations
 //! | `PERSISTENT_BUMP_THRESHOLD`          | 120_960      | 7        | bump threshold for persistent entries
+//! | `ADMIN_ROTATION_MIN_DELAY_LEDGERS`   | 34_560       | 2        | minimum delay before a pending admin proposal can be accepted
+//! | `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS`| 155_520      | 9        | total lifetime of a pending admin proposal before it expires
 //!
 //! **Bump‑on‑read strategy** – The `extend_if_below_threshold` helper is used by entry‑point
 //! implementations to extend the TTL of a transient entry when it is accessed and the remaining
@@ -39,7 +41,7 @@
 //! key `(DataKey::Contract(contract_id), "milestones")`, `NextContractId`,
 //! participant index keys, pending approvals, and pending migrations.
 //!
-use crate::{DataKey, Error, Milestone};
+use crate::{types::Error, DataKey, Milestone};
 use soroban_sdk::{Env, IntoVal, Symbol, TryFromVal, Val, Vec};
 
 pub const LEDGERS_PER_DAY: u32 = 17_280;
@@ -48,10 +50,18 @@ pub const PENDING_APPROVAL_TTL_LEDGERS: u32 = LEDGERS_PER_DAY * 7;
 pub const PENDING_APPROVAL_BUMP_THRESHOLD: u32 = LEDGERS_PER_DAY;
 pub const MIN_APPROVAL_TTL: u32 = 17_280;
 
-/// Minimum ledgers that must elapse between proposing and finalising a
-/// treasury / admin rotation. At ~5 s per ledger this is roughly 2 days,
-/// giving stakeholders time to react to an unexpected proposal.
+/// Minimum ledgers that must elapse between proposing and finalising an
+/// admin rotation. At ~5 s per ledger this is roughly 2 days, giving
+/// stakeholders time to react to an unexpected proposal.
 pub const ADMIN_ROTATION_MIN_DELAY_LEDGERS: u32 = LEDGERS_PER_DAY * 2;
+
+/// Total ledgers a pending admin proposal remains acceptable, measured from
+/// the ledger it was proposed on. Once this elapses `accept_admin` fails with
+/// `Error::AdminProposalExpired` and the stale proposal is cleared, forcing a
+/// fresh `propose_admin` call. This bounds the window during which a
+/// forgotten or unaddressed proposal (e.g. from a since-remediated key
+/// compromise) can still be accepted.
+pub const ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS: u32 = LEDGERS_PER_DAY * 9;
 
 pub const PENDING_MIGRATION_TTL_LEDGERS: u32 = LEDGERS_PER_DAY * 21;
 pub const PENDING_MIGRATION_BUMP_THRESHOLD: u32 = LEDGERS_PER_DAY * 3;
@@ -150,10 +160,7 @@ pub fn store_milestones(env: &Env, contract_id: u32, milestones: &Vec<Milestone>
 }
 
 pub(crate) fn milestone_storage_key(env: &Env, contract_id: u32) -> (DataKey, Symbol) {
-    (
-        DataKey::Contract(contract_id),
-        Symbol::new(env, "milestones"),
-    )
+    crate::keys::milestone_key(env, contract_id)
 }
 
 /// Extend TTL of the NextContractId counter.
@@ -196,4 +203,15 @@ pub fn extend_participant_contract_index_ttl(env: &Env, key: &crate::DataKey) {
     env.storage()
         .persistent()
         .extend_ttl(key, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_TTL_LEDGERS);
+}
+
+/// Extend TTL for the governed parameters persistent storage entry.
+pub fn extend_governed_parameters_ttl(env: &Env) {
+    if env.storage().persistent().has(&DataKey::GovernedParameters) {
+        env.storage().persistent().extend_ttl(
+            &DataKey::GovernedParameters,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_TTL_LEDGERS,
+        );
+    }
 }

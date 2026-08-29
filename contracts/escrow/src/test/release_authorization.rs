@@ -780,9 +780,12 @@ fn rejects_refund_after_release_and_release_after_refund() {
     let refund_result = client.try_refund_unreleased_milestones(&contract_id, &refund_ids);
     match refund_result {
         Err(Ok(e)) => {
-            assert_eq!(e, soroban_sdk::Error::from(Error::AlreadyReleased));
+            assert_eq!(e, soroban_sdk::Error::from(Error::MilestoneAlreadyReleased));
         }
-        other => panic!("expected contract error AlreadyReleased, got {:?}", other),
+        other => panic!(
+            "expected contract error MilestoneAlreadyReleased, got {:?}",
+            other
+        ),
     }
 
     let refund_ids = vec![&env, 1_u32];
@@ -914,6 +917,113 @@ fn release_in_created_status_multisig_fails_invalid_state() {
     // The status guard (Created → not Funded) fires before role or approval checks.
     let result = client.try_release_milestone(&id, &client_addr, &0);
     assert_contract_error(result, EscrowError::InvalidState);
+}
+
+#[test]
+fn release_before_dispute_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+
+    let id = create(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        Some(&arbiter_addr),
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    assert!(client.release_milestone(&id, &client_addr, &0));
+    assert_eq!(client.get_contract(&id).status, ContractStatus::Completed);
+}
+
+#[test]
+fn release_during_dispute_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+
+    let id = create(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        Some(&arbiter_addr),
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    assert!(client.raise_dispute(&id, &client_addr));
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+#[test]
+fn dispute_opened_after_approval_blocks_release() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+
+    let id = create(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        Some(&arbiter_addr),
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    assert!(client.approve_milestone_release(&id, &client_addr, &0));
+    assert!(client.raise_dispute(&id, &client_addr));
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+#[test]
+fn release_after_dispute_resolution_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+
+    let id = create(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        Some(&arbiter_addr),
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    assert!(client.raise_dispute(&id, &client_addr));
+    assert!(client.resolve_dispute(&id, &arbiter_addr, &crate::DisputeResolution::FullRefund,));
+    let result = client.try_release_milestone(&id, &client_addr, &0);
+    assert_contract_error(result, EscrowError::InvalidState);
+}
+
+#[test]
+fn unauthorized_dispute_resolution_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = new_client(&env);
+    let (client_addr, freelancer_addr, arbiter_addr) = setup(&env);
+
+    let id = create(
+        &env,
+        &client,
+        &client_addr,
+        &freelancer_addr,
+        Some(&arbiter_addr),
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    assert!(client.raise_dispute(&id, &client_addr));
+    let outsider = Address::generate(&env);
+    let result = client.try_resolve_dispute(&id, &outsider, &crate::DisputeResolution::FullRefund);
+    assert_contract_error(result, EscrowError::UnauthorizedRole);
 }
 
 // ---------------------------------------------------------------------------

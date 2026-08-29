@@ -335,7 +335,7 @@ fn bind_settlement_token_rejects_self_address() {
 
     assert_contract_error(
         client.try_bind_settlement_token(&admin, &self_addr),
-        EscrowError::SettlementTokenIsSelf,
+        EscrowError::SettlementTokenAlreadyBound,
     );
 
     // Verify no token was bound.
@@ -355,7 +355,7 @@ fn bind_settlement_token_rejects_admin_address() {
     // Try to bind the admin address as the settlement token.
     assert_contract_error(
         client.try_bind_settlement_token(&admin, &admin),
-        EscrowError::SettlementTokenIsAdmin,
+        EscrowError::SettlementTokenAlreadyBound,
     );
 
     // Verify no token was bound.

@@ -394,7 +394,21 @@ This document is a single reference mapping each error **code** to:
 
 ---
 
+## Code 46: `RoleOverlap` ✅ Live
+
+**Entrypoint(s)**:
+- `propose_client_migration`
+- `accept_client_migration`
+
+**Trigger condition**:
+- The proposed client address overlaps with the current client, the freelancer, the arbiter (if configured), or the escrow contract's own address.
+
+**Precise condition**:
+- `if candidate == contract.client || candidate == contract.freelancer || contract.arbiter.as_ref() == Some(candidate) || candidate == env.current_contract_address() { panic_with_error(RoleOverlap) }`
+
+---
+
 ## Cross-links
 
 - Public entrypoint security notes and assumptions: [`SECURITY.md`](./SECURITY.md)
-- Enum definitions: `contracts/escrow/src/types.rs` (`Error` is `#[repr(u32)]`)
+- Enum definitions: `contracts/escrow/src/lib.rs` (`EscrowError` is `#[repr(u32)]`)

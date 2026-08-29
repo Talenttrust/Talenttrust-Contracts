@@ -285,6 +285,15 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: `("dispute", "resolved")`
 - Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `UnauthorizedRole`, `InvalidStatusTransition`, `InvalidDisputeSplit`, `AccountingInvariantViolated`, `PotentialOverflow`, `AlreadyFinalized`
 
+### rollback_dispute
+
+- Signature: `rollback_dispute(env: Env, contract_id: u32) -> bool`
+- Kind: Mutating
+- Auth: Stored admin `require_auth()`
+- Semantics: Restores an unresolved dispute to its recorded `Funded` or `PartiallyFunded` status only when the contract and milestones are unchanged since the dispute opened. Refund, resolution, or finalization permanently closes the rollback window.
+- Events: `("rollback", contract_id)` with `(admin, Disputed, restored_status, timestamp)`
+- Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `AlreadyFinalized`, `RollbackNotAllowed`, `RollbackStateChanged`
+
 ### issue_reputation
 
 - Signature: `issue_reputation(env: Env, contract_id: u32, caller: Address, rating: u32, comment: String) -> bool`
@@ -327,6 +336,15 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Kind: Read-only
 - Auth: None
 - Semantics: Returns the pending reputation credits for the freelancer.
+- Events: None
+- Errors: None
+
+### get_reputations_page
+
+- Signature: `get_reputations_page(env: Env, start: u32, limit: u32) -> Vec<types::ReputationEntry>`
+- Kind: Read-only
+- Auth: None
+- Semantics: Returns a bounded, paginated slice over known reputation records. `start` is a zero-based offset into the reputations index and `limit` is capped by the pagination ceiling to control host cost. Returns an empty vector for missing index, out-of-range offsets, or `limit == 0`.
 - Events: None
 - Errors: None
 
@@ -375,39 +393,48 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Events: None
 - Errors: None
 
-### propose_governance_admin
+### propose_admin
 
-- Signature: `propose_governance_admin(env: Env, proposed: Address) -> bool`
+- Signature: `propose_admin(env: Env, proposed: Address) -> bool`
 - Kind: Mutating
 - Auth: stored admin
-- Semantics: Starts a two-step governance-admin transfer proposal with a timelock.
+- Semantics: Starts a two-step admin transfer proposal with a timelock. Overwrites any existing pending proposal.
 - Events: `("admin", "proposed")`
-- Errors: `NotInitialized`, `UnauthorizedRole`, `InvalidState` (for missing proposal state in helper paths)
+- Errors: `NotInitialized`, `UnauthorizedRole`, `CannotProposeSelf`
 
-### accept_governance_admin
+### accept_admin
 
-- Signature: `accept_governance_admin(env: Env) -> bool`
+- Signature: `accept_admin(env: Env) -> bool`
 - Kind: Mutating
 - Auth: proposed admin
-- Semantics: Completes the timelocked governance-admin transfer if the timelock has elapsed.
+- Semantics: Completes the timelocked admin transfer once `ADMIN_ROTATION_MIN_DELAY_LEDGERS` have elapsed since the proposal and before `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` have elapsed.
 - Events: `("admin", "accepted")`
-- Errors: `NotInitialized`, `InvalidState`, `TimelockNotElapsed`, `UnauthorizedRole`
+- Errors: `NotInitialized`, `InvalidState`, `TimelockNotElapsed`, `AdminProposalExpired`, `UnauthorizedRole`
 
-### get_pending_governance_admin
+### cancel_admin
 
-- Signature: `get_pending_governance_admin(env: Env) -> Option<Address>`
+- Signature: `cancel_admin(env: Env) -> bool`
+- Kind: Mutating
+- Auth: stored admin
+- Semantics: Aborts a pending admin transfer proposal (expired or not).
+- Events: `("admin", "cancelled")`
+- Errors: `NotInitialized`, `InvalidState`, `UnauthorizedRole`
+
+### get_pending_admin
+
+- Signature: `get_pending_admin(env: Env) -> Option<Address>`
 - Kind: Read-only
 - Auth: None
-- Semantics: Returns the pending governance-admin proposal, if any.
+- Semantics: Returns the pending admin proposal's proposed address, if any.
 - Events: None
 - Errors: None
 
-### get_governance_admin
+### get_pending_admin_proposed_at / pending_admin_proposed_at
 
-- Signature: `get_governance_admin(env: Env) -> Option<Address>`
+- Signature: `get_pending_admin_proposed_at(env: Env) -> Option<u32>` (alias `pending_admin_proposed_at`)
 - Kind: Read-only
 - Auth: None
-- Semantics: Returns the current governance admin address, if any.
+- Semantics: Returns the ledger sequence the pending proposal was made at, if any.
 - Events: None
 - Errors: None
 
@@ -426,6 +453,24 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Kind: Read-only
 - Auth: None
 - Semantics: Returns the stored governance parameters, if present.
+- Events: None
+- Errors: None
+
+### set_max_milestones
+
+- Signature: `set_max_milestones(env: Env, admin: Address, max_milestones: u32) -> bool`
+- Kind: Mutating
+- Auth: stored admin
+- Semantics: Admin-controlled setter for the per-contract maximum number of milestones. The value must be within the safe bounds `MIN_MAX_MILESTONES..=MAX_MAX_MILESTONES`.
+- Events: None
+- Errors: `NotInitialized`, `UnauthorizedRole`, `InvalidProtocolParameters`
+
+### get_max_milestones
+
+- Signature: `get_max_milestones(env: Env) -> u32`
+- Kind: Read-only
+- Auth: None
+- Semantics: Returns the configured maximum milestones per contract, or the compile-time default `MAX_MILESTONES` when unset.
 - Events: None
 - Errors: None
 

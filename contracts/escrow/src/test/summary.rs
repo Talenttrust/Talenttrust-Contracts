@@ -14,7 +14,7 @@ const DOCS_CONTRACT: &str = include_str!("../../../../docs/escrow/contract.md");
 const CONTRACT_README: &str = include_str!("../../README.md");
 const ROOT_README: &str = include_str!("../../../../README.md");
 
-const IMPLEMENTED_ENTRYPOINTS: [&str; 19] = [
+const IMPLEMENTED_ENTRYPOINTS: [&str; 24] = [
     "initialize",
     "get_admin",
     "pause",
@@ -34,9 +34,14 @@ const IMPLEMENTED_ENTRYPOINTS: [&str; 19] = [
     "get_finalization_record",
     "get_reputation",
     "get_pending_reputation_credits",
+    "simulate_dispute_resolution",
+    "propose_admin",
+    "accept_admin",
+    "cancel_admin",
+    "get_pending_admin",
 ];
 
-const PLANNED_ENTRYPOINTS: [&str; 14] = [
+const PLANNED_ENTRYPOINTS: [&str; 10] = [
     "withdraw_leftover",
     "refund_unreleased_milestones",
     "dispute_contract",
@@ -45,10 +50,6 @@ const PLANNED_ENTRYPOINTS: [&str; 14] = [
     "initialize_protocol_governance",
     "initialize_governance",
     "update_protocol_parameters",
-    "propose_governance_admin",
-    "accept_governance_admin",
-    "get_governance_admin",
-    "get_pending_governance_admin",
     "withdraw_protocol_fees",
     "migrate_state",
 ];

@@ -1,0 +1,86 @@
+393     pub fn bind_settlement_token(env: Env, admin: Address, token: Address) -> bool {
+454    pub fn create_contract(
+472     pub fn deposit_funds(env: Env, contract_id: u32, caller: Address, amount: i128) -> bool {
+489     pub fn propose_client_migration(
+499     pub fn accept_client_migration(env: Env, contract_id: u32, new_client: Address) -> bool {
+504     pub fn cancel_client_migration(env: Env, contract_id: u32, current_client: Address) -> bool {
+509     pub fn has_pending_client_migration(env: Env, contract_id: u32) -> bool {
+513    pub fn get_pending_client_migration(
+522     pub fn approve_milestone_release(
+534     pub fn release_milestone(
+701     pub fn set_settlement_token(env: Env, admin: Address, token: Address) -> bool {
+706     pub fn get_settlement_token(env: Env) -> Option<Address> {
+725     pub fn is_settlement_token_bound(env: Env) -> bool {
+737     pub fn initialize(env: Env, admin: Address) -> bool {
+773     pub fn get_admin(env: Env) -> Option<Address> {
+781     pub fn get_arbiter_config(env: Env) -> DisputeConfig {
+786     pub fn set_arbiter_config(env: Env, freelancer_bps: u32, client_bps: u32) -> bool {
+828     pub fn set_max_settlement(env: Env, max_settlement: u32) -> bool {
+857     pub fn get_max_settlement(env: Env) -> u32 {
+872     pub fn get_bounds(env: Env) -> ContractBounds {
+942     pub fn deposit_funds(env: Env, contract_id: u32, caller: Address, amount: i128) -> bool {
+972     pub fn finalize_contract(env: Env, contract_id: u32, finalizer: Address) -> bool {
+977     pub fn rollback_dispute(env: Env, contract_id: u32) -> bool {
+982     pub fn get_finalization_record(
+995     pub fn propose_client_migration(
+1009     pub fn accept_client_migration(env: Env, contract_id: u32, new_client: Address) -> bool {
+1017     pub fn has_pending_client_migration(env: Env, contract_id: u32) -> bool {
+1025     pub fn get_pending_client_migration(env: Env, contract_id: u32) -> PendingClientMigration {
+1052     pub fn approve_milestone_release(
+1136     pub fn release_milestone(
+1391     pub fn is_milestone_overdue(env: Env, contract_id: u32, milestone_index: u32) -> bool {
+1448     pub fn refund_unreleased_milestones(
+1620     pub fn contract_exists(env: Env, contract_id: u32) -> bool {
+1627     pub fn get_contract(env: Env, contract_id: u32) -> Contract {
+1667     pub fn get_next_contract_id(env: Env) -> u32 {
+1682     pub fn list_contracts_by_participant(
+1734     pub fn get_contract_summary(env: Env, contract_id: u32) -> ContractSummary {
+1786     pub fn get_milestones(env: Env, contract_id: u32) -> Vec<Milestone> {
+1821     pub fn get_milestone(env: Env, contract_id: u32, milestone_index: u32) -> Option<Milestone> {
+1833     pub fn get_refundable_balance(env: Env, contract_id: u32) -> i128 {
+1860     pub fn get_milestone_approvals(
+1882     pub fn get_approval_deadline(env: Env, contract_id: u32, milestone_index: u32) -> Option<u32> {
+1902     pub fn get_authorization_records(
+1912     pub fn get_authorization_records_page(
+1922     pub fn list_authorization_records(
+1940     pub fn pause(env: Env) -> bool {
+1958     pub fn unpause(env: Env) -> bool {
+1980     pub fn is_paused(env: Env) -> bool {
+1998     pub fn activate_emergency_pause(env: Env) -> bool {
+2050     pub fn resolve_emergency(env: Env) -> bool {
+2080     pub fn is_emergency(env: Env) -> bool {
+2089     pub fn get_mainnet_readiness_info(env: Env) -> MainnetReadinessInfo {
+2127     pub fn set_max_milestones(env: Env, max_milestones: u32) -> bool {
+2152     pub fn get_max_milestones(env: Env) -> u32 {
+2157     pub fn set_max_escrow_stroops(env: Env, max_escrow_stroops: i128) -> bool {
+2184     pub fn get_max_escrow_stroops(env: Env) -> i128 {
+2206     pub fn cancel_contract(env: Env, contract_id: u32, client: Address) -> bool {
+2273     pub fn get_reputation_config(env: Env) -> ReputationConfig {
+2303     pub fn set_reputation_config(
+2395     pub fn reset_reputation_config(env: Env) -> bool {
+2422     pub fn issue_reputation(
+2526     pub fn get_reputation_comment(env: Env, contract_id: u32) -> Option<String> {
+2539     pub fn get_reputation(env: Env, address: Address) -> Option<types::Reputation> {
+2556     pub fn get_average_rating(env: Env, address: Address) -> Option<i128> {
+2579     pub fn get_pending_reputation_credits(env: Env, address: Address) -> i128 {
+2594     pub fn get_reputations_page(env: Env, start: u32, limit: u32) -> Vec<types::ReputationEntry> {
+2678     pub fn submit_work_evidence(
+2779     pub fn get_work_evidence(env: Env, contract_id: u32, milestone_index: u32) -> Option<String> {
+2801     pub fn batch_events(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+2821     pub fn emit_events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+2826     pub fn events_batch(env: Env, caller: Address, events: Vec<EventInput>) -> u32 {
+2831     pub fn emit_event(
+2862     pub fn get_accumulated_protocol_fees(env: Env) -> i128 {
+2890     pub fn withdraw_protocol_fees(env: Env, amount: i128, to: Address) -> bool {
+2966     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+2976     pub fn accept_governance_admin(env: Env) -> bool {
+2986     pub fn cancel_governance_admin_proposal(env: Env) -> bool {
+3000     pub fn get_pending_governance_admin(env: Env) -> Option<Address> {
+3012     pub fn get_pending_governance_admin_proposed_at(env: Env) -> Option<u32> {
+3017     pub fn get_pending_admin_proposed_at(env: Env) -> Option<u32> {
+3024     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
+3029     pub fn accept_governance_admin(env: Env) -> bool {
+3069     pub fn calculate_protocol_fee(env: &Env, amount: i128, fee_bps: u32) -> i128 {
+3133     pub fn raise_dispute(env: Env, contract_id: u32, caller: Address) -> bool {
+3233     pub fn resolve_dispute(
+3319     pub fn get_dispute(env: Env, contract_id: u32) -> Option<DisputeMetadata> {

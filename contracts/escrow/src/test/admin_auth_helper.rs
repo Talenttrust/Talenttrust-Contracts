@@ -115,6 +115,57 @@ fn resolve_emergency_succeeds_with_admin_auth() {
 // already prove that `load_and_auth_admin` routes through `require_auth()` —
 // the Soroban auth engine guarantees the panic when no auth is provided.
 
+// ─── Pending admin round-trip ──────────────────────────────────────────────────
+
+/// Propose an admin, then read it back via get_pending_admin.
+#[test]
+fn pending_admin_propose_and_read() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    assert!(client.initialize(&admin), "initialize must succeed");
+    assert!(
+        client.get_pending_admin().is_none(),
+        "no pending before proposal"
+    );
+    let _ = client.propose_admin(&new_admin);
+    let pending = client.get_pending_admin();
+    assert_eq!(
+        pending,
+        Some(new_admin.clone()),
+        "pending admin must match proposed"
+    );
+    assert!(
+        client.get_pending_admin_proposed_at().is_some(),
+        "proposed_at must be Some"
+    );
+    assert_eq!(
+        client.pending_admin_proposed_at(),
+        client.get_pending_admin_proposed_at(),
+        "both accessors must agree"
+    );
+}
+
+#[test]
+fn pending_admin_returns_none_when_absent() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    assert!(
+        client.get_pending_admin().is_none(),
+        "no pending without proposal"
+    );
+    assert!(
+        client.get_pending_admin_proposed_at().is_none(),
+        "no proposed_at without proposal"
+    );
+}
 // ─── Idempotent / State invariant round-trips ─────────────────────────────────
 
 /// Emergency and pause flags are set and cleared atomically through the helper.

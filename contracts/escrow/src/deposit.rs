@@ -1,7 +1,8 @@
 use crate::{
-    accumulate_amounts, ttl, Contract, ContractStatus, DataKey, Error, EscrowError, Milestone,
+    accumulate_amounts, amount_validation::validate_single_amount, keys, ttl, Contract,
+    ContractStatus, DataKey, Error, EscrowError, Milestone,
 };
-use soroban_sdk::{Address, Env, Symbol, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 /// Validated deposit data that is safe to use before any token transfer.
 pub struct ValidatedDeposit {
@@ -16,14 +17,25 @@ pub struct ValidatedDeposit {
 /// This preflight must run before the SAC transfer in `deposit_funds` so an
 /// invalid deposit cannot debit the client and then fail during escrow state
 /// validation.
+///
+/// # Security
+///
+/// Uses `validate_single_amount` to enforce centralized bounds for all
+/// money-like values in the escrow contract. This ensures that:
+///
+/// - The deposit amount is strictly positive (minimum 1 stroop).
+/// - The deposit amount does not exceed `MAX_SINGLE_AMOUNT_STROOPS` (1M tokens).
 pub fn validate_deposit(
     env: &Env,
     contract_id: u32,
     caller: &Address,
     amount: i128,
 ) -> ValidatedDeposit {
-    if amount <= 0 {
-        env.panic_with_error(Error::AmountMustBePositive);
+    // Reject non-positive or over-cap amounts before any state read.
+    crate::storage_validation::validate_stroop_amount(env, amount);
+
+    if amount > crate::MAX_SINGLE_AMOUNT_STROOPS {
+        env.panic_with_error(EscrowError::AmountMustBePositive);
     }
 
     let contract: Contract = env
@@ -42,7 +54,7 @@ pub fn validate_deposit(
         env.panic_with_error(EscrowError::ContractCancelled);
     }
     if contract.status == ContractStatus::Refunded {
-        env.panic_with_error(EscrowError::ContractRefunded);
+        env.panic_with_error(EscrowError::ContractCancelled);
     }
 
     if contract.status != ContractStatus::Created
@@ -51,17 +63,13 @@ pub fn validate_deposit(
         env.panic_with_error(Error::InvalidState);
     }
 
-    let milestone_key = Symbol::new(env, "milestones");
+    let milestone_key = keys::milestone_key(env, contract_id);
     let milestones: Vec<Milestone> = env
         .storage()
         .persistent()
-        .get(&(DataKey::Contract(contract_id), milestone_key))
+        .get(&milestone_key)
         .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
-    /// Calculate the total amount from milestones with checked arithmetic.
-    /// This prevents overflow panics that would brick the contract if a malformed
-    /// contract with many large milestones were created (unlikely given the
-    /// validation in create_contract, but defense-in-depth).
     let total_amount: i128 = accumulate_amounts(milestones.iter().map(|m| m.amount))
         .unwrap_or_else(|err| env.panic_with_error(err));
     let new_funded_amount = contract
@@ -74,7 +82,7 @@ pub fn validate_deposit(
         .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
     if new_funded_amount > total_amount {
-        env.panic_with_error(Error::InvalidDepositAmount);
+        env.panic_with_error(Error::AmountMustBePositive);
     }
 
     ValidatedDeposit {

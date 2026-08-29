@@ -6,15 +6,37 @@
 //! readiness state, and `PendingAdmin` for two-step admin rotation proposals.
 //! Money movement for protocol-fee withdrawal remains in the crate root because
 //! it performs settlement-token transfers.
+//!
+//! ## Two-step admin transfer
+//!
+//! `DataKey::Admin` is a single address, so a typo'd or compromised
+//! `initialize`/prior transfer hands over the whole contract irrevocably if
+//! rotation were a single call. Instead rotation is propose/accept/cancel:
+//!
+//! 1. `propose_admin(new)` — current admin stores `new` under `PendingAdmin`
+//!    with the current ledger sequence. Self-proposals are rejected.
+//! 2. `accept_admin()` — the *proposed* address, not the current admin,
+//!    authorizes this call. It must arrive no earlier than
+//!    `ADMIN_ROTATION_MIN_DELAY_LEDGERS` after the proposal (the reaction
+//!    window) and no later than `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` after it
+//!    (so a stale, unaddressed proposal cannot be accepted long after the
+//!    circumstances that produced it have changed).
+//! 3. `cancel_admin()` — the current admin can abort a pending proposal at any
+//!    time, expired or not.
+//!
+//! Every transition clears or overwrites `PendingAdmin` so an accept can never
+//! be replayed against a cancelled or already-consumed proposal: it simply
+//! finds nothing pending and fails with `Error::InvalidState`.
 
-use crate::ttl::ADMIN_ROTATION_MIN_DELAY_LEDGERS;
+use crate::storage_validation;
+use crate::ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS};
 use crate::{
     DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, PendingAdminProposal,
-    ReadinessChecklist,
+    ReadinessChecklist, MAX_FEE_BPS, MAX_MAX_MILESTONES, MIN_MAX_MILESTONES,
 };
-use soroban_sdk::{symbol_short, Address, Env, Symbol};
+use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol};
 
-#[soroban_sdk::contractimpl]
+#[contractimpl]
 impl Escrow {
     /// Set the protocol fee in basis points.
     ///
@@ -29,7 +51,7 @@ impl Escrow {
     ///
     /// # Events
     /// `(Symbol("protocol_fee_bps"),)` → `(old_bps, new_bps, admin, timestamp)`
-    pub fn set_protocol_fee_bps(env: Env, new_bps: u32) -> bool {
+    pub fn set_protocol_fee_bps(env: Env, new_bps: u32, admin_nonce: u64) -> bool {
         Self::require_initialized(&env);
         let admin: Address = env
             .storage()
@@ -37,6 +59,12 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
         admin.require_auth();
+        crate::storage::consume_admin_nonce(&env, admin_nonce);
+
+        storage_validation::validate_protocol_fee_bps(&env, new_bps);
+        if new_bps > 10_000 {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
 
         let old_bps: u32 = env
             .storage()
@@ -54,10 +82,6 @@ impl Escrow {
         true
     }
 
-    pub fn get_governance_admin(env: Env) -> Option<Address> {
-        env.storage().persistent().get(&DataKey::Admin)
-    }
-
     /// Returns the current protocol fee in basis points.
     pub fn get_protocol_fee_bps(env: Env) -> u32 {
         env.storage()
@@ -66,13 +90,60 @@ impl Escrow {
             .unwrap_or(0)
     }
 
+    /// Set the maximum allowed milestones per contract (admin-controlled).
+    ///
+    /// The stored admin must authorize the call. The provided
+    /// `max_milestones` is validated against compile-time safe bounds and a
+    /// typed `LimitOutOfRange` error is returned for invalid values.
+    pub fn set_max_milestones(env: Env, max_milestones: u32) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
+        admin.require_auth();
+
+        if max_milestones < MIN_MAX_MILESTONES || max_milestones > MAX_MAX_MILESTONES {
+            env.panic_with_error(Error::LimitOutOfRange);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxMilestones, &max_milestones);
+        true
+    }
+
+    /// Read-only accessor for the configured maximum milestones per contract.
+    /// Returns the stored value or the compile-time default (`MAX_MILESTONES`).
+    pub fn get_max_milestones(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get::<_, u32>(&DataKey::MaxMilestones)
+            .unwrap_or(crate::MAX_MILESTONES)
+    }
+
     // ── Two-step admin transfer ───────────────────────────────────────────────
 
-    /// Propose a new governance admin. Stores the proposal with a timelock.
+    /// Propose a new admin. Stores the proposal with a timelock.
+    ///
+    /// Public entrypoint that delegates to [`propose_admin_impl`].
     ///
     /// # Events
     /// `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
-    pub(crate) fn propose_governance_admin_impl(env: &Env, proposed: Address) -> bool {
+    pub fn propose_admin(env: Env, proposed: Address) -> bool {
+        Self::propose_admin_impl(&env, proposed)
+    }
+
+    /// Propose a new admin. Stores the proposal with a timelock.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`] — `initialize` has not been called.
+    /// * [`Error::CannotProposeSelf`] — `proposed` is the current admin.
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
+    pub(crate) fn propose_admin_impl(env: &Env, proposed: Address) -> bool {
         Self::require_initialized(env);
 
         let admin: Address = env
@@ -81,6 +152,10 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
         admin.require_auth();
+
+        if proposed == admin {
+            env.panic_with_error(Error::CannotProposeSelf);
+        }
 
         env.storage().persistent().set(
             &DataKey::PendingAdmin,
@@ -97,11 +172,33 @@ impl Escrow {
         true
     }
 
-    /// Accept a pending admin proposal, enforcing the timelock.
+    /// Accept a pending admin proposal, enforcing the timelock and expiry window.
+    ///
+    /// Public entrypoint that delegates to [`accept_admin_impl`].
     ///
     /// # Events
     /// `(symbol_short!("admin"), Symbol("accepted"))` → `(old_admin, new_admin, timestamp)`
-    pub(crate) fn accept_governance_admin_impl(env: &Env) -> bool {
+    pub fn accept_admin(env: Env) -> bool {
+        Self::accept_admin_impl(&env)
+    }
+
+    /// Accept a pending admin proposal, enforcing the timelock and expiry window.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`] — `initialize` has not been called.
+    /// * [`Error::InvalidState`] — there is no pending proposal.
+    /// * [`Error::TimelockNotElapsed`] — called before
+    ///   `ADMIN_ROTATION_MIN_DELAY_LEDGERS` ledgers have elapsed since the
+    ///   proposal.
+    /// * [`Error::AdminProposalExpired`] — called after
+    ///   `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` ledgers have elapsed since the
+    ///   proposal. The stale proposal is left in place (a panic rolls back
+    ///   any state change, so there is nothing to clear here) — call
+    ///   [`Escrow::cancel_admin`] or `propose_admin` again to replace it.
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("accepted"))` → `(old_admin, new_admin, timestamp)`
+    pub(crate) fn accept_admin_impl(env: &Env) -> bool {
         Self::require_initialized(env);
 
         let pending: PendingAdminProposal = env
@@ -116,6 +213,9 @@ impl Escrow {
             .saturating_sub(pending.proposed_at_ledger);
         if elapsed < ADMIN_ROTATION_MIN_DELAY_LEDGERS {
             env.panic_with_error(Error::TimelockNotElapsed);
+        }
+        if elapsed > ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS {
+            env.panic_with_error(Error::AdminProposalExpired);
         }
 
         let pending_admin = pending.proposed;
@@ -139,13 +239,24 @@ impl Escrow {
         true
     }
 
-    /// Cancel a pending governance admin proposal, aborting a two-step transfer.
+    /// Cancel a pending admin proposal, aborting a two-step transfer.
+    ///
+    /// Public entrypoint that delegates to [`cancel_admin_impl`].
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("cancelled"))` → `(admin, cancelled_proposal, timestamp)`
+    pub fn cancel_admin(env: Env) -> bool {
+        Self::cancel_admin_impl(&env)
+    }
+
+    /// Cancel a pending admin proposal, aborting a two-step transfer.
     ///
     /// Only the current admin (the address stored under [`DataKey::Admin`]) may
     /// cancel, and the contract must be initialized. On success the pending
     /// proposal is removed so the previously proposed address can no longer call
-    /// [`Escrow::accept_governance_admin`] — a subsequent accept panics with
-    /// [`Error::InvalidState`].
+    /// [`Escrow::accept_admin`] — a subsequent accept panics with
+    /// [`Error::InvalidState`]. Works on an expired proposal too, since expiry
+    /// only bounds *acceptance*, not cancellation.
     ///
     /// # Errors
     /// * [`Error::NotInitialized`] — `initialize` has not been called.
@@ -153,7 +264,7 @@ impl Escrow {
     ///
     /// # Events
     /// `(symbol_short!("admin"), Symbol("cancelled"))` → `(admin, cancelled_proposal, timestamp)`
-    pub(crate) fn cancel_governance_admin_proposal_impl(env: &Env) -> bool {
+    pub(crate) fn cancel_admin_impl(env: &Env) -> bool {
         Self::require_initialized(env);
 
         let admin: Address = env
@@ -178,16 +289,18 @@ impl Escrow {
         true
     }
 
+    /// Returns the currently pending admin address, if any.
+    ///
+    /// Public entrypoint that delegates to [`get_pending_admin_impl`].
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        Self::get_pending_admin_impl(&env)
+    }
+
     /// Internal: return the currently pending admin address, if any.
-    pub(crate) fn get_pending_governance_admin_impl(env: &Env) -> Option<Address> {
+    pub(crate) fn get_pending_admin_impl(env: &Env) -> Option<Address> {
         let proposal: Option<PendingAdminProposal> =
             env.storage().persistent().get(&DataKey::PendingAdmin);
         proposal.map(|p| p.proposed)
-    }
-
-    /// Internal: return the current admin address.
-    pub(crate) fn get_governance_admin_impl(env: Env) -> Option<Address> {
-        env.storage().persistent().get(&DataKey::Admin)
     }
 
     /// Set both governance parameters at once and update the readiness checklist.
@@ -197,20 +310,36 @@ impl Escrow {
     ///
     /// See [`docs/escrow/protocol-fees.md`](../../../docs/escrow/protocol-fees.md) for
     /// the full basis-point model and fee lifecycle.
+    ///
+    /// # Events
+    /// `(Symbol("governed_parameters"),)` → `(old_parameters, new_parameters, admin, timestamp)`
     pub fn set_governed_params(
         env: Env,
         admin: Address,
         protocol_fee_bps: u32,
         max_escrow_total_stroops: i128,
     ) -> bool {
-        if !env
-            .storage()
-            .persistent()
-            .get::<_, bool>(&crate::DataKey::Initialized)
-            .unwrap_or(false)
-        {
-            env.panic_with_error(Error::NotInitialized);
-        }
+        let new_parameters = GovernedParameters {
+            protocol_fee_bps,
+            max_escrow_total_stroops,
+        };
+        Self::set_governed_parameters(env, admin, new_parameters)
+    }
+
+    /// Admin-guarded setter for structured GovernedParameters.
+    ///
+    /// Validates bounds against compile-time constants (MAX_FEE_BPS, positive stroops),
+    /// enforces admin authorization, records old and new parameters in an event,
+    /// and marks the readiness checklist.
+    ///
+    /// # Events
+    /// `(Symbol("governed_parameters"),)` → `(old_parameters, new_parameters, admin, timestamp)`
+    pub fn set_governed_parameters(
+        env: Env,
+        admin: Address,
+        new_parameters: GovernedParameters,
+    ) -> bool {
+        Self::require_initialized(&env);
 
         let stored_admin: Address = env
             .storage()
@@ -223,17 +352,23 @@ impl Escrow {
         }
         admin.require_auth();
 
-        if protocol_fee_bps > 10_000 {
+        if new_parameters.protocol_fee_bps > MAX_FEE_BPS {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
-        let params = GovernedParameters {
-            protocol_fee_bps,
-            max_escrow_total_stroops,
-        };
+        storage_validation::validate_escrow_total_cap(&env, new_parameters.max_escrow_total_stroops);
+        if new_parameters.max_escrow_total_stroops <= 0 {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        let old_parameters: Option<GovernedParameters> =
+            env.storage().persistent().get(&DataKey::GovernedParameters);
+
         env.storage()
             .persistent()
-            .set(&DataKey::GovernedParameters, &params);
+            .set(&DataKey::GovernedParameters, &new_parameters);
+
+        ttl::extend_governed_parameters_ttl(&env);
 
         let mut checklist: ReadinessChecklist = env
             .storage()
@@ -245,11 +380,149 @@ impl Escrow {
             .persistent()
             .set(&DataKey::ReadinessChecklist, &checklist);
 
+        env.events().publish(
+            (Symbol::new(&env, "governed_parameters"),),
+            (
+                old_parameters,
+                new_parameters,
+                admin,
+                env.ledger().timestamp(),
+            ),
+        );
+
         true
     }
 
-    /// Retrieve the current governed parameters.
+    /// Retrieve the current governed parameters with persistent TTL renewal.
     pub fn get_governed_parameters(env: Env) -> Option<GovernedParameters> {
-        env.storage().persistent().get(&DataKey::GovernedParameters)
+        let params: Option<GovernedParameters> =
+            env.storage().persistent().get(&DataKey::GovernedParameters);
+        if params.is_some() {
+            ttl::extend_governed_parameters_ttl(&env);
+        }
+        params
+    }
+
+    // ── Fee withdrawal rate-limiting ────────────────────────────────────────
+
+    /// Set the maximum fraction of accumulated protocol fees that can be
+    /// withdrawn in a single call, expressed in basis points.
+    ///
+    /// Admin-gated, must be initialized.  A value of `0` disables the cap
+    /// (unlimited withdrawals, subject to the cooldown).  Values above
+    /// `10_000` (100 %) are rejected with [`Error::InvalidProtocolParameters`].
+    ///
+    /// Stored under [`DataKey::FeeWithdrawalCap`].  Default is `5_000` (50 %).
+    ///
+    /// # Events
+    /// `(Symbol("fee_cap"),)` → `(old_cap, new_cap, admin, timestamp)`
+    pub fn set_fee_withdrawal_cap(env: Env, cap_bps: u32) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
+        admin.require_auth();
+
+        if cap_bps > 10_000 {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        let old_cap: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeWithdrawalCap)
+            .unwrap_or(5_000u32);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::FeeWithdrawalCap, &cap_bps);
+
+        env.events().publish(
+            (Symbol::new(&env, "fee_cap"),),
+            (old_cap, cap_bps, admin.clone(), env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Return the current fee-withdrawal cap in basis points.
+    ///
+    /// Returns the stored value, or the default of `5_000` (50 %) when
+    /// no value has been explicitly set.
+    pub fn get_fee_withdrawal_cap(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FeeWithdrawalCap)
+            .unwrap_or(5_000u32)
+    }
+
+    /// Set the minimum number of ledgers that must elapse between successful
+    /// protocol-fee withdrawals.
+    ///
+    /// Admin-gated, must be initialized.  A value of `0` disables the cooldown
+    /// (unlimited frequency, subject to the cap).  Values above
+    /// `2_592_000` (≈150 days at 5 s ledgers) are rejected with
+    /// [`Error::InvalidProtocolParameters`].
+    ///
+    /// Stored under [`DataKey::FeeWithdrawalCooldownLedgers`].
+    /// Default is `17_280` (≈1 day at 5 s ledgers).
+    ///
+    /// # Events
+    /// `(Symbol("fee_cooldown"),)` → `(old_cooldown, new_cooldown, admin, timestamp)`
+    pub fn set_fee_withdrawal_cooldown(env: Env, cooldown_ledgers: u32) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
+        admin.require_auth();
+
+        // Cap at ~150 days to prevent accidental permanent lockout.
+        if cooldown_ledgers > 2_592_000 {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        let old_cooldown: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeWithdrawalCooldownLedgers)
+            .unwrap_or(17_280u32);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::FeeWithdrawalCooldownLedgers, &cooldown_ledgers);
+
+        env.events().publish(
+            (Symbol::new(&env, "fee_cooldown"),),
+            (
+                old_cooldown,
+                cooldown_ledgers,
+                admin.clone(),
+                env.ledger().timestamp(),
+            ),
+        );
+        true
+    }
+
+    /// Return the current fee-withdrawal cooldown in ledgers.
+    ///
+    /// Returns the stored value, or the default of `17_280` (≈1 day at
+    /// 5 s ledgers) when no value has been explicitly set.
+    pub fn get_fee_withdrawal_cooldown(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FeeWithdrawalCooldownLedgers)
+            .unwrap_or(17_280u32)
+    }
+
+    /// Return the ledger sequence of the last successful protocol-fee
+    /// withdrawal, or `0` if no withdrawal has occurred yet.
+    pub fn get_last_fee_withdrawal_ledger(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::LastFeeWithdrawalLedger)
+            .unwrap_or(0u32)
     }
 }
