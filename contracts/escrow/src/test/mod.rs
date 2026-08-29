@@ -29,10 +29,12 @@ mod governance;
 mod governance_events;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
+mod milestone_transitions_integration;
 mod protocol_fees;
 // mod mainnet_readiness;
 mod milestone_progress;
 mod pause_controls;
+mod test_pause_scope;
 mod performance;
 mod persistence;
 mod refund;
@@ -44,6 +46,7 @@ mod rollback;
 mod security;
 // Temporarily unwired: DisputeInfo / DisputeSummary field mismatch on broken main.
 // mod settlement_overflow;
+mod event_assertions;
 mod simulate_create_contract;
 mod simulate_deposit;
 mod simulate_release;
@@ -69,6 +72,7 @@ pub struct EscrowFixture {
     pub escrow_address: Address,
     pub escrow_id: u32,
     pub settlement_token: Option<Address>,
+    pub release_authorization: ReleaseAuthorization,
 }
 
 impl EscrowFixture {
@@ -104,10 +108,11 @@ pub struct EscrowFixtureBuilder {
     milestones: Option<Vec<i128>>,
     settlement_token: bool,
     fund: bool,
+    release_authorization: ReleaseAuthorization,
+    completed: bool,
 }
 
 impl EscrowFixtureBuilder {
-    /// Create a builder backed by a fresh mocked Soroban environment.
     pub fn new() -> Self {
         let env = Env::default();
         env.mock_all_auths_allowing_non_root_auth();
@@ -118,21 +123,20 @@ impl EscrowFixtureBuilder {
             milestones: None,
             settlement_token: false,
             fund: false,
+            release_authorization: ReleaseAuthorization::ClientOnly,
+            completed: false,
         }
     }
 
-    /// Expose the builder environment for generating compatible test values.
     pub fn env(&self) -> &Env {
         &self.env
     }
 
-    /// Use `admin` instead of a generated administrator.
     pub fn with_admin(mut self, admin: Address) -> Self {
         self.admin = Some(admin);
         self
     }
 
-    /// Use explicit client, freelancer, and optional arbiter addresses.
     pub fn with_participants(
         mut self,
         client: Address,
@@ -143,27 +147,34 @@ impl EscrowFixtureBuilder {
         self
     }
 
-    /// Use the supplied milestone amounts instead of the default 3-step plan.
     pub fn with_milestones(mut self, milestones: Vec<i128>) -> Self {
         self.milestones = Some(milestones);
         self
     }
 
-    /// Register and bind a Stellar Asset Contract for custody transfers.
     pub fn with_settlement_token(mut self) -> Self {
         self.settlement_token = true;
         self
     }
 
-    /// Create and fully fund the escrow contract during [`Self::build`].
     pub fn funded(mut self) -> Self {
         self.fund = true;
         self.settlement_token = true;
         self
     }
 
-    /// Build the configured fixture and return its ready escrow ID in
-    /// [`EscrowFixture::escrow_id`].
+    pub fn release_authorization(mut self, auth: ReleaseAuthorization) -> Self {
+        self.release_authorization = auth;
+        self
+    }
+
+    pub fn completed(mut self) -> Self {
+        self.completed = true;
+        self.fund = true;
+        self.settlement_token = true;
+        self
+    }
+
     pub fn build(self) -> EscrowFixture {
         let admin = self.admin.unwrap_or_else(|| Address::generate(&self.env));
         let (client, freelancer, arbiter) = self.participants.unwrap_or_else(|| {
@@ -191,7 +202,7 @@ impl EscrowFixtureBuilder {
             &freelancer,
             &arbiter,
             &milestones,
-            &ReleaseAuthorization::ClientOnly,
+            &self.release_authorization,
         );
 
         if self.fund {
@@ -203,6 +214,33 @@ impl EscrowFixtureBuilder {
             escrow.deposit_funds(&escrow_id, &client, &total);
         }
 
+        if self.completed {
+            let escrow_client = &escrow;
+            for i in 0..milestones.len() {
+                match self.release_authorization {
+                    ReleaseAuthorization::ClientOnly => {
+                        escrow_client.approve_milestone_release(&escrow_id, &client, &(i as u32));
+                    }
+                    ReleaseAuthorization::ArbiterOnly => {
+                        let arb = arbiter.as_ref().expect("Arbiter required for ArbiterOnly");
+                        escrow_client.approve_milestone_release(&escrow_id, arb, &(i as u32));
+                    }
+                    ReleaseAuthorization::ClientAndArbiter => {
+                        escrow_client.approve_milestone_release(&escrow_id, &client, &(i as u32));
+                    }
+                    ReleaseAuthorization::MultiSig => {
+                        escrow_client.approve_milestone_release(&escrow_id, &client, &(i as u32));
+                        escrow_client.approve_milestone_release(
+                            &escrow_id,
+                            &freelancer,
+                            &(i as u32),
+                        );
+                    }
+                }
+                escrow_client.release_milestone(&escrow_id, &client, &(i as u32));
+            }
+        }
+
         EscrowFixture {
             env: self.env,
             admin,
@@ -212,6 +250,7 @@ impl EscrowFixtureBuilder {
             escrow_address,
             escrow_id,
             settlement_token,
+            release_authorization: self.release_authorization,
         }
     }
 }

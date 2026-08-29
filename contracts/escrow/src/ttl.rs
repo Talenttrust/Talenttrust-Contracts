@@ -204,3 +204,14 @@ pub fn extend_participant_contract_index_ttl(env: &Env, key: &crate::DataKey) {
         .persistent()
         .extend_ttl(key, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_TTL_LEDGERS);
 }
+
+/// Extend TTL for the governed parameters persistent storage entry.
+pub fn extend_governed_parameters_ttl(env: &Env) {
+    if env.storage().persistent().has(&DataKey::GovernedParameters) {
+        env.storage().persistent().extend_ttl(
+            &DataKey::GovernedParameters,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_TTL_LEDGERS,
+        );
+    }
+}
