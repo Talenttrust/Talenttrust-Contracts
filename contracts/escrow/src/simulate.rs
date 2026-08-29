@@ -63,7 +63,11 @@ impl Escrow {
             return err(Error::AlreadyFinalized as u32);
         }
 
-        if contract.status != ContractStatus::Funded {
+        // Disputed contracts are not releasable; simulate the same fail-closed
+        // behavior as the real release entrypoint and reject the action before
+        // any amount projection is considered.
+        if contract.status == ContractStatus::Disputed || contract.status != ContractStatus::Funded
+        {
             return err(Error::InvalidState as u32);
         }
 

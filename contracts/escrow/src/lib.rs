@@ -374,7 +374,11 @@ impl Escrow {
         ttl::extend_contract_ttl(&env, contract_id);
         Self::require_not_finalized(&env, contract_id);
 
-        if contract.status != ContractStatus::Funded {
+        // Disputed contracts are release-locked until the arbiter resolves the
+        // dispute via the permitted path. This preserves the invariant that no
+        // milestone funds may leave escrow while a dispute remains active.
+        if contract.status == ContractStatus::Disputed || contract.status != ContractStatus::Funded
+        {
             env.panic_with_error(Error::InvalidState);
         }
 
