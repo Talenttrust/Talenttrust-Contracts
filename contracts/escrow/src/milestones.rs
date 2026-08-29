@@ -167,13 +167,6 @@ impl Escrow {
         let token = Self::read_settlement_token(env)
             .unwrap_or_else(|| env.panic_with_error(Error::SettlementTokenNotConfigured));
 
-        let token_client = token::Client::new(env, &token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &contract.client,
-            &total_refund_amount,
-        );
-
         for idx in milestone_indices.iter() {
             let mut milestone = milestones.get(idx).unwrap();
             milestone.refunded = true;
@@ -211,6 +204,13 @@ impl Escrow {
                 contract.status,
                 env.ledger().timestamp(),
             ),
+        );
+
+        let token_client = token::Client::new(env, &token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &contract.client,
+            &total_refund_amount,
         );
 
         total_refund_amount
