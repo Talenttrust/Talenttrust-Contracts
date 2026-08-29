@@ -19,6 +19,9 @@
 /// Exposed via `get_bounds()` as [`ContractBounds::max_milestones`].
 pub const MAX_MILESTONES: u32 = 10;
 
+/// Maximum number of milestones that can be released in a single batch call.
+pub const MAX_BATCH_MILESTONES: u32 = 10;
+
 /// Basis-point denominator used in all protocol-fee calculations.
 ///
 /// Protocol fees are expressed in *basis points* (bps), where

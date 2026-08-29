@@ -132,13 +132,14 @@ Operational controls:
 - `activate_emergency_pause() -> bool`
 - `resolve_emergency() -> bool`
 
-Governance admin transfer (two-step):
+Admin transfer (two-step, timelocked):
 
-- `propose_governance_admin(proposed) -> bool`
-- `accept_governance_admin() -> bool`
-- `cancel_governance_admin_proposal() -> bool`
-- `get_governance_admin() -> Option<Address>`
-- `get_pending_governance_admin() -> Option<Address>`
+- `propose_admin(proposed) -> bool`
+- `accept_admin() -> bool`
+- `cancel_admin() -> bool`
+- `get_admin() -> Option<Address>`
+- `get_pending_admin() -> Option<Address>`
+- `get_pending_admin_proposed_at() -> Option<u32>`
 
 ## Canonical Happy Path
 
@@ -405,27 +406,37 @@ days** at ~5s/ledger. The record's `expires_at_ledger` is set to
 Security assumption: an expired proposal cannot transfer client rights. Once the
 TTL lapses the stale proposal is unrecoverable; the current client must submit a
 fresh `propose_client_migration` call to start a new window.
-## Two-Step Governance Admin Transfer
+## Two-Step Admin Transfer
 
-The admin transfer uses a propose-accept (two-step) pattern:
+The admin transfer uses a propose-accept (two-step) pattern with a timelock and
+an expiry window, so a typo'd address or a compromised admin key can't hand
+over the contract irrevocably in a single call:
 
 ```rust
 // Step 1: current admin proposes next admin
-escrow.propose_governance_admin(&next_admin);
+escrow.propose_admin(&next_admin);
 
-// Step 2: next admin accepts (requires next_admin.require_auth())
-escrow.accept_governance_admin();
+// Step 2 (after ADMIN_ROTATION_MIN_DELAY_LEDGERS, ~2 days): next admin
+// accepts (requires next_admin.require_auth())
+escrow.accept_admin();
 ```
 
 ### Rules
 - **Self-proposal is rejected**: proposing the current admin as the new admin
   panics with `CannotProposeSelf`.
-- **Re-proposing overwrites**: calling `propose_governance_admin` while a
-  pending proposal exists silently replaces it (no explicit cancellation
-  required).
-- **Cancellation**: `cancel_governance_admin_proposal` is admin-gated (only
-  the current admin may cancel). It clears the pending admin and emits a
-  `("admin", "cancelled")` event.
+- **Re-proposing overwrites**: calling `propose_admin` while a pending
+  proposal exists silently replaces it (no explicit cancellation required).
+- **Timelock**: `accept_admin` panics with `TimelockNotElapsed` if called
+  before `ADMIN_ROTATION_MIN_DELAY_LEDGERS` (~2 days) have elapsed since the
+  proposal.
+- **Expiry**: `accept_admin` panics with `AdminProposalExpired` if called
+  after `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` (~9 days) have elapsed since the
+  proposal. Because a panic rolls back all state, the stale proposal is left
+  in place — `cancel_admin` or a fresh `propose_admin` is required to move
+  past it.
+- **Cancellation**: `cancel_admin` is admin-gated (only the current admin may
+  cancel), and works on an expired proposal too. It clears the pending admin
+  and emits a `("admin", "cancelled")` event.
 - **No stale acceptance**: accepting after cancellation panics with
   `InvalidState` because the pending proposal has been removed.
 - All operations require the contract to be initialized.
@@ -433,9 +444,9 @@ escrow.accept_governance_admin();
 ### Events
 | Topic | Data | Trigger |
 |---|---|---|
-| `("admin", "proposed")` | `(admin, proposed, timestamp)` | `propose_governance_admin` |
-| `("admin", "accepted")` | `(old_admin, new_admin, timestamp)` | `accept_governance_admin` |
-| `("admin", "cancelled")` | `(admin, cancelled_proposal, timestamp)` | `cancel_governance_admin_proposal` |
+| `("admin", "proposed")` | `(admin, proposed, timestamp)` | `propose_admin` |
+| `("admin", "accepted")` | `(old_admin, new_admin, timestamp)` | `accept_admin` |
+| `("admin", "cancelled")` | `(admin, cancelled_proposal, timestamp)` | `cancel_admin` |
 
 ## Pause and Emergency Controls
 

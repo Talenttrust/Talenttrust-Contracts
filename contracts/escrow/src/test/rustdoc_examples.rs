@@ -24,7 +24,6 @@ fn test_rustdoc_examples_flow_verification() {
 
     // 3. Admin & Governance readers
     assert_eq!(client.get_admin(), Some(admin.clone()));
-    assert_eq!(client.get_governance_admin(), Some(admin.clone()));
     assert_eq!(client.get_protocol_fee_bps(), 0);
     assert_eq!(client.get_accumulated_protocol_fees(), 0);
     assert_eq!(client.get_pending_admin_proposed_at(), None);

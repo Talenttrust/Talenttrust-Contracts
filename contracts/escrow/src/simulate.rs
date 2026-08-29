@@ -63,7 +63,11 @@ impl Escrow {
             return err(Error::AlreadyFinalized as u32);
         }
 
-        if contract.status != ContractStatus::Funded {
+        // Disputed contracts are not releasable; simulate the same fail-closed
+        // behavior as the real release entrypoint and reject the action before
+        // any amount projection is considered.
+        if contract.status == ContractStatus::Disputed || contract.status != ContractStatus::Funded
+        {
             return err(Error::InvalidState as u32);
         }
 
@@ -120,6 +124,26 @@ impl Escrow {
         };
 
         let net_amount = gross_amount - protocol_fee;
+
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+
+        let available_balance = match contract
+            .funded_amount
+            .checked_sub(contract.released_amount)
+            .and_then(|balance| balance.checked_sub(contract.refunded_amount))
+            .and_then(|balance| balance.checked_sub(accumulated_fees))
+        {
+            Some(balance) => balance,
+            None => return err(EscrowError::PotentialOverflow as u32),
+        };
+
+        if available_balance < gross_amount {
+            return err(EscrowError::InsufficientFunds as u32);
+        }
 
         let projected_released_amount = contract
             .released_amount
