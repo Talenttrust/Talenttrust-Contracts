@@ -125,7 +125,7 @@ pub use types::{
     AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
     DepositMode, DisputeConfig, DisputeMetadata, DisputeResolution, DisputeSplit,
     GovernedParameters, Milestone, MilestoneApprovals, MilestoneProgress, MilestoneSummary,
-    PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig,
+    PauseScope, PauseTarget, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig,
     SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, DISPUTE_STORAGE_VERSION,
 };
 
@@ -1458,33 +1458,71 @@ impl Escrow {
         Self::get_authorization_records(env, contract_id, start, limit)
     }
 
-    // â”€â”€ Pause / unpause â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Pause / unpause ─────────────────────────────────────────────────────
 
     // Pause all state-changing escrow operations.
     //
     // Requires the stored admin's authorization. While paused, all mutating
     // entrypoints panic with `ContractPaused`. Read-only queries are never blocked.
     //
+    // This stores a bare `Paused=true` flag which acts as a Global pause.
+    // For scoped pauses use `pause_with_scope`.
+    //
     // # Events
     // Emits `("paused", timestamp)` with `(admin,)` payload.
-    pub fn pause(env: Env) -> bool {
+    pub fn pause(env: Env, admin_nonce: u64) -> bool {
         Self::require_initialized(&env);
         let admin: Address = env.storage().persistent().get(&DataKey::Admin).unwrap();
         admin.require_auth();
+        storage::consume_admin_nonce(&env, admin_nonce);
         env.storage().persistent().set(&DataKey::Paused, &true);
+        // Clear any scoped pause when legacy pause is activated
+        env.storage().persistent().remove(&DataKey::PauseScope);
 
         env.events()
             .publish((symbol_short!("pause"), env.ledger().timestamp()), (admin,));
         true
     }
 
-    // Unpause operations, clearing the `Paused` flag.
-    //
-    // Blocked while `Emergency` is active â€” use `resolve_emergency` instead.
-    // Requires the stored admin's authorization.
-    //
-    // # Events
-    // Emits `("unpaused", timestamp)` with `(admin,)` payload.
+    /// Pause with an explicit scope limiting which entrypoints are blocked.
+    ///
+    /// Requires admin authorization. Stores a [`PauseScope`] under
+    /// [`DataKey::PauseScope`] and clears the legacy `Paused` boolean.
+    ///
+    /// # Arguments
+    /// * `target` - Which operations to block: `Payout`, `Dispute`, or `Global`
+    /// * `reason` - Human-readable reason string
+    ///
+    /// # Events
+    /// Emits `("paused_scope", timestamp)` with `(admin, target, reason)` payload.
+    pub fn pause_with_scope(env: Env, target: PauseTarget, reason: String, admin_nonce: u64) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env.storage().persistent().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        storage::consume_admin_nonce(&env, admin_nonce);
+        // Clear legacy flag, set scoped pause
+        env.storage().persistent().set(&DataKey::Paused, &false);
+        let scope = PauseScope {
+            target,
+            reason,
+            paused_at: env.ledger().timestamp(),
+        };
+        env.storage().persistent().set(&DataKey::PauseScope, &scope);
+
+        env.events().publish(
+            (symbol_short!("paused_scope"), env.ledger().timestamp()),
+            (admin, target as u32, scope.reason),
+        );
+        true
+    }
+
+    /// Clear a scoped pause (and legacy pause flag).
+    ///
+    /// Blocked while `Emergency` is active — use `resolve_emergency` instead.
+    /// Requires the stored admin's authorization.
+    ///
+    /// # Events
+    /// Emits `("unpaused", timestamp)` with `(admin,)` payload.
     pub fn unpause(env: Env) -> bool {
         Self::require_initialized(&env);
         if env
@@ -1498,6 +1536,7 @@ impl Escrow {
         let admin: Address = env.storage().persistent().get(&DataKey::Admin).unwrap();
         admin.require_auth();
         env.storage().persistent().set(&DataKey::Paused, &false);
+        env.storage().persistent().remove(&DataKey::PauseScope);
 
         env.events().publish(
             (symbol_short!("unpaused"), env.ledger().timestamp()),
@@ -1506,12 +1545,31 @@ impl Escrow {
         true
     }
 
-    // Returns `true` if the contract is currently paused.
+    /// Returns `true` if the contract is paused (legacy boolean or scoped).
     pub fn is_paused(env: Env) -> bool {
+        let legacy = env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Paused)
+            .unwrap_or(false);
+        let scoped = env
+            .storage()
+            .persistent()
+            .has(&DataKey::PauseScope);
+        legacy || scoped
+    }
+
+    /// Returns the current [`PauseScope`] if a scoped pause is active, or `None`.
+    pub fn get_pause_scope(env: Env) -> Option<PauseScope> {
+        env.storage().persistent().get(&DataKey::PauseScope)
+    }
+
+    /// Returns the next expected admin nonce (monotonic counter for replay protection).
+    pub fn get_admin_nonce(env: Env) -> u64 {
         env.storage()
             .persistent()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
+            .get(&DataKey::AdminNonce)
+            .unwrap_or(0)
     }
 
     // â”€â”€ Emergency pause â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2658,6 +2716,7 @@ impl Escrow {
         /// are always in scope before any state mutation can occur.
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
+        storage::require_pause_scope(&env, &PauseTarget::Dispute);
         caller.require_auth();
 
         let mut contract: Contract = Self::require_active_contract(&env, contract_id);
@@ -2763,6 +2822,7 @@ impl Escrow {
         /// are always in scope before any state mutation can occur.
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
+        storage::require_pause_scope(&env, &PauseTarget::Dispute);
         arbiter.require_auth();
 
         let mut contract: Contract = env

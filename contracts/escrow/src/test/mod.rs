@@ -31,6 +31,7 @@ mod protocol_fees;
 // mod mainnet_readiness;
 mod milestone_progress;
 mod pause_controls;
+mod test_pause_scope;
 mod performance;
 mod persistence;
 mod refund;
