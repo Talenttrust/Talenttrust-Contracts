@@ -79,6 +79,7 @@ mod governance;
 mod keys;
 mod migration;
 mod milestones;
+mod milestone_transitions;
 pub mod milestones_consts;
 mod refund_impl;
 mod release;

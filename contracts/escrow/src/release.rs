@@ -1,5 +1,5 @@
 use crate::{
-    approvals, keys, ttl, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
+    approvals, keys, ttl, milestone_transitions, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
     ReleaseAuthorization,
 };
 use soroban_sdk::{Address, Env, Symbol, Vec};
@@ -9,6 +9,10 @@ impl Escrow {
     ///
     /// Called from the single `#[contractimpl]` block in lib.rs after the
     /// initialization, pause, and auth guards have been checked.
+    ///
+    /// This function routes the milestone status change through the centralized
+    /// transition validator (`validate_milestone_transition`) to ensure consistent
+    /// state-machine enforcement across all mutation paths (Issue #1340).
     pub(crate) fn release_milestone_impl(
         env: &Env,
         contract_id: u32,
@@ -81,13 +85,14 @@ impl Escrow {
 
         let mut milestone = milestones.get(milestone_index).unwrap().clone();
 
-        if milestone.released {
-            env.panic_with_error(Error::MilestoneAlreadyReleased);
-        }
+        // ── Centralized Transition Validation (Issue #1340) ──────────────────────
+        // Construct the current milestone state and validate the transition
+        let current_state = milestone_transitions::MilestoneState::from_milestone(&milestone)
+            .unwrap_or_else(|e| env.panic_with_error(e));
+        let requested_state = milestone_transitions::MilestoneState::Released;
 
-        if milestone.refunded {
-            env.panic_with_error(Error::AlreadyRefunded);
-        }
+        milestone_transitions::validate_milestone_transition(current_state, requested_state)
+            .unwrap_or_else(|e| env.panic_with_error(e));
 
         approvals::check_approvals(&env, &contract, contract_id, milestone_index)
             .unwrap_or_else(|e| env.panic_with_error(e));
@@ -128,13 +133,26 @@ impl Escrow {
             .checked_add(net_amount)
             .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
-        if protocol_fee > 0 {
-            let new_accumulated = accumulated_fees
-                .checked_add(protocol_fee)
-                .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-            env.storage()
-                .persistent()
-                .set(&DataKey::AccumulatedProtocolFees, &new_accumulated);
+        // ── Atomic Version/Actor Persistence ──────────────────────────────────
+        // Record who performed this transition and increment the version
+        milestone_transitions::store_milestone_transition(env, contract_id, milestone_index, caller.clone());
+
+        if Self::is_initialized(&env) {
+            let fee_bps = Self::read_protocol_fee_bps(&env);
+            if fee_bps > 0 {
+                let fee = Self::calculate_protocol_fee(&env, milestone.amount, fee_bps);
+                let current_accumulated: i128 = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::AccumulatedProtocolFees)
+                    .unwrap_or(0);
+                let new_accumulated = current_accumulated
+                    .checked_add(fee)
+                    .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::AccumulatedProtocolFees, &new_accumulated);
+            }
         }
 
         approvals::clear_approvals(&env, contract_id, milestone_index);

@@ -26,6 +26,7 @@ mod emergency_controls;
 mod events_auth_matrix;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
+mod milestone_transitions_integration;
 mod protocol_fees;
 // mod mainnet_readiness;
 mod milestone_progress;
@@ -468,5 +469,3 @@ pub fn assert_contract_error<
         ),
     }
 }
-m o d   e v e n t _ o r d e r i n g ;  
- 
