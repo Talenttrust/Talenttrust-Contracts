@@ -15,6 +15,7 @@ fn set_contract_paused(env: &Env, paused: bool) {
 /// Helper setup to spin up env and test addresses
 fn setup_test_env() -> (Env, Address, Address, Address) {
     let env = Env::default();
+    
     env.mock_all_signatures();
 
     let client = Address::generate(&env);
