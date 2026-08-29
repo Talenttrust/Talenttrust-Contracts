@@ -37,7 +37,12 @@ impl Escrow {
         Self::require_not_paused(&env);
         Self::require_not_finalized(&env, contract_id);
 
-        if contract.status != ContractStatus::Funded {
+        // Disputed contracts are release-locked until an arbiter resolution is
+        // applied through the dispute path. This gate keeps payroll settlement
+        // atomic with dispute handling and prevents funds moving during an open
+        // dispute.
+        if contract.status == ContractStatus::Disputed || contract.status != ContractStatus::Funded
+        {
             env.panic_with_error(Error::InvalidState);
         }
 
@@ -92,21 +97,40 @@ impl Escrow {
         approvals::check_approvals(&env, &contract, contract_id, milestone_index)
             .unwrap_or_else(|e| env.panic_with_error(e));
 
+        let gross_amount = milestone.amount;
+        let protocol_fee: i128 = if Self::is_initialized(&env) {
+            let fee_bps = Self::read_protocol_fee_bps(&env);
+            if fee_bps > 0 {
+                Self::calculate_protocol_fee(&env, gross_amount, fee_bps)
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        let net_amount = gross_amount - protocol_fee;
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+
         let available_balance = contract
             .funded_amount
             .checked_sub(contract.released_amount)
             .and_then(|a| a.checked_sub(contract.refunded_amount))
+            .and_then(|a| a.checked_sub(accumulated_fees))
             .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-        if available_balance < milestone.amount {
+        if available_balance < gross_amount {
             env.panic_with_error(Error::InsufficientFunds);
         }
 
-        let _release_amount = milestone.amount;
         milestone.released = true;
         milestones.set(milestone_index, milestone.clone());
         contract.released_amount = contract
             .released_amount
-            .checked_add(milestone.amount)
+            .checked_add(net_amount)
             .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
         // ── Atomic Version/Actor Persistence ──────────────────────────────────

@@ -222,6 +222,13 @@ impl Escrow {
             ),
         );
 
+        let token_client = token::Client::new(env, &token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &contract.client,
+            &total_refund_amount,
+        );
+
         total_refund_amount
     }
 

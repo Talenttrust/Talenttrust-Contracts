@@ -85,6 +85,7 @@ mod refund_impl;
 mod release;
 mod reputation;
 mod rollback;
+mod schema_migration;
 mod settlement;
 mod simulate;
 mod storage;
@@ -305,10 +306,14 @@ impl Escrow {
         let token = Self::read_settlement_token(&env)
             .unwrap_or_else(|| env.panic_with_error(Error::SettlementTokenNotConfigured));
 
+        // State update and event emission first
+        let result = deposit::apply_validated_deposit(&env, contract_id, caller.clone(), validated);
+
+        // Token transfer interaction last
         let token_client = token::Client::new(&env, &token);
         token_client.transfer(&caller, &env.current_contract_address(), &amount);
 
-        deposit::apply_validated_deposit(&env, contract_id, caller, validated)
+        result
     }
 
     // â”€â”€ Client Migrations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -375,7 +380,11 @@ impl Escrow {
         ttl::extend_contract_ttl(&env, contract_id);
         Self::require_not_finalized(&env, contract_id);
 
-        if contract.status != ContractStatus::Funded {
+        // Disputed contracts are release-locked until the arbiter resolves the
+        // dispute via the permitted path. This preserves the invariant that no
+        // milestone funds may leave escrow while a dispute remains active.
+        if contract.status == ContractStatus::Disputed || contract.status != ContractStatus::Funded
+        {
             env.panic_with_error(Error::InvalidState);
         }
 
@@ -438,17 +447,18 @@ impl Escrow {
         };
 
         let net_amount = gross_amount - protocol_fee;
-
         let accumulated_fees: i128 = env
             .storage()
             .persistent()
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
 
-        let available_balance = contract.funded_amount
-            - contract.released_amount
-            - contract.refunded_amount
-            - accumulated_fees;
+        let available_balance = contract
+            .funded_amount
+            .checked_sub(contract.released_amount)
+            .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
+            .and_then(|remaining| remaining.checked_sub(accumulated_fees))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
         if available_balance < gross_amount {
             env.panic_with_error(EscrowError::InsufficientFunds);
@@ -456,18 +466,14 @@ impl Escrow {
 
         let token = Self::read_settlement_token(&env)
             .unwrap_or_else(|| env.panic_with_error(Error::SettlementTokenNotConfigured));
-        let token_client = token::Client::new(&env, &token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &contract.freelancer,
-            &net_amount,
-        );
 
         if protocol_fee > 0 {
-            env.storage().persistent().set(
-                &DataKey::AccumulatedProtocolFees,
-                &(accumulated_fees + protocol_fee),
-            );
+            let new_accumulated = accumulated_fees
+                .checked_add(protocol_fee)
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+            env.storage()
+                .persistent()
+                .set(&DataKey::AccumulatedProtocolFees, &new_accumulated);
         }
 
         milestone.released = true;
@@ -518,6 +524,13 @@ impl Escrow {
                 (caller, env.ledger().timestamp()),
             );
         }
+
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &contract.freelancer,
+            &net_amount,
+        );
 
         true
     }
@@ -1087,16 +1100,8 @@ impl Escrow {
             env.panic_with_error(EscrowError::InsufficientFunds);
         }
 
-        // Transfer tokens from contract to client
         let token = Self::read_settlement_token(&env)
             .unwrap_or_else(|| env.panic_with_error(Error::SettlementTokenNotConfigured));
-
-        let token_client = token::Client::new(&env, &token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &contract.client,
-            &total_refund_amount,
-        );
 
         // Mark milestones as refunded
         for idx in milestone_indices.iter() {
@@ -1147,6 +1152,13 @@ impl Escrow {
                 contract.status,
                 env.ledger().timestamp(),
             ),
+        );
+
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &contract.client,
+            &total_refund_amount,
         );
 
         total_refund_amount
@@ -1729,16 +1741,6 @@ impl Escrow {
 
         let refund_amount =
             contract.funded_amount - contract.released_amount - contract.refunded_amount;
-        if refund_amount > 0 {
-            let token = Self::read_settlement_token(&env)
-                .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
-            token::Client::new(&env, &token).transfer(
-                &env.current_contract_address(),
-                &client,
-                &refund_amount,
-            );
-        }
-
         contract.refunded_amount = contract
             .refunded_amount
             .checked_add(refund_amount)
@@ -1751,8 +1753,18 @@ impl Escrow {
 
         env.events().publish(
             (symbol_short!("cancelled"), contract_id),
-            (client, refund_amount, env.ledger().timestamp()),
+            (client.clone(), refund_amount, env.ledger().timestamp()),
         );
+
+        if refund_amount > 0 {
+            let token = Self::read_settlement_token(&env)
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+            token::Client::new(&env, &token).transfer(
+                &env.current_contract_address(),
+                &client,
+                &refund_amount,
+            );
+        }
 
         true
     }
@@ -2466,13 +2478,13 @@ impl Escrow {
             ttl::PERSISTENT_TTL_LEDGERS,
         );
 
-        let token_client = soroban_sdk::token::Client::new(&env, &token);
-        token_client.transfer(&env.current_contract_address(), &to, &amount);
-
         env.events().publish(
             (symbol_short!("fee"), symbol_short!("withdraw")),
             (admin, to, amount, env.ledger().timestamp()),
         );
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        token_client.transfer(&env.current_contract_address(), &to, &amount);
 
         true
     }
@@ -2859,11 +2871,27 @@ impl Escrow {
 
         MilestoneProgress { completed, total }
     }
+
+    /// Read the current on-ledger storage schema version for the escrow contract.
+    pub fn get_schema_version(env: Env) -> u32 {
+        Self::get_schema_version_impl(&env)
+    }
+
+    /// Upgrade storage schema to `target_version` with admin authorization and events.
+    pub fn migrate_escrow_storage(
+        env: Env,
+        admin: Address,
+        target_version: u32,
+    ) -> Result<u32, Error> {
+        Self::migrate_escrow_storage_impl(&env, admin, target_version)
+    }
 }
 
 /// Test fixtures and suites are compiled only for native test builds, never wasm.
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod schema_migration_test;
 
 #[contractimpl]
 impl Escrow {
