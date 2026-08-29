@@ -58,9 +58,13 @@ pub fn approve_milestone(
         .get(&DataKey::Contract(contract_id))
         .ok_or(Error::ContractNotFound)?;
 
-    // Verify contract is in Funded or PartiallyFunded state
-    if contract.status != ContractStatus::Funded
-        && contract.status != ContractStatus::PartiallyFunded
+    // A contract under dispute is locked: releases and approval writes must
+    // fail closed until the arbiter resolves the dispute via the authorized
+    // flow. This preserves the ordering guarantee that funds are never released
+    // while a dispute is active.
+    if contract.status == ContractStatus::Disputed
+        || (contract.status != ContractStatus::Funded
+            && contract.status != ContractStatus::PartiallyFunded)
     {
         return Err(Error::InvalidState);
     }
