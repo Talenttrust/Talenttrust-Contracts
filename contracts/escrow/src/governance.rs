@@ -30,7 +30,7 @@ impl Escrow {
     ///
     /// # Events
     /// `(Symbol("protocol_fee_bps"),)` → `(old_bps, new_bps, admin, timestamp)`
-    pub fn set_protocol_fee_bps(env: Env, new_bps: u32) -> bool {
+    pub fn set_protocol_fee_bps(env: Env, new_bps: u32, admin_nonce: u64) -> bool {
         Self::require_initialized(&env);
         let admin: Address = env
             .storage()
@@ -38,6 +38,7 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
         admin.require_auth();
+        crate::storage::consume_admin_nonce(&env, admin_nonce);
 
         storage_validation::validate_protocol_fee_bps(&env, new_bps);
         if new_bps > 10_000 {

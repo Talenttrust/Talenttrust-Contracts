@@ -1,6 +1,7 @@
 use super::{EscrowFixture, MILESTONE_ONE};
 use crate::{
-    types::SimulatedRelease, ContractStatus, Error, Escrow, EscrowError, ReleaseAuthorization,
+    types::SimulatedRelease, ContractStatus, Error, Escrow, EscrowClient, EscrowError,
+    ReleaseAuthorization,
 };
 use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env};
 
@@ -48,6 +49,80 @@ fn simulate_matches_real_release_outcome() {
 
     // No protocol fee set in default fixture, so fee should be 0
     assert_eq!(sim.protocol_fee, 0);
+}
+
+/**
+ * Releasing exactly the remaining funded balance is valid when the escrow is
+ * fully funded for a single milestone.
+ */
+#[test]
+fn simulate_allows_release_at_exact_remaining_balance() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let escrow_id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &escrow_id);
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(admin.clone());
+
+    escrow.initialize(&admin);
+    escrow.bind_settlement_token(&admin, &token);
+    let contract_id = escrow.create_contract(
+        &client,
+        &freelancer,
+        &None,
+        &vec![&env, 1_000_i128],
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    StellarAssetClient::new(&env, &token).mint(&client, &1_000_i128);
+    escrow.deposit_funds(&contract_id, &client, &1_000_i128);
+    escrow.approve_milestone_release(&contract_id, &client, &0);
+
+    let sim = escrow.simulate_release_milestone(&contract_id, &client, &0);
+    assert_simulation_ok(&sim);
+    assert_eq!(sim.gross_amount, 1_000_i128);
+    assert_eq!(sim.net_amount, 1_000_i128);
+}
+
+/// Releasing one unit above the remaining funded balance is rejected before any
+/// external effects.
+#[test]
+fn simulate_rejects_release_one_unit_over_remaining_balance() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let escrow_id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &escrow_id);
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(admin.clone());
+
+    escrow.initialize(&admin);
+    escrow.bind_settlement_token(&admin, &token);
+    let contract_id = escrow.create_contract(
+        &client,
+        &freelancer,
+        &None,
+        &vec![&env, 1_000_i128],
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    StellarAssetClient::new(&env, &token).mint(&client, &1_000_i128);
+    escrow.deposit_funds(&contract_id, &client, &1_000_i128);
+
+    let mut contract = escrow.get_contract(&contract_id);
+    contract.released_amount = 999_i128;
+    env.as_contract(&escrow_id, || {
+        env.storage()
+            .persistent()
+            .set(&crate::DataKey::Contract(contract_id), &contract);
+    });
+
+    escrow.approve_milestone_release(&contract_id, &client, &0);
+    let sim = escrow.simulate_release_milestone(&contract_id, &client, &0);
+    assert_simulation_err(&sim, EscrowError::InsufficientFunds as u32);
 }
 
 /// Simulation correctly detects contract completion when the last milestone

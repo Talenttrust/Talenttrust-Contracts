@@ -83,6 +83,35 @@ pub struct ContractBounds {
     pub max_settlement: u32,
 }
 
+// ── Pause scope types ────────────────────────────────────────────────────────
+
+/// Determines which entrypoints are blocked when a pause is active.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PauseTarget {
+    /// Block payout operations (release, refund, cancel).
+    Payout = 1,
+    /// Block dispute operations (raise, resolve, rollback).
+    Dispute = 2,
+    /// Block all mutating entrypoints (default legacy behavior).
+    Global = 3,
+}
+
+/// Scoped pause state stored under [`DataKey::PauseScope`].
+///
+/// Replaces the bare `bool` previously stored under `DataKey::Paused`.
+/// The `None` variant (absent storage key) means unpaused.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PauseScope {
+    pub target: PauseTarget,
+    /// Human-readable reason for the pause (e.g. "security incident").
+    pub reason: String,
+    /// Ledger sequence when the pause was activated.
+    pub paused_at: u64,
+}
+
+
 // ── Storage keys ──────────────────────────────────────────────────────────────
 
 #[contracttype]
@@ -92,6 +121,10 @@ pub enum DataKey {
     Initialized,
     Admin,
     Paused,
+    /// Scoped pause state (PauseScope struct). Replaces bare bool.
+    PauseScope,
+    /// Monotonic admin nonce for replay protection.
+    AdminNonce,
     Emergency,
     // Contract storage
     Contract(u32),
@@ -138,6 +171,13 @@ pub enum DataKey {
     ReputationConfigKey,
     ClientContracts(Address),
     FreelancerContracts(Address),
+    // Milestone transition versioning and audit trail (Issue #1340)
+    /// Version number for a milestone, incremented on each successful transition.
+    /// Used for optimistic concurrency control to detect concurrent modifications.
+    MilestoneVersion(u32, u32),              // (contract_id, milestone_index) -> u32
+    /// The address of the party that last successfully transitioned this milestone.
+    /// Used for audit trail and accountability.
+    MilestoneLastModifiedBy(u32, u32),      // (contract_id, milestone_index) -> Address
     // Fee withdrawal rate-limiting
     /// Maximum fraction of accumulated fees that can be withdrawn in one call,
     /// expressed in basis points (10 000 = 100 %). Default: 5 000 = 50 %.
