@@ -303,10 +303,7 @@ impl Escrow {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
-        storage_validation::validate_escrow_total_cap(
-            &env,
-            new_parameters.max_escrow_total_stroops,
-        );
+        storage_validation::validate_escrow_total_cap(&env, new_parameters.max_escrow_total_stroops);
         if new_parameters.max_escrow_total_stroops <= 0 {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }

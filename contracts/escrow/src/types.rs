@@ -283,10 +283,18 @@ pub enum Error {
     FeeWithdrawalCapExceeded = 66,
     /// A protocol-fee withdrawal was attempted before the cooldown interval elapsed.
     FeeWithdrawalCooldownActive = 67,
-    /// The provided admin nonce does not match the expected next nonce.
-    StaleNonce = 68,
-    /// A scoped pause is active for the requested operation.
-    PauseScopeActive = 69,
+    /// Target migration version is invalid, unsupported, or attempts an illegal downgrade.
+    InvalidMigrationVersion = 68,
+    /// Storage schema is already at or beyond the requested target version.
+    MigrationNotRequired = 69,
+    /// Caller is not authorized.
+    Unauthorized = 70,
+    /// The batch release request is empty.
+    EmptyBatch = 71,
+    /// The batch size exceeds the allowed limit.
+    BatchLimitExceeded = 72,
+    /// Duplicate milestone index found in batch release request.
+    DuplicateMilestoneInBatch = 73,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────

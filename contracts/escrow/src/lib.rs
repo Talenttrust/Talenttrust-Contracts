@@ -131,6 +131,7 @@ pub use types::{
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
 pub const MAX_MILESTONES: u32 = 10;
+pub const MAX_BATCH_MILESTONES: u32 = 10;
 pub const MAX_FEE_BPS: u32 = 10_000;
 pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
 
@@ -531,6 +532,216 @@ impl Escrow {
             &contract.freelancer,
             &net_amount,
         );
+
+        true
+    }
+
+    /// Releases multiple milestones atomically in a single bounded batch invocation.
+    ///
+    /// # Safety & Invariants
+    /// - Bounded: `milestone_indices` length must be between 1 and `MAX_BATCH_MILESTONES` (10).
+    /// - All-or-nothing: All items are strictly validated before any state mutation or token transfer.
+    ///   If any index is out of bounds, already released, refunded, unapproved, duplicated, or if
+    ///   the combined gross amount exceeds available balance, the entire batch reverts.
+    /// - Emits a `mlstn_rls` event for every successfully released milestone.
+    /// - If the contract transitions to all-milestones-settled, marks `ContractStatus::Completed` and emits `ctrct_cmp`.
+    pub fn release_milestone_batch(
+        env: Env,
+        contract_id: u32,
+        caller: Address,
+        milestone_indices: Vec<u32>,
+    ) -> bool {
+        Self::require_not_paused(&env);
+        caller.require_auth();
+
+        if milestone_indices.is_empty() {
+            env.panic_with_error(Error::EmptyBatch);
+        }
+
+        if milestone_indices.len() > crate::milestones_consts::MAX_BATCH_MILESTONES {
+            env.panic_with_error(Error::BatchLimitExceeded);
+        }
+
+        let mut contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+
+        ttl::extend_contract_ttl(&env, contract_id);
+        Self::require_not_finalized(&env, contract_id);
+
+        if contract.status != ContractStatus::Funded {
+            env.panic_with_error(Error::InvalidState);
+        }
+
+        let is_client = caller == contract.client;
+        let is_freelancer = caller == contract.freelancer;
+        let is_arbiter = contract.arbiter.as_ref() == Some(&caller);
+
+        match contract.release_authorization {
+            ReleaseAuthorization::ClientOnly => {
+                if !is_client {
+                    env.panic_with_error(EscrowError::UnauthorizedRole);
+                }
+            }
+            ReleaseAuthorization::ArbiterOnly => {
+                if !is_arbiter {
+                    env.panic_with_error(EscrowError::UnauthorizedRole);
+                }
+            }
+            ReleaseAuthorization::ClientAndArbiter => {
+                if !is_client && !is_arbiter {
+                    env.panic_with_error(EscrowError::UnauthorizedRole);
+                }
+            }
+            ReleaseAuthorization::MultiSig => {
+                if !is_client && !is_freelancer {
+                    env.panic_with_error(EscrowError::UnauthorizedRole);
+                }
+            }
+        }
+
+        let mut milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
+        ttl::extend_milestone_ttl(&env, contract_id);
+
+        let batch_len = milestone_indices.len();
+        for i in 0..batch_len {
+            let idx_i = milestone_indices.get(i).unwrap();
+            for j in (i + 1)..batch_len {
+                let idx_j = milestone_indices.get(j).unwrap();
+                if idx_i == idx_j {
+                    env.panic_with_error(Error::DuplicateMilestoneInBatch);
+                }
+            }
+        }
+
+        // Pass 1: Strict Validation (All-or-Nothing)
+        let mut total_gross_amount: i128 = 0;
+        for i in 0..batch_len {
+            let milestone_index = milestone_indices.get(i).unwrap();
+            if milestone_index >= milestones.len() {
+                env.panic_with_error(Error::IndexOutOfBounds);
+            }
+
+            let milestone = milestones.get(milestone_index).unwrap();
+            if milestone.released {
+                env.panic_with_error(Error::MilestoneAlreadyReleased);
+            }
+            if milestone.refunded {
+                env.panic_with_error(EscrowError::AlreadyRefunded);
+            }
+
+            approvals::check_approvals(&env, &contract, contract_id, milestone_index)
+                .unwrap_or_else(|e| env.panic_with_error(e));
+
+            total_gross_amount = total_gross_amount
+                .checked_add(milestone.amount)
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+        }
+
+        let mut accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+
+        let available_balance = contract.funded_amount
+            - contract.released_amount
+            - contract.refunded_amount
+            - accumulated_fees;
+
+        if available_balance < total_gross_amount {
+            env.panic_with_error(EscrowError::InsufficientFunds);
+        }
+
+        let fee_bps = if Self::is_initialized(&env) {
+            Self::read_protocol_fee_bps(&env)
+        } else {
+            0
+        };
+
+        // Pass 2: Atomic Execution
+        for i in 0..batch_len {
+            let milestone_index = milestone_indices.get(i).unwrap();
+            let mut milestone = milestones.get(milestone_index).unwrap();
+
+            let gross_amount = milestone.amount;
+            let protocol_fee: i128 = if fee_bps > 0 {
+                Self::calculate_protocol_fee(&env, gross_amount, fee_bps)
+            } else {
+                0
+            };
+
+            let net_amount = gross_amount - protocol_fee;
+
+            if let Some(token) = Self::read_settlement_token(&env) {
+                let token_client = token::Client::new(&env, &token);
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &contract.freelancer,
+                    &net_amount,
+                );
+            }
+
+            if protocol_fee > 0 {
+                accumulated_fees = accumulated_fees
+                    .checked_add(protocol_fee)
+                    .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+                env.storage().persistent().set(
+                    &DataKey::AccumulatedProtocolFees,
+                    &accumulated_fees,
+                );
+            }
+
+            milestone.released = true;
+            milestone.funded_amount = gross_amount;
+            milestones.set(milestone_index, milestone.clone());
+
+            contract.released_amount = contract
+                .released_amount
+                .checked_add(net_amount)
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+
+            let invariant_sum = contract.released_amount + contract.refunded_amount + accumulated_fees;
+            if invariant_sum > contract.funded_amount {
+                env.panic_with_error(EscrowError::AccountingInvariantViolated);
+            }
+
+            approvals::clear_approvals(&env, contract_id, milestone_index);
+
+            env.events().publish(
+                (symbol_short!("mlstn_rls"), contract_id),
+                (
+                    milestone_index,
+                    gross_amount,
+                    protocol_fee,
+                    contract.released_amount,
+                    caller.clone(),
+                    env.ledger().timestamp(),
+                ),
+            );
+        }
+
+        let all_released = milestones.iter().all(|m| m.released || m.refunded);
+        if all_released {
+            contract.status = ContractStatus::Completed;
+            Self::grant_pending_reputation_credit(&env, &contract.freelancer);
+        }
+
+        ttl::store_milestones(&env, contract_id, &milestones);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), &contract);
+
+        ttl::extend_contract_ttl(&env, contract_id);
+
+        if all_released {
+            env.events().publish(
+                (symbol_short!("ctrct_cmp"), contract_id),
+                (caller, env.ledger().timestamp()),
+            );
+        }
 
         true
     }
@@ -2952,6 +3163,16 @@ impl Escrow {
 mod test;
 #[cfg(test)]
 mod schema_migration_test;
+#[cfg(test)]
+mod governance_test;
+#[cfg(test)]
+mod settlement_guard_test;
+#[cfg(test)]
+mod error_taxonomy_test;
+#[cfg(test)]
+mod test_batch_release;
+#[cfg(test)]
+mod indexer_events_test;
 
 #[contractimpl]
 impl Escrow {
