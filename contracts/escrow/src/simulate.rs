@@ -121,6 +121,26 @@ impl Escrow {
 
         let net_amount = gross_amount - protocol_fee;
 
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+
+        let available_balance = match contract
+            .funded_amount
+            .checked_sub(contract.released_amount)
+            .and_then(|balance| balance.checked_sub(contract.refunded_amount))
+            .and_then(|balance| balance.checked_sub(accumulated_fees))
+        {
+            Some(balance) => balance,
+            None => return err(EscrowError::PotentialOverflow as u32),
+        };
+
+        if available_balance < gross_amount {
+            return err(EscrowError::InsufficientFunds as u32);
+        }
+
         let projected_released_amount = contract
             .released_amount
             .checked_add(net_amount)
