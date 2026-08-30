@@ -91,6 +91,7 @@ mod settlement;
 mod simulate;
 mod storage;
 mod storage_validation;
+pub mod token_scale;
 mod ttl;
 mod types;
 mod utils;
@@ -121,6 +122,7 @@ pub use dispute::DisputeInfo;
 pub use events::{EventInput, MAX_EVENT_BATCH_SIZE};
 pub use migration::PendingClientMigration;
 pub use milestones_consts::PROTOCOL_FEE_BPS_DENOMINATOR;
+pub use token_scale::{normalized_amount, scale_multiplier, MAX_TOKEN_DECIMALS};
 pub use ttl::{
     ADMIN_ROTATION_MIN_DELAY_LEDGERS, ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS,
     PENDING_MIGRATION_TTL_LEDGERS,
@@ -289,6 +291,12 @@ impl Escrow {
         let _probe: i128 = token_client.balance(&env.current_contract_address());
 
         Self::write_settlement_token(&env, &token);
+
+        // Capture and persist the token's decimal count for scale validation.
+        // This is a read-only probe (decimals() is a pure getter) — no funds
+        // are moved and no re-entrancy risk exists.  Stored under
+        // DataKey::TokenScale for use by create_contract and the read views.
+        token_scale::capture_and_store_token_scale(&env, &token);
 
         // Emit after the binding write succeeds so indexers can track the bound
         // asset. Consistent topic naming with `init` / `protocol_fee_bps` events.
@@ -947,6 +955,45 @@ impl Escrow {
             max_fee_bps: MAX_FEE_BPS,
             max_settlement: Self::effective_max_settlement(&env),
         }
+    }
+
+    /// Return the decimal count of the bound settlement token, or `None` when
+    /// no token has been bound yet.
+    ///
+    /// The scale is captured at `bind_settlement_token` time by calling
+    /// `token::Client::decimals()` and is stored as a `u32` under
+    /// `DataKey::TokenScale`.  All milestone amounts submitted to
+    /// `create_contract` must be exactly divisible by `10^decimals`.
+    ///
+    /// # Returns
+    ///
+    /// `Some(decimals)` — the number of decimal places the token uses, or
+    /// `None` if `bind_settlement_token` has not been called yet.
+    pub fn get_token_scale(env: Env) -> Option<u32> {
+        token_scale::read_token_scale(&env)
+    }
+
+    /// Convert a raw on-chain amount to its human-visible (normalized) value
+    /// using the stored token scale.
+    ///
+    /// Returns `amount / 10^decimals`.  Because `create_contract` enforces
+    /// exact representability, the division is always exact for any amount that
+    /// was accepted into storage.
+    ///
+    /// # Errors
+    ///
+    /// Panics with [`Error::TokenScaleNotSet`] when `bind_settlement_token` has
+    /// not been called yet.
+    ///
+    /// # Examples
+    ///
+    /// With a 7-decimal token (standard Stellar stroops):
+    ///
+    /// * `10_000_000` → `1` (1 token)
+    /// * `500_000_000` → `50` (50 tokens)
+    pub fn get_normalized_amount(env: Env, raw_amount: i128) -> i128 {
+        let decimals = token_scale::require_token_scale(&env);
+        token_scale::normalized_amount(raw_amount, decimals)
     }
 
     /// Returns the current mainnet readiness checklist.
