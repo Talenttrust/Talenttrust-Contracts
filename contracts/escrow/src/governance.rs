@@ -290,6 +290,65 @@ impl Escrow {
         true
     }
 
+    /// Recover an abandoned admin proposal after its expiry.
+    ///
+    /// Public entrypoint that delegates to [`recover_admin_proposal_impl`].
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("recovered"))` → `(admin, cancelled_proposal, timestamp)`
+    pub fn recover_admin_proposal(env: Env) -> bool {
+        Self::recover_admin_proposal_impl(&env)
+    }
+
+    /// Recover an abandoned admin proposal after its expiry.
+    ///
+    /// Only the current admin may recover, and the contract must be initialized.
+    /// The proposal must be expired (older than `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS`).
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`] — `initialize` has not been called.
+    /// * [`Error::InvalidState`] — there is no pending proposal, or it is still active.
+    /// * [`Error::TimelockNotElapsed`] — the proposal is too recent.
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("recovered"))` → `(admin, cancelled_proposal, timestamp)`
+    pub(crate) fn recover_admin_proposal_impl(env: &Env) -> bool {
+        Self::require_initialized(env);
+
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+        admin.require_auth();
+
+        let pending: PendingAdminProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingAdmin)
+            .unwrap_or_else(|| env.panic_with_error(Error::InvalidState));
+
+        let elapsed = env
+            .ledger()
+            .sequence()
+            .saturating_sub(pending.proposed_at_ledger);
+
+        if elapsed < ADMIN_ROTATION_MIN_DELAY_LEDGERS {
+            env.panic_with_error(Error::TimelockNotElapsed);
+        }
+        if elapsed <= ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS {
+            env.panic_with_error(Error::InvalidState);
+        }
+
+        env.storage().persistent().remove(&DataKey::PendingAdmin);
+
+        env.events().publish(
+            (symbol_short!("admin"), Symbol::new(env, "recovered")),
+            (admin, pending.proposed, env.ledger().timestamp()),
+        );
+        true
+    }
+
     /// Returns the currently pending admin address, if any.
     ///
     /// Public entrypoint that delegates to [`get_pending_admin_impl`].
