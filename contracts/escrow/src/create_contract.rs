@@ -178,6 +178,12 @@ impl Escrow {
             .persistent()
             .set(&milestone_key, &milestone_vec);
 
+        // Set the initial TTL appropriate for the Created (active) state.
+        // Using the state-aware helper ensures a newly-created contract
+        // receives a 60-day window from birth rather than the legacy flat
+        // 30-day default, matching the active-contract TTL policy.
+        ttl::extend_contract_and_milestones_ttl_for_status(&env, id, ContractStatus::Created);
+
         let next_id = id
             .checked_add(1)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractIdOverflow));

@@ -509,7 +509,9 @@ impl Escrow {
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);
 
-        ttl::extend_contract_ttl(&env, contract_id);
+        // Bump TTL using the state appropriate for the contract after the release:
+        // Completed → closed policy (30 days); still Funded → active policy (60 days).
+        ttl::extend_contract_ttl_for_status(&env, contract_id, contract.status);
 
         env.events().publish(
             (symbol_short!("mlstn_rls"), contract_id),
@@ -738,7 +740,8 @@ impl Escrow {
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);
 
-        ttl::extend_contract_ttl(&env, contract_id);
+        // Bump TTL: Completed → closed policy (30 days); still Funded → active (60 days).
+        ttl::extend_contract_ttl_for_status(&env, contract_id, contract.status);
 
         if all_released {
             env.events().publish(
@@ -1353,8 +1356,8 @@ impl Escrow {
             rollback::clear_dispute_rollback(&env, contract_id);
         }
 
-        // Extend TTL on contract write (milestone TTL already extended by store_milestones)
-        ttl::extend_contract_ttl(&env, contract_id);
+        // Bump TTL using the post-refund state (Refunded/Completed → closed; Funded → active).
+        ttl::extend_contract_ttl_for_status(&env, contract_id, contract.status);
 
         // Emit `refunded` event after all state mutations succeed.
         //
@@ -2025,6 +2028,9 @@ impl Escrow {
         env.storage()
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);
+
+        // Bump TTL using the closed-contract policy now that the contract is terminal.
+        ttl::extend_contract_ttl_for_status(&env, contract_id, ContractStatus::Cancelled);
 
         env.events().publish(
             (symbol_short!("cancelled"), contract_id),
@@ -2938,7 +2944,8 @@ impl Escrow {
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);
 
-        ttl::extend_contract_ttl(&env, contract_id);
+        // Bump to the longer Disputed TTL (75 days) so the arbiter has time to act.
+        ttl::extend_contract_ttl_for_status(&env, contract_id, ContractStatus::Disputed);
 
         env.events().publish(
             (symbol_short!("dispute"), symbol_short!("opened")),
@@ -3056,7 +3063,8 @@ impl Escrow {
         rollback::clear_dispute_rollback(&env, contract_id);
         dispute::clear_dispute_metadata(&env, contract_id);
 
-        ttl::extend_contract_ttl(&env, contract_id);
+        // Bump TTL to the closed-state policy now that dispute is resolved.
+        ttl::extend_contract_ttl_for_status(&env, contract_id, contract.status);
 
         env.events().publish(
             (symbol_short!("dispute"), symbol_short!("resolved")),

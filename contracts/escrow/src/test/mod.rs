@@ -49,6 +49,7 @@ mod simulate_create_contract;
 mod simulate_deposit;
 mod simulate_release;
 mod ttl_tests;
+mod ttl_lifecycle;
 
 // --- Shared constants ---
 

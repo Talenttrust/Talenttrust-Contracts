@@ -147,7 +147,7 @@ pub fn apply_validated_deposit(
         .persistent()
         .set(&DataKey::Contract(contract_id), &contract);
 
-    ttl::extend_contract_ttl(&env, contract_id);
+    ttl::extend_contract_ttl_for_status(&env, contract_id, contract.status);
 
     true
 }
