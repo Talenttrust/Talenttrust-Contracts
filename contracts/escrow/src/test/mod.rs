@@ -473,3 +473,4 @@ pub fn assert_contract_error<
         ),
     }
 }
+mod test_finalization_bug;

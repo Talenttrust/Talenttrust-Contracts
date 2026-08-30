@@ -164,16 +164,18 @@ impl Escrow {
 /// - `UnauthorizedRole` when `finalizer` is not a contract participant.
 /// - `InvalidStatusTransition` unless status is `Completed` or `Disputed`.
 pub fn finalize_contract_impl(env: &Env, contract_id: u32, finalizer: Address) -> bool {
-    Escrow::require_not_paused(&env);
-    finalizer.require_auth();
+    if Escrow::is_finalized(&env, contract_id) {
+        env.panic_with_error(Error::AlreadyFinalized);
+    }
 
     let contract = Escrow::load_contract_for_finalization(&env, contract_id);
-    Escrow::require_not_finalized(&env, contract_id);
-    Escrow::require_finalizer_role(&env, &contract, &finalizer);
-
     if contract.status != ContractStatus::Completed && contract.status != ContractStatus::Disputed {
         env.panic_with_error(EscrowError::InvalidStatusTransition);
     }
+
+    Escrow::require_not_paused(&env);
+    finalizer.require_auth();
+    Escrow::require_finalizer_role(&env, &contract, &finalizer);
 
     let record = FinalizationRecord {
         finalizer: finalizer.clone(),
