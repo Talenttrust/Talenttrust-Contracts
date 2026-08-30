@@ -186,6 +186,73 @@ pub enum DataKey {
     LastFeeWithdrawalLedger,
     /// Storage layout / schema version for the escrow contract (stored as u32).
     SchemaVersion,
+    // Two-step governance proposals for high-impact overrides (#1221)
+    /// A pending governance override proposal, keyed by a monotonic u64 proposal ID.
+    GovernanceProposal(u64),
+    /// Monotonic counter used to generate unique governance proposal IDs.
+    NextGovernanceProposalId,
+}
+
+// ── Two-step Governance Proposal (Issue #1221) ───────────────────────────────
+
+/// Identifies which high-impact parameter the proposal targets.
+///
+/// Each variant carries the new value that would be applied on acceptance, so
+/// the approver can inspect what they are authorising before signing.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GovernanceProposalKind {
+    /// Proposal to change the protocol fee in basis points.
+    SetProtocolFeeBps(u32),
+    /// Proposal to atomically change both governed parameters.
+    SetGovernedParams(GovernedParameters),
+    /// Proposal to change the fee-withdrawal cap in basis points.
+    SetFeeWithdrawalCap(u32),
+    /// Proposal to change the fee-withdrawal cooldown in ledgers.
+    SetFeeWithdrawalCooldown(u32),
+    /// Proposal to change the maximum milestones per contract.
+    SetMaxMilestones(u32),
+}
+
+/// The lifecycle state of a governance proposal.
+///
+/// Transitions:
+/// `Pending` → `Approved` (approver calls `approve_governance_proposal`)
+/// `Pending` → `Rejected` (approver calls `reject_governance_proposal`)
+/// `Approved` → `Applied` (admin calls `apply_governance_proposal`)
+/// `Pending` | `Approved` → expired (TTL elapses; enforced on read)
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GovernanceProposalState {
+    /// Proposal has been submitted and is awaiting approver action.
+    Pending = 0,
+    /// The approver has authorised the proposal; the admin may now apply it.
+    Approved = 1,
+    /// The approver has explicitly rejected the proposal.
+    Rejected = 2,
+    /// The proposal has been applied; the parameter change is live.
+    Applied = 3,
+}
+
+/// A governance override proposal stored under `DataKey::GovernanceProposal(id)`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GovernanceProposal {
+    /// Monotonic ID assigned at request time.
+    pub proposal_id: u64,
+    /// The admin who submitted the proposal.
+    pub requester: Address,
+    /// Current lifecycle state.
+    pub state: GovernanceProposalState,
+    /// The specific parameter change being proposed.
+    pub kind: GovernanceProposalKind,
+    /// Ledger sequence at which the proposal was created.
+    pub proposed_at_ledger: u32,
+    /// Ledger sequence after which the proposal expires.
+    /// Once `env.ledger().sequence() > expires_at_ledger`, actions are rejected.
+    pub expires_at_ledger: u32,
+    /// The address of the approver, if an approval (or rejection) has been recorded.
+    pub approver: Option<Address>,
 }
 
 // ── Event Types ──────────────────────────────────────────────────────────────
@@ -301,6 +368,16 @@ pub enum Error {
     InvalidMigrationVersion = 75,
     /// The admin nonce does not match the expected replay-protection counter.
     StaleNonce = 76,
+    // Two-step governance proposal errors (#1221)
+    /// The governance proposal was not found (wrong ID or expired and evicted).
+    GovernanceProposalNotFound = 77,
+    /// The proposal has already been approved, rejected, or applied and cannot
+    /// transition further in the current direction.
+    GovernanceProposalInvalidState = 78,
+    /// The proposal has passed its expiry ledger and can no longer be approved or applied.
+    GovernanceProposalExpired = 79,
+    /// The approver identity is the same as the requester; self-approval is prohibited.
+    GovernanceSelfApproval = 80,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
