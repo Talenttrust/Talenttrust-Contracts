@@ -124,6 +124,11 @@ pub enum DataKey {
     PauseScope,
     /// Monotonic admin nonce for replay protection.
     AdminNonce,
+    /// A callback invocation bound to a specific contract instance and phase, and
+    /// a one-shot origin+/nonce registry that rejects replays across any other
+    /// contract, milestone, or lifecycle state.
+    Callback(u32, u32),
+    CallbackNonce(Address, u64),
     Emergency,
     // Contract storage
     Contract(u32),

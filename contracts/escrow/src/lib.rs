@@ -68,6 +68,7 @@
 mod amount_validation;
 mod approvals;
 mod authorization;
+mod callback;
 mod constants;
 mod contracts;
 mod create_contract;
@@ -109,6 +110,7 @@ pub use amount_validation::validate_deposit_amount;
 pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
 pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
+pub use callback::{consume_callback, validate_callback, CallbackRecord};
 pub use constants::PAGE_CEILING;
 pub use contracts::{
     MainnetReadinessInfo, DEFAULT_MAX_ARBITERS, DEFAULT_MAX_MILESTONES,
@@ -178,6 +180,33 @@ impl Escrow {
 
 #[contractimpl]
 impl Escrow {
+    /// Validate and consume a callback against the current contract instance.
+    ///
+    /// The callback is bound to both the contract ID and the expected lifecycle
+    /// phase, and it may only be used once for a given `(origin, nonce)` pair.
+    pub fn bind_callback(
+        env: Env,
+        origin: Address,
+        contract_id: u32,
+        expected_phase: u32,
+        nonce: u64,
+    ) -> bool {
+        let _ = crate::callback::validate_callback(&env, &origin, contract_id, expected_phase, nonce);
+        true
+    }
+
+    /// Return whether a callback is still valid for the current contract instance.
+    pub fn is_callback_valid(
+        env: Env,
+        origin: Address,
+        contract_id: u32,
+        expected_phase: u32,
+        nonce: u64,
+    ) -> bool {
+        let _ = crate::callback::validate_callback(&env, &origin, contract_id, expected_phase, nonce);
+        true
+    }
+
     // Bind the single Stellar Asset Contract (SAC) token this escrow instance will custody.
     //
     // This is a **write-once** step: once a token is recorded under
