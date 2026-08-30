@@ -154,14 +154,14 @@ pub fn read_milestone_version_and_actor(
 
     let version: u32 = env.storage().persistent().get(&version_key).unwrap_or(0);
 
-    let last_modified_by: Address = env
-        .storage()
-        .persistent()
-        .get(&actor_key)
-        .unwrap_or_else(|| {
-            // Default to current contract address for backward compatibility
-            env.current_contract_address()
-        });
+    let last_modified_by: Address =
+        env.storage()
+            .persistent()
+            .get(&actor_key)
+            .unwrap_or_else(|| {
+                // Default to current contract address for backward compatibility
+                env.current_contract_address()
+            });
 
     MilestoneTransitionMetadata {
         version,
@@ -234,8 +234,6 @@ pub fn check_version_for_concurrency(
 }
 
 // ── Re-exports for convenient use ─────────────────────────────────────────────────
-
-
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
