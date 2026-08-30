@@ -70,6 +70,20 @@ pub const PENDING_MIGRATION_BUMP_THRESHOLD: u32 = LEDGERS_PER_DAY * 3;
 pub const PERSISTENT_TTL_LEDGERS: u32 = LEDGERS_PER_DAY * 30;
 pub const PERSISTENT_BUMP_THRESHOLD: u32 = LEDGERS_PER_DAY * 7;
 
+// ── Two-step governance proposal TTLs (#1221) ────────────────────────────────
+
+/// Maximum ledgers a governance override proposal remains actionable.
+///
+/// A proposal that has not been approved and applied within this window (≈3 days
+/// at 5 s/ledger) expires and can no longer be approved or applied.  The
+/// requirement for a short window limits the time during which a pending
+/// (but forgotten or compromised) proposal could be weaponised.
+pub const GOVERNANCE_PROPOSAL_TTL_LEDGERS: u32 = LEDGERS_PER_DAY * 3;
+
+/// Bump threshold for governance proposal persistent entries.
+/// When a read access occurs within this many ledgers of expiry the TTL is renewed.
+pub const GOVERNANCE_PROPOSAL_BUMP_THRESHOLD: u32 = LEDGERS_PER_DAY;
+
 #[allow(dead_code)]
 pub fn compute_expiry(env: &Env, ttl_ledgers: u32) -> u32 {
     env.ledger().sequence().saturating_add(ttl_ledgers)
@@ -214,4 +228,16 @@ pub fn extend_governed_parameters_ttl(env: &Env) {
             PERSISTENT_TTL_LEDGERS,
         );
     }
+}
+
+/// Set the initial TTL for a newly created governance proposal entry.
+///
+/// Uses `GOVERNANCE_PROPOSAL_TTL_LEDGERS` so the entry is automatically
+/// evicted after ~3 days if not explicitly removed first.
+pub fn set_governance_proposal_ttl(env: &Env, proposal_id: u64) {
+    env.storage().persistent().extend_ttl(
+        &DataKey::GovernanceProposal(proposal_id),
+        GOVERNANCE_PROPOSAL_BUMP_THRESHOLD,
+        GOVERNANCE_PROPOSAL_TTL_LEDGERS,
+    );
 }
