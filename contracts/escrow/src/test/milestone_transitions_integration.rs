@@ -322,15 +322,15 @@ fn test_all_backward_transitions_use_same_error() {
     // Verify that all backward transitions use the same error type
     use crate::Error;
 
-    let invalid_transitions = vec![
+    let invalid_transitions = [
         (MilestoneState::Released, MilestoneState::Pending),
         (MilestoneState::Released, MilestoneState::Refunded),
         (MilestoneState::Refunded, MilestoneState::Pending),
         (MilestoneState::Refunded, MilestoneState::Released),
     ];
 
-    for (current, requested) in invalid_transitions {
-        let result = validate_milestone_transition(current, requested);
+    for (current, requested) in invalid_transitions.iter() {
+        let result = validate_milestone_transition(*current, *requested);
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err(),

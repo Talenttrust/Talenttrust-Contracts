@@ -41,7 +41,7 @@ fn test_paused_rejects_mutating_entrypoints() {
     let (client, _admin, client_addr, freelancer_addr, c_id) = setup_escrow_pause_test(&env);
 
     // Pause the contract
-    assert!(client.pause());
+    assert!(client.pause(&1u64));
     assert!(client.is_paused());
 
     // 1. Create contract must fail while paused
@@ -87,7 +87,7 @@ fn test_paused_reads_still_allowed() {
     let (client, _admin, _client_addr, _freelancer_addr, c_id) = setup_escrow_pause_test(&env);
 
     // Pause the contract
-    client.pause();
+    client.pause(&1u64);
     assert!(client.is_paused());
 
     // Readers must succeed and return correct data while paused
@@ -112,7 +112,7 @@ fn test_unpause_restores_mutation_capabilities() {
     let (client, _admin, client_addr, _freelancer_addr, c_id) = setup_escrow_pause_test(&env);
 
     // Pause then unpause
-    client.pause();
+    client.pause(&1u64);
     assert!(client.is_paused());
 
     client.unpause();
@@ -134,7 +134,7 @@ fn test_pause_and_unpause_emit_distinct_events() {
     let initial_events = env.events().all().len();
 
     // Pause emits event
-    client.pause();
+    client.pause(&1u64);
     let events_after_pause = env.events().all().len();
     assert!(events_after_pause > initial_events);
 

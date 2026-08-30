@@ -370,7 +370,7 @@ fn simulate_rejects_paused() {
     let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
 
     // Pause the contract.
-    assert!(client.pause());
+    assert!(client.pause(&1u64));
 
     assert_contract_error(
         client.try_simulate_deposit_funds(&id, &client_addr, &100_i128),

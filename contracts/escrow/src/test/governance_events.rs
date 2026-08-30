@@ -13,7 +13,7 @@ fn protocol_fee_bps_change_emits_event() {
     let client = register_client(&env);
 
     // Change protocol fee bps
-    assert!(client.set_protocol_fee_bps(&100u32));
+    assert!(client.set_protocol_fee_bps(&100u32, &1u64));
 
     let events = env.events().all();
     assert!(events.len() > 0);

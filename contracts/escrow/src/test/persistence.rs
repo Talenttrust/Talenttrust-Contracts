@@ -261,7 +261,7 @@ fn pause_blocks_finalization() {
     env.mock_all_auths();
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = super::complete_contract(&env, &client);
-    assert!(client.pause());
+    assert!(client.pause(&1u64));
 
     super::assert_contract_error(
         client.try_finalize_contract(&contract_id, &client_addr),
@@ -1089,7 +1089,7 @@ fn read_getters_unchanged_after_pause() {
     let milestones_before = client.get_milestones(&contract_id);
     let refundable_before = client.get_refundable_balance(&contract_id);
 
-    assert!(client.pause());
+    assert!(client.pause(&1u64));
 
     let after_pause = client.get_contract(&contract_id);
     let milestones_after = client.get_milestones(&contract_id);

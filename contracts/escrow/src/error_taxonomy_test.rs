@@ -224,6 +224,6 @@ fn test_error_invalid_protocol_parameters_out_of_bounds_fee() {
     client.initialize(&admin);
 
     // Fee > 10,000 bps (100%)
-    let res = client.try_set_protocol_fee_bps(&10_001);
+    let res = client.try_set_protocol_fee_bps(&10_001, &1u64);
     assert!(res.is_err());
 }

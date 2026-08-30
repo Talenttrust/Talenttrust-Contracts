@@ -367,6 +367,15 @@ impl Escrow {
             env.panic_with_error(Error::AlreadyRefunded);
         }
 
+        // Reject evidence changes once the milestone has been approved for
+        // release. Approvals are stored in temporary storage and auto-expire;
+        // a missing (expired) approval is treated as absent and does not lock
+        // evidence.
+        let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
+        if env.storage().temporary().has(&approval_key) {
+            env.panic_with_error(Error::EvidenceLocked);
+        }
+
         milestone.work_evidence = Some(evidence.clone());
         milestones.set(milestone_index, milestone);
 
