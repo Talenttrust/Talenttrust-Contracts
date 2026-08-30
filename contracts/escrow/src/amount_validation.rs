@@ -32,7 +32,6 @@ pub enum AmountValidationError {
 /// # Returns
 /// `Ok(())` if valid, `Err(AmountValidationError)` if invalid
 pub fn validate_single_amount(amount: i128) -> Result<(), crate::EscrowError> {
-    
     // Check positivity
     if amount <= MIN_POSITIVE_AMOUNT - 1 {
         return Err(crate::EscrowError::AmountMustBePositive);
