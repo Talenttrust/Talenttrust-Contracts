@@ -1,6 +1,6 @@
 use crate::{
-    approvals, keys, ttl, milestone_transitions, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
-    ReleaseAuthorization,
+    approvals, keys, milestone_transitions, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
+    Milestone, ReleaseAuthorization,
 };
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
@@ -146,7 +146,12 @@ impl Escrow {
 
         // ── Atomic Version/Actor Persistence ──────────────────────────────────
         // Record who performed this transition and increment the version
-        milestone_transitions::store_milestone_transition(env, contract_id, milestone_index, caller.clone());
+        milestone_transitions::store_milestone_transition(
+            env,
+            contract_id,
+            milestone_index,
+            caller.clone(),
+        );
 
         if Self::is_initialized(&env) {
             let fee_bps = Self::read_protocol_fee_bps(&env);
@@ -270,7 +275,7 @@ impl Escrow {
             }
         }
 
-        let mut total_amount: i128 = 0;
+        let mut total_gross_amount: i128 = 0;
         for i in 0..batch_len {
             let milestone_index = milestone_indices.get(i).unwrap();
             if milestone_index >= milestones.len() {
@@ -296,18 +301,25 @@ impl Escrow {
             approvals::check_approvals(&env, &contract, contract_id, milestone_index)
                 .unwrap_or_else(|e| env.panic_with_error(e));
 
-            total_amount = total_amount
+            total_gross_amount = total_gross_amount
                 .checked_add(milestone.amount)
                 .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
         }
+
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
 
         let available_balance = contract
             .funded_amount
             .checked_sub(contract.released_amount)
             .and_then(|a| a.checked_sub(contract.refunded_amount))
+            .and_then(|a| a.checked_sub(accumulated_fees))
             .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
-        if available_balance < total_amount {
+        if available_balance < total_gross_amount {
             env.panic_with_error(Error::InsufficientFunds);
         }
 
@@ -317,6 +329,21 @@ impl Escrow {
             0
         };
 
+        // Calculate total protocol fees for the entire batch upfront
+        let mut total_protocol_fees: i128 = 0;
+        if fee_bps > 0 {
+            for i in 0..batch_len {
+                let milestone_index = milestone_indices.get(i).unwrap();
+                let milestone = milestones.get(milestone_index).unwrap();
+                let fee = Self::calculate_protocol_fee(&env, milestone.amount, fee_bps);
+                total_protocol_fees = total_protocol_fees
+                    .checked_add(fee)
+                    .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+            }
+        }
+
+        // Pass 2: Atomic State Updates (Checks-Effects-Interactions)
+        // All state changes happen before any token transfers
         for i in 0..batch_len {
             let milestone_index = milestone_indices.get(i).unwrap();
             let mut milestone = milestones.get(milestone_index).unwrap().clone();
@@ -329,25 +356,19 @@ impl Escrow {
             milestone.released = true;
             milestones.set(milestone_index, milestone.clone());
 
+            let gross_amount = milestone.amount;
+            let protocol_fee: i128 = if fee_bps > 0 {
+                Self::calculate_protocol_fee(&env, gross_amount, fee_bps)
+            } else {
+                0
+            };
+
+            let net_amount = gross_amount - protocol_fee;
+
             contract.released_amount = contract
                 .released_amount
-                .checked_add(milestone.amount)
+                .checked_add(net_amount)
                 .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-
-            if fee_bps > 0 {
-                let fee = Self::calculate_protocol_fee(&env, milestone.amount, fee_bps);
-                let current_accumulated: i128 = env
-                    .storage()
-                    .persistent()
-                    .get(&DataKey::AccumulatedProtocolFees)
-                    .unwrap_or(0);
-                let new_accumulated = current_accumulated
-                    .checked_add(fee)
-                    .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-                env.storage()
-                    .persistent()
-                    .set(&DataKey::AccumulatedProtocolFees, &new_accumulated);
-            }
 
             approvals::clear_approvals(&env, contract_id, milestone_index);
 
@@ -355,6 +376,28 @@ impl Escrow {
                 (Symbol::new(&env, "milestone_released"), contract_id),
                 (caller.clone(), milestone_index, milestone.amount),
             );
+        }
+
+        // Atomically accumulate total protocol fees after all milestone updates
+        if total_protocol_fees > 0 {
+            let new_accumulated = accumulated_fees
+                .checked_add(total_protocol_fees)
+                .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+            env.storage()
+                .persistent()
+                .set(&DataKey::AccumulatedProtocolFees, &new_accumulated);
+        }
+
+        // Final accounting invariant check
+        let final_accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+        let invariant_sum =
+            contract.released_amount + contract.refunded_amount + final_accumulated_fees;
+        if invariant_sum > contract.funded_amount {
+            env.panic_with_error(Error::AccountingInvariantViolated);
         }
 
         let all_released = milestones.iter().all(|m| m.released || m.refunded);

@@ -13,10 +13,9 @@
 /// - Backward transition: reversed status changes are correctly rejected
 /// - Concurrent transitions: two racing transitions are handled correctly with versioning
 /// - Unknown status: invalid state combinations are rejected safely
-
 use crate::{
-    milestone_transitions::{MilestoneState, validate_milestone_transition},
-    Escrow, Contract, ContractStatus, Milestone, ReleaseAuthorization, Address, Env,
+    milestone_transitions::{validate_milestone_transition, MilestoneState},
+    Address, Contract, ContractStatus, Env, Escrow, Milestone, ReleaseAuthorization,
 };
 use soroban_sdk::{testutils::Address as _, Vec};
 
@@ -70,9 +69,12 @@ fn test_release_milestone_valid_transition_pending_to_released() {
 
     let current_state = MilestoneState::Pending;
     let requested_state = MilestoneState::Released;
-    
+
     let result = validate_milestone_transition(current_state, requested_state);
-    assert!(result.is_ok(), "Valid transition Pending->Released should succeed");
+    assert!(
+        result.is_ok(),
+        "Valid transition Pending->Released should succeed"
+    );
 }
 
 #[test]
@@ -80,9 +82,12 @@ fn test_refund_milestone_valid_transition_pending_to_refunded() {
     // Verify that a legitimate Pending -> Refunded transition succeeds
     let current_state = MilestoneState::Pending;
     let requested_state = MilestoneState::Refunded;
-    
+
     let result = validate_milestone_transition(current_state, requested_state);
-    assert!(result.is_ok(), "Valid transition Pending->Refunded should succeed");
+    assert!(
+        result.is_ok(),
+        "Valid transition Pending->Refunded should succeed"
+    );
 }
 
 // ── Edge Case 2: Same Status Repeated (Idempotent) ──────────────────────────
@@ -92,7 +97,7 @@ fn test_release_milestone_same_status_pending() {
     // Verify that transition to same Pending status is idempotent
     let current_state = MilestoneState::Pending;
     let requested_state = MilestoneState::Pending;
-    
+
     let result = validate_milestone_transition(current_state, requested_state);
     assert!(result.is_ok(), "Idempotent Pending->Pending should succeed");
 }
@@ -102,9 +107,12 @@ fn test_release_milestone_same_status_released() {
     // Verify that transition to same Released status is idempotent
     let current_state = MilestoneState::Released;
     let requested_state = MilestoneState::Released;
-    
+
     let result = validate_milestone_transition(current_state, requested_state);
-    assert!(result.is_ok(), "Idempotent Released->Released should succeed");
+    assert!(
+        result.is_ok(),
+        "Idempotent Released->Released should succeed"
+    );
 }
 
 #[test]
@@ -112,9 +120,12 @@ fn test_refund_milestone_same_status_refunded() {
     // Verify that transition to same Refunded status is idempotent
     let current_state = MilestoneState::Refunded;
     let requested_state = MilestoneState::Refunded;
-    
+
     let result = validate_milestone_transition(current_state, requested_state);
-    assert!(result.is_ok(), "Idempotent Refunded->Refunded should succeed");
+    assert!(
+        result.is_ok(),
+        "Idempotent Refunded->Refunded should succeed"
+    );
 }
 
 // ── Edge Case 3: Backward Transitions (Invalid) ──────────────────────────────
@@ -124,9 +135,12 @@ fn test_release_milestone_backward_released_to_pending() {
     // Verify that backward transition Released -> Pending is rejected
     let current_state = MilestoneState::Released;
     let requested_state = MilestoneState::Pending;
-    
+
     let result = validate_milestone_transition(current_state, requested_state);
-    assert!(result.is_err(), "Backward transition Released->Pending should fail");
+    assert!(
+        result.is_err(),
+        "Backward transition Released->Pending should fail"
+    );
 }
 
 #[test]
@@ -134,7 +148,7 @@ fn test_release_milestone_backward_released_to_refunded() {
     // Verify that transition Released -> Refunded is rejected
     let current_state = MilestoneState::Released;
     let requested_state = MilestoneState::Refunded;
-    
+
     let result = validate_milestone_transition(current_state, requested_state);
     assert!(result.is_err(), "Transition Released->Refunded should fail");
 }
@@ -144,9 +158,12 @@ fn test_refund_milestone_backward_refunded_to_pending() {
     // Verify that backward transition Refunded -> Pending is rejected
     let current_state = MilestoneState::Refunded;
     let requested_state = MilestoneState::Pending;
-    
+
     let result = validate_milestone_transition(current_state, requested_state);
-    assert!(result.is_err(), "Backward transition Refunded->Pending should fail");
+    assert!(
+        result.is_err(),
+        "Backward transition Refunded->Pending should fail"
+    );
 }
 
 #[test]
@@ -154,7 +171,7 @@ fn test_refund_milestone_backward_refunded_to_released() {
     // Verify that transition Refunded -> Released is rejected
     let current_state = MilestoneState::Refunded;
     let requested_state = MilestoneState::Released;
-    
+
     let result = validate_milestone_transition(current_state, requested_state);
     assert!(result.is_err(), "Transition Refunded->Released should fail");
 }
@@ -165,8 +182,7 @@ fn test_refund_milestone_backward_refunded_to_released() {
 fn test_concurrent_transitions_version_check() {
     // Verify that version checking detects concurrent modifications
     use crate::milestone_transitions::{
-        read_milestone_version_and_actor, store_milestone_transition,
-        check_version_for_concurrency,
+        check_version_for_concurrency, read_milestone_version_and_actor, store_milestone_transition,
     };
 
     let env = Env::default();
@@ -181,11 +197,17 @@ fn test_concurrent_transitions_version_check() {
 
     // Attempt to apply a transition at version 0 (stale read) should fail
     let result = check_version_for_concurrency(&env, contract_id, milestone_index, 0);
-    assert!(result.is_err(), "Stale version should be detected as concurrent modification");
+    assert!(
+        result.is_err(),
+        "Stale version should be detected as concurrent modification"
+    );
 
     // Attempt to apply a transition at version 1 (current) should succeed
     let result = check_version_for_concurrency(&env, contract_id, milestone_index, 1);
-    assert!(result.is_ok(), "Current version should pass concurrency check");
+    assert!(
+        result.is_ok(),
+        "Current version should pass concurrency check"
+    );
 
     // After second transition, version becomes 2
     let v2 = store_milestone_transition(&env, contract_id, milestone_index, actor2);
@@ -193,7 +215,10 @@ fn test_concurrent_transitions_version_check() {
 
     // Old version 1 should now fail
     let result = check_version_for_concurrency(&env, contract_id, milestone_index, 1);
-    assert!(result.is_err(), "Stale version 1 should fail after second transition");
+    assert!(
+        result.is_err(),
+        "Stale version 1 should fail after second transition"
+    );
 }
 
 // ── Edge Case 5: Unknown/Invalid Status ──────────────────────────────────────
@@ -236,22 +261,28 @@ fn test_release_milestone_client_only_authorization() {
     // Only client should be able to release
     // (Actual authorization check happens in release_milestone_impl via require_auth,
     //  but the centralized transition validator itself is agnostic to auth)
-    
+
     let current_state = MilestoneState::Pending;
     let requested_state = MilestoneState::Released;
     let result = validate_milestone_transition(current_state, requested_state);
-    assert!(result.is_ok(), "Transition should be valid regardless of authorization");
+    assert!(
+        result.is_ok(),
+        "Transition should be valid regardless of authorization"
+    );
 }
 
 #[test]
 fn test_refund_milestone_client_only_authorization() {
     // Verify that only client can refund
     // (Actual authorization check happens in refund_unreleased_milestones_impl via require_auth)
-    
+
     let current_state = MilestoneState::Pending;
     let requested_state = MilestoneState::Refunded;
     let result = validate_milestone_transition(current_state, requested_state);
-    assert!(result.is_ok(), "Transition should be valid; auth is separate concern");
+    assert!(
+        result.is_ok(),
+        "Transition should be valid; auth is separate concern"
+    );
 }
 
 // ── Escrow Conservation Tests ────────────────────────────────────────────────
@@ -260,10 +291,10 @@ fn test_refund_milestone_client_only_authorization() {
 fn test_release_milestone_fund_amounts_unchanged() {
     // Verify that the transition validator doesn't affect fund transfer amounts
     // (This is more of a conceptual test; actual amounts are handled by release_milestone_impl)
-    
+
     let milestone_amount = 1000i128;
     let milestone = make_milestone_pending(milestone_amount);
-    
+
     // Verify the milestone amount is preserved through state transitions
     assert_eq!(milestone.amount, milestone_amount);
     assert_eq!(milestone.funded_amount, milestone_amount);
@@ -276,11 +307,8 @@ fn test_invalid_transition_error_stable() {
     // Verify that InvalidStatusTransition error is used consistently
     use crate::Error;
 
-    let result = validate_milestone_transition(
-        MilestoneState::Released,
-        MilestoneState::Refunded,
-    );
-    
+    let result = validate_milestone_transition(MilestoneState::Released, MilestoneState::Refunded);
+
     assert!(result.is_err());
     assert_eq!(
         result.unwrap_err(),

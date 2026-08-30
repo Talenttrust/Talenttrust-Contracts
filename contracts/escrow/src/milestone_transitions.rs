@@ -152,20 +152,16 @@ pub fn read_milestone_version_and_actor(
     let version_key = DataKey::MilestoneVersion(contract_id, milestone_index);
     let actor_key = DataKey::MilestoneLastModifiedBy(contract_id, milestone_index);
 
-    let version: u32 = env
-        .storage()
-        .persistent()
-        .get(&version_key)
-        .unwrap_or(0);
+    let version: u32 = env.storage().persistent().get(&version_key).unwrap_or(0);
 
-    let last_modified_by: Address = env
-        .storage()
-        .persistent()
-        .get(&actor_key)
-        .unwrap_or_else(|| {
-            // Default to zero address for backward compatibility
-            Address::from_contract_id(env, &BytesN::from_array(env, &[0u8; 32]))
-        });
+    let last_modified_by: Address =
+        env.storage()
+            .persistent()
+            .get(&actor_key)
+            .unwrap_or_else(|| {
+                // Default to zero address for backward compatibility
+                Address::from_contract_id(env, &BytesN::from_array(env, &[0u8; 32]))
+            });
 
     MilestoneTransitionMetadata {
         version,
@@ -194,9 +190,10 @@ pub fn store_milestone_transition(
     actor: Address,
 ) -> u32 {
     let metadata = read_milestone_version_and_actor(env, contract_id, milestone_index);
-    let new_version = metadata.version.checked_add(1).unwrap_or_else(|| {
-        env.panic_with_error(Error::PotentialOverflow)
-    });
+    let new_version = metadata
+        .version
+        .checked_add(1)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
     let version_key = DataKey::MilestoneVersion(contract_id, milestone_index);
     let actor_key = DataKey::MilestoneLastModifiedBy(contract_id, milestone_index);
@@ -340,85 +337,67 @@ mod tests {
 
     #[test]
     fn test_transition_pending_to_released_valid() {
-        let result = validate_milestone_transition(
-            MilestoneState::Pending,
-            MilestoneState::Released,
-        );
+        let result =
+            validate_milestone_transition(MilestoneState::Pending, MilestoneState::Released);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_transition_pending_to_refunded_valid() {
-        let result = validate_milestone_transition(
-            MilestoneState::Pending,
-            MilestoneState::Refunded,
-        );
+        let result =
+            validate_milestone_transition(MilestoneState::Pending, MilestoneState::Refunded);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_transition_pending_to_pending_idempotent() {
-        let result = validate_milestone_transition(
-            MilestoneState::Pending,
-            MilestoneState::Pending,
-        );
+        let result =
+            validate_milestone_transition(MilestoneState::Pending, MilestoneState::Pending);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_transition_released_to_released_idempotent() {
-        let result = validate_milestone_transition(
-            MilestoneState::Released,
-            MilestoneState::Released,
-        );
+        let result =
+            validate_milestone_transition(MilestoneState::Released, MilestoneState::Released);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_transition_refunded_to_refunded_idempotent() {
-        let result = validate_milestone_transition(
-            MilestoneState::Refunded,
-            MilestoneState::Refunded,
-        );
+        let result =
+            validate_milestone_transition(MilestoneState::Refunded, MilestoneState::Refunded);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_transition_released_to_refunded_invalid() {
-        let result = validate_milestone_transition(
-            MilestoneState::Released,
-            MilestoneState::Refunded,
-        );
+        let result =
+            validate_milestone_transition(MilestoneState::Released, MilestoneState::Refunded);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), Error::InvalidStatusTransition);
     }
 
     #[test]
     fn test_transition_released_to_pending_invalid() {
-        let result = validate_milestone_transition(
-            MilestoneState::Released,
-            MilestoneState::Pending,
-        );
+        let result =
+            validate_milestone_transition(MilestoneState::Released, MilestoneState::Pending);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), Error::InvalidStatusTransition);
     }
 
     #[test]
     fn test_transition_refunded_to_released_invalid() {
-        let result = validate_milestone_transition(
-            MilestoneState::Refunded,
-            MilestoneState::Released,
-        );
+        let result =
+            validate_milestone_transition(MilestoneState::Refunded, MilestoneState::Released);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), Error::InvalidStatusTransition);
     }
 
     #[test]
     fn test_transition_refunded_to_pending_invalid() {
-        let result = validate_milestone_transition(
-            MilestoneState::Refunded,
-            MilestoneState::Pending,
-        );
+        let result =
+            validate_milestone_transition(MilestoneState::Refunded, MilestoneState::Pending);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), Error::InvalidStatusTransition);
     }
@@ -442,7 +421,8 @@ mod tests {
         let milestone_index = 0u32;
         let actor = Address::generate(&env);
 
-        let new_version = store_milestone_transition(&env, contract_id, milestone_index, actor.clone());
+        let new_version =
+            store_milestone_transition(&env, contract_id, milestone_index, actor.clone());
         assert_eq!(new_version, 1);
 
         let metadata = read_milestone_version_and_actor(&env, contract_id, milestone_index);
@@ -506,4 +486,3 @@ mod tests {
         assert!(result.is_ok()); // Defaults to version 0
     }
 }
-

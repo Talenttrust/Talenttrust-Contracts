@@ -34,7 +34,6 @@ mod protocol_fees;
 // mod mainnet_readiness;
 mod milestone_progress;
 mod pause_controls;
-mod test_pause_scope;
 mod performance;
 mod persistence;
 mod refund;
@@ -44,6 +43,7 @@ mod reputation;
 mod reputation_config_setter;
 mod rollback;
 mod security;
+mod test_pause_scope;
 // Temporarily unwired: DisputeInfo / DisputeSummary field mismatch on broken main.
 // mod settlement_overflow;
 mod event_assertions;
