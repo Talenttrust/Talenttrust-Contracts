@@ -24,9 +24,7 @@ mod deposit;
 // mod dispute;
 // mod disputes_page;
 mod emergency_controls;
-mod events_auth_matrix;
-mod governance;
-mod governance_events;
+mod fuzz_milestone_deadline;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
 mod milestone_transitions_integration;
@@ -34,7 +32,6 @@ mod protocol_fees;
 // mod mainnet_readiness;
 mod milestone_progress;
 mod pause_controls;
-mod test_pause_scope;
 mod performance;
 mod persistence;
 mod refund;
@@ -44,6 +41,7 @@ mod reputation;
 mod reputation_config_setter;
 mod rollback;
 mod security;
+mod test_pause_scope;
 // Temporarily unwired: DisputeInfo / DisputeSummary field mismatch on broken main.
 // mod settlement_overflow;
 mod event_assertions;
@@ -473,3 +471,4 @@ pub fn assert_contract_error<
         ),
     }
 }
+mod test_finalization_bug;

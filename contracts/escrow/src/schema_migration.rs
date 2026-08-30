@@ -108,15 +108,8 @@ impl Escrow {
 
         // Emit migration event: topics = ("escrow_schema_migrated", current_version), data = (running_version, admin, timestamp)
         env.events().publish(
-            (
-                Symbol::new(env, "escrow_schema_migrated"),
-                current_version,
-            ),
-            (
-                running_version,
-                admin,
-                env.ledger().timestamp(),
-            ),
+            (Symbol::new(env, "escrow_schema_migrated"), current_version),
+            (running_version, admin, env.ledger().timestamp()),
         );
 
         Ok(running_version)

@@ -7,9 +7,7 @@ use soroban_sdk::{
     vec, Address, Env, IntoVal, Symbol, Vec,
 };
 
-fn setup_escrow_pause_test<'a>(
-    env: &'a Env,
-) -> (EscrowClient<'a>, Address, Address, Address, u32) {
+fn setup_escrow_pause_test<'a>(env: &'a Env) -> (EscrowClient<'a>, Address, Address, Address, u32) {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(env, &contract_id);
 
@@ -56,7 +54,10 @@ fn test_paused_rejects_mutating_entrypoints() {
         &milestones,
         &ReleaseAuthorization::ClientOnly,
     );
-    assert!(res_create.is_err(), "create_contract must fail while paused");
+    assert!(
+        res_create.is_err(),
+        "create_contract must fail while paused"
+    );
 
     // 2. Deposit funds must fail while paused
     let res_deposit = client.try_deposit_funds(&c_id, &client_addr, &500);
@@ -64,13 +65,19 @@ fn test_paused_rejects_mutating_entrypoints() {
 
     // 3. Release milestone must fail while paused
     let res_release = client.try_release_milestone(&c_id, &client_addr, &0);
-    assert!(res_release.is_err(), "release_milestone must fail while paused");
+    assert!(
+        res_release.is_err(),
+        "release_milestone must fail while paused"
+    );
 
     // 4. Batch release milestone must fail while paused
     let mut batch = Vec::new(&env);
     batch.push_back(0);
     let res_batch = client.try_release_milestone_batch(&c_id, &client_addr, &batch);
-    assert!(res_batch.is_err(), "release_milestone_batch must fail while paused");
+    assert!(
+        res_batch.is_err(),
+        "release_milestone_batch must fail while paused"
+    );
 }
 
 #[test]

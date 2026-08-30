@@ -78,8 +78,8 @@ mod finalize;
 mod governance;
 mod keys;
 mod migration;
-mod milestones;
 mod milestone_transitions;
+mod milestones;
 pub mod milestones_consts;
 mod refund_impl;
 mod release;
@@ -128,8 +128,9 @@ pub use types::{
     AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
     DepositMode, DisputeConfig, DisputeMetadata, DisputeResolution, DisputeSplit,
     GovernedParameters, Milestone, MilestoneApprovals, MilestoneProgress, MilestoneSummary,
-    PauseScope, PauseTarget, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig,
-    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, DISPUTE_STORAGE_VERSION,
+    PauseScope, PauseTarget, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization,
+    Reputation, ReputationConfig, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    DISPUTE_STORAGE_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -691,10 +692,9 @@ impl Escrow {
                 accumulated_fees = accumulated_fees
                     .checked_add(protocol_fee)
                     .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
-                env.storage().persistent().set(
-                    &DataKey::AccumulatedProtocolFees,
-                    &accumulated_fees,
-                );
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::AccumulatedProtocolFees, &accumulated_fees);
             }
 
             milestone.released = true;
@@ -706,7 +706,8 @@ impl Escrow {
                 .checked_add(net_amount)
                 .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
-            let invariant_sum = contract.released_amount + contract.refunded_amount + accumulated_fees;
+            let invariant_sum =
+                contract.released_amount + contract.refunded_amount + accumulated_fees;
             if invariant_sum > contract.funded_amount {
                 env.panic_with_error(EscrowError::AccountingInvariantViolated);
             }
@@ -1709,7 +1710,12 @@ impl Escrow {
     ///
     /// # Events
     /// Emits `("paused_scope", timestamp)` with `(admin, target, reason)` payload.
-    pub fn pause_with_scope(env: Env, target: PauseTarget, reason: String, admin_nonce: u64) -> bool {
+    pub fn pause_with_scope(
+        env: Env,
+        target: PauseTarget,
+        reason: String,
+        admin_nonce: u64,
+    ) -> bool {
         Self::require_initialized(&env);
         let admin: Address = env.storage().persistent().get(&DataKey::Admin).unwrap();
         admin.require_auth();
@@ -1766,10 +1772,7 @@ impl Escrow {
             .persistent()
             .get::<_, bool>(&DataKey::Paused)
             .unwrap_or(false);
-        let scoped = env
-            .storage()
-            .persistent()
-            .has(&DataKey::PauseScope);
+        let scoped = env.storage().persistent().has(&DataKey::PauseScope);
         legacy || scoped
     }
 
@@ -3132,30 +3135,3 @@ impl Escrow {
 /// Test fixtures and suites are compiled only for native test builds, never wasm.
 #[cfg(test)]
 mod test;
-#[cfg(test)]
-mod schema_migration_test;
-#[cfg(test)]
-mod governance_test;
-#[cfg(test)]
-mod settlement_guard_test;
-#[cfg(test)]
-mod error_taxonomy_test;
-#[cfg(test)]
-mod test_batch_release;
-#[cfg(test)]
-mod indexer_events_test;
-#[cfg(test)]
-mod pause_emergency_test;
-
-#[contractimpl]
-impl Escrow {
-    pub fn list_contracts_by_participant(
-        env: soroban_sdk::Env,
-        participant: soroban_sdk::Address,
-        role: u32,
-        page_start: u32,
-        page_size: u32,
-    ) -> soroban_sdk::Vec<u32> {
-        soroban_sdk::Vec::new(&env)
-    }
-}

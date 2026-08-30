@@ -6,6 +6,7 @@ mod test {
     #[test]
     fn test_reputation_storage_roundtrip() {
         let env = Env::default();
+        
         let user = Address::generate(&env);
 
         let absent_rep = read_reputation(&env, user.clone());

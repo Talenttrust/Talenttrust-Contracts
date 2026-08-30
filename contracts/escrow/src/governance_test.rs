@@ -55,13 +55,14 @@ fn test_in_bounds_set_by_admin_applied_and_event_emitted() {
             .as_ref()
             == Some(&gov_topic)
     });
-    assert!(matching_event.is_some(), "governed_parameters event expected");
+    assert!(
+        matching_event.is_some(),
+        "governed_parameters event expected"
+    );
 
     let event = matching_event.unwrap();
-    let payload = <(Option<GovernedParameters>, GovernedParameters, Address, u64)>::from_val(
-        &env,
-        &event.2,
-    );
+    let payload =
+        <(Option<GovernedParameters>, GovernedParameters, Address, u64)>::from_val(&env, &event.2);
     assert_eq!(payload.0, None);
     assert_eq!(payload.1, new_params);
     assert_eq!(payload.2, admin);
@@ -229,10 +230,8 @@ fn test_old_and_new_values_in_event_payload() {
         .last()
         .expect("Event 1 missing");
 
-    let payload1 = <(Option<GovernedParameters>, GovernedParameters, Address, u64)>::from_val(
-        &env,
-        &event1.2,
-    );
+    let payload1 =
+        <(Option<GovernedParameters>, GovernedParameters, Address, u64)>::from_val(&env, &event1.2);
     assert_eq!(payload1.0, None);
     assert_eq!(payload1.1, p1.clone());
     assert_eq!(payload1.2, admin);
@@ -257,10 +256,8 @@ fn test_old_and_new_values_in_event_payload() {
         .last()
         .expect("Event 2 missing");
 
-    let payload2 = <(Option<GovernedParameters>, GovernedParameters, Address, u64)>::from_val(
-        &env,
-        &event2.2,
-    );
+    let payload2 =
+        <(Option<GovernedParameters>, GovernedParameters, Address, u64)>::from_val(&env, &event2.2);
     assert_eq!(payload2.0, Some(p1));
     assert_eq!(payload2.1, p2);
     assert_eq!(payload2.2, admin);

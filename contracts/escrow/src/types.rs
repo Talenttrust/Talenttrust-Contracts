@@ -111,7 +111,6 @@ pub struct PauseScope {
     pub paused_at: u64,
 }
 
-
 // ── Storage keys ──────────────────────────────────────────────────────────────
 
 #[contracttype]
@@ -172,10 +171,10 @@ pub enum DataKey {
     // Milestone transition versioning and audit trail (Issue #1340)
     /// Version number for a milestone, incremented on each successful transition.
     /// Used for optimistic concurrency control to detect concurrent modifications.
-    MilestoneVersion(u32, u32),              // (contract_id, milestone_index) -> u32
+    MilestoneVersion(u32, u32), // (contract_id, milestone_index) -> u32
     /// The address of the party that last successfully transitioned this milestone.
     /// Used for audit trail and accountability.
-    MilestoneLastModifiedBy(u32, u32),      // (contract_id, milestone_index) -> Address
+    MilestoneLastModifiedBy(u32, u32), // (contract_id, milestone_index) -> Address
     // Fee withdrawal rate-limiting
     /// Maximum fraction of accumulated fees that can be withdrawn in one call,
     /// expressed in basis points (10 000 = 100 %). Default: 5 000 = 50 %.
