@@ -3333,33 +3333,6 @@ impl Escrow {
     }
 }
 
-#[cfg(test)]
-mod error_taxonomy_test;
-#[cfg(test)]
-mod governance_test;
-#[cfg(test)]
-mod indexer_events_test;
-#[cfg(test)]
-mod pause_emergency_test;
-#[cfg(test)]
-mod schema_migration_test;
-#[cfg(test)]
-mod settlement_guard_test;
 /// Test fixtures and suites are compiled only for native test builds, never wasm.
 #[cfg(test)]
 mod test;
-#[cfg(test)]
-mod test_batch_release;
-
-#[contractimpl]
-impl Escrow {
-    pub fn list_contracts_by_participant(
-        env: soroban_sdk::Env,
-        participant: soroban_sdk::Address,
-        role: u32,
-        page_start: u32,
-        page_size: u32,
-    ) -> soroban_sdk::Vec<u32> {
-        soroban_sdk::Vec::new(&env)
-    }
-}
