@@ -45,6 +45,7 @@ mod test_pause_scope;
 // Temporarily unwired: DisputeInfo / DisputeSummary field mismatch on broken main.
 // mod settlement_overflow;
 mod event_assertions;
+mod lifecycle_invariants;
 mod governance_proposal;
 mod simulate_create_contract;
 mod simulate_deposit;
