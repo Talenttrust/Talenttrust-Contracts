@@ -395,3 +395,71 @@ fn cancel_emits_event() {
         "cancel event should be emitted"
     );
 }
+
+// -- Recovery ------------------------------------------------------------------
+
+#[test]
+fn recover_active_proposal_fails() {
+    let env = setup_env();
+    let client = register_client(&env);
+
+    let admin = Address::generate(&env);
+    let proposed = Address::generate(&env);
+    client.initialize(&admin);
+
+    client.propose_admin(&proposed);
+
+    // Active (timelock not elapsed)
+    super::assert_contract_error(
+        client.try_recover_admin_proposal(),
+        crate::Error::TimelockNotElapsed,
+    );
+
+    // Active (timelock elapsed but not expired)
+    advance_ledgers(&env, ADMIN_ROTATION_MIN_DELAY_LEDGERS);
+    super::assert_contract_error(
+        client.try_recover_admin_proposal(),
+        crate::Error::InvalidState,
+    );
+}
+
+#[test]
+fn recover_expired_proposal_succeeds_and_emits_event() {
+    let env = setup_env();
+    let client = register_client(&env);
+
+    let admin = Address::generate(&env);
+    let proposed = Address::generate(&env);
+    client.initialize(&admin);
+
+    client.propose_admin(&proposed);
+    advance_ledgers(&env, ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS + 1);
+
+    assert!(client.recover_admin_proposal());
+    assert_eq!(client.get_pending_admin(), None);
+
+    assert!(
+        has_admin_event(&env, "recovered"),
+        "recovered event should be emitted"
+    );
+}
+
+#[test]
+fn repeat_recovery_fails() {
+    let env = setup_env();
+    let client = register_client(&env);
+
+    let admin = Address::generate(&env);
+    let proposed = Address::generate(&env);
+    client.initialize(&admin);
+
+    client.propose_admin(&proposed);
+    advance_ledgers(&env, ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS + 1);
+
+    assert!(client.recover_admin_proposal());
+
+    super::assert_contract_error(
+        client.try_recover_admin_proposal(),
+        crate::Error::InvalidState,
+    );
+}

@@ -116,14 +116,15 @@ fn test_repeat_finalization() {
 
     // Try to finalize again
     let res = escrow.try_finalize_contract(&contract_id, client);
-    assert_eq!(
-        res.err().unwrap().unwrap(),
-        Error::AlreadyFinalized.into()
-    );
+    assert_eq!(res.err().unwrap().unwrap(), Error::AlreadyFinalized.into());
 
     // Check no new events were emitted
     let events = env.events().all();
-    assert_eq!(events.len(), 0, "no events should be emitted on duplicate finalization");
+    assert_eq!(
+        events.len(),
+        0,
+        "no events should be emitted on duplicate finalization"
+    );
 }
 
 #[test]
@@ -154,9 +155,6 @@ fn test_concurrent_finalization() {
     // Concurrent/second finalizer is rejected with AlreadyFinalized without emitting duplicate events
     env.events().all().clear();
     let res = escrow.try_finalize_contract(&contract_id, freelancer);
-    assert_eq!(
-        res.err().unwrap().unwrap(),
-        Error::AlreadyFinalized.into()
-    );
+    assert_eq!(res.err().unwrap().unwrap(), Error::AlreadyFinalized.into());
     assert_eq!(env.events().all().len(), 0);
 }

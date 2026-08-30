@@ -1633,6 +1633,22 @@ impl Escrow {
         contract.funded_amount - contract.released_amount - contract.refunded_amount
     }
 
+    /// Returns the remaining balance after accounting for released amounts (net of protocol fees), refunded amounts, and accumulated protocol fees.
+    pub fn get_remaining_balance(env: Env, contract_id: u32) -> i128 {
+        let contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+        ttl::extend_contract_ttl(&env, contract_id);
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+        contract.funded_amount - contract.released_amount - contract.refunded_amount - accumulated_fees
+    }
+
     // Retrieves approval status for a milestone.
     //
     // Returns `None` when no approval record exists or when the TTL has
