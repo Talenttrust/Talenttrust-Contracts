@@ -76,6 +76,7 @@ mod dispute;
 mod events;
 mod finalize;
 mod governance;
+mod governance_proposal;
 mod keys;
 mod migration;
 mod milestone_transitions;
@@ -127,10 +128,10 @@ pub use ttl::{
 pub use types::{
     AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
     DepositMode, DisputeConfig, DisputeMetadata, DisputeResolution, DisputeSplit,
-    GovernedParameters, Milestone, MilestoneApprovals, MilestoneProgress, MilestoneSummary,
-    PauseScope, PauseTarget, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization,
-    Reputation, ReputationConfig, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
-    DISPUTE_STORAGE_VERSION,
+    GovernanceProposal, GovernanceProposalKind, GovernanceProposalState, GovernedParameters,
+    Milestone, MilestoneApprovals, MilestoneProgress, MilestoneSummary, PauseScope, PauseTarget,
+    PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig,
+    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, DISPUTE_STORAGE_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility

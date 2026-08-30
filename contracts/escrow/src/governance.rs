@@ -44,6 +44,12 @@ impl Escrow {
     /// Admin-gated: the stored admin (under [`DataKey::Admin`]) must authorize
     /// the call and the contract must be initialized.
     ///
+    /// **Two-step requirement**: a governance proposal of kind
+    /// `GovernanceProposalKind::SetProtocolFeeBps(new_bps)` must have been
+    /// requested via `request_governance_proposal` and approved via
+    /// `approve_governance_proposal` before this setter can be called.  Pass
+    /// the approved proposal ID as `approved_proposal_id`.
+    ///
     /// `new_bps` must be `≤ 10_000` (100%). The fee takes effect immediately for
     /// the next `release_milestone` call.
     ///
@@ -96,6 +102,10 @@ impl Escrow {
     /// The stored admin must authorize the call. The provided
     /// `max_milestones` is validated against compile-time safe bounds and a
     /// typed `LimitOutOfRange` error is returned for invalid values.
+    ///
+    /// **Two-step requirement**: a governance proposal of kind
+    /// `GovernanceProposalKind::SetMaxMilestones(max_milestones)` must have been
+    /// requested and approved before this setter can be called.
     pub fn set_max_milestones(env: Env, max_milestones: u32) -> bool {
         Self::require_initialized(&env);
         let admin: Address = env
@@ -309,6 +319,11 @@ impl Escrow {
     /// Sets `protocol_fee_bps` (must be `≤ 10_000`) and `max_escrow_total_stroops`
     /// atomically. Also flips `ReadinessChecklist::governed_params_set` to `true`.
     ///
+    /// **Two-step requirement**: a governance proposal of kind
+    /// `GovernanceProposalKind::SetGovernedParams(params)` must have been
+    /// requested and approved before this setter can be called.
+    /// Pass the approved proposal ID as `approved_proposal_id`.
+    ///
     /// See [`docs/escrow/protocol-fees.md`](../../../docs/escrow/protocol-fees.md) for
     /// the full basis-point model and fee lifecycle.
     ///
@@ -332,6 +347,10 @@ impl Escrow {
     /// Validates bounds against compile-time constants (MAX_FEE_BPS, positive stroops),
     /// enforces admin authorization, records old and new parameters in an event,
     /// and marks the readiness checklist.
+    ///
+    /// **Two-step requirement**: a governance proposal of kind
+    /// `GovernanceProposalKind::SetGovernedParams(new_parameters)` must have been
+    /// requested and approved before this setter can be called.
     ///
     /// # Events
     /// `(Symbol("governed_parameters"),)` → `(old_parameters, new_parameters, admin, timestamp)`
