@@ -191,6 +191,13 @@ pub enum DataKey {
     GovernanceProposal(u64),
     /// Monotonic counter used to generate unique governance proposal IDs.
     NextGovernanceProposalId,
+    // Token scale (#1346)
+    /// Number of decimal places for the bound settlement token (stored as u32).
+    ///
+    /// Captured once at `bind_settlement_token` time from `token::Client::decimals()`.
+    /// All milestone amounts must be exactly representable at this scale (i.e.
+    /// `amount % 10^decimals == 0` when interpreted as a human-visible value).
+    TokenScale,
 }
 
 // ── Two-step Governance Proposal (Issue #1221) ───────────────────────────────
@@ -378,6 +385,17 @@ pub enum Error {
     GovernanceProposalExpired = 79,
     /// The approver identity is the same as the requester; self-approval is prohibited.
     GovernanceSelfApproval = 80,
+    // Token scale errors (#1346)
+    /// The settlement token has not had its scale recorded yet.
+    /// Call `bind_settlement_token` before creating contracts.
+    TokenScaleNotSet = 81,
+    /// The milestone amount is not exactly representable at the token's decimal
+    /// scale — it would require fractional token units below the minimum denomination.
+    FractionalTokenAmount = 82,
+    /// The token bound to this contract has a different decimal scale than the
+    /// one recorded at contract-creation time.  Re-binding with a different
+    /// token scale is not allowed after contracts exist.
+    TokenScaleMismatch = 83,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
