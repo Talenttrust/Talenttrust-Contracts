@@ -2,7 +2,10 @@
 
 use crate::types::{DataKey, Error};
 use crate::{Escrow, EscrowClient};
-use soroban_sdk::{testutils::{Address as _, Events}, vec, Address, Env, IntoVal, Symbol};
+use soroban_sdk::{
+    testutils::{Address as _, Events},
+    vec, Address, Env, IntoVal, Symbol,
+};
 
 #[test]
 fn test_get_schema_version_default_returns_initial_version() {
@@ -34,10 +37,7 @@ fn test_migrate_escrow_storage_from_v1_to_v2_success() {
     // Verify migration event emission
     let events = env.events().all();
     let last_event = events.last().expect("Migration event expected");
-    assert_eq!(
-        last_event.0,
-        contract_id
-    );
+    assert_eq!(last_event.0, contract_id);
 }
 
 #[test]

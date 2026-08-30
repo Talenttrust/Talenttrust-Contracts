@@ -1,7 +1,6 @@
 use crate::{
-    approvals,
+    approvals, milestone_transitions,
     milestones_consts::{MAX_MILESTONES, MAX_WORK_EVIDENCE_BYTES, MIN_WORK_EVIDENCE_BYTES},
-    milestone_transitions,
     ttl,
     utils::now_seconds,
     Contract, ContractStatus, DataKey, Error, Escrow, EscrowError, Milestone, MilestoneApprovals,
@@ -187,7 +186,12 @@ impl Escrow {
 
             // ── Atomic Version/Actor Persistence ──────────────────────────────────
             // Record who performed this transition and increment the version
-            milestone_transitions::store_milestone_transition(env, contract_id, idx, refund_caller.clone());
+            milestone_transitions::store_milestone_transition(
+                env,
+                contract_id,
+                idx,
+                refund_caller.clone(),
+            );
         }
 
         contract.refunded_amount = contract

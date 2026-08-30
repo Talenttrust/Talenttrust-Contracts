@@ -231,11 +231,7 @@ fn test_sequential_nonces() {
     assert_eq!(client.get_admin_nonce(), 1);
 
     // Next valid nonce is 2
-    client.pause_with_scope(
-        &PauseTarget::Payout,
-        &String::from_str(&env, "test"),
-        &2,
-    );
+    client.pause_with_scope(&PauseTarget::Payout, &String::from_str(&env, "test"), &2);
     assert_eq!(client.get_admin_nonce(), 2);
 }
 
