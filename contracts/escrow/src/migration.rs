@@ -25,12 +25,21 @@ impl Escrow {
     }
 
     pub(crate) fn require_migration_allowed(env: &Env, status: ContractStatus) {
+        // Block client migration when the contract holds escrowed funds.  Once
+        // funds have been deposited (PartiallyFunded or Funded), the client
+        // address is security-sensitive: the current client can cancel or
+        // refund, so swapping the client after funding would allow the
+        // original client to transfer cancellation rights to an accomplice
+        // and drain escrowed funds.  Migration is only safe before any
+        // deposit has been made (Created).
         if matches!(
             status,
             ContractStatus::Completed
                 | ContractStatus::Cancelled
                 | ContractStatus::Refunded
                 | ContractStatus::Disputed
+                | ContractStatus::PartiallyFunded
+                | ContractStatus::Funded
         ) {
             env.panic_with_error(Error::InvalidStatusTransition);
         }

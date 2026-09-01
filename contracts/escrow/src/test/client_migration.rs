@@ -341,11 +341,14 @@ fn migration_blocked_on_cancelled_contract() {
 fn migration_blocked_on_refunded_contract() {
     let env = Env::default();
     env.mock_all_auths();
-    let client = register_client(&env);
+    let (client, token) = super::register_client_with_token(&env);
 
     let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
     let new_client = Address::generate(&env);
 
+    // Mint tokens so the client can deposit
+    soroban_sdk::token::StellarAssetClient::new(&env, &token)
+        .mint(&client_addr, &total_milestone_amount());
     client.deposit_funds(&id, &client_addr, &total_milestone_amount());
     let all_indices = soroban_sdk::vec![&env, 0u32, 1u32, 2u32];
     client.refund_unreleased_milestones(&id, &all_indices);
@@ -509,39 +512,49 @@ fn migration_allowed_on_created_status() {
     assert!(client.propose_client_migration(&id, &client_addr, &new_client));
 }
 
-/// PartiallyFunded contract allows a proposal.
+/// PartiallyFunded contract blocks a proposal (funds present).
 #[test]
-fn migration_allowed_on_partially_funded_status() {
+fn migration_blocked_on_partially_funded_status() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
 
     let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
 
-    // Deposit less than the full milestone total → PartiallyFunded
-    client.deposit_funds(&id, &client_addr, &super::MILESTONE_ONE);
+    // Inject PartiallyFunded status directly to avoid needing a settlement token.
+    let escrow_addr = client.address.clone();
+    set_escrow_status(&env, &escrow_addr, id, ContractStatus::PartiallyFunded);
     assert_eq!(
         client.get_contract(&id).status,
         ContractStatus::PartiallyFunded
     );
 
     let new_client = Address::generate(&env);
-    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+    assert_contract_error(
+        client.try_propose_client_migration(&id, &client_addr, &new_client),
+        EscrowError::InvalidStatusTransition,
+    );
 }
 
-/// Fully funded contract allows a proposal.
+/// Fully funded contract blocks a proposal (funds present).
 #[test]
-fn migration_allowed_on_funded_status() {
+fn migration_blocked_on_funded_status() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
 
     let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
-    client.deposit_funds(&id, &client_addr, &total_milestone_amount());
+
+    // Inject Funded status directly to avoid needing a settlement token.
+    let escrow_addr = client.address.clone();
+    set_escrow_status(&env, &escrow_addr, id, ContractStatus::Funded);
     assert_eq!(client.get_contract(&id).status, ContractStatus::Funded);
 
     let new_client = Address::generate(&env);
-    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+    assert_contract_error(
+        client.try_propose_client_migration(&id, &client_addr, &new_client),
+        EscrowError::InvalidStatusTransition,
+    );
 }
 
 // ---------------------------------------------------------------------------
