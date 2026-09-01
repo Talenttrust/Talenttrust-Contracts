@@ -52,6 +52,7 @@ mod simulate_deposit;
 mod simulate_release;
 mod token_scale;
 mod ttl_tests;
+mod ttl_lifecycle;
 
 // --- Shared constants ---
 
