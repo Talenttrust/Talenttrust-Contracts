@@ -44,6 +44,12 @@ impl Escrow {
     /// Admin-gated: the stored admin (under [`DataKey::Admin`]) must authorize
     /// the call and the contract must be initialized.
     ///
+    /// **Two-step requirement**: a governance proposal of kind
+    /// `GovernanceProposalKind::SetProtocolFeeBps(new_bps)` must have been
+    /// requested via `request_governance_proposal` and approved via
+    /// `approve_governance_proposal` before this setter can be called.  Pass
+    /// the approved proposal ID as `approved_proposal_id`.
+    ///
     /// `new_bps` must be `≤ 10_000` (100%). The fee takes effect immediately for
     /// the next `release_milestone` call.
     ///
@@ -96,6 +102,10 @@ impl Escrow {
     /// The stored admin must authorize the call. The provided
     /// `max_milestones` is validated against compile-time safe bounds and a
     /// typed `LimitOutOfRange` error is returned for invalid values.
+    ///
+    /// **Two-step requirement**: a governance proposal of kind
+    /// `GovernanceProposalKind::SetMaxMilestones(max_milestones)` must have been
+    /// requested and approved before this setter can be called.
     pub fn set_max_milestones(env: Env, max_milestones: u32) -> bool {
         Self::require_initialized(&env);
         let admin: Address = env
@@ -290,6 +300,65 @@ impl Escrow {
         true
     }
 
+    /// Recover an abandoned admin proposal after its expiry.
+    ///
+    /// Public entrypoint that delegates to [`recover_admin_proposal_impl`].
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("recovered"))` → `(admin, cancelled_proposal, timestamp)`
+    pub fn recover_admin_proposal(env: Env) -> bool {
+        Self::recover_admin_proposal_impl(&env)
+    }
+
+    /// Recover an abandoned admin proposal after its expiry.
+    ///
+    /// Only the current admin may recover, and the contract must be initialized.
+    /// The proposal must be expired (older than `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS`).
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`] — `initialize` has not been called.
+    /// * [`Error::InvalidState`] — there is no pending proposal, or it is still active.
+    /// * [`Error::TimelockNotElapsed`] — the proposal is too recent.
+    ///
+    /// # Events
+    /// `(symbol_short!("admin"), Symbol("recovered"))` → `(admin, cancelled_proposal, timestamp)`
+    pub(crate) fn recover_admin_proposal_impl(env: &Env) -> bool {
+        Self::require_initialized(env);
+
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+        admin.require_auth();
+
+        let pending: PendingAdminProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingAdmin)
+            .unwrap_or_else(|| env.panic_with_error(Error::InvalidState));
+
+        let elapsed = env
+            .ledger()
+            .sequence()
+            .saturating_sub(pending.proposed_at_ledger);
+
+        if elapsed < ADMIN_ROTATION_MIN_DELAY_LEDGERS {
+            env.panic_with_error(Error::TimelockNotElapsed);
+        }
+        if elapsed <= ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS {
+            env.panic_with_error(Error::InvalidState);
+        }
+
+        env.storage().persistent().remove(&DataKey::PendingAdmin);
+
+        env.events().publish(
+            (symbol_short!("admin"), Symbol::new(env, "recovered")),
+            (admin, pending.proposed, env.ledger().timestamp()),
+        );
+        true
+    }
+
     /// Returns the currently pending admin address, if any.
     ///
     /// Public entrypoint that delegates to [`get_pending_admin_impl`].
@@ -308,6 +377,11 @@ impl Escrow {
     ///
     /// Sets `protocol_fee_bps` (must be `≤ 10_000`) and `max_escrow_total_stroops`
     /// atomically. Also flips `ReadinessChecklist::governed_params_set` to `true`.
+    ///
+    /// **Two-step requirement**: a governance proposal of kind
+    /// `GovernanceProposalKind::SetGovernedParams(params)` must have been
+    /// requested and approved before this setter can be called.
+    /// Pass the approved proposal ID as `approved_proposal_id`.
     ///
     /// See [`docs/escrow/protocol-fees.md`](../../../docs/escrow/protocol-fees.md) for
     /// the full basis-point model and fee lifecycle.
@@ -332,6 +406,10 @@ impl Escrow {
     /// Validates bounds against compile-time constants (MAX_FEE_BPS, positive stroops),
     /// enforces admin authorization, records old and new parameters in an event,
     /// and marks the readiness checklist.
+    ///
+    /// **Two-step requirement**: a governance proposal of kind
+    /// `GovernanceProposalKind::SetGovernedParams(new_parameters)` must have been
+    /// requested and approved before this setter can be called.
     ///
     /// # Events
     /// `(Symbol("governed_parameters"),)` → `(old_parameters, new_parameters, admin, timestamp)`

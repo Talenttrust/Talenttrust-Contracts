@@ -1,6 +1,7 @@
 use crate::{
-    amount_validation, keys, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowArgs,
-    EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
+    amount_validation, keys, token_scale, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
+    EscrowArgs, EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization,
+    MAX_MILESTONES,
 };
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Vec};
 
@@ -131,6 +132,20 @@ impl Escrow {
         match amount_validation::validate_milestone_amounts(&native_milestones[..len], max_total) {
             Ok(_) => {}
             Err(e) => env.panic_with_error(e),
+        }
+
+        // Validate that every milestone amount is exactly representable at the
+        // token's decimal scale.  This catches amounts specified in visible-token
+        // units instead of raw on-chain units (e.g. passing `1` instead of
+        // `10_000_000` for a 7-decimal token) and amounts with fractional
+        // remainders.
+        //
+        // The scale check is a no-op when no token has been bound yet (scale is
+        // absent) so contracts can be created before binding, but any token bound
+        // later must have a compatible scale.  If a token has been bound the
+        // check is enforced strictly.
+        if let Some(decimals) = token_scale::read_token_scale(&env) {
+            token_scale::require_all_exact_scale(&env, native_milestones[..len].iter(), decimals);
         }
 
         ttl::extend_next_contract_id_ttl(&env);
