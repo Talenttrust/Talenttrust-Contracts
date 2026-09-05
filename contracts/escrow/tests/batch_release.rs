@@ -88,7 +88,7 @@ fn test_batch_release_all_or_nothing_atomicity() {
     let (client, _admin, client_addr, _, c_id) = setup_and_create_escrow(&env, &[100, 200, 300]);
 
     // Release milestone 0 individually first
-    assert!(client.release_milestone(&c_id, &client_addr, &0));
+    assert!(client.release_milestone(&c_id, &client_addr, &0, &0));
 
     // Try batch with [0, 1] -> index 0 is already released -> entire batch must fail
     let mut indices: Vec<u32> = Vec::new(&env);

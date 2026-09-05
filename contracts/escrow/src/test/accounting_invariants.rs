@@ -111,15 +111,15 @@ fn invariant_holds_after_each_milestone_release() {
     client.deposit_funds(&id, &ca, &600_i128);
     assert_invariant(&client, id);
 
-    client.release_milestone(&id, &ca, &0);
+    client.release_milestone(&id, &ca, &0, &0);
     assert_invariant(&client, id);
     assert_eq!(client.get_contract(&id).released_amount, 100);
 
-    client.release_milestone(&id, &ca, &1);
+    client.release_milestone(&id, &ca, &1, &0);
     assert_invariant(&client, id);
     assert_eq!(client.get_contract(&id).released_amount, 300);
 
-    client.release_milestone(&id, &ca, &2);
+    client.release_milestone(&id, &ca, &2, &0);
     assert_invariant(&client, id);
     let d = client.get_contract(&id);
     assert_eq!(d.released_amount, 600);
@@ -144,9 +144,9 @@ fn invariant_holds_after_incremental_deposits_then_releases() {
     client.deposit_funds(&id, &ca, &150_i128);
     assert_invariant(&client, id);
 
-    client.release_milestone(&id, &ca, &0);
+    client.release_milestone(&id, &ca, &0, &0);
     assert_invariant(&client, id);
-    client.release_milestone(&id, &ca, &1);
+    client.release_milestone(&id, &ca, &1, &0);
     assert_invariant(&client, id);
 
     let d = client.get_contract(&id);
@@ -214,7 +214,7 @@ fn invariant_holds_after_partial_release_then_cancel() {
 
     client.deposit_funds(&id, &300_i128);
     client.release_milestone(&id, &0);
-    assert_invariant(&client, id);
+    assert_invariant(&client, id, &0);
 
     client.cancel_contract(&id, &ca);
     assert_invariant(&client, id);
@@ -242,11 +242,11 @@ fn double_release_rejected_invariant_preserved() {
 
     client.deposit_funds(&id, &300_i128);
     client.release_milestone(&id, &0);
-    assert_invariant(&client, id);
+    assert_invariant(&client, id, &0);
 
     let before = client.get_contract(&id);
     let result = client.try_release_milestone(&id, &0);
-    assert!(result.is_err(), "double release must be rejected");
+    assert!(result.is_err(), "double release must be rejected", &0);
     assert_invariant(&client, id);
 
     let after = client.get_contract(&id);
@@ -262,7 +262,7 @@ fn release_without_funds_rejected_invariant_preserved() {
     let id = client.create_contract(&ca, &fa, &vec![&env, 100_i128], &DepositMode::Incremental);
 
     let result = client.try_release_milestone(&id, &0);
-    assert!(result.is_err(), "release without funds must be rejected");
+    assert!(result.is_err(), "release without funds must be rejected", &0);
     assert_invariant(&client, id);
 }
 
@@ -294,7 +294,7 @@ fn out_of_range_release_rejected_invariant_preserved() {
     assert_invariant(&client, id);
 
     let result = client.try_release_milestone(&id, &99);
-    assert!(result.is_err(), "out-of-range milestone must be rejected");
+    assert!(result.is_err(), "out-of-range milestone must be rejected", &0);
     assert_invariant(&client, id);
 }
 
@@ -345,7 +345,7 @@ fn invariant_holds_across_multiple_independent_contracts() {
     client.deposit_funds(&id2, &500_i128);
 
     client.release_milestone(&id1, &0);
-    client.release_milestone(&id2, &0);
+    client.release_milestone(&id2, &0, &0);
 
     assert_invariant(&client, id1);
     assert_invariant(&client, id2);

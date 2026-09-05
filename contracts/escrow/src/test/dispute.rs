@@ -634,7 +634,7 @@ fn raise_dispute_on_completed_contract_is_rejected() {
     mint_and_deposit(&env, &client, &contract_id, &client_addr, &100_i128);
     // Release the only milestone to reach Completed state.
     client.approve_milestone_release(&contract_id, &client_addr, &0);
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
     assert_eq!(
         client.get_contract(&contract_id).status,
         ContractStatus::Completed
@@ -726,9 +726,9 @@ fn raise_dispute_after_settle_is_rejected() {
     // Release all milestones to settle the contract.
     // Approve milestones before releasing (release requires approval).
     client.approve_milestone_release(&contract_id, &client_addr, &0);
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
     client.approve_milestone_release(&contract_id, &client_addr, &1);
-    assert!(client.release_milestone(&contract_id, &client_addr, &1));
+    assert!(client.release_milestone(&contract_id, &client_addr, &1, &0));
     assert_eq!(
         client.get_contract(&contract_id).status,
         ContractStatus::Completed

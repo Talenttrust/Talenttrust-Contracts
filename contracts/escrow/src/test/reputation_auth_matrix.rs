@@ -40,7 +40,7 @@ fn setup_completed_contract_with_arbiter(
     assert!(client.deposit_funds(&contract_id, &client_addr, &total));
     for i in 0..3u32 {
         assert!(client.approve_milestone_release(&contract_id, &client_addr, &i));
-        assert!(client.release_milestone(&contract_id, &client_addr, &i));
+        assert!(client.release_milestone(&contract_id, &client_addr, &i, &0));
     }
     (
         client,

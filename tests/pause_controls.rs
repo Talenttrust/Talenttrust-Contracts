@@ -51,7 +51,7 @@ mod pause_control_tests {
         set_contract_paused(&env, true);
 
         let escrow_client = EscrowContractClient::new(&env, &escrow_id);
-        escrow_client.release_milestone(&1, &client, &0);
+        escrow_client.release_milestone(&1, &client, &0, &0);
     }
 
     // 3. Contract creation blocked when paused

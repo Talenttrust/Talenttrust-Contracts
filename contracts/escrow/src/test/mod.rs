@@ -238,7 +238,7 @@ impl EscrowFixtureBuilder {
                         );
                     }
                 }
-                escrow_client.release_milestone(&escrow_id, &client, &(i as u32));
+                escrow_client.release_milestone(&escrow_id, &client, &(i as u32), &0);
             }
         }
 
@@ -352,7 +352,7 @@ pub fn complete_contract_funded(
     client.deposit_funds(&contract_id, &client_addr, &total);
     for milestone_index in 0..3u32 {
         client.approve_milestone_release(&contract_id, &client_addr, &milestone_index);
-        client.release_milestone(&contract_id, &client_addr, &milestone_index);
+        client.release_milestone(&contract_id, &client_addr, &milestone_index, &0);
     }
     (client_addr, freelancer_addr, contract_id)
 }
@@ -409,7 +409,7 @@ pub fn complete_contract(env: &Env, client: &EscrowClient) -> (Address, Address,
     client.deposit_funds(&contract_id, &client_addr, &total);
     for milestone_index in 0..3u32 {
         client.approve_milestone_release(&contract_id, &client_addr, &milestone_index);
-        client.release_milestone(&contract_id, &client_addr, &milestone_index);
+        client.release_milestone(&contract_id, &client_addr, &milestone_index, &0);
     }
     (client_addr, freelancer_addr, contract_id)
 }

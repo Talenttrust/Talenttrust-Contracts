@@ -47,7 +47,7 @@ fn protocol_fee_accrual_emits_indexed_proto_fee_event() {
     client.set_protocol_fee_bps(&100u32);
     client.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
 
-    assert!(client.release_milestone(&fixture.escrow_id, &fixture.client, &0));
+    assert!(client.release_milestone(&fixture.escrow_id, &fixture.client, &0, &0));
 
     let events = fixture.env.events().all();
     let proto_fee_topic = symbol_short!("proto_fee");

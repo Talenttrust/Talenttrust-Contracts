@@ -252,7 +252,7 @@ fn release_milestone_resource_baseline() {
     let escrow = fixture.escrow();
     escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
 
-    let _ = escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0);
+    let _ = escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0, &0);
 
     let (resources, fee_total) = measure_last_invocation(&fixture.env);
     assert_within_baseline(
@@ -351,12 +351,12 @@ fn release_last_of_max_milestones_resource_baseline() {
     // scan (`milestones.iter().all(...)`) walks the full, worst-case vector.
     for index in 0..(MAX_MILESTONES - 1) {
         escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &index);
-        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &index);
+        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &index, &0);
     }
     let last_index = MAX_MILESTONES - 1;
     escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &last_index);
 
-    let _ = escrow.release_milestone(&fixture.escrow_id, &fixture.client, &last_index);
+    let _ = escrow.release_milestone(&fixture.escrow_id, &fixture.client, &last_index, &0);
 
     let (resources, fee_total) = measure_last_invocation(&fixture.env);
     assert_within_baseline(

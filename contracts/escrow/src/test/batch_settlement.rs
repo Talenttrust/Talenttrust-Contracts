@@ -495,7 +495,7 @@ fn batch_settlement_arbiter_as_finalizer() {
     // Release all milestones (ClientOnly auth) to complete the contract.
     for idx in 0..milestones.len() {
         escrow.approve_milestone_release(&id, &client_addr, &idx);
-        escrow.release_milestone(&id, &client_addr, &idx);
+        escrow.release_milestone(&id, &client_addr, &idx, &0);
     }
     assert_eq!(escrow.get_contract(&id).status, ContractStatus::Completed);
 

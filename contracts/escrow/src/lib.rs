@@ -381,6 +381,7 @@ impl Escrow {
         contract_id: u32,
         caller: Address,
         milestone_index: u32,
+        expected_version: u32,
     ) -> bool {
         Self::require_not_paused(&env);
         caller.require_auth();
@@ -448,6 +449,13 @@ impl Escrow {
         approvals::check_approvals(&env, &contract, contract_id, milestone_index)
             .unwrap_or_else(|e| env.panic_with_error(e));
 
+        milestone_transitions::check_version_for_concurrency(
+            &env,
+            contract_id,
+            milestone_index,
+            expected_version,
+        ).unwrap_or_else(|e| env.panic_with_error(e));
+
         let gross_amount = milestone.amount;
         let protocol_fee: i128 = if Self::is_initialized(&env) {
             let fee_bps = Self::read_protocol_fee_bps(&env);
@@ -506,6 +514,8 @@ impl Escrow {
         }
 
         approvals::clear_approvals(&env, contract_id, milestone_index);
+
+        milestone_transitions::store_milestone_transition(&env, contract_id, milestone_index, caller.clone());
 
         let all_released = milestones.iter().all(|m| m.released || m.refunded);
         if all_released {
@@ -722,6 +732,8 @@ impl Escrow {
             }
 
             approvals::clear_approvals(&env, contract_id, milestone_index);
+
+        milestone_transitions::store_milestone_transition(&env, contract_id, milestone_index, caller.clone());
 
             env.events().publish(
                 (symbol_short!("mlstn_rls"), contract_id),

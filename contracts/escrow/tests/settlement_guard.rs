@@ -44,7 +44,7 @@ fn test_milestone_settlement_succeeds_first_time() {
         setup_and_create_escrow(&env, &[1_000, 2_000]);
 
     // First release of milestone 0
-    let res = client.release_milestone(&c_id, &client_addr, &0);
+    let res = client.release_milestone(&c_id, &client_addr, &0, &0);
     assert!(res);
 
     let summary = client.get_contract(&c_id);
@@ -60,10 +60,10 @@ fn test_milestone_settlement_rejects_second_settlement_double_spend() {
         setup_and_create_escrow(&env, &[1_000, 2_000]);
 
     // First release succeeds
-    assert!(client.release_milestone(&c_id, &client_addr, &0));
+    assert!(client.release_milestone(&c_id, &client_addr, &0, &0));
 
     // Second release of identical milestone 0 must fail
-    let res = client.try_release_milestone(&c_id, &client_addr, &0);
+    let res = client.try_release_milestone(&c_id, &client_addr, &0, &0);
     assert!(res.is_err());
 
     // Ensure released amount is not mutated
@@ -80,10 +80,10 @@ fn test_milestone_settlement_unrelated_milestones_unaffected() {
         setup_and_create_escrow(&env, &[1_000, 2_000]);
 
     // Release milestone 0
-    assert!(client.release_milestone(&c_id, &client_addr, &0));
+    assert!(client.release_milestone(&c_id, &client_addr, &0, &0));
 
     // Milestone 1 can still be released independently
-    assert!(client.release_milestone(&c_id, &client_addr, &1));
+    assert!(client.release_milestone(&c_id, &client_addr, &1, &0));
 
     let summary = client.get_contract(&c_id);
     assert_eq!(summary.released_amount, 3_000);
@@ -112,10 +112,10 @@ fn test_milestone_settlement_different_contracts_isolated() {
     client.deposit_funds(&c_id2, &client_addr2, &5_000);
 
     // Release milestone on contract 1
-    assert!(client.release_milestone(&c_id1, &client_addr1, &0));
+    assert!(client.release_milestone(&c_id1, &client_addr1, &0, &0));
 
     // Release milestone on contract 2 is completely unaffected and succeeds
-    assert!(client.release_milestone(&c_id2, &client_addr2, &0));
+    assert!(client.release_milestone(&c_id2, &client_addr2, &0, &0));
 
     assert_eq!(client.get_contract(&c_id1).released_amount, 5_000);
     assert_eq!(client.get_contract(&c_id2).released_amount, 5_000);

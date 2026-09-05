@@ -11,7 +11,7 @@ fn test_release_milestone_bounds() {
     let total_milestones = 3;
     // Exactly last valid index -> Ok (after approvals)
     assert!(escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &(total_milestones - 1)));
-    assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &(total_milestones - 1)));
+    assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &(total_milestones - 1, &0)));
 
     // Out of bounds by 1 -> IndexOutOfBounds
     assert_contract_error(
@@ -19,7 +19,7 @@ fn test_release_milestone_bounds() {
         EscrowError::IndexOutOfBounds,
     );
     assert_contract_error(
-        escrow.try_release_milestone(&fixture.escrow_id, &fixture.client, &total_milestones),
+        escrow.try_release_milestone(&fixture.escrow_id, &fixture.client, &total_milestones, &0),
         EscrowError::IndexOutOfBounds,
     );
 }

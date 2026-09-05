@@ -251,7 +251,7 @@ fn release_milestone_rejects_index_equal_to_count() {
     // Approve first so auth doesn't block us before the index check.
     escrow.approve_milestone_release(&id, &client_addr, &0);
     // Index 1 is out of bounds for a 1-milestone contract.
-    let result = escrow.try_release_milestone(&id, &client_addr, &1_u32);
+    let result = escrow.try_release_milestone(&id, &client_addr, &1_u32, &0);
     match result {
         Err(Ok(e)) => {
             let want: soroban_sdk::Error = Error::IndexOutOfBounds.into();
@@ -267,7 +267,7 @@ fn release_milestone_rejects_u32_max_index() {
     let env = Env::default();
     let (escrow, client_addr, freelancer_addr, _admin) = setup_with_token(&env);
     let id = funded_contract(&env, &escrow, &client_addr, &freelancer_addr, 100_0000000);
-    let result = escrow.try_release_milestone(&id, &client_addr, &u32::MAX);
+    let result = escrow.try_release_milestone(&id, &client_addr, &u32::MAX, &0);
     match result {
         Err(Ok(e)) => {
             let want: soroban_sdk::Error = Error::IndexOutOfBounds.into();
@@ -284,7 +284,7 @@ fn release_milestone_accepts_index_zero_on_single_milestone() {
     let (escrow, client_addr, freelancer_addr, _admin) = setup_with_token(&env);
     let id = funded_contract(&env, &escrow, &client_addr, &freelancer_addr, 100_0000000);
     escrow.approve_milestone_release(&id, &client_addr, &0);
-    assert!(escrow.release_milestone(&id, &client_addr, &0));
+    assert!(escrow.release_milestone(&id, &client_addr, &0, &0));
 }
 
 // ── approve_milestone_release — milestone_index bounds ───────────────────────
@@ -400,7 +400,7 @@ fn complete_contract_for_reputation(
 ) -> u32 {
     let id = funded_contract(env, escrow, client_addr, freelancer_addr, 100_0000000);
     escrow.approve_milestone_release(&id, client_addr, &0);
-    escrow.release_milestone(&id, client_addr, &0);
+    escrow.release_milestone(&id, client_addr, &0, &0);
     id
 }
 

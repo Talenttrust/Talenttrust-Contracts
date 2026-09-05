@@ -199,7 +199,7 @@ fn released_milestone_updates_page_entry() {
     let cid = fixture.escrow_id;
 
     escrow.approve_milestone_release(&cid, &fixture.client, &0u32);
-    escrow.release_milestone(&cid, &fixture.client, &0u32);
+    escrow.release_milestone(&cid, &fixture.client, &0u32, &0);
 
     let page = escrow.get_contracts_page(&0u32, &10u32);
     assert_eq!(page.len(), 1);

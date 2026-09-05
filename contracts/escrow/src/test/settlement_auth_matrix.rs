@@ -84,7 +84,7 @@ fn create_funded(
 /// Drive a contract to `Completed` status by releasing all milestones (1-milestone contract).
 fn complete(env: &Env, escrow: &EscrowClient<'_>, caller: &Address, id: &u32) {
     escrow.approve_milestone_release(id, caller, &0u32);
-    escrow.release_milestone(id, caller, &0u32);
+    escrow.release_milestone(id, caller, &0u32, &0);
 }
 
 /// Drive a contract to `Disputed` status.

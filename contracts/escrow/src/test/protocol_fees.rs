@@ -52,7 +52,7 @@ fn setup_with_accumulated_fees(env: &Env) -> (EscrowClient<'_>, Address, Address
 
     client.deposit_funds(&contract_id, &client_addr, &1_000_i128);
     client.approve_milestone_release(&contract_id, &client_addr, &0);
-    client.release_milestone(&contract_id, &client_addr, &0);
+    client.release_milestone(&contract_id, &client_addr, &0, &0);
 
     let accumulated: i128 = 100;
     let destination = Address::generate(env);

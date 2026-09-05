@@ -289,15 +289,15 @@ fn release_milestone_accumulates_released_amount_correctly() {
     escrow.deposit_funds(&id, &client_addr, &total);
 
     escrow.approve_milestone_release(&id, &client_addr, &0);
-    escrow.release_milestone(&id, &client_addr, &0);
+    escrow.release_milestone(&id, &client_addr, &0, &0);
     assert_eq!(escrow.get_contract(&id).released_amount, 100);
 
     escrow.approve_milestone_release(&id, &client_addr, &1);
-    escrow.release_milestone(&id, &client_addr, &1);
+    escrow.release_milestone(&id, &client_addr, &1, &0);
     assert_eq!(escrow.get_contract(&id).released_amount, 300);
 
     escrow.approve_milestone_release(&id, &client_addr, &2);
-    escrow.release_milestone(&id, &client_addr, &2);
+    escrow.release_milestone(&id, &client_addr, &2, &0);
     assert_eq!(escrow.get_contract(&id).released_amount, 600);
 }
 
@@ -313,7 +313,7 @@ fn release_with_fee_accumulates_protocol_fees_correctly() {
         single_milestone_contract(&env, &escrow, &sac, 1_000_i128);
 
     escrow.approve_milestone_release(&id, &client_addr, &0);
-    escrow.release_milestone(&id, &client_addr, &0);
+    escrow.release_milestone(&id, &client_addr, &0, &0);
 
     // fee = 1_000 * 1_000 / 10_000 = 100
     assert_eq!(escrow.get_accumulated_protocol_fees(), 100);
@@ -345,12 +345,12 @@ fn two_releases_with_fee_accumulate_without_overflow() {
 
     // Release m0: fee = 2_000 * 500 / 10_000 = 100
     escrow.approve_milestone_release(&id, &client_addr, &0);
-    escrow.release_milestone(&id, &client_addr, &0);
+    escrow.release_milestone(&id, &client_addr, &0, &0);
     assert_eq!(escrow.get_accumulated_protocol_fees(), 100);
 
     // Release m1: fee = 4_000 * 500 / 10_000 = 200; cumulative = 300
     escrow.approve_milestone_release(&id, &client_addr, &1);
-    escrow.release_milestone(&id, &client_addr, &1);
+    escrow.release_milestone(&id, &client_addr, &1, &0);
     assert_eq!(escrow.get_accumulated_protocol_fees(), 300);
 }
 
@@ -437,7 +437,7 @@ fn accounting_invariant_holds_after_release_then_refund() {
 
     // Release m0
     escrow.approve_milestone_release(&id, &client_addr, &0);
-    escrow.release_milestone(&id, &client_addr, &0);
+    escrow.release_milestone(&id, &client_addr, &0, &0);
 
     // Refund m1
     let indices = vec![&env, 1_u32];
@@ -741,7 +741,7 @@ fn release_milestone_rejects_when_released_amount_would_overflow() {
     super::assert_contract_error(
         fixture
             .escrow()
-            .try_release_milestone(&fixture.escrow_id, &fixture.client, &0),
+            .try_release_milestone(&fixture.escrow_id, &fixture.client, &0, &0),
         Error::AccountingInvariantViolated,
     );
 }
@@ -785,7 +785,7 @@ fn release_milestone_rejects_invariant_sum_overflow() {
     super::assert_contract_error(
         fixture
             .escrow()
-            .try_release_milestone(&fixture.escrow_id, &fixture.client, &0),
+            .try_release_milestone(&fixture.escrow_id, &fixture.client, &0, &0),
         EscrowError::InsufficientFunds,
     );
 }
@@ -829,7 +829,7 @@ fn release_milestone_rejects_at_zero_available_balance() {
     super::assert_contract_error(
         fixture
             .escrow()
-            .try_release_milestone(&fixture.escrow_id, &fixture.client, &0),
+            .try_release_milestone(&fixture.escrow_id, &fixture.client, &0, &0),
         Error::InsufficientFunds,
     );
 }

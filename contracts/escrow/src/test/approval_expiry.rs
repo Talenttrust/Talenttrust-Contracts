@@ -198,7 +198,7 @@ fn test_release_requires_approval() {
     );
     assert!(client.deposit_funds(&id, &client_addr, &total()));
 
-    let result = client.try_release_milestone(&id, &client_addr, &0);
+    let result = client.try_release_milestone(&id, &client_addr, &0, &0);
     super::assert_contract_error(result, Error::InsufficientApprovals);
 }
 
@@ -218,7 +218,7 @@ fn test_release_with_approval_succeeds() {
     );
     assert!(client.deposit_funds(&id, &client_addr, &total()));
     assert!(client.approve_milestone_release(&id, &client_addr, &0));
-    assert!(client.release_milestone(&id, &client_addr, &0));
+    assert!(client.release_milestone(&id, &client_addr, &0, &0));
 
     let milestones_vec = client.get_milestones(&id);
     assert!(milestones_vec.get(0).unwrap().released);
@@ -245,11 +245,11 @@ fn test_multisig_requires_both_approvals() {
 
     assert!(client.approve_milestone_release(&id, &client_addr, &0));
 
-    let result = client.try_release_milestone(&id, &client_addr, &0);
+    let result = client.try_release_milestone(&id, &client_addr, &0, &0);
     super::assert_contract_error(result, Error::InsufficientApprovals);
 
     assert!(client.approve_milestone_release(&id, &freelancer_addr, &0));
-    assert!(client.release_milestone(&id, &client_addr, &0));
+    assert!(client.release_milestone(&id, &client_addr, &0, &0));
 }
 
 #[test]
@@ -268,7 +268,7 @@ fn test_approve_already_released_milestone_fails() {
     );
     assert!(client.deposit_funds(&id, &client_addr, &total()));
     assert!(client.approve_milestone_release(&id, &client_addr, &0));
-    assert!(client.release_milestone(&id, &client_addr, &0));
+    assert!(client.release_milestone(&id, &client_addr, &0, &0));
 
     let result = client.try_approve_milestone_release(&id, &client_addr, &0);
     super::assert_contract_error(result, Error::MilestoneAlreadyReleased);
@@ -335,7 +335,7 @@ fn test_multiple_milestones_independent_approvals() {
     assert!(client.get_milestone_approvals(&id, &0).is_some());
     assert!(client.get_milestone_approvals(&id, &1).is_some());
 
-    assert!(client.release_milestone(&id, &client_addr, &0));
+    assert!(client.release_milestone(&id, &client_addr, &0, &0));
 
     assert!(client.get_milestone_approvals(&id, &0).is_none());
     assert!(client.get_milestone_approvals(&id, &1).is_some());
@@ -375,7 +375,7 @@ fn test_client_only_approval_expires_after_ttl() {
         "approval should be expired after TTL elapsed"
     );
 
-    let result = client.try_release_milestone(&contract_id, &client_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
     super::assert_contract_error(result, Error::InsufficientApprovals);
 }
 
@@ -443,7 +443,7 @@ fn test_arbiter_only_approval_expires_after_ttl() {
 
     advance_ledger(&env, &escrow_id, PENDING_APPROVAL_TTL_LEDGERS + 1);
 
-    let result = client.try_release_milestone(&contract_id, &arbiter_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &arbiter_addr, &0, &0);
     super::assert_contract_error(result, Error::InsufficientApprovals);
 }
 
@@ -472,7 +472,7 @@ fn test_client_and_arbiter_approval_expires_after_ttl() {
 
     advance_ledger(&env, &escrow_id, PENDING_APPROVAL_TTL_LEDGERS + 1);
 
-    let result = client.try_release_milestone(&contract_id, &client_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
     super::assert_contract_error(result, Error::InsufficientApprovals);
 }
 
@@ -507,11 +507,11 @@ fn test_multisig_one_approval_expires_before_second_arrives() {
 
     assert!(client.approve_milestone_release(&contract_id, &freelancer_addr, &0));
 
-    let result = client.try_release_milestone(&contract_id, &client_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
     super::assert_contract_error(result, Error::InsufficientApprovals);
 
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
 }
 
 #[test]
@@ -540,7 +540,7 @@ fn test_multisig_both_approvals_expire_after_ttl() {
 
     advance_ledger(&env, &escrow_id, PENDING_APPROVAL_TTL_LEDGERS + 1);
 
-    let result = client.try_release_milestone(&contract_id, &client_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
     super::assert_contract_error(result, Error::InsufficientApprovals);
 }
 
@@ -590,7 +590,7 @@ fn test_read_within_bump_threshold_refreshes_ttl() {
         "read within bump threshold should refresh TTL"
     );
 
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
 }
 
 /// MultiSig variant: both approvals live in a single record, so one read within
@@ -628,7 +628,7 @@ fn test_multisig_read_within_bump_threshold_refreshes_ttl() {
     // Step past the original expiry; the bump must have kept both approvals alive.
     advance_ledger(&env, &escrow_id, 2);
 
-    let result = client.try_release_milestone(&contract_id, &client_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
     assert!(
         result.is_ok(),
         "MultiSig release succeeds after a bump-on-read refresh"
@@ -663,7 +663,7 @@ fn test_approval_ttl_independent_per_milestone() {
 
     advance_ledger(&env, &escrow_id, PENDING_APPROVAL_TTL_LEDGERS / 2 + 1);
 
-    let result_0 = client.try_release_milestone(&contract_id, &client_addr, &0);
+    let result_0 = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
     super::assert_contract_error(result_0, Error::InsufficientApprovals);
 }
 

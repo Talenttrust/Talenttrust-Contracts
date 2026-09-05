@@ -110,7 +110,7 @@ fn writes_blocked_release_milestone() {
     escrow.pause();
 
     super::assert_contract_error(
-        escrow.try_release_milestone(&id, &client_addr, &0),
+        escrow.try_release_milestone(&id, &client_addr, &0, &0),
         Error::ContractPaused,
     );
 }
@@ -179,7 +179,7 @@ fn writes_allowed_release_milestone_after_unpause() {
 
     // Approve first so the release succeeds.
     escrow.approve_milestone_release(&id, &client_addr, &0);
-    assert!(escrow.release_milestone(&id, &client_addr, &0));
+    assert!(escrow.release_milestone(&id, &client_addr, &0, &0));
 }
 
 #[test]
@@ -338,7 +338,7 @@ fn emergency_blocks_release_milestone() {
 
     let paused_err: soroban_sdk::Error = Error::ContractPaused.into();
     let emergency_err: soroban_sdk::Error = Error::EmergencyActive.into();
-    match escrow.try_release_milestone(&id, &client_addr, &0) {
+    match escrow.try_release_milestone(&id, &client_addr, &0, &0) {
         Err(Ok(e)) => assert!(e == paused_err || e == emergency_err),
         other => panic!("expected guard error, got {:?}", other),
     }
@@ -406,7 +406,7 @@ fn guard_ordering_release_milestone_before_auth() {
 
     let outsider = Address::generate(&env);
     super::assert_contract_error(
-        escrow.try_release_milestone(&id, &outsider, &0),
+        escrow.try_release_milestone(&id, &outsider, &0, &0),
         Error::ContractPaused,
     );
 }
@@ -484,7 +484,7 @@ fn state_integrity_no_release_when_paused() {
     assert!(!before.released);
 
     escrow.pause();
-    let _ = escrow.try_release_milestone(&id, &client_addr, &0);
+    let _ = escrow.try_release_milestone(&id, &client_addr, &0, &0);
     escrow.unpause();
 
     let after = escrow

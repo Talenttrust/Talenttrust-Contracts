@@ -21,9 +21,9 @@ fn multiple_contracts_for_same_freelancer() {
     );
 
     assert!(client.deposit_funds(&second_id, &client_addr, &total_milestone_amount()));
-    assert!(client.release_milestone(&second_id, &client_addr, &0));
-    assert!(client.release_milestone(&second_id, &client_addr, &1));
-    assert!(client.release_milestone(&second_id, &client_addr, &2));
+    assert!(client.release_milestone(&second_id, &client_addr, &0, &0));
+    assert!(client.release_milestone(&second_id, &client_addr, &1, &0));
+    assert!(client.release_milestone(&second_id, &client_addr, &2, &0));
     assert!(client.issue_reputation(&first_id, &first_client_addr, &freelancer_addr, &5));
     assert!(client.issue_reputation(&second_id, &client_addr, &freelancer_addr, &4));
 
@@ -81,7 +81,7 @@ fn release_milestone_emits_protocol_fee_event_when_fees_active() {
         .persistent()
         .set(&DataKey::ProtocolFeeBps, &100u32);
 
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
 
     let events = env.events().all();
     assert!(events.iter().any(|event| event.0 == symbol_short!("protocol_fee")));

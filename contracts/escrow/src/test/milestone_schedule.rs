@@ -528,7 +528,7 @@ fn error_immutable_set_schedule_after_release_rejected() {
 
     client.deposit_funds(&id, &c, &300_i128);
     client.approve_milestone_release(&id, &c, &0);
-    client.release_milestone(&id, &c, &0);
+    client.release_milestone(&id, &c, &0, &0);
 
     // Now attempt to update the released milestone's schedule.
     let sched = dated_schedule(&env, future(&env, 10_000));
@@ -642,9 +642,9 @@ fn integration_full_lifecycle_preserves_schedule_metadata() {
     // Fund, approve, and release both milestones.
     client.deposit_funds(&id, &c, &300_i128);
     client.approve_milestone_release(&id, &c, &0);
-    client.release_milestone(&id, &c, &0);
+    client.release_milestone(&id, &c, &0, &0);
     client.approve_milestone_release(&id, &c, &1);
-    client.release_milestone(&id, &c, &1);
+    client.release_milestone(&id, &c, &1, &0);
 
     // Schedule metadata must still be readable after release.
     let s0 = client.get_milestone_schedule(&id, &0).unwrap();

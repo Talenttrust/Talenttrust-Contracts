@@ -23,7 +23,7 @@ fn completed_contract(env: &Env, client: &EscrowClient<'_>) -> (Address, Address
         &ReleaseAuthorization::ClientOnly,
     );
     assert!(client.deposit_funds(&contract_id, &client_addr, &100_i128));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
     assert_eq!(
         client.get_contract(&contract_id).status,
         ContractStatus::Completed
@@ -167,7 +167,7 @@ fn finalized_contract_rejects_subsequent_mutations() {
         EscrowError::AlreadyFinalized,
     );
     super::assert_contract_error(
-        client.try_release_milestone(&contract_id, &client_addr, &0),
+        client.try_release_milestone(&contract_id, &client_addr, &0, &0),
         EscrowError::AlreadyFinalized,
     );
     super::assert_contract_error(

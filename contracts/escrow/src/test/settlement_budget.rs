@@ -124,7 +124,7 @@ fn release_milestone_stays_within_budget() {
     let escrow = fixture.escrow();
 
     escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
-    escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0);
+    escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0, &0);
 
     let (resources, fee_total) = measure_last_invocation(&fixture.env);
     assert_within_baseline(
@@ -143,7 +143,7 @@ fn release_all_milestones_bounded() {
 
     for index in 0..3_u32 {
         escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &index);
-        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &index);
+        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &index, &0);
     }
 
     let contract = escrow.get_contract(&fixture.escrow_id);

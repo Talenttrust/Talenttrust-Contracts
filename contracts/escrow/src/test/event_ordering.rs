@@ -18,7 +18,7 @@ fn test_release_event_ordering() {
     let env = &fixture.env;
     
     fixture.escrow().approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
-    fixture.escrow().release_milestone(&fixture.escrow_id, &fixture.client, &0);
+    fixture.escrow().release_milestone(&fixture.escrow_id, &fixture.client, &0, &0);
     
     let events = env.events().all();
     assert_transfer_event_is_last(env, &events);

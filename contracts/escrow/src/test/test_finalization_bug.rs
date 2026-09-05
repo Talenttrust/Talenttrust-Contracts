@@ -25,7 +25,7 @@ fn test_eligible_closure() {
     let contract_id = fixture.escrow_id;
 
     // Complete the contract by releasing the only milestone
-    escrow.release_milestone(&contract_id, client, &0);
+    escrow.release_milestone(&contract_id, client, &0, &0);
 
     // Finalize it once
     assert!(escrow.finalize_contract(&contract_id, client));
@@ -106,7 +106,7 @@ fn test_repeat_finalization() {
     let contract_id = fixture.escrow_id;
 
     // Complete the contract
-    escrow.release_milestone(&contract_id, client, &0);
+    escrow.release_milestone(&contract_id, client, &0, &0);
 
     // Finalize it once
     escrow.finalize_contract(&contract_id, client);
@@ -147,7 +147,7 @@ fn test_concurrent_finalization() {
     let contract_id = fixture.escrow_id;
 
     // Complete the contract
-    escrow.release_milestone(&contract_id, client, &0);
+    escrow.release_milestone(&contract_id, client, &0, &0);
 
     // First finalizer wins
     assert!(escrow.finalize_contract(&contract_id, client));

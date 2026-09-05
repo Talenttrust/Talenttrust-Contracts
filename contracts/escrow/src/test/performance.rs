@@ -183,7 +183,7 @@ fn perf_release_milestone_resource_baseline() {
     let escrow = fixture.escrow();
 
     escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
-    escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0);
+    escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0, &0);
 
     assert_baseline("release_milestone", RELEASE_BASELINE, &fixture.env);
 }

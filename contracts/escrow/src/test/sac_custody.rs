@@ -525,7 +525,7 @@ fn release_milestone_with_sac_pushes_payout_minus_fee_to_freelancer() {
     let fee = milestone_amount * 1000 / 10_000;
     let payout = milestone_amount - fee;
     client.approve_milestone_release(&id, &client_addr, &0);
-    assert!(client.release_milestone(&id, &client_addr, &0));
+    assert!(client.release_milestone(&id, &client_addr, &0, &0));
 
     assert_eq!(token.balance(&freelancer_addr), payout);
     let contract = client.get_contract(&id);
@@ -544,7 +544,7 @@ fn release_milestone_zero_fee_pays_full_milestone_amount() {
     let token = TokenClient::new(&env, &sac);
     // Fee unset (defaults to 0).
     client.approve_milestone_release(&id, &client_addr, &0);
-    assert!(client.release_milestone(&id, &client_addr, &0));
+    assert!(client.release_milestone(&id, &client_addr, &0, &0));
 
     assert_eq!(token.balance(&freelancer_addr), MILESTONE_ONE);
 }
@@ -581,7 +581,7 @@ fn sac_custody_accounting_invariant_holds_after_deposit_and_release() {
     escrow.set_protocol_fee_bps(&500u32);
 
     escrow.approve_milestone_release(&id, &client_addr, &0);
-    escrow.release_milestone(&id, &client_addr, &0);
+    escrow.release_milestone(&id, &client_addr, &0, &0);
 
     let contract = escrow.get_contract(&id);
     let accrued: i128 = escrow.get_accumulated_protocol_fees();
@@ -621,7 +621,7 @@ fn sac_full_lifecycle_deposit_release_balance_deltas() {
 
     // Approve and release milestone 0 with no fee.
     client.approve_milestone_release(&id, &client_addr, &0);
-    assert!(client.release_milestone(&id, &client_addr, &0));
+    assert!(client.release_milestone(&id, &client_addr, &0, &0));
 
     // Freelancer got milestone 0's amount; escrow retained the rest.
     assert_eq!(token.balance(&freelancer_addr), MILESTONE_ONE);
@@ -663,7 +663,7 @@ fn release_milestone_cei_ordering_state_before_transfer() {
 
     // Perform release.
     client.approve_milestone_release(&id, &client_addr, &0);
-    assert!(client.release_milestone(&id, &client_addr, &0));
+    assert!(client.release_milestone(&id, &client_addr, &0, &0));
 
     // After release: state is updated AND transfer occurred.
     // If CEI were violated (transfer before state update), a failed transfer

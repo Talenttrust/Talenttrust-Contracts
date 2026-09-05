@@ -447,7 +447,7 @@ fn budget_release_milestone_3ms() {
     escrow.deposit_funds(&id, &client_addr, &total_n(3));
     escrow.approve_milestone_release(&id, &client_addr, &0);
 
-    escrow.release_milestone(&id, &client_addr, &0);
+    escrow.release_milestone(&id, &client_addr, &0, &0);
 
     assert_within("release_milestone/3ms", measure(&env), RELEASE_3MS);
 }
@@ -527,7 +527,7 @@ fn budget_finalize_contract_3ms() {
     escrow.deposit_funds(&id, &client_addr, &total_n(3));
     for ms in 0..3_u32 {
         escrow.approve_milestone_release(&id, &client_addr, &ms);
-        escrow.release_milestone(&id, &client_addr, &ms);
+        escrow.release_milestone(&id, &client_addr, &ms, &0);
     }
     assert_eq!(escrow.get_contract(&id).status, ContractStatus::Completed);
 
@@ -557,7 +557,7 @@ fn budget_issue_reputation_3ms() {
     escrow.deposit_funds(&id, &client_addr, &total_n(3));
     for ms in 0..3_u32 {
         escrow.approve_milestone_release(&id, &client_addr, &ms);
-        escrow.release_milestone(&id, &client_addr, &ms);
+        escrow.release_milestone(&id, &client_addr, &ms, &0);
     }
 
     escrow.issue_reputation(&id, &client_addr, &5, &comment(&env));
@@ -722,7 +722,7 @@ fn budget_release_milestone_10ms() {
     escrow.deposit_funds(&id, &client_addr, &total_n(10));
     escrow.approve_milestone_release(&id, &client_addr, &0);
 
-    escrow.release_milestone(&id, &client_addr, &0);
+    escrow.release_milestone(&id, &client_addr, &0, &0);
 
     assert_within("release_milestone/10ms", measure(&env), RELEASE_10MS);
 }

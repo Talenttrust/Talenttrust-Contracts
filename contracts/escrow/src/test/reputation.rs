@@ -28,7 +28,7 @@ fn complete_contract_for(
     assert!(client.deposit_funds(&contract_id, client_addr, &total));
     for milestone_index in 0..3 {
         assert!(client.approve_milestone_release(&contract_id, client_addr, &milestone_index));
-        assert!(client.release_milestone(&contract_id, client_addr, &milestone_index));
+        assert!(client.release_milestone(&contract_id, client_addr, &milestone_index, &0));
     }
     assert_eq!(
         client.get_contract(&contract_id).status,
@@ -293,11 +293,11 @@ fn get_average_rating_multiple_ratings_returns_correct_scaled_average() {
     let total = super::total_milestone_amount();
     client.deposit_funds(&contract_id2, &client_addr2, &total);
     client.approve_milestone_release(&contract_id2, &client_addr2, &0);
-    client.release_milestone(&contract_id2, &client_addr2, &0);
+    client.release_milestone(&contract_id2, &client_addr2, &0, &0);
     client.approve_milestone_release(&contract_id2, &client_addr2, &1);
-    client.release_milestone(&contract_id2, &client_addr2, &1);
+    client.release_milestone(&contract_id2, &client_addr2, &1, &0);
     client.approve_milestone_release(&contract_id2, &client_addr2, &2);
-    client.release_milestone(&contract_id2, &client_addr2, &2);
+    client.release_milestone(&contract_id2, &client_addr2, &2, &0);
     client.issue_reputation(&contract_id2, &client_addr2, &5, &valid_comment(&env));
 
     // total_rating=8, completed_contracts=2 → 8 * 10_000 / 2 = 40_000
@@ -327,11 +327,11 @@ fn get_average_rating_fractional_average_is_preserved() {
     let total = super::total_milestone_amount();
     client.deposit_funds(&contract_id2, &client_addr2, &total);
     client.approve_milestone_release(&contract_id2, &client_addr2, &0);
-    client.release_milestone(&contract_id2, &client_addr2, &0);
+    client.release_milestone(&contract_id2, &client_addr2, &0, &0);
     client.approve_milestone_release(&contract_id2, &client_addr2, &1);
-    client.release_milestone(&contract_id2, &client_addr2, &1);
+    client.release_milestone(&contract_id2, &client_addr2, &1, &0);
     client.approve_milestone_release(&contract_id2, &client_addr2, &2);
-    client.release_milestone(&contract_id2, &client_addr2, &2);
+    client.release_milestone(&contract_id2, &client_addr2, &2, &0);
     client.issue_reputation(&contract_id2, &client_addr2, &2, &valid_comment(&env));
 
     // total_rating=3, completed_contracts=2 → 3 * 10_000 / 2 = 15_000

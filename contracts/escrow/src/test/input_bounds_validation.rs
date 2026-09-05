@@ -75,7 +75,7 @@ fn setup_completed(env: &Env) -> (Address, Address, u32, EscrowClient<'_>) {
     token_client.mint(&client_addr, &100_0000000_i128);
     client.deposit_funds(&contract_id, &client_addr, &100_0000000_i128);
     client.approve_milestone_release(&contract_id, &client_addr, &0);
-    client.release_milestone(&contract_id, &client_addr, &0);
+    client.release_milestone(&contract_id, &client_addr, &0, &0);
 
     (client_addr, freelancer, contract_id, client)
 }
@@ -599,7 +599,7 @@ fn withdraw_protocol_fees_rejects_insufficient_accumulated() {
     token_client.mint(&client_addr, &100_0000000_i128);
     client.deposit_funds(&contract_id, &client_addr, &100_0000000_i128);
     client.approve_milestone_release(&contract_id, &client_addr, &0);
-    client.release_milestone(&contract_id, &client_addr, &0);
+    client.release_milestone(&contract_id, &client_addr, &0, &0);
     // With 0% fee, no accumulated fees exist.
     assert_contract_error(
         client.try_withdraw_protocol_fees(&1_i128, &Address::generate(&env)),
@@ -1081,7 +1081,7 @@ fn release_milestone_rejects_out_of_bounds_index() {
     client.deposit_funds(&contract_id, &client_addr, &100_0000000_i128);
     client.approve_milestone_release(&contract_id, &client_addr, &0);
     assert_contract_error(
-        client.try_release_milestone(&contract_id, &client_addr, &10_u32),
+        client.try_release_milestone(&contract_id, &client_addr, &10_u32, &0),
         crate::Error::IndexOutOfBounds,
     );
 }

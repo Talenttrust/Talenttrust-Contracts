@@ -139,7 +139,7 @@ fn paused_blocks_release_milestone() {
     client.pause();
 
     assert_contract_error(
-        client.try_release_milestone(&id, &client_addr, &0),
+        client.try_release_milestone(&id, &client_addr, &0, &0),
         EscrowError::ContractPaused,
     );
 }
@@ -280,7 +280,7 @@ fn milestone_released_flag_set_in_vector_on_release() {
     let (client_addr, _, id) = create_contract(&env, &client);
     client.deposit_funds(&id, &client_addr, &total_milestone_amount());
     client.approve_milestone_release(&id, &client_addr, &0);
-    client.release_milestone(&id, &client_addr, &0);
+    client.release_milestone(&id, &client_addr, &0, &0);
 
     let milestones = client.get_milestones(&id);
     assert!(milestones.get(0).unwrap().released, "index 0 must be released");
@@ -296,10 +296,10 @@ fn double_release_same_milestone_fails() {
 
     let (client_addr, _, id) = create_contract(&env, &client);
     client.deposit_funds(&id, &client_addr, &total_milestone_amount());
-    client.release_milestone(&id, &client_addr, &0);
+    client.release_milestone(&id, &client_addr, &0, &0);
 
     assert_contract_error(
-        client.try_release_milestone(&id, &client_addr, &0),
+        client.try_release_milestone(&id, &client_addr, &0, &0),
         EscrowError::MilestoneAlreadyReleased,
     );
 }
@@ -314,7 +314,7 @@ fn release_out_of_bounds_milestone_fails() {
     client.deposit_funds(&id, &client_addr, &total_milestone_amount());
 
     assert_contract_error(
-        client.try_release_milestone(&id, &client_addr, &99),
+        client.try_release_milestone(&id, &client_addr, &99, &0),
         EscrowError::IndexOutOfBounds,
     );
 }
@@ -472,15 +472,15 @@ fn released_amount_tracks_milestone_amounts() {
     let (client_addr, _, id) = create_contract(&env, &client);
     client.deposit_funds(&id, &client_addr, &total_milestone_amount());
 
-    client.release_milestone(&id, &client_addr, &0);
+    client.release_milestone(&id, &client_addr, &0, &0);
     let r = client.get_contract(&id);
     assert_eq!(r.released_amount, MILESTONE_ONE);
 
-    client.release_milestone(&id, &client_addr, &1);
+    client.release_milestone(&id, &client_addr, &1, &0);
     let r = client.get_contract(&id);
     assert_eq!(r.released_amount, MILESTONE_ONE + MILESTONE_TWO);
 
-    client.release_milestone(&id, &client_addr, &2);
+    client.release_milestone(&id, &client_addr, &2, &0);
     let r = client.get_contract(&id);
     assert_eq!(r.released_amount, total_milestone_amount());
     assert_eq!(r.status, ContractStatus::Completed);
