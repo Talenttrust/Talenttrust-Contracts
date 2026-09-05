@@ -352,7 +352,7 @@ fn pause_blocks_release_milestone() {
     client.pause(&1u64);
 
     super::assert_contract_error(
-        client.try_release_milestone(&id, &client_addr, &0),
+        client.try_release_milestone(&id, &client_addr, &0, &0),
         Error::ContractPaused,
     );
 }
@@ -367,7 +367,7 @@ fn unpause_restores_release_milestone() {
     client.unpause();
 
     client.approve_milestone_release(&id, &client_addr, &0);
-    assert!(client.release_milestone(&id, &client_addr, &0));
+    assert!(client.release_milestone(&id, &client_addr, &0, &0));
 }
 
 // ---------------------------------------------------------------------------
@@ -480,9 +480,9 @@ fn pause_blocks_issue_reputation() {
 
     // Release both milestones to reach Completed status.
     client.approve_milestone_release(&id, &client_addr, &0);
-    client.release_milestone(&id, &client_addr, &0);
+    client.release_milestone(&id, &client_addr, &0, &0);
     client.approve_milestone_release(&id, &client_addr, &1);
-    client.release_milestone(&id, &client_addr, &1);
+    client.release_milestone(&id, &client_addr, &1, &0);
 
     client.pause(&1u64);
 

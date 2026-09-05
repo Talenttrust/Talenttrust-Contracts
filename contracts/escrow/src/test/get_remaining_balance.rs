@@ -51,7 +51,7 @@ fn remaining_balance_after_partial_release() {
     );
     client.deposit_funds(&id, &ca, 500_i128);
     // Release first milestone (300) – protocol fee is zero in test env.
-    client.release_milestone(&id, &ca, 0);
+    client.release_milestone(&id, &ca, 0, &0);
     // Remaining should be 200.
     assert_eq!(client.get_remaining_balance(&id), 200);
 }
@@ -69,8 +69,8 @@ fn remaining_balance_after_full_release() {
         &ReleaseAuthorization::ClientOnly,
     );
     client.deposit_funds(&id, &ca, 500_i128);
-    client.release_milestone(&id, &ca, 0);
-    client.release_milestone(&id, &ca, 1);
+    client.release_milestone(&id, &ca, 0, &0);
+    client.release_milestone(&id, &ca, 1, &0);
     // All funds released, remaining balance should be 0.
     assert_eq!(client.get_remaining_balance(&id), 0);
 }
@@ -90,9 +90,9 @@ fn remaining_balance_over_release_panics() {
     );
     client.deposit_funds(&id, &ca, 250_i128);
     // First release works (250)
-    client.release_milestone(&id, &ca, 0);
+    client.release_milestone(&id, &ca, 0, &0);
     // Attempt another release should panic.
-    client.release_milestone(&id, &ca, 0);
+    client.release_milestone(&id, &ca, 0, &0);
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn remaining_balance_repeat_final_release_no_change() {
         &ReleaseAuthorization::ClientOnly,
     );
     client.deposit_funds(&id, &ca, 150_i128);
-    client.release_milestone(&id, &ca, 0);
+    client.release_milestone(&id, &ca, 0, &0);
     // Balance is now 0.
     assert_eq!(client.get_remaining_balance(&id), 0);
     // Repeated getter should still be 0.

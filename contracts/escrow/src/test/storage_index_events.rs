@@ -63,7 +63,7 @@ fn setup_completed_contract(env: &Env) -> (super::EscrowClient<'_>, Address, Add
     escrow.deposit_funds(&contract_id, &client_addr, &total);
     for idx in 0..3u32 {
         escrow.approve_milestone_release(&contract_id, &client_addr, &idx);
-        escrow.release_milestone(&contract_id, &client_addr, &idx);
+        escrow.release_milestone(&contract_id, &client_addr, &idx, &0);
     }
     (escrow, client_addr, freelancer_addr, contract_id)
 }

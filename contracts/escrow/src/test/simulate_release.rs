@@ -38,7 +38,7 @@ fn simulate_matches_real_release_outcome() {
     assert_simulation_ok(&sim);
 
     // Now do the real release
-    assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0));
+    assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0, &0));
 
     let contract = escrow.get_contract(&fixture.escrow_id);
 
@@ -147,7 +147,7 @@ fn simulate_detects_contract_completion() {
         );
 
         // Actually release so we can test the next one
-        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &i);
+        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &i, &0);
     }
 }
 
@@ -162,7 +162,7 @@ fn simulate_sequential_releases_match_real() {
         let sim = escrow.simulate_release_milestone(&fixture.escrow_id, &fixture.client, &i);
         assert_simulation_ok(&sim);
 
-        assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &i));
+        assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &i, &0));
 
         let contract = escrow.get_contract(&fixture.escrow_id);
         assert_eq!(sim.projected_released_amount, contract.released_amount);
@@ -177,7 +177,7 @@ fn simulate_rejects_already_released_milestone() {
     let escrow = fixture.escrow();
 
     escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
-    escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0);
+    escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0, &0);
 
     // Simulate again on the same milestone — should report AlreadyReleased
     let sim = escrow.simulate_release_milestone(&fixture.escrow_id, &fixture.client, &0);
@@ -283,7 +283,7 @@ fn simulate_does_not_complete_contract() {
     // Approve and release first 2 milestones so the 3rd would complete
     for i in 0..2u32 {
         escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &i);
-        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &i);
+        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &i, &0);
     }
 
     // Simulate releasing the last milestone — would complete contract
@@ -370,7 +370,7 @@ fn simulate_with_protocol_fees() {
     assert_eq!(sim.net_amount, sim.gross_amount - sim.protocol_fee);
 
     // Verify against the real release
-    assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0));
+    assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0, &0));
     let contract = escrow.get_contract(&fixture.escrow_id);
     assert_eq!(sim.projected_released_amount, contract.released_amount);
 }
@@ -384,7 +384,7 @@ fn simulate_finalized_contract_rejected() {
     // Complete all milestones
     for i in 0..3u32 {
         escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &i);
-        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &i);
+        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &i, &0);
     }
 
     // Finalize

@@ -244,9 +244,9 @@ mod released_count_parity {
         );
         c.deposit_funds(&id, &cl, &600_i128);
         c.approve_milestone_release(&id, &cl, &0);
-        c.release_milestone(&id, &cl, &0);
+        c.release_milestone(&id, &cl, &0, &0);
         c.approve_milestone_release(&id, &cl, &1);
-        c.release_milestone(&id, &cl, &1);
+        c.release_milestone(&id, &cl, &1, &0);
         c.refund_unreleased_milestones(&id, &vec![&env, 2_u32]);
         assert_eq!(c.get_contract(&id).status, ContractStatus::Completed);
         c.finalize_contract(&id, &cl);
@@ -270,7 +270,7 @@ mod released_count_parity {
         c.deposit_funds(&id, &cl, &600_i128);
         for idx in [0_u32, 1, 2] {
             c.approve_milestone_release(&id, &cl, &idx);
-            c.release_milestone(&id, &cl, &idx);
+            c.release_milestone(&id, &cl, &idx, &0);
         }
         assert_eq!(c.get_contract(&id).status, ContractStatus::Completed);
         c.finalize_contract(&id, &cl);
@@ -293,7 +293,7 @@ mod released_count_parity {
         );
         c.deposit_funds(&id, &cl, &300_i128);
         c.approve_milestone_release(&id, &cl, &0);
-        c.release_milestone(&id, &cl, &0);
+        c.release_milestone(&id, &cl, &0, &0);
         c.refund_unreleased_milestones(&id, &vec![&env, 1_u32]);
         assert_eq!(c.get_contract(&id).status, ContractStatus::Completed);
         c.finalize_contract(&id, &cl);

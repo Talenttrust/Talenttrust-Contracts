@@ -96,7 +96,7 @@ fn release_rejects_when_contract_not_funded() {
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
 
-    let result = client.try_release_milestone(&contract_id, &client_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
     super::assert_contract_error(result, EscrowError::InsufficientFunds);
 }
 
@@ -108,7 +108,7 @@ fn release_rejects_invalid_milestone_id() {
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &super::total_milestone_amount()));
-    let result = client.try_release_milestone(&contract_id, &client_addr, &99);
+    let result = client.try_release_milestone(&contract_id, &client_addr, &99, &0);
     super::assert_contract_error(result, EscrowError::IndexOutOfBounds);
 }
 
@@ -120,9 +120,9 @@ fn release_rejects_double_release() {
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &super::total_milestone_amount()));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
 
-    let result = client.try_release_milestone(&contract_id, &client_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
     super::assert_contract_error(result, EscrowError::MilestoneAlreadyReleased);
 }
 
@@ -264,7 +264,7 @@ fn finalized_contract_rejects_release() {
 
     let (client, client_addr, _, contract_id) = finalized_contract(&env);
 
-    let result = client.try_release_milestone(&contract_id, &client_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
 
     super::assert_contract_error(result, EscrowError::AlreadyFinalized);
 }
@@ -294,7 +294,7 @@ fn release_rejected_after_cancel() {
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
     assert!(client.cancel_contract(&contract_id, &client_addr));
 
-    let result = client.try_release_milestone(&contract_id, &client_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
     super::assert_contract_error(result, EscrowError::ContractCancelled);
 }
 

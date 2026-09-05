@@ -123,7 +123,7 @@ fn try_approve(client: &EscrowClient, id: u32, caller: &Address, ms_idx: u32) ->
 
 fn try_release(client: &EscrowClient, id: u32, caller: &Address, ms_idx: u32) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
-        client.release_milestone(&id, caller, &ms_idx);
+        client.release_milestone(&id, caller, &ms_idx, &0);
     }))
     .is_ok()
 }

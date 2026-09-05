@@ -209,7 +209,7 @@ fn events_issue_reputation_client_allowed() {
     let t = setup_full();
     let id = create_funded_contract(&t, &ReleaseAuthorization::ClientOnly);
     t.client.approve_milestone_release(&id, &t.client_addr, &0);
-    t.client.release_milestone(&id, &t.client_addr, &0);
+    t.client.release_milestone(&id, &t.client_addr, &0, &0);
     let comment = String::from_str(&t.env, "Excellent");
     assert!(t.client.issue_reputation(&id, &t.client_addr, &5, &comment));
 }
@@ -219,7 +219,7 @@ fn events_issue_reputation_stranger_denied() {
     let t = setup_full();
     let id = create_funded_contract(&t, &ReleaseAuthorization::ClientOnly);
     t.client.approve_milestone_release(&id, &t.client_addr, &0);
-    t.client.release_milestone(&id, &t.client_addr, &0);
+    t.client.release_milestone(&id, &t.client_addr, &0, &0);
     let comment = String::from_str(&t.env, "Excellent");
     assert_contract_error(
         t.client
@@ -237,7 +237,7 @@ fn events_finalize_client_allowed() {
     let t = setup_full();
     let id = create_funded_contract(&t, &ReleaseAuthorization::ClientOnly);
     t.client.approve_milestone_release(&id, &t.client_addr, &0);
-    t.client.release_milestone(&id, &t.client_addr, &0);
+    t.client.release_milestone(&id, &t.client_addr, &0, &0);
     assert!(t.client.finalize_contract(&id, &t.client_addr));
 }
 
@@ -246,7 +246,7 @@ fn events_finalize_stranger_denied() {
     let t = setup_full();
     let id = create_funded_contract(&t, &ReleaseAuthorization::ClientOnly);
     t.client.approve_milestone_release(&id, &t.client_addr, &0);
-    t.client.release_milestone(&id, &t.client_addr, &0);
+    t.client.release_milestone(&id, &t.client_addr, &0, &0);
     assert_contract_error(
         t.client.try_finalize_contract(&id, &t.stranger_addr),
         Error::UnauthorizedRole,

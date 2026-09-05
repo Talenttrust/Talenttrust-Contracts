@@ -29,9 +29,9 @@ fn setup_funded_contract(env: &Env, client: &EscrowClient) -> (Address, Address,
 fn setup_completed_contract(env: &Env, client: &EscrowClient) -> (Address, Address, u32) {
     let (client_addr, freelancer_addr, id) = setup_funded_contract(env, client);
     client.approve_milestone_release(&id, &client_addr, &0);
-    client.release_milestone(&id, &client_addr, &0);
+    client.release_milestone(&id, &client_addr, &0, &0);
     client.approve_milestone_release(&id, &client_addr, &1);
-    client.release_milestone(&id, &client_addr, &1);
+    client.release_milestone(&id, &client_addr, &1, &0);
     (client_addr, freelancer_addr, id)
 }
 
@@ -114,7 +114,7 @@ fn emergency_blocks_release_milestone() {
     client.activate_emergency_pause();
 
     super::assert_contract_error(
-        client.try_release_milestone(&id, &client_addr, &0),
+        client.try_release_milestone(&id, &client_addr, &0, &0),
         Error::ContractPaused,
     );
 }

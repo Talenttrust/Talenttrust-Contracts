@@ -63,7 +63,7 @@ fn get_milestone_progress_some_complete() {
     let fixture = EscrowFixture::builder().funded().build();
     let escrow = fixture.escrow();
     escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
-    assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0));
+    assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0, &0));
 
     let progress = escrow.get_milestone_progress(&fixture.escrow_id);
     assert_eq!(
@@ -84,7 +84,7 @@ fn get_milestone_progress_all_complete() {
     let escrow = fixture.escrow();
     for milestone_index in 0..3u32 {
         escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &milestone_index);
-        assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &milestone_index));
+        assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &milestone_index, &0));
     }
 
     let progress = escrow.get_milestone_progress(&fixture.escrow_id);
@@ -105,7 +105,7 @@ fn get_milestone_progress_observations_are_pure() {
     let fixture = EscrowFixture::builder().funded().build();
     let escrow = fixture.escrow();
     escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0);
-    assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0));
+    assert!(escrow.release_milestone(&fixture.escrow_id, &fixture.client, &0, &0));
 
     let initial = escrow.get_milestone_progress(&fixture.escrow_id);
     for _ in 0..8 {

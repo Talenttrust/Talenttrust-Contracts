@@ -229,7 +229,7 @@ fn batch_release_rejects_already_released_milestone() {
     approve_all(&client, contract_id, &client_addr);
 
     // Release index 0 via single call first
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
 
     // Try to include index 0 in a batch
     let indices = vec![&env, 0u32, 1];

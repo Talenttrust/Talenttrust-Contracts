@@ -108,7 +108,7 @@ fn migration_preserves_data_after_deposits_and_partial_progress() {
     let total = super::total_milestone_amount();
     client.deposit_funds(&id, &client_addr, &total);
     client.approve_milestone_release(&id, &client_addr, &0u32);
-    client.release_milestone(&id, &client_addr, &0u32);
+    client.release_milestone(&id, &client_addr, &0u32, &0);
 
     let before = client.get_contract(&id);
     assert!(before.released_amount > 0, "fixture must have progressed");

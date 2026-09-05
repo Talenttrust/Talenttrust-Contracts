@@ -348,7 +348,7 @@ fn raise_dispute_state_gate_completed_state_is_rejected() {
     let (client_addr, _freelancer_addr, _arbiter_addr, contract_id) = setup_funded(&env, &escrow);
 
     // Release the only milestone to reach Completed.
-    assert!(escrow.release_milestone(&contract_id, &client_addr, &0));
+    assert!(escrow.release_milestone(&contract_id, &client_addr, &0, &0));
     assert_eq!(
         escrow.get_contract(&contract_id).status,
         ContractStatus::Completed
@@ -420,7 +420,7 @@ fn resolve_dispute_state_gate_completed_state_is_rejected() {
     let (client_addr, _freelancer_addr, arbiter_addr, contract_id) = setup_funded(&env, &escrow);
 
     // Complete the contract first.
-    escrow.release_milestone(&contract_id, &client_addr, &0);
+    escrow.release_milestone(&contract_id, &client_addr, &0, &0);
     assert_eq!(
         escrow.get_contract(&contract_id).status,
         ContractStatus::Completed

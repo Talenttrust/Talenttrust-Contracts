@@ -51,7 +51,7 @@ fn test_payout_only_pause_blocks_release() {
     );
 
     // release_milestone should be blocked by scoped pause
-    let result = client.try_release_milestone(&id, &freelancer_addr, &0);
+    let result = client.try_release_milestone(&id, &freelancer_addr, &0, &0);
     assert!(result.is_err());
 }
 
@@ -115,7 +115,7 @@ fn test_global_pause_via_pause_with_scope() {
     );
 
     // Both release and dispute should be blocked
-    let result_release = client.try_release_milestone(&id, &freelancer_addr, &0);
+    let result_release = client.try_release_milestone(&id, &freelancer_addr, &0, &0);
     assert!(result_release.is_err());
 
     let result_dispute = client.try_raise_dispute(&id, &client_addr);
@@ -165,7 +165,7 @@ fn test_legacy_pause_still_works() {
     assert!(client.is_paused());
     assert!(client.get_pause_scope().is_none()); // No scoped pause, just legacy bool
 
-    let result = client.try_release_milestone(&id, &freelancer_addr, &0);
+    let result = client.try_release_milestone(&id, &freelancer_addr, &0, &0);
     assert!(result.is_err());
 }
 

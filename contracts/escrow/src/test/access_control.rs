@@ -63,7 +63,7 @@ fn test_freelancer_cannot_release_milestone() {
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
 
-    let result = client.try_release_milestone(&contract_id, &freelancer_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &freelancer_addr, &0, &0);
     super::assert_contract_error(result, Error::UnauthorizedRole);
 }
 
@@ -85,11 +85,11 @@ fn test_only_client_can_issue_reputation() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &1));
-    assert!(client.release_milestone(&contract_id, &client_addr, &1));
+    assert!(client.release_milestone(&contract_id, &client_addr, &1, &0));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &2));
-    assert!(client.release_milestone(&contract_id, &client_addr, &2));
+    assert!(client.release_milestone(&contract_id, &client_addr, &2, &0));
 
     let result = client.try_issue_reputation(
         &contract_id,
@@ -119,11 +119,11 @@ fn test_issue_reputation_rejects_freelancer_mismatch() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &1));
-    assert!(client.release_milestone(&contract_id, &client_addr, &1));
+    assert!(client.release_milestone(&contract_id, &client_addr, &1, &0));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &2));
-    assert!(client.release_milestone(&contract_id, &client_addr, &2));
+    assert!(client.release_milestone(&contract_id, &client_addr, &2, &0));
 
     let result = client.try_issue_reputation(
         &contract_id,
@@ -297,7 +297,7 @@ fn test_approve_rejects_already_released_milestone() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
 
     let result = client.try_approve_milestone_release(&contract_id, &client_addr, &0);
     super::assert_contract_error(result, Error::MilestoneAlreadyReleased);
@@ -360,7 +360,7 @@ fn test_release_requires_funded_state() {
         &ReleaseAuthorization::ClientOnly,
     );
 
-    let result = client.try_release_milestone(&contract_id, &client_addr, &0);
+    let result = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
     super::assert_contract_error(result, Error::InvalidState);
 }
 
@@ -381,8 +381,8 @@ fn test_release_rejects_already_released_milestone() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
-    let result = client.try_release_milestone(&contract_id, &client_addr, &0);
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
+    let result = client.try_release_milestone(&contract_id, &client_addr, &0, &0);
     super::assert_contract_error(result, Error::MilestoneAlreadyReleased);
 }
 
@@ -403,11 +403,11 @@ fn test_issue_reputation_rejects_invalid_rating() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &1));
-    assert!(client.release_milestone(&contract_id, &client_addr, &1));
+    assert!(client.release_milestone(&contract_id, &client_addr, &1, &0));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &2));
-    assert!(client.release_milestone(&contract_id, &client_addr, &2));
+    assert!(client.release_milestone(&contract_id, &client_addr, &2, &0));
 
     let result = client.try_issue_reputation(
         &contract_id,
@@ -459,11 +459,11 @@ fn test_issue_reputation_rejects_duplicate_issuance() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &1));
-    assert!(client.release_milestone(&contract_id, &client_addr, &1));
+    assert!(client.release_milestone(&contract_id, &client_addr, &1, &0));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &2));
-    assert!(client.release_milestone(&contract_id, &client_addr, &2));
+    assert!(client.release_milestone(&contract_id, &client_addr, &2, &0));
 
     assert!(client.issue_reputation(
         &contract_id,
@@ -522,7 +522,7 @@ fn test_arbiter_only_flow_enforces_arbiter_approval_and_release() {
     super::assert_contract_error(client_approval, Error::UnauthorizedRole);
 
     assert!(client.approve_milestone_release(&contract_id, &arbiter_addr, &0));
-    assert!(client.release_milestone(&contract_id, &arbiter_addr, &0));
+    assert!(client.release_milestone(&contract_id, &arbiter_addr, &0, &0));
 }
 
 // ===========================================================================
@@ -757,7 +757,7 @@ fn submit_work_evidence_rejects_completed_state() {
     StellarAssetClient::new(&env, &token).mint(&client, &MILESTONE_ONE);
     escrow.deposit_funds(&contract_id, &client, &MILESTONE_ONE);
     escrow.approve_milestone_release(&contract_id, &client, &0);
-    escrow.release_milestone(&contract_id, &client, &0);
+    escrow.release_milestone(&contract_id, &client, &0, &0);
     assert_eq!(
         escrow.get_contract(&contract_id).status,
         ContractStatus::Completed
@@ -839,7 +839,7 @@ fn submit_work_evidence_rejects_released_milestone() {
     StellarAssetClient::new(&env, &token).mint(&client, &total);
     escrow.deposit_funds(&contract_id, &client, &total);
     escrow.approve_milestone_release(&contract_id, &client, &0);
-    escrow.release_milestone(&contract_id, &client, &0);
+    escrow.release_milestone(&contract_id, &client, &0, &0);
 
     // Contract is still Funded (one remaining milestone). But milestone 0 is released.
     let evidence = s(&env, "ipfs://QmPostRelease");

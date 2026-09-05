@@ -234,23 +234,23 @@ fn test_release_milestone_matrix_client_only() {
     assert!(escrow.approve_milestone_release(&contract_id, &client, &0));
 
     // Freelancer -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &freelancer, &0);
+    let res = escrow.try_release_milestone(&contract_id, &freelancer, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Arbiter -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &arbiter, &0);
+    let res = escrow.try_release_milestone(&contract_id, &arbiter, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Admin -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &admin, &0);
+    let res = escrow.try_release_milestone(&contract_id, &admin, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Stranger -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &stranger, &0);
+    let res = escrow.try_release_milestone(&contract_id, &stranger, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Client -> ALLOW
-    let res = escrow.try_release_milestone(&contract_id, &client, &0);
+    let res = escrow.try_release_milestone(&contract_id, &client, &0, &0);
     assert!(
         res.is_ok(),
         "Client must be allowed to release in ClientOnly mode"
@@ -267,23 +267,23 @@ fn test_release_milestone_matrix_arbiter_only() {
     assert!(escrow.approve_milestone_release(&contract_id, &arbiter, &0));
 
     // Client -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &client, &0);
+    let res = escrow.try_release_milestone(&contract_id, &client, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Freelancer -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &freelancer, &0);
+    let res = escrow.try_release_milestone(&contract_id, &freelancer, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Admin -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &admin, &0);
+    let res = escrow.try_release_milestone(&contract_id, &admin, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Stranger -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &stranger, &0);
+    let res = escrow.try_release_milestone(&contract_id, &stranger, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Arbiter -> ALLOW
-    let res = escrow.try_release_milestone(&contract_id, &arbiter, &0);
+    let res = escrow.try_release_milestone(&contract_id, &arbiter, &0, &0);
     assert!(
         res.is_ok(),
         "Arbiter must be allowed to release in ArbiterOnly mode"
@@ -300,19 +300,19 @@ fn test_release_milestone_matrix_client_and_arbiter() {
     assert!(escrow.approve_milestone_release(&contract_id, &client, &0));
 
     // Freelancer -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &freelancer, &0);
+    let res = escrow.try_release_milestone(&contract_id, &freelancer, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Admin -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &admin, &0);
+    let res = escrow.try_release_milestone(&contract_id, &admin, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Stranger -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &stranger, &0);
+    let res = escrow.try_release_milestone(&contract_id, &stranger, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Arbiter -> ALLOW
-    let res = escrow.try_release_milestone(&contract_id, &arbiter, &0);
+    let res = escrow.try_release_milestone(&contract_id, &arbiter, &0, &0);
     assert!(
         res.is_ok(),
         "Arbiter must be allowed to release in ClientAndArbiter mode"
@@ -320,7 +320,7 @@ fn test_release_milestone_matrix_client_and_arbiter() {
 
     // Approve milestone 1 with arbiter and release with Client
     assert!(escrow.approve_milestone_release(&contract_id, &arbiter, &1));
-    let res = escrow.try_release_milestone(&contract_id, &client, &1);
+    let res = escrow.try_release_milestone(&contract_id, &client, &1, &0);
     assert!(
         res.is_ok(),
         "Client must be allowed to release in ClientAndArbiter mode"
@@ -338,19 +338,19 @@ fn test_release_milestone_matrix_multisig() {
     assert!(escrow.approve_milestone_release(&contract_id, &freelancer, &0));
 
     // Arbiter -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &arbiter, &0);
+    let res = escrow.try_release_milestone(&contract_id, &arbiter, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Admin -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &admin, &0);
+    let res = escrow.try_release_milestone(&contract_id, &admin, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Stranger -> DENY (UnauthorizedRole)
-    let res = escrow.try_release_milestone(&contract_id, &stranger, &0);
+    let res = escrow.try_release_milestone(&contract_id, &stranger, &0, &0);
     assert_contract_error(res, EscrowError::UnauthorizedRole);
 
     // Freelancer -> ALLOW (in MultiSig, either client or freelancer can trigger release once both approved)
-    let res = escrow.try_release_milestone(&contract_id, &freelancer, &0);
+    let res = escrow.try_release_milestone(&contract_id, &freelancer, &0, &0);
     assert!(
         res.is_ok(),
         "Freelancer must be allowed to release in MultiSig mode after approvals"
@@ -359,7 +359,7 @@ fn test_release_milestone_matrix_multisig() {
     // Approve milestone 1 with both and release with Client
     assert!(escrow.approve_milestone_release(&contract_id, &client, &1));
     assert!(escrow.approve_milestone_release(&contract_id, &freelancer, &1));
-    let res = escrow.try_release_milestone(&contract_id, &client, &1);
+    let res = escrow.try_release_milestone(&contract_id, &client, &1, &0);
     assert!(
         res.is_ok(),
         "Client must be allowed to release in MultiSig mode after approvals"
@@ -503,7 +503,7 @@ fn test_milestone_actions_invalid_state_gates() {
     assert_contract_error(res, Error::InvalidState);
 
     // release_milestone on Created -> InvalidState
-    let res = escrow.try_release_milestone(&contract_id, &client_addr, &0);
+    let res = escrow.try_release_milestone(&contract_id, &client_addr, &0, &0);
     assert_contract_error(res, Error::InvalidState);
 
     // submit_work_evidence on Created -> InvalidState
@@ -518,14 +518,14 @@ fn test_milestone_actions_invalid_state_gates() {
 
     // Release milestone 0 -> advances to Completed state
     assert!(escrow.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(escrow.release_milestone(&contract_id, &client_addr, &0));
+    assert!(escrow.release_milestone(&contract_id, &client_addr, &0, &0));
 
     // approve_milestone_release on Completed -> InvalidState
     let res = escrow.try_approve_milestone_release(&contract_id, &client_addr, &0);
     assert_contract_error(res, Error::InvalidState);
 
     // release_milestone on Completed -> InvalidState
-    let res = escrow.try_release_milestone(&contract_id, &client_addr, &0);
+    let res = escrow.try_release_milestone(&contract_id, &client_addr, &0, &0);
     assert_contract_error(res, Error::InvalidState);
 
     // submit_work_evidence on Completed -> InvalidState
@@ -553,7 +553,7 @@ fn test_milestone_actions_blocked_when_paused() {
     assert_contract_error(res, EscrowError::ContractPaused);
 
     // release_milestone -> ContractPaused
-    let res = escrow.try_release_milestone(&contract_id, &client, &0);
+    let res = escrow.try_release_milestone(&contract_id, &client, &0, &0);
     assert_contract_error(res, EscrowError::ContractPaused);
 
     // submit_work_evidence -> ContractPaused
@@ -569,5 +569,5 @@ fn test_milestone_actions_blocked_when_paused() {
 
     // Actions succeed after unpause
     assert!(escrow.approve_milestone_release(&contract_id, &client, &0));
-    assert!(escrow.release_milestone(&contract_id, &client, &0));
+    assert!(escrow.release_milestone(&contract_id, &client, &0, &0));
 }

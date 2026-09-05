@@ -62,7 +62,7 @@ fn release_emits_indexed_event_with_correct_payload() {
     let fixture = EscrowFixture::builder().funded().build();
     let client = fixture.escrow();
     client.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0u32);
-    client.release_milestone(&fixture.escrow_id, &fixture.client, &0u32);
+    client.release_milestone(&fixture.escrow_id, &fixture.client, &0u32, &0);
 
     let events = mlstn_idx_events(&fixture.env, &fixture.escrow_address);
     let release_event = events

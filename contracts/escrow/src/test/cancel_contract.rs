@@ -162,7 +162,7 @@ fn cancel_rejects_contract_after_a_release() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &600_i128));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
 
     super::assert_contract_error(
         client.try_cancel_contract(&contract_id, &client_addr),
@@ -191,7 +191,7 @@ fn cancel_rejects_completed_contract() {
     assert!(client.deposit_funds(&contract_id, &client_addr, &600_i128));
     for milestone_idx in 0..3 {
         assert!(client.approve_milestone_release(&contract_id, &client_addr, &milestone_idx));
-        assert!(client.release_milestone(&contract_id, &client_addr, &milestone_idx));
+        assert!(client.release_milestone(&contract_id, &client_addr, &milestone_idx, &0));
     }
 
     super::assert_contract_error(

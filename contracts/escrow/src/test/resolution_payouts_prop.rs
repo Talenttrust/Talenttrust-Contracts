@@ -59,7 +59,7 @@ fn run_multi_release(amounts: &[i128], fee_bps: u32) {
 
     for (idx, &gross) in amounts.iter().enumerate() {
         client.approve_milestone_release(&id, &client_addr, &(idx as u32));
-        client.release_milestone(&id, &client_addr, &(idx as u32));
+        client.release_milestone(&id, &client_addr, &(idx as u32, &0));
 
         expected_gross_released += gross;
 

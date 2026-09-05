@@ -27,7 +27,7 @@ fn refund_rejects_completed_contract() {
     let escrow = fixture.escrow();
     for index in 0..3_u32 {
         escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &index);
-        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &index);
+        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &index, &0);
     }
     let ids = vec![&fixture.env, 0_u32];
     assert_contract_error(

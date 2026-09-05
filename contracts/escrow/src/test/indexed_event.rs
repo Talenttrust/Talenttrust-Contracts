@@ -125,7 +125,7 @@ fn test_indexed_event_emitted_on_milestone_release() {
     );
 
     client.deposit_funds(&id, &client_addr, &100_0000000);
-    client.release_milestone(&id, &client_addr, &0);
+    client.release_milestone(&id, &client_addr, &0, &0);
 
     let events = get_contract_indexed_events(&env, id);
     let latest_event = events.get(events.len() - 1).unwrap();

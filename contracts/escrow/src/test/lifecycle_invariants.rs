@@ -216,7 +216,7 @@ fn deposit_then_full_release_reconciles() {
     // Release each milestone and verify invariants hold after every step.
     for idx in 0u32..3 {
         escrow.approve_milestone_release(&cid, &client_addr, &idx);
-        escrow.release_milestone(&cid, &client_addr, &idx);
+        escrow.release_milestone(&cid, &client_addr, &idx, &0);
         assert_accounting_invariant(&escrow, cid);
         assert_token_conservation(&escrow, &token, cid);
     }
@@ -311,7 +311,7 @@ fn partial_releases_then_refund_remainder_reconciles() {
 
     // Release milestone 0 (100 stroops → freelancer).
     escrow.approve_milestone_release(&cid, &client_addr, &0);
-    escrow.release_milestone(&cid, &client_addr, &0);
+    escrow.release_milestone(&cid, &client_addr, &0, &0);
     assert_accounting_invariant(&escrow, cid);
     assert_token_conservation(&escrow, &token, cid);
     assert_eq!(escrow.get_contract(&cid).released_amount, 100);
@@ -361,7 +361,7 @@ fn incremental_partial_refunds_invariant_holds_at_each_step() {
 
     // Release milestone 0.
     escrow.approve_milestone_release(&cid, &client_addr, &0);
-    escrow.release_milestone(&cid, &client_addr, &0);
+    escrow.release_milestone(&cid, &client_addr, &0, &0);
     assert_accounting_invariant(&escrow, cid);
     assert_token_conservation(&escrow, &token, cid);
 
@@ -621,7 +621,7 @@ fn multiple_escrows_are_isolated() {
     // Release all milestones in contract A.
     for idx in 0u32..3 {
         escrow.approve_milestone_release(&cid_a, &client_a, &idx);
-        escrow.release_milestone(&cid_a, &client_a, &idx);
+        escrow.release_milestone(&cid_a, &client_a, &idx, &0);
         assert_accounting_invariant(&escrow, cid_a);
         // Contract B must be unaffected.
         assert_accounting_invariant(&escrow, cid_b);
@@ -630,7 +630,7 @@ fn multiple_escrows_are_isolated() {
 
     // Release milestone 0 in contract B, refund milestone 1.
     escrow.approve_milestone_release(&cid_b, &client_b, &0);
-    escrow.release_milestone(&cid_b, &client_b, &0);
+    escrow.release_milestone(&cid_b, &client_b, &0, &0);
     assert_accounting_invariant(&escrow, cid_b);
     // Contract A should still be stable (Completed).
     assert_accounting_invariant(&escrow, cid_a);
@@ -711,7 +711,7 @@ fn multiple_escrows_with_arbiter_and_mixed_auth_modes() {
 
     // X: release by client.
     escrow.approve_milestone_release(&cid_x, &client_x, &0);
-    escrow.release_milestone(&cid_x, &client_x, &0);
+    escrow.release_milestone(&cid_x, &client_x, &0, &0);
     assert_accounting_invariant(&escrow, cid_x);
     assert_token_conservation_multi(&escrow, &token, &[cid_x, cid_y, cid_z]);
 
@@ -895,11 +895,11 @@ fn double_release_is_rejected() {
     mint(&env, &token, &client_addr, 300);
     escrow.deposit_funds(&cid, &client_addr, &300);
     escrow.approve_milestone_release(&cid, &client_addr, &0);
-    escrow.release_milestone(&cid, &client_addr, &0);
+    escrow.release_milestone(&cid, &client_addr, &0, &0);
     assert_accounting_invariant(&escrow, cid);
 
     // Replay release must fail.
-    let result = escrow.try_release_milestone(&cid, &client_addr, &0);
+    let result = escrow.try_release_milestone(&cid, &client_addr, &0, &0);
     super::assert_contract_error(result, EscrowError::MilestoneAlreadyReleased);
     // Invariant still holds after the rejected replay.
     assert_accounting_invariant(&escrow, cid);
@@ -1083,7 +1083,7 @@ fn release_without_deposit_is_rejected() {
         &ReleaseAuthorization::ClientOnly,
     );
 
-    let result = escrow.try_release_milestone(&cid, &client_addr, &0);
+    let result = escrow.try_release_milestone(&cid, &client_addr, &0, &0);
     assert!(result.is_err(), "release without deposit must be rejected");
     assert_accounting_invariant(&escrow, cid);
 }
@@ -1109,7 +1109,7 @@ fn release_out_of_range_milestone_is_rejected() {
     mint(&env, &token, &client_addr, 100);
     escrow.deposit_funds(&cid, &client_addr, &100);
 
-    let result = escrow.try_release_milestone(&cid, &client_addr, &99);
+    let result = escrow.try_release_milestone(&cid, &client_addr, &99, &0);
     super::assert_contract_error(result, EscrowError::IndexOutOfBounds);
     assert_accounting_invariant(&escrow, cid);
     assert_token_conservation(&escrow, &token, cid);
@@ -1142,10 +1142,10 @@ fn get_contract_round_trips_accounting_fields_after_lifecycle() {
     escrow.deposit_funds(&cid, &client_addr, &1000);
 
     escrow.approve_milestone_release(&cid, &client_addr, &0);
-    escrow.release_milestone(&cid, &client_addr, &0);
+    escrow.release_milestone(&cid, &client_addr, &0, &0);
 
     escrow.approve_milestone_release(&cid, &client_addr, &1);
-    escrow.release_milestone(&cid, &client_addr, &1);
+    escrow.release_milestone(&cid, &client_addr, &1, &0);
 
     let c = escrow.get_contract(&cid);
     assert_eq!(c.client, client_addr, "client field must survive round-trip");
@@ -1237,7 +1237,7 @@ fn full_lifecycle_deposit_partial_release_partial_refund_then_finalize() {
     // Release milestones 0 and 1.
     for idx in [0u32, 1u32] {
         escrow.approve_milestone_release(&cid, &client_addr, &idx);
-        escrow.release_milestone(&cid, &client_addr, &idx);
+        escrow.release_milestone(&cid, &client_addr, &idx, &0);
         assert_accounting_invariant(&escrow, cid);
         assert_token_conservation(&escrow, &token, cid);
     }

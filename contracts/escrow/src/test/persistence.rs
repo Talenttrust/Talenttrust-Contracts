@@ -177,7 +177,7 @@ fn release_milestone_rejects_after_finalization() {
     assert!(client.finalize_contract(&contract_id, &client_addr));
 
     super::assert_contract_error(
-        client.try_release_milestone(&contract_id, &client_addr, &0),
+        client.try_release_milestone(&contract_id, &client_addr, &0, &0),
         Error::AlreadyFinalized,
     );
 }
@@ -281,9 +281,9 @@ fn finalize_completed_with_mixed_releases_and_refunds() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &super::total_milestone_amount()));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &1));
-    assert!(client.release_milestone(&contract_id, &client_addr, &1));
+    assert!(client.release_milestone(&contract_id, &client_addr, &1, &0));
 
     assert!(client.refund_unreleased_milestones(&contract_id, &vec![&env, 2u32]) > 0);
     assert_eq!(
@@ -384,7 +384,7 @@ fn get_contract_reflects_deposit_and_release_state() {
     assert_eq!(funded.status, ContractStatus::Funded);
 
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
     let after_release = client.get_contract(&contract_id);
     assert_eq!(after_release.released_amount, MILESTONE_ONE);
     assert_eq!(after_release.funded_amount, total_milestone_amount());
@@ -400,7 +400,7 @@ fn get_contract_observations_are_pure() {
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
 
     let initial = client.get_contract(&contract_id);
     let initial_funded = initial.funded_amount;
@@ -479,7 +479,7 @@ fn get_milestones_observations_are_pure() {
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
 
     let initial = client.get_milestones(&contract_id);
     for _ in 0..16 {
@@ -556,7 +556,7 @@ fn get_refundable_balance_subtracts_released_amount() {
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
 
     let expected = total_milestone_amount() - MILESTONE_ONE;
     assert_eq!(client.get_refundable_balance(&contract_id), expected);
@@ -583,7 +583,7 @@ fn get_refundable_balance_observations_are_pure() {
     let client = register_client(&env);
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
 
     let initial = client.get_refundable_balance(&contract_id);
     for _ in 0..32 {
@@ -977,7 +977,7 @@ fn get_contract_summary_works_as_expected() {
 
     // 4. Released milestone summary verification
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert!(client.release_milestone(&contract_id, &client_addr, &0));
+    assert!(client.release_milestone(&contract_id, &client_addr, &0, &0));
     let summary_released = client.get_contract_summary(&contract_id);
     assert_eq!(summary_released.released_amount, MILESTONE_ONE);
     assert_eq!(
