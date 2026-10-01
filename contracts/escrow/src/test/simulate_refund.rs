@@ -334,7 +334,8 @@ fn simulate_refund_fails_on_released_milestone() {
 
     let indices = vec![&fixture.env, 0u32];
     let result = escrow.simulate_refund(&fixture.escrow_id, &indices);
-    assert_refund_err(&result, Error::AlreadyRefunded as u32);
+    // Same code `refund_unreleased_milestones` reports for a released milestone.
+    assert_refund_err(&result, Error::MilestoneAlreadyReleased as u32);
 }
 
 // ─── rejection: already refunded ─────────────────────────────────────────────
