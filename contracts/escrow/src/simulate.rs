@@ -4,21 +4,46 @@ use crate::types::{
 };
 use crate::utils::now_seconds;
 use crate::{
-    amount_validation, approvals, refund, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
-    EscrowArgs, EscrowClient, EscrowError, Milestone, MAX_MILESTONES,
+    amount_validation, approvals, refund, storage, Contract, ContractStatus, DataKey, Error,
+    Escrow, EscrowArgs, EscrowClient, EscrowError, Milestone, MAX_MILESTONES,
 };
-use soroban_sdk::{contractimpl, token, Address, Env, Symbol, Vec};
+use soroban_sdk::{contractimpl, token, Address, Env, Vec};
 
-fn is_paused(env: &Env) -> bool {
-    env.storage()
-        .persistent()
-        .get::<_, bool>(&DataKey::Paused)
-        .unwrap_or(false)
-        || env
-            .storage()
-            .persistent()
-            .get::<_, bool>(&DataKey::Emergency)
-            .unwrap_or(false)
+// # Failure model
+//
+// The dry runs come in two shapes, and each keeps its shape for *every* failure,
+// including damaged storage:
+//
+// * `simulate_release_milestone` and `simulate_refund` never panic. Every
+//   rejection — validation, arithmetic, or a malformed persisted entry — is
+//   returned as `would_succeed: false` with a stable `error_code`.
+// * `simulate_deposit_funds` and `simulate_create_contract` panic with a typed
+//   contract error, exactly like the entrypoints they mirror; callers use the
+//   generated `try_*` client methods.
+//
+// Storage is read through the typed helpers in `crate::storage`, so a malformed
+// entry is reported as `StorageInvariantViolated` instead of aborting with an
+// untyped host conversion error. No dry run writes storage, transfers tokens,
+// or emits events, so a failed or repeated simulation cannot change state.
+// Results depend only on ledger state and arguments: the same inputs always
+// produce the same outcome.
+
+/// Pause and initialization preconditions shared by the non-panicking dry runs.
+///
+/// Mirrors the order used by the mutating entrypoints: initialization first,
+/// then the legacy pause flag, then the emergency flag. A malformed flag fails
+/// closed with `StorageInvariantViolated`.
+fn check_preconditions(env: &Env) -> Result<(), Error> {
+    match storage::read_persistent::<_, bool>(env, &DataKey::Initialized).or_default(false)? {
+        true => {}
+        false => return Err(Error::NotInitialized),
+    }
+    storage::check_not_paused(env)
+}
+
+/// Read the accumulated protocol fees without trapping on a malformed entry.
+fn read_accumulated_fees(env: &Env) -> Result<i128, Error> {
+    storage::read_persistent::<_, i128>(env, &DataKey::AccumulatedProtocolFees).or_default(0)
 }
 
 #[contractimpl]
@@ -60,20 +85,13 @@ impl Escrow {
             would_complete_contract: false,
         };
 
-        if !Self::is_initialized(&env) {
-            return err(Error::NotInitialized as u32);
-        }
-        if is_paused(&env) {
-            return err(Error::ContractPaused as u32);
+        if let Err(error) = check_preconditions(&env) {
+            return err(error as u32);
         }
 
-        let contract: Contract = match env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-        {
-            Some(c) => c,
-            None => return err(EscrowError::ContractNotFound as u32),
+        let contract: Contract = match storage::try_load_contract(&env, contract_id) {
+            Ok(c) => c,
+            Err(error) => return err(error as u32),
         };
 
         if Self::is_finalized(&env, contract_id) {
@@ -102,13 +120,9 @@ impl Escrow {
             return err(EscrowError::UnauthorizedRole as u32);
         }
 
-        let key = (
-            DataKey::Contract(contract_id),
-            Symbol::new(&env, "milestones"),
-        );
-        let milestones: Vec<Milestone> = match env.storage().persistent().get(&key) {
-            Some(m) => m,
-            None => return err(Error::ContractNotFound as u32),
+        let milestones: Vec<Milestone> = match storage::try_load_milestones(&env, contract_id) {
+            Ok(m) => m,
+            Err(error) => return err(error as u32),
         };
 
         if milestone_index >= milestones.len() {
@@ -143,13 +157,16 @@ impl Escrow {
             }
         };
 
-        let net_amount = gross_amount - protocol_fee;
+        let net_amount = match gross_amount.checked_sub(protocol_fee) {
+            Some(v) => v,
+            None => return err(EscrowError::PotentialOverflow as u32),
+        };
 
-        let accumulated_fees: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::AccumulatedProtocolFees)
-            .unwrap_or(0);
+        // Read for its failure mode only: a malformed fee accumulator makes the
+        // real release fail when it credits the fee, so the dry run must too.
+        if let Err(error) = read_accumulated_fees(&env) {
+            return err(error as u32);
+        }
 
         // Invariant: use checked arithmetic throughout the balance calculation
         // so that any overflow/underflow is surfaced as PotentialOverflow rather
@@ -228,11 +245,7 @@ impl Escrow {
             env.panic_with_error(Error::AmountMustBePositive);
         }
 
-        let contract: Contract = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+        let contract: Contract = storage::load_contract(&env, contract_id);
 
         if caller != contract.client {
             env.panic_with_error(Error::UnauthorizedRole);
@@ -245,14 +258,7 @@ impl Escrow {
             _ => env.panic_with_error(Error::InvalidState),
         }
 
-        let milestones: Vec<Milestone> = env
-            .storage()
-            .persistent()
-            .get(&(
-                DataKey::Contract(contract_id),
-                Symbol::new(&env, "milestones"),
-            ))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+        let milestones: Vec<Milestone> = storage::load_milestones(&env, contract_id);
 
         // Invariant: use checked_add fold so milestone-amount sum overflow is
         // surfaced as PotentialOverflow rather than wrapping silently.
@@ -271,8 +277,6 @@ impl Escrow {
         if new_funded_amount > total_milestone_amount {
             env.panic_with_error(Error::AmountMustBePositive);
         }
-
-        let new_funded_amount = contract.funded_amount.checked_add(amount).unwrap(); // guaranteed safe by validation
 
         let projected_status = if new_funded_amount >= total_milestone_amount {
             ContractStatus::Funded
@@ -338,38 +342,36 @@ impl Escrow {
             env.panic_with_error(EscrowError::TooManyMilestones);
         }
 
-        let max_total = env
-            .storage()
-            .persistent()
-            .get::<_, crate::GovernedParameters>(&DataKey::GovernedParameters)
-            .map(|params| params.max_escrow_total_stroops)
-            .unwrap_or(i128::MAX);
+        // A malformed governed-parameters entry must not silently lift the cap
+        // to `i128::MAX`: fail closed instead.
+        let max_total = match storage::read_persistent::<_, crate::GovernedParameters>(
+            &env,
+            &DataKey::GovernedParameters,
+        ) {
+            storage::StorageRead::Present(params) => params.max_escrow_total_stroops,
+            storage::StorageRead::Missing => i128::MAX,
+            storage::StorageRead::Corrupt => env.panic_with_error(Error::StorageInvariantViolated),
+        };
 
         let mut native_milestones = [0_i128; MAX_MILESTONES as usize];
         let len = milestones.len() as usize;
         for i in 0..len {
             native_milestones[i] = milestones.get(i as u32).unwrap();
         }
-        let total_amount = match amount_validation::validate_milestone_amounts(&native_milestones[..len], max_total) {
+        let total_amount = match amount_validation::validate_milestone_amounts(
+            &native_milestones[..len],
+            max_total,
+        ) {
             Ok(total) => total,
             Err(err) => env.panic_with_error(err),
         };
 
-        // Read next contract ID without incrementing
-        ttl::extend_next_contract_id_ttl(&env);
-        let contract_id: u32 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::NextContractId)
-            .unwrap_or(1);
-
-        // Invariant: use checked_add fold so milestone total overflow is
-        // surfaced as PotentialOverflow rather than wrapping silently and
-        // producing a wrong projected total amount.
-        let total_amount: i128 = milestones
-            .iter()
-            .try_fold(0_i128, |acc, m| acc.checked_add(m))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+        // Read the next contract ID without incrementing it. The dry run must
+        // not write, so the TTL is not extended here either (`create_contract`
+        // extends it when it actually allocates the ID).
+        let contract_id: u32 = storage::read_persistent::<_, u32>(&env, &DataKey::NextContractId)
+            .or_default(1)
+            .unwrap_or_else(|error| env.panic_with_error(error));
 
         SimulateCreateContractOutcome {
             contract_id,
@@ -421,11 +423,8 @@ impl Escrow {
             would_complete_contract: false,
         };
 
-        if !Self::is_initialized(&env) {
-            return err(Error::NotInitialized as u32);
-        }
-        if is_paused(&env) {
-            return err(Error::ContractPaused as u32);
+        if let Err(error) = check_preconditions(&env) {
+            return err(error as u32);
         }
 
         // V1: the request-shape boundary defined in `crate::refund`, shared with
@@ -434,13 +433,9 @@ impl Escrow {
             return err(error as u32);
         }
 
-        let contract: Contract = match env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-        {
-            Some(c) => c,
-            None => return err(EscrowError::ContractNotFound as u32),
+        let contract: Contract = match storage::try_load_contract(&env, contract_id) {
+            Ok(c) => c,
+            Err(error) => return err(error as u32),
         };
 
         if Self::is_finalized(&env, contract_id) {
@@ -452,72 +447,28 @@ impl Escrow {
             return err(error as u32);
         }
 
-        let key = (
-            DataKey::Contract(contract_id),
-            Symbol::new(&env, "milestones"),
-        );
-        let milestones: Vec<Milestone> = match env.storage().persistent().get(&key) {
-            Some(m) => m,
-            None => return err(EscrowError::ContractNotFound as u32),
+        let milestones: Vec<Milestone> = match storage::try_load_milestones(&env, contract_id) {
+            Ok(m) => m,
+            Err(error) => return err(error as u32),
         };
 
-        // V3 + V4/V5: the same milestone, total and balance boundaries the
-        // mutating entrypoint enforces. Reusing them keeps the projection and the
-        // real call in lockstep: an overflow is reported as `PotentialOverflow`
-        // instead of being silently folded into a successful-looking total, and a
-        // released milestone reports `MilestoneAlreadyReleased` rather than the
-        // inconsistent `AlreadyRefunded`.
+        // V3: the same milestone and total boundaries the mutating entrypoint
+        // enforces — index bounds, released (`MilestoneAlreadyReleased`) before
+        // refunded (`AlreadyRefunded`), deadline, and a checked total. This is
+        // the *only* pass over the requested indices: each amount is counted
+        // exactly once, so the projected total equals what the real refund
+        // would move.
         let total_refund_amount =
             match refund::validate_milestones(&milestones, &milestone_indices, now_seconds(&env)) {
                 Ok(total) => total,
                 Err(error) => return err(error as u32),
             };
 
-        for idx in milestone_indices.iter() {
-            if idx >= milestones.len() {
-                return err(Error::IndexOutOfBounds as u32);
-            }
-
-            let milestone = milestones.get(idx).unwrap();
-
-            if milestone.released {
-                return err(Error::AlreadyRefunded as u32);
-            }
-
-            if milestone.refunded {
-                return err(EscrowError::AlreadyRefunded as u32);
-            }
-
-            if let Some(_deadline) = milestone.deadline {
-                if !Self::is_milestone_overdue(env.clone(), contract_id, idx) {
-                    return err(Error::MilestoneNotOverdue as u32);
-                }
-            }
-
-            // Invariant: accumulate with checked_add and return PotentialOverflow
-            // on overflow. The original unwrap_or(0) silently zeroed the
-            // accumulator which could allow a crafted set of milestone amounts
-            // to bypass the InsufficientFunds guard.
-            total_refund_amount = match total_refund_amount.checked_add(milestone.amount) {
-                Some(v) => v,
-                None => return err(EscrowError::PotentialOverflow as u32),
-            };
-        }
-
-        // Invariant: use checked_sub for the available balance calculation.
-        // Unchecked subtraction wraps on underflow, producing a large positive
-        // value that would bypass the InsufficientFunds guard below.
-        let available_balance = match contract
-            .funded_amount
-            .checked_sub(contract.released_amount)
-            .and_then(|b| b.checked_sub(contract.refunded_amount))
-        {
-            Some(b) => b,
-            None => return err(EscrowError::PotentialOverflow as u32),
-        };
-
-        if available_balance < total_refund_amount {
-            return err(EscrowError::InsufficientFunds as u32);
+        // V4/V5: the shared balance boundary. Checked subtraction reports
+        // broken accounting as `PotentialOverflow`, and an over-committed or
+        // short balance as `InsufficientFunds`, exactly as the real refund does.
+        if let Err(error) = refund::ensure_available_balance(&contract, total_refund_amount) {
+            return err(error as u32);
         }
 
         // Invariant: return PotentialOverflow on projected_refunded_amount
