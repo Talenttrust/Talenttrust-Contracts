@@ -88,9 +88,11 @@ mod milestone_transitions;
 mod milestones;
 pub mod milestones_consts;
 pub mod validation_boundaries;
-mod refund_impl;
+mod refund;
 mod release;
 mod reputation;
+mod proptest;
+mod reputation_migration;
 mod rollback;
 mod schema_migration;
 mod settlement;
@@ -152,6 +154,7 @@ pub use dispute::DisputeInfo;
 pub use events::{EventInput, MAX_EVENT_BATCH_SIZE};
 pub use migration::{ContractV1, PendingClientMigration, CONTRACT_STORAGE_SCHEMA_VERSION};
 pub use milestones_consts::PROTOCOL_FEE_BPS_DENOMINATOR;
+#[cfg(test)]
 pub use proptest::{check_contract_invariants, InvariantViolation};
 pub use token_scale::{normalized_amount, scale_multiplier, MAX_TOKEN_DECIMALS};
 pub use ttl::{
@@ -530,14 +533,6 @@ impl Escrow {
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
         Self::accept_client_migration_impl(&env, contract_id, new_client)
-    }
-
-    pub fn cancel_client_migration(
-        env: Env,
-        contract_id: u32,
-        current_client: Address,
-    ) -> bool {
-        Self::cancel_client_migration_impl(&env, contract_id, current_client)
     }
 
     pub fn has_pending_client_migration(env: Env, contract_id: u32) -> bool {
@@ -954,7 +949,7 @@ impl Escrow {
         if all_released {
             env.events().publish(
                 (symbol_short!("ctrct_cmp"), contract_id),
-                (caller, env.ledger().timestamp()),
+                (caller.clone(), env.ledger().timestamp()),
             );
         }
 
@@ -1226,7 +1221,7 @@ impl Escrow {
         if all_released {
             env.events().publish(
                 (symbol_short!("ctrct_cmp"), contract_id),
-                (caller, env.ledger().timestamp()),
+                (caller.clone(), env.ledger().timestamp()),
             );
         }
 
@@ -2265,7 +2260,7 @@ impl Escrow {
         contract_id: u32,
         milestone_index: u32,
     ) -> Option<MilestoneApprovals> {
-        let approval_key = keys::milestone_approval_key(&env, contract_id, milestone_index);
+        let approval_key = keys::milestone_approval_key(contract_id, milestone_index);
         let approvals = env.storage().temporary().get(&approval_key);
         if approvals.is_some() {
             env.storage().temporary().extend_ttl(
@@ -3963,6 +3958,7 @@ impl Escrow {
     ///
     /// This entrypoint performs no mutation and does not extend TTLs, so it is
     /// safe to call from property-test harnesses and monitoring jobs.
+    #[cfg(test)]
     pub fn check_invariants(env: Env, contract_id: u32) -> Result<(), InvariantViolation> {
         proptest::check_contract_invariants(&env, contract_id)
     }
