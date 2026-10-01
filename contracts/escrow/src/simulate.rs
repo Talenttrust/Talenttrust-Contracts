@@ -473,51 +473,8 @@ impl Escrow {
                 Err(error) => return err(error as u32),
             };
 
-        for idx in milestone_indices.iter() {
-            if idx >= milestones.len() {
-                return err(Error::IndexOutOfBounds as u32);
-            }
-
-            let milestone = milestones.get(idx).unwrap();
-
-            if milestone.released {
-                return err(Error::AlreadyRefunded as u32);
-            }
-
-            if milestone.refunded {
-                return err(EscrowError::AlreadyRefunded as u32);
-            }
-
-            if let Some(_deadline) = milestone.deadline {
-                if !Self::is_milestone_overdue(env.clone(), contract_id, idx) {
-                    return err(Error::MilestoneNotOverdue as u32);
-                }
-            }
-
-            // Invariant: accumulate with checked_add and return PotentialOverflow
-            // on overflow. The original unwrap_or(0) silently zeroed the
-            // accumulator which could allow a crafted set of milestone amounts
-            // to bypass the InsufficientFunds guard.
-            total_refund_amount = match total_refund_amount.checked_add(milestone.amount) {
-                Some(v) => v,
-                None => return err(EscrowError::PotentialOverflow as u32),
-            };
-        }
-
-        // Invariant: use checked_sub for the available balance calculation.
-        // Unchecked subtraction wraps on underflow, producing a large positive
-        // value that would bypass the InsufficientFunds guard below.
-        let available_balance = match contract
-            .funded_amount
-            .checked_sub(contract.released_amount)
-            .and_then(|b| b.checked_sub(contract.refunded_amount))
-        {
-            Some(b) => b,
-            None => return err(EscrowError::PotentialOverflow as u32),
-        };
-
-        if available_balance < total_refund_amount {
-            return err(EscrowError::InsufficientFunds as u32);
+        if let Err(error) = refund::ensure_available_balance(&contract, total_refund_amount) {
+            return err(error as u32);
         }
 
         // Invariant: return PotentialOverflow on projected_refunded_amount

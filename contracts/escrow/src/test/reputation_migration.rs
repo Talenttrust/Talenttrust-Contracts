@@ -177,6 +177,79 @@ fn migration_v1_zero_values_migrates() {
     assert_eq!(after.last_rating, 0);
 }
 
+/// A legacy record with any negative field is rejected without rewriting the
+/// record or sealing it with a current-version marker.
+#[test]
+fn migration_rejects_negative_reputation_fields_without_writes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+
+    for invalid in [
+        Reputation {
+            completed_contracts: -1,
+            total_rating: 0,
+            last_rating: 0,
+        },
+        Reputation {
+            completed_contracts: 0,
+            total_rating: -1,
+            last_rating: 0,
+        },
+        Reputation {
+            completed_contracts: 0,
+            total_rating: 0,
+            last_rating: -1,
+        },
+    ] {
+        let freelancer = Address::generate(&env);
+        write_v1_reputation(&env, &escrow_addr, &freelancer, &invalid);
+
+        let migrated = env.as_contract(&escrow_addr, || {
+            migrate_reputation_storage_impl(&env, &freelancer)
+        });
+
+        assert!(!migrated);
+        assert_eq!(
+            read_reputation_direct(&env, &escrow_addr, &freelancer),
+            Some(invalid)
+        );
+        assert_eq!(read_version_direct(&env, &escrow_addr, &freelancer), None);
+    }
+}
+
+/// Nonnegative fields remain valid at their representable upper boundary and
+/// are preserved exactly by migration.
+#[test]
+fn migration_accepts_maximum_nonnegative_reputation_fields() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let freelancer = Address::generate(&env);
+    let maximum = Reputation {
+        completed_contracts: i128::MAX,
+        total_rating: i128::MAX,
+        last_rating: i128::MAX,
+    };
+    write_v1_reputation(&env, &escrow_addr, &freelancer, &maximum);
+
+    let migrated = env.as_contract(&escrow_addr, || {
+        migrate_reputation_storage_impl(&env, &freelancer)
+    });
+
+    assert!(migrated);
+    assert_eq!(
+        read_reputation_direct(&env, &escrow_addr, &freelancer),
+        Some(maximum)
+    );
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &freelancer),
+        Some(REPUTATION_STORAGE_VERSION)
+    );
+}
+
 /// Calling migration on a record that already has the current version marker
 /// returns false without touching storage.
 #[test]
