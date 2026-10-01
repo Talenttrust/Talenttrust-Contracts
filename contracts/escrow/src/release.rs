@@ -1,3 +1,52 @@
+//! Milestone release execution for the escrow contract.
+//!
+//! This module owns the state transition that moves a milestone from `Pending`
+//! to `Released` and the money/accounting side effects that must accompany it.
+//! The public entrypoints in `lib.rs` apply the outer initialization, pause,
+//! finalization, authentication, and re-entrancy guards; the executors here are
+//! the shared mutation site that must keep the invariants below true for both
+//! the single-milestone and the bounded-batch paths.
+//!
+//! # State invariants
+//!
+//! **R1 — Release is one-shot per milestone.** A milestone may transition
+//! `Pending -> Released` exactly once. A release is rejected before any
+//! mutation when the milestone's `released` flag is already set or when the
+//! persisted `DataKey::MilestoneReleased(contract_id, index)` sentinel exists.
+//! The sentinel is written *before* outward accounting (checks-effects-
+//! interactions) so a re-entrant call cannot observe an intermediate state.
+//! (tests: `released_milestone_cannot_be_released_twice`,
+//! `batch_release_rejects_an_already_released_milestone`.)
+//!
+//! **R2 — Release requires the mode's approvals.** The caller must pass the
+//! contract's `ReleaseAuthorization` role gate *and*
+//! [`approvals::check_approvals`] must observe a sufficient, live approval
+//! record: `ClientOnly` = client, `ArbiterOnly` = arbiter,
+//! `ClientAndArbiter` = either, `MultiSig` = client and freelancer. A missing
+//! or insufficient record fails closed. (tests:
+//! `release_without_mode_approval_is_rejected`,
+//! `multisig_release_requires_both_approvals`.)
+//!
+//! **R3 — Release moves exactly the milestone amount.** `released_amount`
+//! increases by `gross - protocol_fee` for exactly the milestone(s) released;
+//! `funded_amount` and `refunded_amount` are never touched and the protocol fee
+//! is accumulated once. (tests:
+//! `release_moves_exactly_the_milestone_amount_and_updates_accounting`,
+//! `batch_release_moves_exact_sum_and_updates_accounting`.)
+//!
+//! **R4 — Rejected releases are total no-ops.** Every rejection above happens
+//! before the first storage write (milestone flags, `MilestoneReleased`,
+//! `released_amount`, approval clearing), so a failed release leaves the
+//! milestone vector and all balances byte-identical. (test:
+//! `rejected_release_leaves_state_unchanged`.)
+//!
+//! **R5 — Terminal contract states are immutable.** Release is only permitted
+//! while the contract is `Funded`; `Disputed`, `Completed`, `Cancelled`, and
+//! `Refunded` are release-locked. Settling the last outstanding milestone flips
+//! the contract to `Completed` atomically with the milestone flag. (tests:
+//! `disputed_contract_is_release_locked`,
+//! `release_all_milestones_completes_contract_and_is_terminal`.)
+
 use crate::{
     approvals, keys, milestone_transitions, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
     Milestone, ReleaseAuthorization,
@@ -446,5 +495,224 @@ impl Escrow {
         ttl::extend_contract_and_milestones_ttl(env, contract_id);
 
         true
+    }
+}
+
+// ── State-invariant tests ────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::{assert_contract_error, EscrowFixture};
+    use crate::EscrowError;
+
+    /// Invoke the release module's single-milestone executor exactly as a wired
+    /// `lib.rs` entrypoint would, from within the escrow's contract context.
+    fn release_impl(fixture: &EscrowFixture, caller: &Address, index: u32) -> bool {
+        fixture.env.as_contract(&fixture.escrow_address, || {
+            Escrow::release_milestone_impl(&fixture.env, fixture.escrow_id, caller.clone(), index)
+        })
+    }
+
+    /// Invoke the release module's bounded-batch executor directly.
+    fn batch_release_impl(
+        fixture: &EscrowFixture,
+        caller: &Address,
+        indices: soroban_sdk::Vec<u32>,
+    ) -> bool {
+        fixture.env.as_contract(&fixture.escrow_address, || {
+            Escrow::release_milestone_batch_impl(
+                &fixture.env,
+                fixture.escrow_id,
+                caller.clone(),
+                indices,
+            )
+        })
+    }
+
+    /// A fully funded, ClientOnly, three-milestone fixture: the baseline for
+    /// every release invariant below.
+    fn funded_client_only() -> EscrowFixture {
+        EscrowFixture::builder().funded().build()
+    }
+
+    // R3 — release moves exactly the milestone amount and updates accounting.
+    #[test]
+    fn release_moves_exactly_the_milestone_amount_and_updates_accounting() {
+        let fixture = funded_client_only();
+        let escrow = fixture.escrow();
+        assert!(escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0));
+
+        let before = escrow.get_contract(&fixture.escrow_id);
+        assert!(release_impl(&fixture, &fixture.client, 0));
+        let after = escrow.get_contract(&fixture.escrow_id);
+
+        let released = escrow.get_milestones(&fixture.escrow_id).get(0).unwrap();
+        assert!(released.released, "R1: the released flag must be set");
+        assert_eq!(
+            after.released_amount - before.released_amount,
+            released.amount,
+            "R3: released_amount must increase by exactly the milestone amount"
+        );
+        assert_eq!(
+            after.funded_amount, before.funded_amount,
+            "R3: funded_amount must not change on release"
+        );
+        assert_eq!(
+            after.refunded_amount, before.refunded_amount,
+            "R3: refunded_amount must not change on release"
+        );
+        assert_eq!(
+            after.status,
+            ContractStatus::Funded,
+            "R5: the contract stays Funded while milestones remain unsettled"
+        );
+    }
+
+    // R3 — a batch moves exactly the sum of the milestones it settles.
+    #[test]
+    fn batch_release_moves_exact_sum_and_updates_accounting() {
+        let fixture = funded_client_only();
+        let escrow = fixture.escrow();
+        assert!(escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0));
+        assert!(escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &1));
+
+        let milestones = escrow.get_milestones(&fixture.escrow_id);
+        let expected = milestones.get(0).unwrap().amount + milestones.get(1).unwrap().amount;
+
+        let before = escrow.get_contract(&fixture.escrow_id);
+        assert!(batch_release_impl(
+            &fixture,
+            &fixture.client,
+            soroban_sdk::vec![&fixture.env, 0u32, 1u32],
+        ));
+        let after = escrow.get_contract(&fixture.escrow_id);
+
+        assert_eq!(
+            after.released_amount - before.released_amount,
+            expected,
+            "R3: a batch must move exactly the sum of the released milestones"
+        );
+        let settled = escrow.get_milestones(&fixture.escrow_id);
+        assert!(settled.get(0).unwrap().released);
+        assert!(settled.get(1).unwrap().released);
+        assert!(!settled.get(2).unwrap().released);
+    }
+
+    // R1 — a released milestone cannot be released twice.
+    #[test]
+    #[should_panic]
+    fn released_milestone_cannot_be_released_twice() {
+        let fixture = funded_client_only();
+        let escrow = fixture.escrow();
+        assert!(escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0));
+        assert!(release_impl(&fixture, &fixture.client, 0));
+
+        // The second attempt must be rejected before any accounting is touched.
+        release_impl(&fixture, &fixture.client, 0);
+    }
+
+    // R1 — a batch containing an already-settled milestone is rejected whole.
+    #[test]
+    #[should_panic]
+    fn batch_release_rejects_an_already_released_milestone() {
+        let fixture = funded_client_only();
+        let escrow = fixture.escrow();
+        assert!(escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0));
+        assert!(release_impl(&fixture, &fixture.client, 0));
+
+        assert!(escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &1));
+        batch_release_impl(
+            &fixture,
+            &fixture.client,
+            soroban_sdk::vec![&fixture.env, 1u32, 0u32],
+        );
+    }
+
+    // R2 — a release without the mode's approval fails closed.
+    #[test]
+    #[should_panic]
+    fn release_without_mode_approval_is_rejected() {
+        let fixture = funded_client_only();
+        release_impl(&fixture, &fixture.client, 0);
+    }
+
+    // R2 — MultiSig needs both the client and the freelancer approval.
+    #[test]
+    #[should_panic]
+    fn multisig_release_requires_both_approvals() {
+        let fixture = EscrowFixture::builder()
+            .funded()
+            .release_authorization(ReleaseAuthorization::MultiSig)
+            .build();
+        let escrow = fixture.escrow();
+        assert!(escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0));
+        // Only the client has approved; the freelancer approval is still absent.
+        release_impl(&fixture, &fixture.client, 0);
+    }
+
+    // R5 — a disputed contract is release-locked.
+    #[test]
+    #[should_panic]
+    fn disputed_contract_is_release_locked() {
+        let fixture = funded_client_only();
+        let escrow = fixture.escrow();
+        assert!(escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &0));
+
+        fixture.env.as_contract(&fixture.escrow_address, || {
+            let key = DataKey::Contract(fixture.escrow_id);
+            let mut contract: Contract = fixture.env.storage().persistent().get(&key).unwrap();
+            contract.status = ContractStatus::Disputed;
+            fixture.env.storage().persistent().set(&key, &contract);
+        });
+
+        release_impl(&fixture, &fixture.client, 0);
+    }
+
+    // R5 — settling every milestone completes the contract, which is terminal.
+    #[test]
+    fn release_all_milestones_completes_contract_and_is_terminal() {
+        let fixture = funded_client_only();
+        let escrow = fixture.escrow();
+        for index in 0..3u32 {
+            assert!(escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &index));
+            assert!(release_impl(&fixture, &fixture.client, index));
+        }
+
+        let contract = escrow.get_contract(&fixture.escrow_id);
+        assert_eq!(contract.status, ContractStatus::Completed);
+        assert_eq!(contract.released_amount, fixture.total_amount());
+
+        // Once Completed, the release entrypoint refuses to mutate further.
+        assert_contract_error(
+            escrow.try_release_milestone(&fixture.escrow_id, &fixture.client, &0),
+            EscrowError::InvalidState,
+        );
+    }
+
+    // R4 — a rejected release leaves milestones and balances unchanged.
+    #[test]
+    fn rejected_release_leaves_state_unchanged() {
+        let fixture = funded_client_only();
+        let escrow = fixture.escrow();
+
+        let contract_before = escrow.get_contract(&fixture.escrow_id);
+        let milestones_before = escrow.get_milestones(&fixture.escrow_id);
+
+        assert_contract_error(
+            escrow.try_release_milestone(&fixture.escrow_id, &fixture.client, &0),
+            EscrowError::InsufficientApprovals,
+        );
+
+        assert_eq!(
+            escrow.get_contract(&fixture.escrow_id),
+            contract_before,
+            "R4: a rejected release must not change contract accounting"
+        );
+        assert_eq!(
+            escrow.get_milestones(&fixture.escrow_id),
+            milestones_before,
+            "R4: a rejected release must not change any milestone"
+        );
     }
 }
