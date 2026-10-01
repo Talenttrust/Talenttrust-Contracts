@@ -224,6 +224,11 @@ pub enum DataKey {
     /// when the guarded scope ends; never present outside an active call, so an
     /// unexpired entry here means a mutation is in progress.  Stored as `bool`.
     ContractMutationLock(u32),
+    /// Ledger-scoped guard used by `create_contract_guard` to prevent concurrent
+    /// contract creation within the same ledger.  Stored as a `u32` ledger sequence.
+    ContractCreationGuard,
+    /// Admin-initiated key-failure recovery record for a specific contract.
+    KeyRecovery(u32),
 }
 
 // ── Two-step Governance Proposal (Issue #1221) ───────────────────────────────
