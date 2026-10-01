@@ -10,7 +10,7 @@
 //   - Payload correctness for each resolution variant (FullRefund, FullPayout,
 //     PartialRefund, Split)
 
-#`!cfg(test)]
+#![cfg(test)]
 
 use super::register_client;
 use crate::{ContractStatus, DisputeResolution, DisputeSplit, ReleaseAuthorization};

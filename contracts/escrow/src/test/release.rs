@@ -8,7 +8,7 @@ use crate::{ContractStatus, EscrowError};
 /// - Every milestone must be approved before release, and releasing all
 ///   milestones must transition the contract to `Completed` with the full
 ///   amount recorded as released.
-##[test]
+#[test]
 fn release_funded_milestones_completes_contract() {
     let fixture = EscrowFixture::builder().funded().build();
     let escrow = fixture.escrow();

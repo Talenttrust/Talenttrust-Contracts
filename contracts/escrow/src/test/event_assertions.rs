@@ -1,4 +1,4 @@
-#`!cfg(test)]
+#![cfg(test)]
 
 /// Tests for the newly added events: `mlstn_app` (milestone approval) and
 /// `rep_issd` (reputation issuance).

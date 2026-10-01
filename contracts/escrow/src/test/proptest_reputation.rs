@@ -12,7 +12,7 @@
 //! test harness's `deposit_funds` cross-contract transfer (181 tests fail on
 //! clean main for the same reason). They will pass once that is fixed.
 
-#cfg(test)]
+#[cfg(test)]
 
 extern crate std;
 

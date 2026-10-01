@@ -1,4 +1,4 @@
-#`!cfg(test)]
+#![cfg(test)]
 
 use soroban_sdk::testutils::{address as _, Events as _};
 use soroban_sdk::{symbol_short, vec, Address, Env, Symbol, Vec};
