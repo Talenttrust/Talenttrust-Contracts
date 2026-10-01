@@ -33,6 +33,31 @@
 //! * Permissionless: no auth required; migration never escalates privilege and
 //!   never deletes or alters reputation field values.
 //!
+//! ## Retry / replay invariant (idempotent + atomic)
+//!
+//! Migration is **idempotent** and **all-or-nothing** under retry, replay, and
+//! interleaved concurrent calls:
+//!
+//! * **Exactly one apply**: the first call that observes a v1 record performs
+//!   the upgrade and returns `true`; every replay returns `false` and performs
+//!   no further writes. Reputation counters are copied verbatim, never summed
+//!   or incremented, so replay can never double-count (duplicate legacy source
+//!   markers for the same address are likewise irrelevant — migration is keyed
+//!   per address, not per index entry).
+//! * **Atomic outcome**: a call either writes both the refreshed record and the
+//!   current version marker (returning `true` only after re-reading the marker
+//!   to confirm the seal), or it returns before writing anything. There is no
+//!   successful return that leaves a record without a current marker.
+//! * **Partial states heal, never regress**: if an interrupted run leaves the
+//!   record rewritten but the marker unwritten (absent/legacy/`0` marker), a
+//!   retry completes the migration; an orphan marker without a record is a
+//!   deterministic no-op that never fabricates a record.
+//! * **Reads are pure**: `get_reputation` and friends never write, so
+//!   simultaneous RPC simulations cannot corrupt migration state. The contract
+//!   is single-threaded (no `thread`/`Mutex`), so "concurrency" reduces to
+//!   interleaved replay within one ledger and each address converges
+//!   independently.
+//!
 //! ## Compatibility contract (preserved)
 //!
 //! * v1 records (marker absent, `0`, or `1`) stay readable through

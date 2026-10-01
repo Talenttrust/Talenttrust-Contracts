@@ -22,6 +22,14 @@
 //! | corrupted zero marker heals to v2 | [`compat_corrupted_zero_marker_heals`] |
 //! | zero-contract boundary | [`compat_zero_contracts_boundary`] |
 //! | idempotency matrix (v1/v2/absent) | [`compat_idempotency_matrix`] |
+//! | replay converges, no double-apply (issue #1505) | [`replay_after_success_converges_no_double_apply`] |
+//! | interrupted partial write healed by retry, atomically | [`partial_write_then_retry_heals_atomically`] |
+//! | orphan marker without record never fabricates data | [`orphan_marker_without_record_is_deterministic_noop`] |
+//! | duplicate source markers do not double-count | [`duplicate_source_records_do_not_double_count`] |
+//! | empty/absent population is a deterministic no-op | [`boundary_empty_population_is_deterministic_noop`] |
+//! | unknown/corrupted versions handled deterministically | [`boundary_unknown_versions_are_deterministic`] |
+//! | interleaved migration / migrate-on-read converges per address | [`interleaved_migration_on_read_converges_per_address`] |
+//! | repeated pure reads never mutate migration state | [`repeated_reads_do_not_mutate_migration_state`] |
 
 use crate::{
     reputation_migration::{migrate_reputation_storage_impl, read_reputation_version},
@@ -561,7 +569,9 @@ fn compat_v1_readable_via_all_query_paths() {
     push_to_index(&env, &escrow_addr, &freelancer);
 
     // get_reputation returns v1 as-is.
-    let rep = escrow_client.get_reputation(&freelancer).expect("v1 must read");
+    let rep = escrow_client
+        .get_reputation(&freelancer)
+        .expect("v1 must read");
     assert_eq!(rep.completed_contracts, 5);
     assert_eq!(rep.total_rating, 22);
     assert_eq!(rep.last_rating, 4);
@@ -651,7 +661,10 @@ fn compat_future_marker_is_noop() {
     let after = read_reputation_direct(&env, &escrow_addr, &freelancer).unwrap();
     assert_eq!(after.completed_contracts, 4);
     assert_eq!(after.total_rating, 18);
-    assert_eq!(read_version_direct(&env, &escrow_addr, &freelancer), Some(99));
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &freelancer),
+        Some(99)
+    );
 
     // Reads still serve the record.
     assert!(escrow_client.get_reputation(&freelancer).is_some());
@@ -739,4 +752,340 @@ fn compat_idempotency_matrix() {
 
     assert!(!escrow_client.migrate_reputation_storage(&absent));
     assert_eq!(read_version_direct(&env, &escrow_addr, &absent), None);
+}
+
+// ── Retry / replay / partial-failure hardening (issue #1505) ─────────────────
+
+/// Replay after a successful migration converges: exactly one call reports a
+/// migration, every replay is a no-op, and the counters are never re-applied.
+#[test]
+fn replay_after_success_converges_no_double_apply() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let freelancer = Address::generate(&env);
+
+    let original = Reputation {
+        completed_contracts: 4,
+        total_rating: 17,
+        last_rating: 5,
+    };
+    write_v1_reputation(&env, &escrow_addr, &freelancer, &original);
+
+    // The first call applies the migration exactly once.
+    assert!(escrow_client.migrate_reputation_storage(&freelancer));
+
+    // Every subsequent replay is a converged no-op.
+    for _ in 0..8 {
+        assert!(
+            !escrow_client.migrate_reputation_storage(&freelancer),
+            "replay must be a no-op after a successful migration"
+        );
+    }
+
+    // No double-apply: counters equal the legacy seed exactly.
+    let rep = escrow_client
+        .get_reputation(&freelancer)
+        .expect("record must survive replay");
+    assert_eq!(rep.completed_contracts, 4);
+    assert_eq!(rep.total_rating, 17);
+    assert_eq!(rep.last_rating, 5);
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &freelancer),
+        Some(REPUTATION_STORAGE_VERSION)
+    );
+}
+
+/// A migration interrupted after rewriting the reputation record but before
+/// writing the version marker (a partial forward write) is healed by a retry.
+/// This models a crash between the two storage writes and pins that migration
+/// is all-or-nothing: the retry completes the seal without corrupting data.
+#[test]
+fn partial_write_then_retry_heals_atomically() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let freelancer = Address::generate(&env);
+
+    let original = Reputation {
+        completed_contracts: 6,
+        total_rating: 26,
+        last_rating: 4,
+    };
+    write_v1_reputation(&env, &escrow_addr, &freelancer, &original);
+
+    // Simulate the partial state: the record was rewritten (TTL refresh) but
+    // the version marker was never written.
+    env.as_contract(&escrow_addr, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Reputation(freelancer.clone()), &original);
+    });
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &freelancer),
+        None,
+        "partial write must not have written a marker"
+    );
+
+    // Retry completes the migration.
+    assert!(escrow_client.migrate_reputation_storage(&freelancer));
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &freelancer),
+        Some(REPUTATION_STORAGE_VERSION)
+    );
+
+    // Data preserved through the partial + retry sequence (no corruption).
+    let rep = escrow_client
+        .get_reputation(&freelancer)
+        .expect("record must survive partial + retry");
+    assert_eq!(rep.completed_contracts, 6);
+    assert_eq!(rep.total_rating, 26);
+    assert_eq!(rep.last_rating, 4);
+
+    // A further replay is a no-op (the seal is stable).
+    assert!(!escrow_client.migrate_reputation_storage(&freelancer));
+}
+
+/// An orphan version marker without a reputation record is never fabricated
+/// into a record: migration no-ops deterministically and leaves the half-state
+/// untouched. A successful migration therefore always has a record.
+#[test]
+fn orphan_marker_without_record_is_deterministic_noop() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let orphan = Address::generate(&env);
+
+    // Half-state: marker present (as if a record write was lost) but no record.
+    write_version_direct(&env, &escrow_addr, &orphan, REPUTATION_STORAGE_VERSION);
+
+    assert!(!escrow_client.migrate_reputation_storage(&orphan));
+    // Migration must NOT fabricate a reputation record.
+    assert_eq!(read_reputation_direct(&env, &escrow_addr, &orphan), None);
+    // The existing marker is left untouched (no regression, no new writes).
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &orphan),
+        Some(REPUTATION_STORAGE_VERSION)
+    );
+
+    // Repeated calls stay deterministic.
+    assert!(!escrow_client.migrate_reputation_storage(&orphan));
+    assert_eq!(read_reputation_direct(&env, &escrow_addr, &orphan), None);
+}
+
+/// Duplicate legacy source markers for the same address do not double-count:
+/// migration is keyed per address and copies counters verbatim, so a duplicated
+/// index entry and repeated replays never sum or multiply reputation data.
+#[test]
+fn duplicate_source_records_do_not_double_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let freelancer = Address::generate(&env);
+
+    let original = Reputation {
+        completed_contracts: 3,
+        total_rating: 12,
+        last_rating: 4,
+    };
+    write_v1_reputation(&env, &escrow_addr, &freelancer, &original);
+    // Duplicate source markers: the same address appears twice in the index.
+    push_to_index(&env, &escrow_addr, &freelancer);
+    push_to_index(&env, &escrow_addr, &freelancer);
+
+    // Migrate more than once; duplicates must not be applied again.
+    assert!(escrow_client.migrate_reputation_storage(&freelancer));
+    assert!(!escrow_client.migrate_reputation_storage(&freelancer));
+
+    let rep = escrow_client
+        .get_reputation(&freelancer)
+        .expect("record must exist after migration");
+    assert_eq!(
+        rep.completed_contracts, 3,
+        "duplicate source markers must not double-count"
+    );
+    assert_eq!(rep.total_rating, 12);
+    assert_eq!(rep.last_rating, 4);
+}
+
+/// Boundary: migrating an empty/absent population is a deterministic no-op that
+/// writes no record and no marker, and stays that way across replays.
+#[test]
+fn boundary_empty_population_is_deterministic_noop() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+
+    for _ in 0..3 {
+        let absent = Address::generate(&env);
+        assert!(!escrow_client.migrate_reputation_storage(&absent));
+        assert_eq!(read_reputation_direct(&env, &escrow_addr, &absent), None);
+        assert_eq!(read_version_direct(&env, &escrow_addr, &absent), None);
+    }
+}
+
+/// Boundary: unknown or corrupted version markers are handled deterministically
+/// without panic or regression.
+#[test]
+fn boundary_unknown_versions_are_deterministic() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+
+    // (a) Explicit legacy marker `1` with a record migrates forward.
+    let v1_addr = Address::generate(&env);
+    write_v1_reputation(
+        &env,
+        &escrow_addr,
+        &v1_addr,
+        &Reputation {
+            completed_contracts: 1,
+            total_rating: 5,
+            last_rating: 5,
+        },
+    );
+    write_version_direct(&env, &escrow_addr, &v1_addr, 1);
+    assert!(escrow_client.migrate_reputation_storage(&v1_addr));
+
+    // (b) Corrupted `0` marker without a record is a zero-write no-op.
+    let zero_absent = Address::generate(&env);
+    write_version_direct(&env, &escrow_addr, &zero_absent, 0);
+    assert!(!escrow_client.migrate_reputation_storage(&zero_absent));
+    assert_eq!(
+        read_reputation_direct(&env, &escrow_addr, &zero_absent),
+        None,
+        "corrupted marker without a record must not fabricate data"
+    );
+
+    // (c) Already-migrated `2` is a no-op.
+    let current = Address::generate(&env);
+    write_v1_reputation(
+        &env,
+        &escrow_addr,
+        &current,
+        &Reputation {
+            completed_contracts: 2,
+            total_rating: 8,
+            last_rating: 4,
+        },
+    );
+    assert!(escrow_client.migrate_reputation_storage(&current));
+    assert!(!escrow_client.migrate_reputation_storage(&current));
+
+    // (d) Future/unknown marker (> current) is a forward-compatible no-op.
+    let future = Address::generate(&env);
+    write_v1_reputation(
+        &env,
+        &escrow_addr,
+        &future,
+        &Reputation {
+            completed_contracts: 1,
+            total_rating: 5,
+            last_rating: 5,
+        },
+    );
+    write_version_direct(&env, &escrow_addr, &future, REPUTATION_STORAGE_VERSION + 7);
+    assert!(!escrow_client.migrate_reputation_storage(&future));
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &future),
+        Some(REPUTATION_STORAGE_VERSION + 7),
+        "future marker must not be downgraded"
+    );
+}
+
+/// Interleaved (single-threaded) replay across multiple addresses: a mixed
+/// sequence of migration and migrate-on-read calls converges per address and
+/// never corrupts a neighbour. Soroban contracts are single-threaded — the
+/// module holds no threads or `Mutex` — so "concurrency" is modelled here as
+/// interleaved replay within one ledger.
+#[test]
+fn interleaved_migration_on_read_converges_per_address() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    let rep_a = Reputation {
+        completed_contracts: 2,
+        total_rating: 7,
+        last_rating: 4,
+    };
+    let rep_b = Reputation {
+        completed_contracts: 9,
+        total_rating: 40,
+        last_rating: 5,
+    };
+    write_v1_reputation(&env, &escrow_addr, &a, &rep_a);
+    write_v1_reputation(&env, &escrow_addr, &b, &rep_b);
+
+    // Interleave explicit migration and migrate-on-read across the two addresses.
+    assert!(escrow_client.migrate_reputation_storage(&a));
+    let read_b = env.as_contract(&escrow_addr, || {
+        crate::reputation_migration::read_reputation_with_migration(&env, &b)
+    });
+    assert_eq!(read_b, Some(rep_b.clone()));
+    assert!(!escrow_client.migrate_reputation_storage(&a));
+    let read_a = env.as_contract(&escrow_addr, || {
+        crate::reputation_migration::read_reputation_with_migration(&env, &a)
+    });
+    assert_eq!(read_a, Some(rep_a.clone()));
+
+    // Both converge to v2 with independent, uncorrupted data.
+    for addr in [&a, &b] {
+        assert_eq!(
+            read_version_direct(&env, &escrow_addr, addr),
+            Some(REPUTATION_STORAGE_VERSION),
+            "each address must converge independently"
+        );
+    }
+    assert_eq!(escrow_client.get_reputation(&a), Some(rep_a));
+    assert_eq!(escrow_client.get_reputation(&b), Some(rep_b));
+}
+
+/// Read-only query paths never write markers, so repeated/interleaved reads
+/// cannot corrupt migration state (RPC-simulation safety).
+#[test]
+fn repeated_reads_do_not_mutate_migration_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let freelancer = Address::generate(&env);
+
+    write_v1_reputation(
+        &env,
+        &escrow_addr,
+        &freelancer,
+        &Reputation {
+            completed_contracts: 5,
+            total_rating: 21,
+            last_rating: 5,
+        },
+    );
+    push_to_index(&env, &escrow_addr, &freelancer);
+
+    for _ in 0..5 {
+        assert!(escrow_client.get_reputation(&freelancer).is_some());
+        assert_eq!(escrow_client.get_average_rating(&freelancer), Some(42_000));
+        assert_eq!(escrow_client.get_reputations_page(&0, &10).len(), 1);
+    }
+
+    // No read wrote a marker.
+    assert_eq!(read_version_direct(&env, &escrow_addr, &freelancer), None);
+
+    // The first explicit migration still applies; reads after it stay stable.
+    assert!(escrow_client.migrate_reputation_storage(&freelancer));
+    assert!(escrow_client.get_reputation(&freelancer).is_some());
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &freelancer),
+        Some(REPUTATION_STORAGE_VERSION)
+    );
 }
