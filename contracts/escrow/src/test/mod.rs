@@ -49,6 +49,7 @@ mod refund;
 mod refund_validation_boundaries;
 mod release;
 mod release_authorization;
+mod release_validation_boundaries;
 mod reputation;
 mod reputation_compatibility;
 mod reputation_config_setter;
