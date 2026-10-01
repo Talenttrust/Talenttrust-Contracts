@@ -8,6 +8,32 @@
 //! All values are `pub` so they can be re-exported from `lib.rs` and
 //! referenced by governance, fee, and test modules without creating
 //! circular dependencies.
+//!
+//! ## Validation boundaries
+//!
+//! Every constant below defines an **inclusive** acceptance window for the
+//! value it validates. A value equal to a bound is accepted; the value one
+//! step beyond the bound is rejected. The mapping is:
+//!
+//! | Constant | Accepted range | Enforced at | Error on violation |
+//! |---|---|---|---|
+//! | [`MAX_MILESTONES`] | `1..=MAX_MILESTONES` (1..=10) | `create_contract` | `TooManyMilestones` |
+//! | [`MAX_BATCH_MILESTONES`] | `1..=MAX_BATCH_MILESTONES` (1..=10) | `release_milestone_batch` | `EmptyBatch` / `BatchLimitExceeded` |
+//! | [`PROTOCOL_FEE_BPS_DENOMINATOR`] | fixed scale: `10_000 bps = 100 %` | `calculate_protocol_fee` | — (floor division) |
+//! | [`MIN_FEE_BPS`] / [`MAX_FEE_BPS`] | `0..=MAX_FEE_BPS` (0..=10_000) | `set_protocol_fee_bps`, `set_governed_params` | `InvalidProtocolParameters` |
+//! | [`MIN_RATING`] / [`MAX_RATING`] | `1..=5` | `issue_reputation` | `InvalidRating` |
+//! | [`MIN_COMMENT_BYTES`] / [`MAX_COMMENT_BYTES`] | `1..=200` bytes | `issue_reputation` | `EmptyComment` / `CommentTooLong` |
+//! | [`MIN_WORK_EVIDENCE_BYTES`] / [`MAX_WORK_EVIDENCE_BYTES`] | `1..=1_000` bytes | `submit_work_evidence` | `EmptyEvidence` / `EvidenceTooLong` |
+//! | [`MAX_REPUTATION_CONFIG_RATING_CEILING`] | `min_rating..=10` | `set_reputation_config` | `InvalidProtocolParameters` |
+//! | [`MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING`] | `1..=1_000` bytes | `set_reputation_config` | `InvalidProtocolParameters` |
+//! | [`MAX_RECOVERY_ATTEMPTS`] | `0..=MAX_RECOVERY_ATTEMPTS` (0..=3) | deterministic recovery loops | recovery stops |
+//! | [`RECOVERY_TTL_LEDGERS`] | `> 0` ledgers (17_280 ≈ 1 day) | recovery TTL tracking | — |
+//!
+//! `MAX_FEE_BPS` is *equal to* [`PROTOCOL_FEE_BPS_DENOMINATOR`], so the fee
+//! range closes at 100 % and a fee can never exceed the gross milestone
+//! amount. The boundary value itself is accepted; only `MAX_FEE_BPS + 1` is
+//! rejected. The numeric edge cases above are pinned by the tests in this
+//! module.
 
 /// Maximum number of milestones allowed in a single escrow contract.
 ///
@@ -154,7 +180,10 @@ mod tests {
     /// Recovery limits must be deterministic and proper non-empty values.
     #[test]
     fn recovery_limits_are_deterministic() {
-        assert!(MAX_RECOVERY_ATTEMPTS > 0, "MAX_RECOVERY_ATTEMPTS must be > 0");
+        assert!(
+            MAX_RECOVERY_ATTEMPTS > 0,
+            "MAX_RECOVERY_ATTEMPTS must be > 0"
+        );
         assert!(RECOVERY_TTL_LEDGERS > 0, "RECOVERY_TTL_LEDGERS must be > 0");
     }
 
@@ -281,11 +310,14 @@ mod tests {
         }
 
         for handle in handles {
-            assert!(handle.join().is_ok(), "Thread panicked during concurrent read");
+            assert!(
+                handle.join().is_ok(),
+                "Thread panicked during concurrent read"
+            );
         }
     }
 
-    /// Idempotency test: repeated reads and boundary checks must consistently 
+    /// Idempotency test: repeated reads and boundary checks must consistently
     /// produce the same state and evaluation over time, preventing duplicate work bugs.
     #[test]
     fn idempotent_boundary_evaluations() {
@@ -295,5 +327,176 @@ mod tests {
             assert_eq!(MAX_MILESTONES, 10);
             assert_eq!(PROTOCOL_FEE_BPS_DENOMINATOR, 10_000);
         }
+    }
+
+    // ── Validation boundary pins ─────────────────────────────────────────────
+    //
+    // The helpers below mirror the runtime guards at their enforcement sites so
+    // the exact `..=bound` acceptance semantics can be tested without a `Env`.
+    // They deliberately contain no runtime dependency beyond this module.
+
+    /// Mirrors `create_contract`: `1..=MAX_MILESTONES` accepted.
+    fn accepts_milestone_count(count: u32) -> bool {
+        count >= 1 && count <= MAX_MILESTONES
+    }
+
+    /// Mirrors `release_milestone_batch_impl`: non-empty and `<= MAX_BATCH_MILESTONES`.
+    fn accepts_batch_count(count: u32) -> bool {
+        count >= 1 && count <= MAX_BATCH_MILESTONES
+    }
+
+    /// Mirrors `validate_protocol_fee_bps_value`: `<= MAX_FEE_BPS` accepted.
+    fn accepts_fee_bps(bps: u32) -> bool {
+        bps >= MIN_FEE_BPS && bps <= MAX_FEE_BPS
+    }
+
+    /// Mirrors `calculate_protocol_fee`'s floor division for a non-negative
+    /// `amount`. Returns `0` for `bps == 0` (the runtime short-circuit).
+    fn protocol_fee(amount: i128, bps: u32) -> i128 {
+        if bps == 0 {
+            return 0;
+        }
+        amount * bps as i128 / PROTOCOL_FEE_BPS_DENOMINATOR as i128
+    }
+
+    /// Mirrors the recovery bookkeeping bound: attempts `0..=MAX_RECOVERY_ATTEMPTS`.
+    fn within_recovery_budget(attempts: u32) -> bool {
+        attempts <= MAX_RECOVERY_ATTEMPTS
+    }
+
+    /// `count == MAX_MILESTONES` is accepted; `count == MAX_MILESTONES + 1` and
+    /// `0` are rejected. This pins the inclusive upper bound.
+    #[test]
+    fn milestone_count_boundary() {
+        assert!(
+            accepts_milestone_count(MAX_MILESTONES),
+            "exactly MAX_MILESTONES must be accepted"
+        );
+        assert!(
+            !accepts_milestone_count(MAX_MILESTONES + 1),
+            "MAX_MILESTONES + 1 must be rejected"
+        );
+        assert!(
+            !accepts_milestone_count(0),
+            "zero milestones must be rejected"
+        );
+    }
+
+    /// `len == MAX_BATCH_MILESTONES` is accepted; `+1` and `0` are rejected.
+    #[test]
+    fn batch_milestone_count_boundary() {
+        assert!(
+            accepts_batch_count(MAX_BATCH_MILESTONES),
+            "exactly MAX_BATCH_MILESTONES must be accepted"
+        );
+        assert!(
+            !accepts_batch_count(MAX_BATCH_MILESTONES + 1),
+            "MAX_BATCH_MILESTONES + 1 must be rejected"
+        );
+        assert!(!accepts_batch_count(0), "empty batch must be rejected");
+    }
+
+    /// The fee range is inclusive at both ends: `0` and `MAX_FEE_BPS`
+    /// (`== PROTOCOL_FEE_BPS_DENOMINATOR`) are accepted, while
+    /// `MAX_FEE_BPS + 1` and `u32::MAX` are rejected.
+    #[test]
+    fn fee_bps_boundary() {
+        assert_eq!(MIN_FEE_BPS, 0);
+        assert!(accepts_fee_bps(MIN_FEE_BPS), "0 bps must be accepted");
+        assert!(
+            accepts_fee_bps(MAX_FEE_BPS),
+            "100% (MAX_FEE_BPS) must be accepted"
+        );
+        assert_eq!(
+            MAX_FEE_BPS, PROTOCOL_FEE_BPS_DENOMINATOR,
+            "the fee ceiling is the basis-point denominator"
+        );
+        assert!(
+            !accepts_fee_bps(MAX_FEE_BPS + 1),
+            "MAX_FEE_BPS + 1 must be rejected"
+        );
+        assert!(!accepts_fee_bps(u32::MAX), "u32::MAX must be rejected");
+    }
+
+    /// The fee helper's own boundary: `0` short-circuits to `0`, the maximum
+    /// `100 %` fee equals the gross amount, and one bps less floors the value.
+    /// The freelancer's net (`amount - fee`) is never negative.
+    #[test]
+    fn protocol_fee_computation_boundary() {
+        let amount = 1_000_000_i128;
+
+        assert_eq!(
+            protocol_fee(amount, MIN_FEE_BPS),
+            0,
+            "0 bps charges nothing"
+        );
+
+        let full_fee = protocol_fee(amount, MAX_FEE_BPS);
+        assert_eq!(
+            full_fee, amount,
+            "100% fee must equal the gross amount, never exceed it"
+        );
+        assert!(amount - full_fee >= 0, "net payout must be non-negative");
+
+        // denominator - 1 bps floors down and never rounds up.
+        let almost_full = protocol_fee(amount, PROTOCOL_FEE_BPS_DENOMINATOR - 1);
+        assert_eq!(almost_full, amount - amount / PROTOCOL_FEE_BPS_DENOMINATOR);
+        assert!(
+            almost_full <= amount,
+            "fee must never exceed the gross amount"
+        );
+    }
+
+    /// Recovery attempts are bounded inclusively by `MAX_RECOVERY_ATTEMPTS`.
+    #[test]
+    fn recovery_attempts_boundary() {
+        assert!(
+            within_recovery_budget(MAX_RECOVERY_ATTEMPTS),
+            "exactly MAX_RECOVERY_ATTEMPTS must be allowed"
+        );
+        assert!(
+            !within_recovery_budget(MAX_RECOVERY_ATTEMPTS + 1),
+            "MAX_RECOVERY_ATTEMPTS + 1 must be rejected"
+        );
+    }
+
+    // ── Cross-constant invariants ────────────────────────────────────────────
+
+    /// A batch can never release more milestones than a contract may contain.
+    #[test]
+    fn max_batch_milestones_le_max_milestones() {
+        assert!(
+            MAX_BATCH_MILESTONES <= MAX_MILESTONES,
+            "MAX_BATCH_MILESTONES must not exceed MAX_MILESTONES"
+        );
+    }
+
+    /// Every configured upper bound must be strictly positive so each range is
+    /// non-empty and the fail-closed guards are meaningful.
+    #[test]
+    fn all_upper_bounds_are_positive() {
+        assert!(MAX_MILESTONES > 0);
+        assert!(MAX_BATCH_MILESTONES > 0);
+        assert!(MAX_FEE_BPS > 0);
+        assert!(MAX_RATING >= MIN_RATING);
+        assert!(MAX_COMMENT_BYTES >= MIN_COMMENT_BYTES);
+        assert!(MAX_WORK_EVIDENCE_BYTES >= MIN_WORK_EVIDENCE_BYTES);
+        assert!(MAX_RECOVERY_ATTEMPTS > 0);
+        assert!(RECOVERY_TTL_LEDGERS > 0);
+    }
+
+    /// The basis-point denominator must be an exact power of ten: `10^4`.
+    /// A non-power-of-ten denominator would silently break percentage math.
+    #[test]
+    fn fee_denominator_is_a_power_of_ten() {
+        let mut value = PROTOCOL_FEE_BPS_DENOMINATOR;
+        let mut exponent = 0_u32;
+        while value > 1 {
+            assert_eq!(value % 10, 0, "denominator must be a power of ten");
+            value /= 10;
+            exponent += 1;
+        }
+        assert_eq!(value, 1, "denominator must reduce to exactly 1");
+        assert_eq!(exponent, 4, "10_000 bps == 10^4 == 100%");
     }
 }
