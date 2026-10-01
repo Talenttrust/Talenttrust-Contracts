@@ -64,6 +64,31 @@
 //! dispute would be restored to a releasable state by a rollback and could be
 //! spent without any party re-consenting.
 //!
+//! **I7 — Fail-closed and idempotent under replay.** Soroban serialises
+//! execution inside one ledger, so the "concurrency" this module actually faces
+//! is *replayed, duplicated, or interleaved* calls across transactions (a
+//! client retrying after a timeout, an indexer resubmitting, two parties racing
+//! to approve). Every mutating path is idempotent with respect to the
+//! observable state:
+//!
+//! * Re-approving an already-set flag is rejected with
+//!   [`Error::AlreadyApproved`] and writes nothing, so a retried approval can
+//!   never inflate the approval count or flip another party's flag.
+//! * Revocation is authority-reducing only (I2) and clears at most the caller's
+//!   own flag, so any approve/revoke interleaving converges on a state that is
+//!   no more releasable than the sequential result.
+//! * Revoking with no live record is a typed, inert rejection
+//!   ([`Error::InsufficientApprovals`]) that leaves storage untouched, making a
+//!   retry after an unknown outcome a safe no-op.
+//! * [`release_readiness`] and [`check_approvals`] mutate nothing, so polling
+//!   them cannot change (or prolong the TTL of) the state they report (I3).
+//!
+//! Together with **I1**, this is the *fail-closed + idempotent under replay*
+//! invariant: any prefix of a repeated or reordered call sequence converges on
+//! a state identical to executing it once, or strictly *less* authorised —
+//! never more. Replaying or reordering calls can therefore never accumulate a
+//! release permission that a single honest execution would not have produced.
+//!
 //! # Failure recovery
 //!
 //! Every recoverable approval failure has exactly one deterministic repair, and
@@ -211,8 +236,11 @@ fn load_milestones(env: &Env, contract_id: u32) -> Option<Vec<Milestone>> {
 
 /// Approves a milestone for release by the caller.
 ///
-/// Records the approval in persistent storage. Approvals do not expire so
-/// that a partially-collected multi-sig quorum cannot silently reset.
+/// Records the approval in temporary storage, so it expires with the rest of
+/// the transient approval record after `PENDING_APPROVAL_TTL_LEDGERS`. A
+/// partially-collected multi-sig quorum does not silently reset before then:
+/// the entry's TTL is renewed on every approval, so consent stays live until
+/// the whole record is left untouched for the full window.
 ///
 /// # Arguments
 /// * `env` - The contract environment
@@ -252,7 +280,7 @@ fn load_milestones(env: &Env, contract_id: u32) -> Option<Vec<Milestone>> {
 /// # Security
 /// - Caller must be authenticated via require_auth()
 /// - Only parties authorized by the contract's release mode can approve
-/// - Approvals are stored persistently and survive ledger TTL
+/// - Approvals live in temporary storage and fail closed once evicted (I1)
 /// - Duplicate approvals from the same party are rejected
 pub fn approve_milestone(
     env: &Env,
@@ -296,11 +324,15 @@ pub fn approve_milestone(
         return Err(Error::UnauthorizedRole);
     }
 
-    // Load or create approval record
+    // Load or create approval record from temporary storage, matching every
+    // reader (`check_approvals`, `revoke_approval`, `release_readiness`,
+    // `get_milestone_approvals`). Writing to persistent here would make the
+    // record invisible to the revoke/readiness paths and would allow approvals
+    // to outlive the documented TTL window, widening authority.
     let approval_key = keys::milestone_approval_key(env, contract_id, milestone_index);
     let mut approvals: MilestoneApprovals =
         env.storage()
-            .persistent()
+            .temporary()
             .get(&approval_key)
             .unwrap_or(MilestoneApprovals {
                 client_approved: false,
@@ -320,10 +352,11 @@ pub fn approve_milestone(
         ApprovalRole::Arbiter => approvals.arbiter_approved = true,
     }
 
-    // Store approval persistently so it survives ledger TTL expiry.
-    env.storage().persistent().set(&approval_key, &approvals);
+    // Store approval in temporary storage and renew its TTL. A live quorum is
+    // kept alive by each approval; an abandoned one expires and fails closed.
+    env.storage().temporary().set(&approval_key, &approvals);
 
-    env.storage().persistent().extend_ttl(
+    env.storage().temporary().extend_ttl(
         &approval_key,
         PENDING_APPROVAL_BUMP_THRESHOLD,
         PENDING_APPROVAL_TTL_LEDGERS,
@@ -550,8 +583,10 @@ pub fn check_approvals(
 ) -> Result<bool, Error> {
     let approval_key = keys::milestone_approval_key(env, contract_id, milestone_index);
 
-    // Load approvals from persistent storage.
-    let approvals: Option<MilestoneApprovals> = env.storage().persistent().get(&approval_key);
+    // Load approvals from temporary storage — the same space
+    // `approve_milestone` writes to. A record that was never created and one
+    // evicted by TTL are both `None`, and both fail closed (I1).
+    let approvals: Option<MilestoneApprovals> = env.storage().temporary().get(&approval_key);
 
     // If no approvals exist, fail closed.
     let approvals = approvals.ok_or(Error::InsufficientApprovals)?;
@@ -573,75 +608,6 @@ pub fn check_approvals(
     } else {
         Err(Error::InsufficientApprovals)
     }
-}
-
-/// Revokes the caller's own approval for a milestone.
-///
-/// Only the caller's flag is cleared. Other approvals remain intact; if no
-/// approval flags remain, the temporary record is removed.
-pub fn revoke_approval(
-    env: &Env,
-    contract_id: u32,
-    milestone_index: u32,
-    caller: &Address,
-) -> Result<bool, Error> {
-    let contract: Contract = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Contract(contract_id))
-        .ok_or(Error::ContractNotFound)?;
-
-    let milestones: Vec<Milestone> = env
-        .storage()
-        .persistent()
-        .get(&crate::ttl::milestone_storage_key(env, contract_id))
-        .ok_or(Error::ContractNotFound)?;
-
-    if milestone_index >= milestones.len() {
-        return Err(Error::IndexOutOfBounds);
-    }
-    if milestones.get(milestone_index).unwrap().released {
-        return Err(Error::MilestoneAlreadyReleased);
-    }
-
-    let is_client = caller == &contract.client;
-    let is_freelancer = caller == &contract.freelancer;
-    let is_arbiter = contract.arbiter.as_ref() == Some(caller);
-    if !is_client && !is_freelancer && !is_arbiter {
-        return Err(Error::UnauthorizedRole);
-    }
-
-    let approval_key = keys::milestone_approval_key(contract_id, milestone_index);
-    let mut approvals: MilestoneApprovals = env
-        .storage()
-        .temporary()
-        .get(&approval_key)
-        .ok_or(Error::InsufficientApprovals)?;
-
-    let caller_approved = if is_client {
-        &mut approvals.client_approved
-    } else if is_freelancer {
-        &mut approvals.freelancer_approved
-    } else {
-        &mut approvals.arbiter_approved
-    };
-    if !*caller_approved {
-        return Err(Error::InsufficientApprovals);
-    }
-    *caller_approved = false;
-
-    if !approvals.client_approved && !approvals.freelancer_approved && !approvals.arbiter_approved {
-        env.storage().temporary().remove(&approval_key);
-    } else {
-        env.storage().temporary().set(&approval_key, &approvals);
-        env.storage().temporary().extend_ttl(
-            &approval_key,
-            PENDING_APPROVAL_BUMP_THRESHOLD,
-            PENDING_APPROVAL_TTL_LEDGERS,
-        );
-    }
-
-    Ok(true)
 }
 
 /// Clears approval records for a milestone after successful release.
@@ -799,7 +765,10 @@ pub fn release_readiness(
 mod tests {
     use super::*;
     use crate::Escrow;
-    use soroban_sdk::{testutils::Address as _, Env, Vec};
+    use soroban_sdk::{
+        testutils::{storage::Temporary as _, Address as _, Ledger as _},
+        Env, Vec,
+    };
 
     fn setup_contract_in_storage(
         env: &Env,
@@ -1230,5 +1199,537 @@ mod tests {
         assert!(!ApprovalRole::record_is_empty(&approvals_from(
             false, true, false
         )));
+    }
+
+    // ── Concurrency / replay hardening (#1395) ─────────────────────────────
+    //
+    // Soroban serialises execution inside one ledger, so the failure modes
+    // pinned below are duplicated, retried and interleaved calls across
+    // transactions (not in-flight parallel writes). Each test asserts the
+    // *fail-closed + idempotent under replay* invariant (I7): a repeated or
+    // reordered call converges on the same state as a single execution, or on
+    // a strictly less-authorized one — never more.
+
+    /// Builds a `Funded` contract with the given parties and release mode.
+    fn seeded_contract(
+        client: &crate::Address,
+        freelancer: &crate::Address,
+        arbiter: Option<crate::Address>,
+        mode: ReleaseAuthorization,
+    ) -> Contract {
+        Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter,
+            status: ContractStatus::Funded,
+            total_deposited: 1000,
+            funded_amount: 1000,
+            released_amount: 0,
+            refunded_amount: 0,
+            release_authorization: mode,
+            reputation_issued: false,
+        }
+    }
+
+    /// A single unreleased, unrefunded milestone.
+    fn milestone_vector(env: &Env) -> Vec<Milestone> {
+        Vec::from_array(
+            env,
+            [Milestone {
+                amount: 1000,
+                funded_amount: 0,
+                released: false,
+                refunded: false,
+                work_evidence: None,
+                refunded_amount: 0,
+                deadline: None,
+            }],
+        )
+    }
+
+    /// Seeds `contract` and its single milestone into `escrow_id` storage.
+    fn seed_state(env: &Env, escrow_id: &crate::Address, contract_id: u32, contract: &Contract) {
+        env.as_contract(escrow_id, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Contract(contract_id), contract);
+            env.storage().persistent().set(
+                &keys::milestone_key(env, contract_id),
+                &milestone_vector(env),
+            );
+        });
+    }
+
+    /// Reads the raw temporary approval record (bypassing the readiness view).
+    fn stored(env: &Env, contract_id: u32) -> Option<MilestoneApprovals> {
+        env.storage()
+            .temporary()
+            .get(&keys::milestone_approval_key(contract_id, 0))
+    }
+
+    /// `true` when a live temporary approval record exists.
+    fn has_live_record(env: &Env, contract_id: u32) -> bool {
+        env.storage()
+            .temporary()
+            .has(&keys::milestone_approval_key(contract_id, 0))
+    }
+
+    /// A replayed duplicate approval is rejected and cannot widen the flag set.
+    #[test]
+    fn replay_duplicate_approval_is_rejected_and_leaves_flag_count_unchanged() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract = seeded_contract(&client, &freelancer, None, ReleaseAuthorization::MultiSig);
+        let cid = 1u32;
+
+        seed_state(&env, &escrow_id, cid, &contract);
+
+        env.as_contract(&escrow_id, || {
+            assert_eq!(approve_milestone(&env, cid, 0, &client), Ok(true));
+
+            // A replay from the same party is a typed rejection, not a silent
+            // success, and must not touch the other party's flag.
+            assert_eq!(
+                approve_milestone(&env, cid, 0, &client),
+                Err(Error::AlreadyApproved)
+            );
+
+            let record = stored(&env, cid).expect("record still present");
+            assert!(record.client_approved);
+            assert!(
+                !record.freelancer_approved,
+                "a duplicate must not set another party's flag"
+            );
+
+            // Required-flag counts are derived from stored flags, so a replay
+            // cannot move the milestone toward release.
+            let readiness = release_readiness(&env, cid, 0);
+            assert_eq!(readiness.approvals_required, 2);
+            assert_eq!(readiness.approvals_present, 1);
+            assert_eq!(readiness.approvals_missing, 1);
+            assert!(!readiness.release_authorized);
+            assert_eq!(
+                check_approvals(&env, &contract, cid, 0),
+                Err(Error::InsufficientApprovals)
+            );
+        });
+    }
+
+    /// Approve → revoke → approve recomputes readiness deterministically, and a
+    /// revoke never resurrects or clears another party's flag.
+    #[test]
+    fn replay_approve_revoke_approve_recomputes_readiness_deterministically() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract = seeded_contract(&client, &freelancer, None, ReleaseAuthorization::MultiSig);
+        let cid = 1u32;
+
+        seed_state(&env, &escrow_id, cid, &contract);
+
+        env.as_contract(&escrow_id, || {
+            assert_eq!(approve_milestone(&env, cid, 0, &client), Ok(true));
+            assert_eq!(approve_milestone(&env, cid, 0, &freelancer), Ok(true));
+            let both_approved = release_readiness(&env, cid, 0);
+            assert!(both_approved.release_authorized);
+
+            // Client withdraws: readiness drops to one present, one missing.
+            let revoke = revoke_approval(&env, cid, 0, &client).expect("live record");
+            assert_eq!(revoke.role, ApprovalRole::Client);
+            assert_eq!(revoke.outcome, RevocationOutcome::FlagCleared);
+            assert!(revoke.other_approvals_remain);
+
+            let after_revoke = release_readiness(&env, cid, 0);
+            assert!(!after_revoke.release_authorized);
+            assert!(after_revoke.has_record);
+            assert_eq!(after_revoke.approvals_present, 1);
+            assert_eq!(after_revoke.approvals_missing, 1);
+
+            // Only the client's flag was cleared; the freelancer's live consent
+            // was neither cleared nor resurrected.
+            let record = stored(&env, cid).expect("record kept while one flag lives");
+            assert!(!record.client_approved);
+            assert!(record.freelancer_approved);
+
+            // Re-approving restores the deterministic "both approved" view.
+            assert_eq!(approve_milestone(&env, cid, 0, &client), Ok(true));
+            assert_eq!(release_readiness(&env, cid, 0), both_approved);
+        });
+    }
+
+    /// Interleaving `MultiSig` approvals in either order yields the same
+    /// `MilestoneReleaseReadiness`, at every step.
+    #[test]
+    fn replay_multisig_approval_order_is_independent() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract = seeded_contract(&client, &freelancer, None, ReleaseAuthorization::MultiSig);
+
+        seed_state(&env, &escrow_id, 1, &contract);
+        seed_state(&env, &escrow_id, 2, &contract);
+
+        env.as_contract(&escrow_id, || {
+            // Contract 1: client, then freelancer.
+            assert_eq!(approve_milestone(&env, 1, 0, &client), Ok(true));
+            let one_approval_a = release_readiness(&env, 1, 0);
+            assert_eq!(approve_milestone(&env, 1, 0, &freelancer), Ok(true));
+            let both_a = release_readiness(&env, 1, 0);
+
+            // Contract 2: freelancer, then client — the interleaving reversed.
+            assert_eq!(approve_milestone(&env, 2, 0, &freelancer), Ok(true));
+            let one_approval_b = release_readiness(&env, 2, 0);
+            assert_eq!(approve_milestone(&env, 2, 0, &client), Ok(true));
+            let both_b = release_readiness(&env, 2, 0);
+
+            assert!(both_a.release_authorized);
+            assert!(both_b.release_authorized);
+            assert_eq!(
+                one_approval_a, one_approval_b,
+                "a single MultiSig approval must look identical regardless of who made it"
+            );
+            assert_eq!(
+                both_a, both_b,
+                "the completed MultiSig set must be order-independent"
+            );
+        });
+    }
+
+    /// A revoke that finds no live record is a typed `InsufficientApprovals`
+    /// no-op: it writes nothing and is safe to retry.
+    #[test]
+    fn replay_revoke_without_live_record_is_an_inert_typed_no_op() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract =
+            seeded_contract(&client, &freelancer, None, ReleaseAuthorization::ClientOnly);
+        let cid = 1u32;
+
+        seed_state(&env, &escrow_id, cid, &contract);
+
+        env.as_contract(&escrow_id, || {
+            // Never approved: nothing to revoke, nothing written.
+            assert_eq!(
+                revoke_approval(&env, cid, 0, &client),
+                Err(Error::InsufficientApprovals)
+            );
+            assert!(!has_live_record(&env, cid));
+
+            // Approve then fully revoke; a repeated revoke is the same no-op.
+            assert_eq!(approve_milestone(&env, cid, 0, &client), Ok(true));
+            let first = revoke_approval(&env, cid, 0, &client).expect("live record");
+            assert_eq!(first.outcome, RevocationOutcome::RecordRemoved);
+            assert!(!first.other_approvals_remain);
+            assert!(!has_live_record(&env, cid));
+
+            for _ in 0..3 {
+                assert_eq!(
+                    revoke_approval(&env, cid, 0, &client),
+                    Err(Error::InsufficientApprovals)
+                );
+            }
+            assert!(
+                !has_live_record(&env, cid),
+                "a retried revoke must not synthesize an empty record"
+            );
+        });
+    }
+
+    /// Repeated read-only probes are pure: they neither rewrite the record nor
+    /// extend (or shorten) its TTL.
+    #[test]
+    fn replay_repeated_reads_do_not_mutate_storage() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract = seeded_contract(&client, &freelancer, None, ReleaseAuthorization::MultiSig);
+        let cid = 1u32;
+
+        seed_state(&env, &escrow_id, cid, &contract);
+
+        env.as_contract(&escrow_id, || {
+            assert_eq!(approve_milestone(&env, cid, 0, &client), Ok(true));
+
+            let key = keys::milestone_approval_key(cid, 0);
+            let value_before = stored(&env, cid);
+            let ttl_before = env.storage().temporary().get_ttl(&key);
+
+            for _ in 0..8 {
+                assert!(!release_readiness(&env, cid, 0).release_authorized);
+                assert_eq!(
+                    check_approvals(&env, &contract, cid, 0),
+                    Err(Error::InsufficientApprovals)
+                );
+            }
+
+            assert_eq!(
+                stored(&env, cid),
+                value_before,
+                "a read must not rewrite the approval record"
+            );
+            assert_eq!(
+                env.storage().temporary().get_ttl(&key),
+                ttl_before,
+                "a read must not extend or shorten the approval TTL"
+            );
+        });
+    }
+
+    /// After the temporary record is evicted, release is denied and readiness
+    /// reports "no record"; recovery is a fresh approval, never stale reuse.
+    #[test]
+    fn replay_ttl_eviction_forces_reapproval_and_never_reuses_stale_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let instance_bound = PENDING_APPROVAL_TTL_LEDGERS * 2;
+        env.ledger().with_mut(|li| {
+            li.max_entry_ttl = instance_bound;
+            li.min_persistent_entry_ttl = instance_bound;
+            li.sequence_number = 1_000;
+        });
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract =
+            seeded_contract(&client, &freelancer, None, ReleaseAuthorization::ClientOnly);
+        let cid = 1u32;
+
+        seed_state(&env, &escrow_id, cid, &contract);
+
+        env.as_contract(&escrow_id, || {
+            assert_eq!(approve_milestone(&env, cid, 0, &client), Ok(true));
+            assert!(release_readiness(&env, cid, 0).release_authorized);
+            assert!(has_live_record(&env, cid));
+        });
+
+        // Advance past the approval window, keeping the contract instance alive
+        // so the approval is the thing that expires.
+        let expiry = env.as_contract(&escrow_id, || {
+            env.ledger().sequence() + PENDING_APPROVAL_TTL_LEDGERS
+        });
+        env.ledger().set_sequence_number(expiry + 1);
+        env.as_contract(&escrow_id, || {
+            env.storage()
+                .instance()
+                .extend_ttl(instance_bound, instance_bound);
+        });
+
+        env.as_contract(&escrow_id, || {
+            // I1: eviction is indistinguishable from "never approved".
+            assert!(
+                !has_live_record(&env, cid),
+                "the temporary approval must be evicted"
+            );
+            let readiness = release_readiness(&env, cid, 0);
+            assert!(!readiness.has_record);
+            assert!(!readiness.release_authorized);
+            assert_eq!(readiness.approvals_present, 0);
+            assert_eq!(readiness.approvals_missing, 1);
+
+            // Release is denied — eviction cannot leave a stale permission.
+            assert_eq!(
+                check_approvals(&env, &contract, cid, 0),
+                Err(Error::InsufficientApprovals)
+            );
+
+            // Recovery is a fresh approval; stale reuse is impossible because
+            // the evicted record no longer exists to be read.
+            assert_eq!(approve_milestone(&env, cid, 0, &client), Ok(true));
+            assert!(release_readiness(&env, cid, 0).release_authorized);
+        });
+    }
+
+    // ── State invariants (issue #1393) ─────────────────────────────────────
+    //
+    // Each test pins one of the module's documented invariants I1–I6 so a
+    // future change cannot silently weaken them.
+
+    /// I1 — fail closed: a revoke with no live record denies with a typed
+    /// error and writes nothing.
+    #[test]
+    fn i1_revoke_without_record_fails_closed_and_writes_nothing() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract = seeded_contract(&client, &freelancer, None, ReleaseAuthorization::MultiSig);
+        seed_state(&env, &escrow_id, 1, &contract);
+
+        env.as_contract(&escrow_id, || {
+            assert_eq!(
+                revoke_approval(&env, 1, 0, &client),
+                Err(Error::InsufficientApprovals)
+            );
+            assert!(!has_live_record(&env, 1));
+        });
+    }
+
+    /// I2 — revocation is authority-reducing: it only clears the caller's own
+    /// set flag and never sets a flag or widens the set.
+    #[test]
+    fn i2_revocation_only_clears_the_callers_own_flag() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract = seeded_contract(&client, &freelancer, None, ReleaseAuthorization::MultiSig);
+        seed_state(&env, &escrow_id, 1, &contract);
+
+        env.as_contract(&escrow_id, || {
+            assert_eq!(approve_milestone(&env, 1, 0, &client), Ok(true));
+            assert_eq!(approve_milestone(&env, 1, 0, &freelancer), Ok(true));
+
+            let revoke = revoke_approval(&env, 1, 0, &client).expect("live record");
+            assert_eq!(revoke.role, ApprovalRole::Client);
+            assert_eq!(revoke.outcome, RevocationOutcome::FlagCleared);
+
+            let record = stored(&env, 1).expect("freelancer flag keeps the record");
+            assert!(!record.client_approved, "only the caller's flag is cleared");
+            assert!(
+                record.freelancer_approved,
+                "another party's consent is untouched"
+            );
+
+            assert_eq!(
+                revoke_approval(&env, 1, 0, &client),
+                Err(Error::InsufficientApprovals)
+            );
+        });
+    }
+
+    /// I3 — revocation never extends the surviving record's TTL; only a fresh
+    /// approval resets the approval window.
+    #[test]
+    fn i3_revocation_does_not_extend_the_surviving_ttl() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract = seeded_contract(&client, &freelancer, None, ReleaseAuthorization::MultiSig);
+        seed_state(&env, &escrow_id, 1, &contract);
+
+        env.as_contract(&escrow_id, || {
+            assert_eq!(approve_milestone(&env, 1, 0, &client), Ok(true));
+            assert_eq!(approve_milestone(&env, 1, 0, &freelancer), Ok(true));
+            let key = keys::milestone_approval_key(1, 0);
+            let ttl_at_approval = env.storage().temporary().get_ttl(&key);
+            assert!(ttl_at_approval > 0);
+
+            env.ledger()
+                .set_sequence_number(env.ledger().sequence() + 100);
+            let _ = revoke_approval(&env, 1, 0, &client).expect("live record");
+
+            let ttl_after_revoke = env.storage().temporary().get_ttl(&key);
+            assert!(
+                ttl_after_revoke <= ttl_at_approval,
+                "revocation must not extend the approval window"
+            );
+        });
+    }
+
+    /// I4 — when the last set flag is cleared the whole temporary record is
+    /// removed, so the post-state matches "never approved".
+    #[test]
+    fn i4_last_revocation_removes_the_record() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract =
+            seeded_contract(&client, &freelancer, None, ReleaseAuthorization::ClientOnly);
+        seed_state(&env, &escrow_id, 1, &contract);
+
+        env.as_contract(&escrow_id, || {
+            assert_eq!(approve_milestone(&env, 1, 0, &client), Ok(true));
+            assert!(has_live_record(&env, 1));
+
+            let revoke = revoke_approval(&env, 1, 0, &client).expect("live record");
+            assert_eq!(revoke.outcome, RevocationOutcome::RecordRemoved);
+            assert!(!has_live_record(&env, 1), "empty record must be removed");
+            assert!(stored(&env, 1).is_none());
+        });
+    }
+
+    /// I5 — terminal milestones are immutable: neither approve nor revoke is
+    /// possible once the milestone is released.
+    #[test]
+    fn i5_released_milestone_rejects_approve_and_revoke() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract =
+            seeded_contract(&client, &freelancer, None, ReleaseAuthorization::ClientOnly);
+        seed_state(&env, &escrow_id, 1, &contract);
+
+        env.as_contract(&escrow_id, || {
+            let key = keys::milestone_key(&env, 1);
+            let released = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 1000,
+                    funded_amount: 1000,
+                    released: true,
+                    refunded: false,
+                    work_evidence: None,
+                    refunded_amount: 0,
+                    deadline: None,
+                }],
+            );
+            env.storage().persistent().set(&key, &released);
+
+            assert_eq!(
+                approve_milestone(&env, 1, 0, &client),
+                Err(Error::MilestoneAlreadyReleased)
+            );
+            assert_eq!(
+                revoke_approval(&env, 1, 0, &client).unwrap_err(),
+                Error::MilestoneAlreadyReleased
+            );
+        });
+    }
+
+    /// I6 — a dispute voids approvals: `clear_all_approvals` removes every
+    /// stored record for the contract.
+    #[test]
+    fn i6_clear_all_approvals_voids_records() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow_id = env.register(crate::Escrow, ());
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let contract = seeded_contract(&client, &freelancer, None, ReleaseAuthorization::MultiSig);
+        seed_state(&env, &escrow_id, 1, &contract);
+
+        env.as_contract(&escrow_id, || {
+            assert_eq!(approve_milestone(&env, 1, 0, &client), Ok(true));
+            assert_eq!(approve_milestone(&env, 1, 0, &freelancer), Ok(true));
+            assert!(release_readiness(&env, 1, 0).release_authorized);
+
+            clear_all_approvals(&env, 1);
+            assert!(!has_live_record(&env, 1));
+            assert!(!release_readiness(&env, 1, 0).release_authorized);
+            assert_eq!(
+                check_approvals(&env, &contract, 1, 0),
+                Err(Error::InsufficientApprovals)
+            );
+        });
     }
 }
