@@ -22,6 +22,13 @@
 //! | corrupted zero marker heals to v2 | [`compat_corrupted_zero_marker_heals`] |
 //! | zero-contract boundary | [`compat_zero_contracts_boundary`] |
 //! | idempotency matrix (v1/v2/absent) | [`compat_idempotency_matrix`] |
+//! | every stored state maps to exactly one outcome (issue #1504) | [`recovery::outcome_matrix_is_deterministic`] |
+//! | undecodable marker + record heals forward without trapping | [`recovery::undecodable_marker_with_record_heals_forward`] |
+//! | undecodable marker without record is a zero-write no-op | [`recovery::undecodable_marker_without_record_is_noop`] |
+//! | undecodable record left untouched, reported, deterministic on retry | [`recovery::undecodable_record_is_left_untouched_and_reported`] |
+//! | corrupt record migrates once repaired | [`recovery::corrupt_record_recovers_once_repaired`] |
+//! | migration-on-read returns None for a corrupt record | [`recovery::read_with_migration_corrupt_record_is_none`] |
+//! | migrated/future/corrupt emit one `rep_mig` event; no-ops are silent | [`recovery::events_are_emitted_only_for_actionable_outcomes`] |
 
 use crate::{
     reputation_migration::{migrate_reputation_storage_impl, read_reputation_version},
@@ -561,7 +568,9 @@ fn compat_v1_readable_via_all_query_paths() {
     push_to_index(&env, &escrow_addr, &freelancer);
 
     // get_reputation returns v1 as-is.
-    let rep = escrow_client.get_reputation(&freelancer).expect("v1 must read");
+    let rep = escrow_client
+        .get_reputation(&freelancer)
+        .expect("v1 must read");
     assert_eq!(rep.completed_contracts, 5);
     assert_eq!(rep.total_rating, 22);
     assert_eq!(rep.last_rating, 4);
@@ -651,7 +660,10 @@ fn compat_future_marker_is_noop() {
     let after = read_reputation_direct(&env, &escrow_addr, &freelancer).unwrap();
     assert_eq!(after.completed_contracts, 4);
     assert_eq!(after.total_rating, 18);
-    assert_eq!(read_version_direct(&env, &escrow_addr, &freelancer), Some(99));
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &freelancer),
+        Some(99)
+    );
 
     // Reads still serve the record.
     assert!(escrow_client.get_reputation(&freelancer).is_some());
@@ -739,4 +751,309 @@ fn compat_idempotency_matrix() {
 
     assert!(!escrow_client.migrate_reputation_storage(&absent));
     assert_eq!(read_version_direct(&env, &escrow_addr, &absent), None);
+}
+
+// ── Failure recovery and observability (issue #1504) ────────────────────────
+
+mod recovery {
+    extern crate std;
+
+    use super::register_client;
+    use crate::{
+        reputation_migration::{
+            migrate_reputation_storage_impl, migrate_reputation_storage_outcome,
+            read_reputation_version, read_reputation_with_migration, MigrationOutcome,
+        },
+        DataKey, Reputation, REPUTATION_STORAGE_VERSION,
+    };
+    use soroban_sdk::{
+        symbol_short, testutils::Address as _, testutils::Events as _, Address, Env, IntoVal,
+        String, Symbol, TryFromVal, Val,
+    };
+
+    fn sample() -> Reputation {
+        Reputation {
+            completed_contracts: 4,
+            total_rating: 18,
+            last_rating: 5,
+        }
+    }
+
+    /// Store an arbitrary value (possibly of the wrong type) under `key`.
+    fn put<V: IntoVal<Env, Val>>(env: &Env, escrow: &Address, key: DataKey, v: V) {
+        env.as_contract(escrow, || {
+            env.storage().persistent().set(&key, &v.into_val(env))
+        });
+    }
+
+    fn raw(env: &Env, escrow: &Address, key: DataKey) -> Option<Val> {
+        env.as_contract(escrow, || env.storage().persistent().get::<_, Val>(&key))
+    }
+
+    fn outcome(env: &Env, escrow: &Address, who: &Address) -> MigrationOutcome {
+        env.as_contract(escrow, || migrate_reputation_storage_outcome(env, who))
+    }
+
+    /// `(outcome symbol, address, from_version, to_version)` for every
+    /// `rep_mig` event the escrow contract emitted in the last invocation.
+    fn rep_mig_events(env: &Env, escrow: &Address) -> std::vec::Vec<(Symbol, Address, u32, u32)> {
+        let marker: Val = symbol_short!("rep_mig").into_val(env);
+        env.events()
+            .all()
+            .iter()
+            .filter(|(c, topics, _)| {
+                c == escrow
+                    && topics.len() == 3
+                    && topics.get(0).map(|t| t.get_payload()) == Some(marker.get_payload())
+            })
+            .map(|(_, topics, data)| {
+                let sym = Symbol::try_from_val(env, &topics.get(1).unwrap()).unwrap();
+                let who = Address::try_from_val(env, &topics.get(2).unwrap()).unwrap();
+                let (from, to): (u32, u32) = <(u32, u32)>::try_from_val(env, &data).unwrap();
+                (sym, who, from, to)
+            })
+            .collect()
+    }
+
+    fn assert_single_event(env: &Env, escrow: &Address, who: &Address, sym: &str, from: u32) {
+        let evs = rep_mig_events(env, escrow);
+        assert_eq!(evs.len(), 1, "exactly one rep_mig event");
+        assert_eq!(evs[0].0, Symbol::new(env, sym));
+        assert_eq!(&evs[0].1, who);
+        assert_eq!((evs[0].2, evs[0].3), (from, REPUTATION_STORAGE_VERSION));
+    }
+
+    #[test]
+    fn outcome_matrix_is_deterministic() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow = register_client(&env).address.clone();
+
+        let absent = Address::generate(&env);
+        assert_eq!(outcome(&env, &escrow, &absent), MigrationOutcome::NoRecord);
+
+        let legacy = Address::generate(&env);
+        put(&env, &escrow, DataKey::Reputation(legacy.clone()), sample());
+        assert_eq!(outcome(&env, &escrow, &legacy), MigrationOutcome::Migrated);
+        for _ in 0..3 {
+            assert_eq!(
+                outcome(&env, &escrow, &legacy),
+                MigrationOutcome::AlreadyCurrent
+            );
+        }
+
+        let future = Address::generate(&env);
+        put(&env, &escrow, DataKey::Reputation(future.clone()), sample());
+        put(
+            &env,
+            &escrow,
+            DataKey::ReputationStorageVersion(future.clone()),
+            3u32,
+        );
+        assert_eq!(
+            outcome(&env, &escrow, &future),
+            MigrationOutcome::FutureVersion
+        );
+        assert_eq!(
+            env.as_contract(&escrow, || read_reputation_version(&env, &future)),
+            3
+        );
+
+        // The bool entrypoint agrees with the outcome: true only for Migrated.
+        let fresh = Address::generate(&env);
+        put(&env, &escrow, DataKey::Reputation(fresh.clone()), sample());
+        let migrate =
+            |w: &Address| env.as_contract(&escrow, || migrate_reputation_storage_impl(&env, w));
+        assert!(migrate(&fresh));
+        assert!(!migrate(&fresh));
+        assert!(!migrate(&absent));
+        assert!(!migrate(&future));
+    }
+
+    #[test]
+    fn undecodable_marker_with_record_heals_forward() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow = register_client(&env).address.clone();
+        let who = Address::generate(&env);
+        put(&env, &escrow, DataKey::Reputation(who.clone()), sample());
+        put(
+            &env,
+            &escrow,
+            DataKey::ReputationStorageVersion(who.clone()),
+            symbol_short!("junk"),
+        );
+
+        // Previously a typed `get::<_, u32>` trapped here.
+        assert_eq!(
+            env.as_contract(&escrow, || read_reputation_version(&env, &who)),
+            1
+        );
+        assert_eq!(outcome(&env, &escrow, &who), MigrationOutcome::Migrated);
+        assert_single_event(&env, &escrow, &who, "migrated", 0);
+        assert_eq!(
+            env.as_contract(&escrow, || read_reputation_version(&env, &who)),
+            REPUTATION_STORAGE_VERSION
+        );
+        let rep: Reputation = env.as_contract(&escrow, || {
+            env.storage()
+                .persistent()
+                .get(&DataKey::Reputation(who.clone()))
+                .unwrap()
+        });
+        assert_eq!(rep, sample());
+    }
+
+    #[test]
+    fn undecodable_marker_without_record_is_noop() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow = register_client(&env).address.clone();
+        let who = Address::generate(&env);
+        put(
+            &env,
+            &escrow,
+            DataKey::ReputationStorageVersion(who.clone()),
+            symbol_short!("junk"),
+        );
+
+        assert_eq!(outcome(&env, &escrow, &who), MigrationOutcome::NoRecord);
+        let marker = raw(
+            &env,
+            &escrow,
+            DataKey::ReputationStorageVersion(who.clone()),
+        )
+        .unwrap();
+        assert_eq!(
+            Symbol::try_from_val(&env, &marker).unwrap(),
+            symbol_short!("junk")
+        );
+        assert!(raw(&env, &escrow, DataKey::Reputation(who.clone())).is_none());
+        assert!(rep_mig_events(&env, &escrow).is_empty());
+    }
+
+    #[test]
+    fn undecodable_record_is_left_untouched_and_reported() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow = register_client(&env).address.clone();
+        let who = Address::generate(&env);
+        let junk = String::from_str(&env, "not-a-reputation");
+        put(
+            &env,
+            &escrow,
+            DataKey::Reputation(who.clone()),
+            junk.clone(),
+        );
+
+        for _ in 0..2 {
+            // Previously the typed record read trapped; now it is classified.
+            assert_eq!(
+                outcome(&env, &escrow, &who),
+                MigrationOutcome::CorruptRecord
+            );
+            assert_single_event(&env, &escrow, &who, "corrupt", 1);
+            let stored: String = env.as_contract(&escrow, || {
+                env.storage()
+                    .persistent()
+                    .get(&DataKey::Reputation(who.clone()))
+                    .unwrap()
+            });
+            assert_eq!(
+                stored, junk,
+                "the only copy of the data is never overwritten"
+            );
+            assert!(raw(
+                &env,
+                &escrow,
+                DataKey::ReputationStorageVersion(who.clone())
+            )
+            .is_none());
+        }
+        assert!(!env.as_contract(&escrow, || migrate_reputation_storage_impl(&env, &who)));
+    }
+
+    #[test]
+    fn corrupt_record_recovers_once_repaired() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow = register_client(&env).address.clone();
+        let who = Address::generate(&env);
+        put(
+            &env,
+            &escrow,
+            DataKey::Reputation(who.clone()),
+            String::from_str(&env, "bad"),
+        );
+        assert_eq!(
+            outcome(&env, &escrow, &who),
+            MigrationOutcome::CorruptRecord
+        );
+
+        put(&env, &escrow, DataKey::Reputation(who.clone()), sample());
+        assert_eq!(outcome(&env, &escrow, &who), MigrationOutcome::Migrated);
+        assert_eq!(
+            outcome(&env, &escrow, &who),
+            MigrationOutcome::AlreadyCurrent
+        );
+    }
+
+    #[test]
+    fn read_with_migration_corrupt_record_is_none() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow = register_client(&env).address.clone();
+        let who = Address::generate(&env);
+        put(
+            &env,
+            &escrow,
+            DataKey::Reputation(who.clone()),
+            String::from_str(&env, "bad"),
+        );
+        assert_eq!(
+            env.as_contract(&escrow, || read_reputation_with_migration(&env, &who)),
+            None
+        );
+
+        put(&env, &escrow, DataKey::Reputation(who.clone()), sample());
+        assert_eq!(
+            env.as_contract(&escrow, || read_reputation_with_migration(&env, &who)),
+            Some(sample())
+        );
+    }
+
+    #[test]
+    fn events_are_emitted_only_for_actionable_outcomes() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let escrow = register_client(&env).address.clone();
+
+        let absent = Address::generate(&env);
+        outcome(&env, &escrow, &absent);
+        assert!(
+            rep_mig_events(&env, &escrow).is_empty(),
+            "NoRecord is silent"
+        );
+
+        let legacy = Address::generate(&env);
+        put(&env, &escrow, DataKey::Reputation(legacy.clone()), sample());
+        outcome(&env, &escrow, &legacy);
+        assert_single_event(&env, &escrow, &legacy, "migrated", 1);
+        outcome(&env, &escrow, &legacy);
+        assert!(
+            rep_mig_events(&env, &escrow).is_empty(),
+            "AlreadyCurrent is silent"
+        );
+
+        let future = Address::generate(&env);
+        put(&env, &escrow, DataKey::Reputation(future.clone()), sample());
+        put(
+            &env,
+            &escrow,
+            DataKey::ReputationStorageVersion(future.clone()),
+            7u32,
+        );
+        outcome(&env, &escrow, &future);
+        assert_single_event(&env, &escrow, &future, "future", 7);
+    }
 }

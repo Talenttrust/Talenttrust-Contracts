@@ -3024,7 +3024,10 @@ impl Escrow {
     //
     // Invariants: absent record → `false` with zero writes; already-current or
     // future version → `false` untouched; v1 with record → `true` with fields
-    // preserved exactly. Idempotent across retries / concurrent calls.
+    // preserved exactly; undecodable record → `false`, left untouched (never
+    // traps, never overwrites). Idempotent across retries / concurrent calls.
+    // Migrated, future-version and corrupt-record outcomes emit a `rep_mig`
+    // event (see `reputation_migration` module docs).
     pub fn migrate_reputation_storage(env: Env, address: Address) -> bool {
         reputation_migration::migrate_reputation_storage_impl(&env, &address)
     }
