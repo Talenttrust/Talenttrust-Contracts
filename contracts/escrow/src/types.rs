@@ -224,6 +224,16 @@ pub enum DataKey {
     /// when the guarded scope ends; never present outside an active call, so an
     /// unexpired entry here means a mutation is in progress.  Stored as `bool`.
     ContractMutationLock(u32),
+    // Per-contract schema migration atomicity guard
+    /// Marks that an admin-triggered per-contract schema upgrade is in flight.
+    ///
+    /// Written at the start of `upgrade_contract_schema` and removed only
+    /// after the migrated payload AND its version marker both confirm the new
+    /// schema.  Because Soroban transactions are host-atomic, a panic during
+    /// migration leaves this marker on-ledger; the retry or recovery path
+    /// treats a stale lock as a cue to re-validate the record and clear it.
+    /// Stored as `u32` (the target schema version being applied).
+    ContractMigrationLock(u32),
 }
 
 // ── Two-step Governance Proposal (Issue #1221) ───────────────────────────────
@@ -443,6 +453,42 @@ pub enum Error {
     /// contract can never produce this error, so it always signals corrupted
     /// or stale on-ledger state discovered before it could be propagated.
     StorageInvariantViolated = 87,
+    // Migration-hardening errors (state schema upgrade guardrails)
+    /// A schema migration is already in progress for this contract id.
+    ///
+    /// Written under `DataKey::ContractMigrationLock(contract_id)` at the
+    /// start of an admin-triggered per-record upgrade; cleared only after
+    /// every storage key for that record has been rewritten at the new
+    /// schema version.  A caller observing this error should retry after
+    /// the in-flight migration commits or is rolled back by the host.
+    MigrationAlreadyInProgress = 88,
+    /// The on-ledger migration version marker does not match the value
+    /// expected by the migration engine.
+    ///
+    /// Distinct from `InvalidMigrationVersion` (which covers out-of-range or
+    /// downgrade targets) — this variant specifically signals that a marker
+    /// read during a step transition disagrees with the running version,
+    /// which would otherwise indicate a torn write or concurrent mutation.
+    MigrationVersionMismatch = 89,
+    /// The migration engine encountered a storage record whose internal
+    /// state is incompatible with the expected schema (e.g. a version marker
+    /// claims v2 but the payload deserialises as v1 fields only, or a
+    /// required companion key is missing for the declared version).
+    InvalidMigrationState = 90,
+    /// The raw bytes persisted under a migration-managed key could not be
+    /// deserialised into the struct claimed by the version marker.  Always
+    /// indicates storage corruption or an incompatible manual storage write;
+    /// the migration path refuses to heal the record and instead surfaces
+    /// this typed error so admins can run the explicit key-recovery flow.
+    CorruptedStorageData = 91,
+    /// The requested migration step has already been applied to this record.
+    ///
+    /// Returned (instead of a silent no-op) by the admin-gated per-contract
+    /// upgrade entrypoint when the caller requests a transition that the
+    /// on-ledger markers show has already completed.  Idempotent callers can
+    /// treat this as success; strict callers can use it to detect drift
+    /// between their local state and the ledger.
+    AlreadyMigrated = 92,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
