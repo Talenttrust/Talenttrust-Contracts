@@ -29,6 +29,7 @@
 //! * Already-current or future version (`>= REPUTATION_STORAGE_VERSION`) →
 //!   `false`, storage untouched.
 //! * v1 with record → `true`, fields preserved exactly, both keys TTL-bumped.
+//! * v1 with negative reputation fields → `false`, record and marker untouched.
 //! * Retries / concurrent calls are idempotent: first call migrates, rest no-op.
 //! * Permissionless: no auth required; migration never escalates privilege and
 //!   never deletes or alters reputation field values.
@@ -93,7 +94,8 @@ pub(crate) fn write_reputation_version(env: &Env, address: &Address) {
 ///
 /// Returns `true` when an actual migration was performed, `false` when the
 /// record was already at the current version (no-op) or when no record exists
-/// for the address (nothing to migrate).
+/// for the address (nothing to migrate). A legacy record with a negative
+/// counter or rating is left untouched and also returns `false`.
 ///
 /// # Behaviour by version
 ///
@@ -131,6 +133,13 @@ pub(crate) fn migrate_reputation_storage_impl(env: &Env, address: &Address) -> b
         Some(r) => r,
         None => return false,
     };
+
+    // Match the write-time invariant: counters and accumulated ratings cannot
+    // be negative. Do not seal malformed legacy data as migrated; callers can
+    // inspect or repair the unchanged record and retry safely.
+    if rep.completed_contracts < 0 || rep.total_rating < 0 || rep.last_rating < 0 {
+        return false;
+    }
 
     // Re-write the reputation record to refresh its TTL alongside the version marker.
     env.storage().persistent().set(&rep_key, &rep);
