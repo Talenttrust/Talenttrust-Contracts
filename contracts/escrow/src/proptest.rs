@@ -665,4 +665,127 @@ proptest! {
         assert!(try_deposit(&client, id, &h.client_addr, tiny));
         assert_invariant(&client, id);
     }
+
+    /// Duplicate approvals for the same milestone must be idempotent (or safely rejected)
+    /// and must not corrupt the invariant.
+    #[test]
+    fn prop_idempotent_duplicate_approve(
+        amounts in milestone_amounts(),
+        target_raw in 0u32..MAX_MS as u32,
+    ) {
+        let n = amounts.len() as u32;
+        prop_assume!(n > 0);
+        let target = target_raw % n;
+
+        let h = Harness::new();
+        let client = h.escrow_client();
+        let total = sum(&amounts);
+        let ms: SorobanVec<i128> = {
+            let mut v = SorobanVec::new(&h.env);
+            for &a in &amounts {
+                v.push_back(a);
+            }
+            v
+        };
+        let id = client.create_contract(
+            &h.client_addr,
+            &h.freelancer_addr,
+            &None,
+            &ms,
+            &ReleaseAuthorization::ClientOnly,
+        );
+
+        assert!(try_deposit(&client, id, &h.client_addr, total));
+        
+        // First approval
+        assert!(try_approve(&client, id, &h.client_addr, target));
+        assert_invariant(&client, id);
+
+        // Second duplicate approval
+        let _ = try_approve(&client, id, &h.client_addr, target);
+        assert_invariant(&client, id);
+    }
+
+    /// Duplicate refunds for the same milestone must be idempotent (or safely rejected)
+    /// and must not corrupt the invariant.
+    #[test]
+    fn prop_idempotent_duplicate_refund(
+        amounts in milestone_amounts(),
+    ) {
+        let h = Harness::new();
+        let client = h.escrow_client();
+        let total = sum(&amounts);
+        let ms: SorobanVec<i128> = {
+            let mut v = SorobanVec::new(&h.env);
+            for &a in &amounts {
+                v.push_back(a);
+            }
+            v
+        };
+        let id = client.create_contract(
+            &h.client_addr,
+            &h.freelancer_addr,
+            &None,
+            &ms,
+            &ReleaseAuthorization::ClientOnly,
+        );
+
+        assert!(try_deposit(&client, id, &h.client_addr, total));
+        
+        let all_indices: StdVec<u32> = (0..amounts.len() as u32).collect();
+        
+        // First refund
+        let _ = try_refund(&client, &h.env, id, &all_indices);
+        assert_invariant(&client, id);
+
+        // Second duplicate refund
+        let _ = try_refund(&client, &h.env, id, &all_indices);
+        assert_invariant(&client, id);
+    }
+
+    /// Racing a release and a refund on the same milestone must not double-spend
+    /// and must preserve the accounting invariant.
+    #[test]
+    fn prop_racing_release_and_refund(
+        amounts in milestone_amounts(),
+        target_raw in 0u32..MAX_MS as u32,
+        release_first in prop::bool::ANY,
+    ) {
+        let n = amounts.len() as u32;
+        prop_assume!(n > 0);
+        let target = target_raw % n;
+
+        let h = Harness::new();
+        let client = h.escrow_client();
+        let total = sum(&amounts);
+        let ms: SorobanVec<i128> = {
+            let mut v = SorobanVec::new(&h.env);
+            for &a in &amounts {
+                v.push_back(a);
+            }
+            v
+        };
+        let id = client.create_contract(
+            &h.client_addr,
+            &h.freelancer_addr,
+            &None,
+            &ms,
+            &ReleaseAuthorization::ClientOnly,
+        );
+
+        assert!(try_deposit(&client, id, &h.client_addr, total));
+        assert!(try_approve(&client, id, &h.client_addr, target));
+        
+        let target_indices = std::vec![target];
+        
+        if release_first {
+            let _ = try_release(&client, id, &h.client_addr, target);
+            let _ = try_refund(&client, &h.env, id, &target_indices);
+        } else {
+            let _ = try_refund(&client, &h.env, id, &target_indices);
+            let _ = try_release(&client, id, &h.client_addr, target);
+        }
+        
+        assert_invariant(&client, id);
+    }
 }
