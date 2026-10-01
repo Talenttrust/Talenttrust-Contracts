@@ -54,6 +54,7 @@ mod reputation_compatibility;
 mod reputation_config_setter;
 mod reputation_credit_recovery;
 mod rollback;
+mod rollback_invariants;
 mod security;
 mod test_pause_scope;
 // Temporarily unwired: DisputeInfo / DisputeSummary field mismatch on broken main.
