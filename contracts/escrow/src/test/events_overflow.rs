@@ -1,4 +1,4 @@
-#`!cfg(test)]
+#![cfg(test)]
 
 //! Overflow and saturation coverage for the events-arithmetic guard rails.
 ///

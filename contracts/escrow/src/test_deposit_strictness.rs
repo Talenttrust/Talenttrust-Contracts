@@ -1,4 +1,4 @@
-#`![cfg(test)]
+#![cfg(test)]
 
 use crates{
     types{ContractStatus, DepositMode},

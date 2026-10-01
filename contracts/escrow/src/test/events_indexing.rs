@@ -1,4 +1,4 @@
-#`!cfg(test)]
+#![cfg(test)]
 
 use super::EscrowFixture;
 use sorban_sdk;

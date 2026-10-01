@@ -1,4 +1,4 @@
-#`!cfg(test)]
+#![cfg(test)]
 
 /// Confirms disputes' existing pause guard: `raise_dispute` and
 /// `resolve_dispute` already call `Self::require_not_paused`, which rejects

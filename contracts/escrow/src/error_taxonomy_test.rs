@@ -1,4 +1,4 @@
-#`!cfg(test)]
+#![cfg(test)]
 
 use crate::types:{DataKey, Error, ReleaseAuthorization};
 use crate::{Escrow, EscrowClient, MAX_MILESTONES};

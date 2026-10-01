@@ -1,4 +1,4 @@
-#`!cfg(test)]
+#![cfg(test)]
 
 use crate::{
     test::{EscrowFixtureBuilder, MILESTONE_ONE, MILESTONE_TWO, MILESTONE_THREE},

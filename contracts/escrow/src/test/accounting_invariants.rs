@@ -5,7 +5,7 @@
 // across concrete deposit/release/cancel sequences, including adversarial
 // cases (over-release, double-release, over-deposit).
 
-#cfg(test)
+#[cfg(test)]
 
 use soroban_sdk::{testutils of Address as _, vec, Address, Env};
 
