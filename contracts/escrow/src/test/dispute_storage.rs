@@ -226,10 +226,7 @@ fn unsupported_future_version_is_rejected() {
         );
     });
 
-    assert_contract_error(
-        client.try_get_dispute(&id),
-        EscrowError::InvalidState,
-    );
+    assert_contract_error(client.try_get_dispute(&id), EscrowError::InvalidState);
 }
 
 /// Direct helper coverage: load after store_dispute_metadata is a no-op path.
@@ -513,4 +510,34 @@ fn future_version_with_v0_payload_is_rejected() {
     });
 
     assert_contract_error(client.try_get_dispute(&id), EscrowError::InvalidState);
+}
+
+/// A repeated resolution cannot replay payouts, emit another settlement event,
+/// or grant a second pending reputation credit.
+#[test]
+fn duplicate_resolution_has_no_second_settlement_side_effects() {
+    let fixture = funded_fixture_with_arbiter();
+    let client = fixture.escrow();
+    let id = fixture.escrow_id;
+    let arbiter = fixture.arbiter.clone().expect("arbiter configured");
+    let freelancer = fixture.freelancer.clone();
+
+    assert!(client.raise_dispute(&id, &fixture.client));
+    assert!(client.resolve_dispute(&id, &arbiter, &DisputeResolution::PartialRefund));
+    let settled_contract = client.get_contract(&id);
+    let settled_events = fixture.env.events().all().len();
+    let settled_credits = client.get_pending_reputation_credits(&freelancer);
+    assert_eq!(settled_credits, 1);
+
+    assert_contract_error(
+        client.try_resolve_dispute(&id, &arbiter, &DisputeResolution::FullPayout),
+        EscrowError::InvalidStatusTransition,
+    );
+
+    assert_eq!(client.get_contract(&id), settled_contract);
+    assert_eq!(fixture.env.events().all().len(), settled_events);
+    assert_eq!(
+        client.get_pending_reputation_credits(&freelancer),
+        settled_credits
+    );
 }
