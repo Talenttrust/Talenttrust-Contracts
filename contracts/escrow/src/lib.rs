@@ -3863,7 +3863,11 @@ impl Escrow {
             .persistent()
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
-        let invariant_sum = contract.released_amount + contract.refunded_amount + accumulated_fees;
+        let invariant_sum = contract
+            .released_amount
+            .checked_add(contract.refunded_amount)
+            .and_then(|sum| sum.checked_add(accumulated_fees))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::AccountingInvariantViolated));
         if invariant_sum > contract.funded_amount {
             env.panic_with_error(EscrowError::AccountingInvariantViolated);
         }

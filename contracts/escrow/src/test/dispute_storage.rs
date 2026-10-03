@@ -226,10 +226,7 @@ fn unsupported_future_version_is_rejected() {
         );
     });
 
-    assert_contract_error(
-        client.try_get_dispute(&id),
-        EscrowError::InvalidState,
-    );
+    assert_contract_error(client.try_get_dispute(&id), EscrowError::InvalidState);
 }
 
 /// Direct helper coverage: load after store_dispute_metadata is a no-op path.
@@ -510,6 +507,37 @@ fn future_version_with_v0_payload_is_rejected() {
             &DataKey::DisputeStorageVersion(id),
             &(DISPUTE_STORAGE_VERSION + 1),
         );
+    });
+
+    assert_contract_error(client.try_get_dispute(&id), EscrowError::InvalidState);
+}
+
+/// A current payload paired with an older marker is corrupted state, not a
+/// valid v0 record; loading must fail closed instead of silently trusting one.
+#[test]
+fn current_payload_with_legacy_version_marker_is_rejected() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let id = fixture.escrow_id;
+    let metadata = DisputeMetadata {
+        schema_version: DISPUTE_STORAGE_VERSION,
+        raised_by: fixture.client.clone(),
+        reason_hash: BytesN::from_array(env, &[4u8; 32]),
+        raised_at: 7,
+    };
+
+    env.as_contract(&client.address, || {
+        let key = DataKey::Contract(id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.status = ContractStatus::Disputed;
+        env.storage().persistent().set(&key, &contract);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Dispute(id), &metadata);
+        env.storage()
+            .persistent()
+            .set(&DataKey::DisputeStorageVersion(id), &0u32);
     });
 
     assert_contract_error(client.try_get_dispute(&id), EscrowError::InvalidState);
