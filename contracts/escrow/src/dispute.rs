@@ -215,18 +215,26 @@ pub fn final_status_after_resolution(contract: &Contract) -> ContractStatus {
 /// Overwrites any existing record for `contract_id`. Callers that need
 /// idempotency must check [`get_dispute_storage_version`] first.
 pub fn store_dispute_metadata(env: &Env, contract_id: u32, metadata: &DisputeMetadata) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Dispute(contract_id), metadata);
+    if metadata.schema_version != DISPUTE_STORAGE_VERSION {
+        env.panic_with_error(Error::InvalidState);
+    }
+    validate_dispute_reason_hash_len(metadata.reason_hash.len())
+        .unwrap_or_else(|error| env.panic_with_error(error));
+    let storage = env.storage().persistent();
+    storage.set(&DataKey::Dispute(contract_id), metadata);
+    storage.set(
+        &DataKey::DisputeStorageVersion(contract_id),
+        &DISPUTE_STORAGE_VERSION,
+    );
 }
 
 /// Remove dispute metadata for a contract.
 ///
 /// Safe to call when no record exists; the operation is a no-op in that case.
 pub fn clear_dispute_metadata(env: &Env, contract_id: u32) {
-    env.storage()
-        .persistent()
-        .remove(&DataKey::Dispute(contract_id));
+    let storage = env.storage().persistent();
+    storage.remove(&DataKey::Dispute(contract_id));
+    storage.remove(&DataKey::DisputeStorageVersion(contract_id));
 }
 
 /// Return the schema version of the stored dispute metadata, or 0 if none exists.
@@ -234,15 +242,22 @@ pub fn clear_dispute_metadata(env: &Env, contract_id: u32) {
 /// Returns `0` when no record is present, and [`DISPUTE_STORAGE_VERSION`]
 /// otherwise. This is the canonical way to detect the presence of a dispute.
 pub fn get_dispute_storage_version(env: &Env, contract_id: u32) -> u32 {
-    if env
-        .storage()
-        .persistent()
-        .has(&DataKey::Dispute(contract_id))
-    {
-        DISPUTE_STORAGE_VERSION
-    } else {
-        0
+    let storage = env.storage().persistent();
+    let stored_version: Option<u32> = storage.get(&DataKey::DisputeStorageVersion(contract_id));
+    if let Some(version) = stored_version {
+        return version;
     }
+    if let Some(metadata) = storage.get::<_, DisputeMetadata>(&DataKey::Dispute(contract_id)) {
+        return metadata.schema_version;
+    }
+    // A v0 payload has no version marker and must remain detectable as legacy.
+    if storage
+        .get::<_, DisputeMetadataV0>(&DataKey::Dispute(contract_id))
+        .is_some()
+    {
+        return 0;
+    }
+    0
 }
 
 /// Read dispute metadata with automatic v0 → v1 migration.
@@ -254,14 +269,26 @@ pub fn get_dispute_storage_version(env: &Env, contract_id: u32) -> u32 {
 /// than silently downgraded, so forward-incompatible records cannot be
 /// misinterpreted.
 pub fn load_dispute_metadata(env: &Env, contract_id: u32) -> DisputeMetadata {
+    if get_dispute_storage_version(env, contract_id) > DISPUTE_STORAGE_VERSION {
+        env.panic_with_error(Error::InvalidState);
+    }
     if let Some(meta) = env
         .storage()
         .persistent()
         .get::<_, DisputeMetadata>(&DataKey::Dispute(contract_id))
     {
-        if meta.schema_version > DISPUTE_STORAGE_VERSION {
+        let marker: Option<u32> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DisputeStorageVersion(contract_id));
+        if marker.is_some_and(|version| version != meta.schema_version) {
             env.panic_with_error(Error::InvalidState);
         }
+        if meta.schema_version != DISPUTE_STORAGE_VERSION {
+            env.panic_with_error(Error::InvalidState);
+        }
+        validate_dispute_reason_hash_len(meta.reason_hash.len())
+            .unwrap_or_else(|error| env.panic_with_error(error));
         return meta;
     }
     // Try v0 → v1 migration
@@ -270,6 +297,13 @@ pub fn load_dispute_metadata(env: &Env, contract_id: u32) -> DisputeMetadata {
         .persistent()
         .get::<_, DisputeMetadataV0>(&DataKey::Dispute(contract_id))
     {
+        let marker: Option<u32> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DisputeStorageVersion(contract_id));
+        if marker.is_some_and(|version| version != 0) {
+            env.panic_with_error(Error::InvalidState);
+        }
         let v1 = migrate_dispute_metadata_v0_to_v1(v0);
         store_dispute_metadata(env, contract_id, &v1);
         return v1;
