@@ -23,8 +23,6 @@
 #![allow(clippy::single_match)]
 #![allow(clippy::useless_conversion)]
 
-
-mod amount_validation;
 mod amount_validation;
 mod approvals;
 mod create_contract;
@@ -47,9 +45,6 @@ pub use types::{
     Reputation, CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 
-// Re-export for internal use
-pub(crate) use amount_validation::safe_subtract_amounts;
-
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String,
     Symbol, Vec,
@@ -59,6 +54,10 @@ use soroban_sdk::{
 pub struct Escrow;
 
 /// Governance-level errors for admin-gated operations.
+///
+/// These mirror the canonical `Error` enum in `types.rs` but are reserved for
+/// governance and admin-control paths. Numeric codes must not overlap with
+/// `Error` variants.
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -100,11 +99,10 @@ pub enum EscrowError {
     AmountMustBePositive = 30,
     /// Returned by `submit_work_evidence` when the evidence string exceeds 256 bytes.
     EvidenceTooLong = 31,
-}
-
-/// Returns `Some(a + b)`, or `None` on overflow.
-pub fn safe_add_amounts(a: i128, b: i128) -> Option<i128> {
-    a.checked_add(b)
+    TimelockNotElapsed = 33,
+    InvalidProtocolParameters = 34,
+    EmptyComment = 36,
+    CommentTooLong = 37,
 }
 
 #[contractimpl]
@@ -298,7 +296,7 @@ impl Escrow {
     }
 
     /// Return the live pending client migration record.
-    pub fn get_pending_client_migration(env: Env, contract_id: u32) -> PendingClientMigration {
+    pub fn get_pending_client_migration(env: Env, contract_id: u32) -> migration::PendingClientMigration {
         migration::get_pending_client_migration_impl(&env, contract_id)
     }
 
@@ -456,9 +454,9 @@ impl Escrow {
         // Accumulate protocol fees if initialized with a fee rate and capture
         // the computed fee for inclusion in the emitted event.
         let protocol_fee: i128 = if Self::is_initialized(&env) {
-            let fee_bps = Self::get_protocol_fee_bps(&env);
+            let fee_bps = Self::get_protocol_fee_bps_internal(&env);
             if fee_bps > 0 {
-                let fee = Self::calculate_protocol_fee(release_amount, fee_bps);
+                let fee = Self::calculate_protocol_fee_internal(release_amount, fee_bps);
                 let current_accumulated: i128 = env
                     .storage()
                     .persistent()
@@ -482,7 +480,6 @@ impl Escrow {
         // Check if all milestones are released or refunded; if so, complete.
         let all_released = milestones.iter().all(|m| m.released || m.refunded);
         if all_released {
-            let old_status = contract.status.clone();
             contract.status = ContractStatus::Completed;
             Self::grant_pending_reputation_credit(&env, &contract.freelancer);
         }
@@ -501,12 +498,6 @@ impl Escrow {
         // if execution reaches here, the release was accepted). Events contain
         // no secrets — all fields are already public contract state or
         // caller-supplied arguments.
-
-        /// `mlstn_rls` — fired on every successful milestone release.
-        ///
-        /// Topics : `(symbol_short!("mlstn_rls"), contract_id: u32)`
-        /// Data   : `(milestone_index: u32, amount: i128, fee: i128,
-        ///            new_released_amount: i128, caller: Address, timestamp: u64)`
         env.events().publish(
             (symbol_short!("mlstn_rls"), contract_id),
             (
@@ -519,10 +510,6 @@ impl Escrow {
             ),
         );
 
-        // `ctrct_cmp` — fired only when this release completes the contract.
-        //
-        /// Topics : `(symbol_short!("ctrct_cmp"), contract_id: u32)`
-        /// Data   : `(caller: Address, timestamp: u64)`
         if all_released {
             env.events().publish(
                 (symbol_short!("ctrct_cmp"), contract_id),
@@ -880,7 +867,7 @@ impl Escrow {
         Self::require_not_finalized(&env, contract_id);
         let old_status = contract.status.clone();
         contract.status = ContractStatus::Cancelled;
-        emit_status_changed(env, contract_id, old_status, ContractStatus::Cancelled);
+        emit_status_changed(&env, contract_id, old_status, ContractStatus::Cancelled);
         env.storage()
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);
@@ -891,18 +878,125 @@ impl Escrow {
     // ── Dispute management ────────────────────────────────────────────────────
 
     /// Opens a dispute on a funded or partially funded escrow.
+    ///
+    /// # Errors
+    /// * `ContractNotFound` - If contract doesn't exist
+    /// * `UnauthorizedRole` - If caller is not client or freelancer
+    /// * `ArbiterRequired` - If no arbiter is assigned to the contract
+    /// * `InvalidState` - If contract is not in a disputable state
+    /// * `ContractPaused` - If pause or emergency controls are active
+    /// * `AlreadyFinalized` - If contract has been finalized
     pub fn raise_dispute(env: Env, contract_id: u32, caller: Address) -> bool {
-        Self::raise_dispute_impl(env, contract_id, caller)
+        Self::require_not_paused(&env);
+        caller.require_auth();
+
+        let mut contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+
+        ttl::extend_contract_ttl(&env, contract_id);
+        Self::require_not_finalized(&env, contract_id);
+
+        // Verify caller is client or freelancer
+        if caller != contract.client && caller != contract.freelancer {
+            env.panic_with_error(EscrowError::UnauthorizedRole);
+        }
+
+        // Require arbiter assignment
+        if contract.arbiter.is_none() {
+            env.panic_with_error(EscrowError::ArbiterRequired);
+        }
+
+        // Verify contract is in a disputable state (Funded or PartiallyFunded)
+        match contract.status {
+            ContractStatus::Funded | ContractStatus::PartiallyFunded => {}
+            _ => env.panic_with_error(EscrowError::InvalidState),
+        }
+
+        contract.status = ContractStatus::Disputed;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), &contract);
+
+        ttl::extend_contract_ttl(&env, contract_id);
+
+        env.events().publish(
+            (symbol_short!("dispute"), symbol_short!("opened")),
+            (contract_id, caller),
+        );
+
+        true
     }
 
     /// Resolves an open dispute with the arbiter-selected resolution.
+    ///
+    /// # Errors
+    /// * `ContractNotFound` - If contract doesn't exist
+    /// * `UnauthorizedRole` - If caller is not the assigned arbiter
+    /// * `InvalidStatusTransition` - If contract is not in Disputed state
+    /// * `InvalidDisputeSplit` - If custom split doesn't match available balance
+    /// * `AccountingInvariantViolated` - If accounting state is inconsistent
+    /// * `PotentialOverflow` - If amount calculations would overflow
+    /// * `ContractPaused` - If pause or emergency controls are active
+    /// * `AlreadyFinalized` - If contract has been finalized
     pub fn resolve_dispute(
         env: Env,
         contract_id: u32,
         arbiter: Address,
         resolution: DisputeResolution,
     ) -> bool {
-        Self::resolve_dispute_impl(env, contract_id, arbiter, resolution)
+        Self::require_not_paused(&env);
+        arbiter.require_auth();
+
+        let mut contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+
+        ttl::extend_contract_ttl(&env, contract_id);
+        Self::require_not_finalized(&env, contract_id);
+
+        // Verify contract is in Disputed state
+        if contract.status != ContractStatus::Disputed {
+            env.panic_with_error(EscrowError::InvalidStatusTransition);
+        }
+
+        // Verify caller is the assigned arbiter
+        match &contract.arbiter {
+            Some(contract_arbiter) if *contract_arbiter == arbiter => {}
+            _ => env.panic_with_error(EscrowError::UnauthorizedRole),
+        }
+
+        // Compute payouts based on resolution
+        let (client_payout, freelancer_payout) =
+            dispute::resolution_payouts(&contract, &resolution)
+                .unwrap_or_else(|e| env.panic_with_error(e));
+
+        // Update contract accounting
+        contract.refunded_amount += client_payout;
+        contract.released_amount += freelancer_payout;
+
+        // Set final status
+        contract.status = dispute::final_status_after_resolution(&contract);
+        if contract.status == ContractStatus::Completed {
+            Self::grant_pending_reputation_credit(&env, &contract.freelancer);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), &contract);
+
+        ttl::extend_contract_ttl(&env, contract_id);
+
+        env.events().publish(
+            (symbol_short!("dispute"), symbol_short!("resolved")),
+            (contract_id, resolution.code()),
+        );
+
+        true
     }
 
     // ── Reputation ───────────────────────────────────────────────────────────
@@ -1185,56 +1279,13 @@ impl Escrow {
         milestones.get(milestone_index).unwrap().work_evidence
     }
 
-    // -----------------------------------------------------------------------
-    // Internal helpers
-    // -----------------------------------------------------------------------
-
-    /// Proposes a client migration for an existing contract.
-    pub fn propose_client_migration(
-        env: Env,
-        contract_id: u32,
-        current_client: Address,
-        new_client: Address,
-    ) -> bool {
-        Self::propose_client_migration_impl(env, contract_id, current_client, new_client)
-    }
-
-    /// Accepts a pending client migration.
-    pub fn accept_client_migration(env: Env, contract_id: u32, new_client: Address) -> bool {
-        Self::accept_client_migration_impl(env, contract_id, new_client)
-    }
-
-    /// Returns true if a live pending client migration exists.
-    pub fn has_pending_client_migration(env: Env, contract_id: u32) -> bool {
-        Self::has_pending_client_migration_impl(env, contract_id)
-    }
-
-    /// Returns the live pending client migration record.
-    pub fn get_pending_client_migration(
-        env: Env,
-        contract_id: u32,
-    ) -> migration::PendingClientMigration {
-        Self::get_pending_client_migration_impl(env, contract_id)
-    }
-
-    // ── Finalization ─────────────────────────────────────────────────────────
-
-    /// Finalizes an escrow contract by writing immutable close metadata.
-    pub fn finalize_contract(env: Env, contract_id: u32, finalizer: Address) -> bool {
-        Self::finalize_contract_impl(env, contract_id, finalizer)
-    }
-
-    /// Returns immutable close metadata for a contract.
-    pub fn get_finalization_record(
-        env: Env,
-        contract_id: u32,
-    ) -> Option<finalize::FinalizationRecord> {
-        Self::get_finalization_record_impl(env, contract_id)
-    }
-
     // ── Governance ───────────────────────────────────────────────────────────
 
     /// Sets the protocol fee in basis points.
+    ///
+    /// # Errors
+    /// * `NotInitialized` - If `initialize` has not been called
+    /// * `ContractNotFound` - If admin is not stored
     pub fn set_protocol_fee_bps(env: Env, new_bps: u32) -> bool {
         Self::set_protocol_fee_bps_impl(&env, new_bps)
     }
@@ -1256,33 +1307,133 @@ impl Escrow {
     }
 
     /// Proposes a new governance admin (two-step transfer with timelock).
+    ///
+    /// # Invariants
+    /// - `proposed` must differ from the current admin (`Error::CannotProposeSelf`).
+    /// - Contract must be initialized (`Error::NotInitialized`).
+    /// - A subsequent proposal overwrites a prior pending one without error.
+    ///
+    /// # Events
+    /// Emits `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
     pub fn propose_governance_admin(env: Env, proposed: Address) -> bool {
         Self::propose_governance_admin_impl(&env, proposed)
     }
 
     /// Accepts a pending governance admin proposal (enforces timelock).
+    ///
+    /// # Invariants
+    /// - Contract must be initialized (`Error::NotInitialized`).
+    /// - A pending proposal must exist (`Error::InvalidState`).
+    /// - `ADMIN_ROTATION_MIN_DELAY_LEDGERS` must have elapsed since proposal
+    ///   (`EscrowError::TimelockNotElapsed`).
+    /// - The proposed address must authorize the call.
+    ///
+    /// # Events
+    /// Emits `(symbol_short!("admin"), Symbol("accepted"))` → `(old_admin, new_admin, timestamp)`
     pub fn accept_governance_admin(env: Env) -> bool {
         Self::accept_governance_admin_impl(&env)
     }
 
+    /// Cancels a pending governance admin proposal.
+    ///
+    /// Only the current admin can cancel. Clears `DataKey::PendingAdmin` and
+    /// emits a cancellation event so indexers can track the lifecycle.
+    ///
+    /// # Invariants
+    /// - Contract must be initialized (`Error::NotInitialized`).
+    /// - A pending proposal must exist (`Error::NoPendingAdminProposal`).
+    /// - The current admin must authorize the call.
+    ///
+    /// # Events
+    /// Emits `(symbol_short!("admin"), Symbol("cancelled"))` → `(admin, cancelled_proposed, timestamp)`
+    pub fn cancel_governance_admin_proposal(env: Env) -> bool {
+        Self::cancel_governance_admin_proposal_impl(&env)
+    }
+
     /// Returns the pending governance admin address, if any.
     pub fn get_pending_governance_admin(env: Env) -> Option<Address> {
-        env.storage().persistent().get(&DataKey::PendingAdmin)
+        Self::get_pending_governance_admin_impl(env)
     }
 
     /// Returns the current governance admin address.
     pub fn get_governance_admin(env: Env) -> Option<Address> {
-        env.storage().persistent().get(&DataKey::Admin)
+        Self::get_governance_admin_impl(env)
     }
 
     /// Set both governance parameters at once and update the readiness checklist.
+    ///
+    /// # Invariants
+    /// - Contract must be initialized (`Error::NotInitialized`).
+    /// - `admin` must match the stored admin (`EscrowError::UnauthorizedRole`).
+    /// - `protocol_fee_bps` must be ≤ 10 000 (`Error::InvalidProtocolParameters`).
+    /// - `max_escrow_total_stroops` must be > 0 (`Error::InvalidProtocolParameters`).
+    ///
+    /// # Events
+    /// Updates `ReadinessChecklist::governed_params_set` to `true`.
     pub fn set_governed_params(
         env: Env,
         admin: Address,
         protocol_fee_bps: u32,
         max_escrow_total_stroops: i128,
     ) -> bool {
-        Self::require_initialized(&env);
+        Self::set_governed_params_impl(&env, admin, protocol_fee_bps, max_escrow_total_stroops)
+    }
+
+    /// Retrieve the current governed parameters.
+    pub fn get_governed_parameters(env: Env) -> Option<GovernedParameters> {
+        env.storage().persistent().get(&DataKey::GovernedParameters)
+    }
+
+    // ── Protocol fee helpers ─────────────────────────────────────────────────
+
+    pub(crate) fn get_protocol_fee_bps_internal(env: &Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get::<_, u32>(&DataKey::ProtocolFeeBps)
+            .unwrap_or(0)
+    }
+
+    pub(crate) fn calculate_protocol_fee_internal(amount: i128, fee_bps: u32) -> i128 {
+        if fee_bps == 0 {
+            return 0;
+        }
+        let fee_bps_i128 = fee_bps as i128;
+        amount
+            .checked_mul(fee_bps_i128)
+            .and_then(|v| v.checked_div(10_000))
+            .unwrap_or(0)
+    }
+
+    // ── Internal guards ──────────────────────────────────────────────────────
+
+    /// Panics with `NotInitialized` unless `initialize` has been called.
+    pub(crate) fn require_initialized(env: &Env) {
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Initialized)
+            .unwrap_or(false)
+        {
+            env.panic_with_error(EscrowError::NotInitialized);
+        }
+    }
+
+    pub(crate) fn is_initialized(env: &Env) -> bool {
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Initialized)
+            .unwrap_or(false)
+    }
+
+    // ── Governance impl delegation ───────────────────────────────────────────
+
+    fn set_governed_params_impl(
+        env: &Env,
+        admin: Address,
+        protocol_fee_bps: u32,
+        max_escrow_total_stroops: i128,
+    ) -> bool {
+        Self::require_initialized(env);
 
         let stored_admin: Address = env
             .storage()
@@ -1295,8 +1446,14 @@ impl Escrow {
         }
         admin.require_auth();
 
+        // fee must be in [0, 10_000] basis points (0%–100%)
         if protocol_fee_bps > 10_000 {
-            env.panic_with_error(EscrowError::InvalidProtocolParameters);
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
+
+        // cap must be a positive stoop value
+        if max_escrow_total_stroops <= 0 {
+            env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
         let params = GovernedParameters {
@@ -1319,228 +1476,20 @@ impl Escrow {
 
         true
     }
+}
 
-    /// Retrieve the current governed parameters.
-    pub fn get_governed_parameters(env: Env) -> Option<GovernedParameters> {
-        env.storage().persistent().get(&DataKey::GovernedParameters)
-    }
+// ── Free-standing helper used by cancel_contract and deposit ─────────────────
 
-    // ── Protocol fee helpers ─────────────────────────────────────────────────
-
-    pub(crate) fn get_protocol_fee_bps(env: &Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get::<_, u32>(&DataKey::ProtocolFeeBps)
-            .unwrap_or(0)
-    }
-
-    pub(crate) fn calculate_protocol_fee(amount: i128, fee_bps: u32) -> i128 {
-        if fee_bps == 0 {
-            return 0;
-        }
-        amount * fee_bps as i128 / 10_000
-    }
-
-    // ── Internal guards ──────────────────────────────────────────────────────
-
-    /// Panics with `NotInitialized` unless `initialize` has been called.
-    pub(crate) fn require_initialized(env: &Env) {
-        if !env
-            .storage()
-            .persistent()
-            .get::<_, bool>(&DataKey::Initialized)
-            .unwrap_or(false)
-        {
-            env.panic_with_error(EscrowError::NotInitialized);
-        }
-    }
-
-    fn is_initialized(env: &Env) -> bool {
-        env.storage()
-            .persistent()
-            .get::<_, bool>(&DataKey::Initialized)
-            .unwrap_or(false)
-    }
-
-    fn get_protocol_fee_bps(env: &Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get::<_, u32>(&DataKey::ProtocolFeeBps)
-            .unwrap_or(0)
-    }
-
-    fn calculate_protocol_fee(amount: i128, fee_bps: u32) -> i128 {
-        let fee_bps_i128 = fee_bps as i128;
-        amount
-            .checked_mul(fee_bps_i128)
-            .and_then(|v| v.checked_div(10000))
-            .unwrap_or(0)
-    }
-
-    // -----------------------------------------------------------------------
-    // Dispute management
-    // -----------------------------------------------------------------------
-
-    /// Opens a dispute for a funded or partially funded escrow contract.
-    ///
-    /// This entrypoint transitions the contract status to `Disputed`, preventing
-    /// further milestone releases until an assigned arbiter resolves the dispute.
-    /// Only the client or freelancer can open a dispute, and an arbiter must be
-    /// assigned to the contract.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `contract_id` - The contract ID
-    /// * `caller` - The address opening the dispute (must be client or freelancer)
-    ///
-    /// # Returns
-    /// `true` if the dispute was successfully opened
-    ///
-    /// # Errors
-    /// * `ContractNotFound` - If contract doesn't exist
-    /// * `UnauthorizedRole` - If caller is not client or freelancer
-    /// * `ArbiterRequired` - If no arbiter is assigned to the contract
-    /// * `InvalidState` - If contract is not in a disputable state
-    /// * `ContractPaused` - If pause or emergency controls are active
-    /// * `AlreadyFinalized` - If contract has been finalized
-    ///
-    /// # Security
-    /// - Only contract parties (client/freelancer) can open disputes
-    /// - Requires arbiter assignment for resolution
-    /// - Blocks milestone releases while disputed
-    /// - Respects pause and emergency controls
-    pub fn raise_dispute(env: Env, contract_id: u32, caller: Address) -> bool {
-        Self::require_not_paused(&env);
-        caller.require_auth();
-
-        let mut contract: Contract = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
-
-        ttl::extend_contract_ttl(&env, contract_id);
-        Self::require_not_finalized(&env, contract_id);
-
-        // Verify caller is client or freelancer
-        if caller != contract.client && caller != contract.freelancer {
-            env.panic_with_error(EscrowError::UnauthorizedRole);
-        }
-
-        // Require arbiter assignment
-        if contract.arbiter.is_none() {
-            env.panic_with_error(EscrowError::ArbiterRequired);
-        }
-
-        // Verify contract is in a disputable state (Funded or PartiallyFunded)
-        match contract.status {
-            ContractStatus::Funded | ContractStatus::PartiallyFunded => {}
-            _ => env.panic_with_error(EscrowError::InvalidState),
-        }
-
-        contract.status = ContractStatus::Disputed;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Contract(contract_id), &contract);
-
-        ttl::extend_contract_ttl(&env, contract_id);
-
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("opened")),
-            (contract_id, caller),
-        );
-
-        true
-    }
-
-    /// Resolves an open dispute by applying the arbiter-selected resolution.
-    ///
-    /// This entrypoint applies the dispute resolution (FullRefund, PartialRefund,
-    /// FullPayout, or custom Split) to the remaining escrowed balance. The resolution
-    /// must be authorized by the assigned arbiter and must conserve the available funds.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `contract_id` - The contract ID
-    /// * `arbiter` - The arbiter address (must match contract's assigned arbiter)
-    /// * `resolution` - The resolution decision (FullRefund, PartialRefund, FullPayout, or Split)
-    ///
-    /// # Returns
-    /// `true` if the dispute was successfully resolved
-    ///
-    /// # Errors
-    /// * `ContractNotFound` - If contract doesn't exist
-    /// * `UnauthorizedRole` - If caller is not the assigned arbiter
-    /// * `InvalidStatusTransition` - If contract is not in Disputed state
-    /// * `InvalidDisputeSplit` - If custom split doesn't match available balance
-    /// * `AccountingInvariantViolated` - If accounting state is inconsistent
-    /// * `PotentialOverflow` - If amount calculations would overflow
-    /// * `ContractPaused` - If pause or emergency controls are active
-    /// * `AlreadyFinalized` - If contract has been finalized
-    ///
-    /// # Security
-    /// - Only the assigned arbiter can resolve disputes
-    /// - Split amounts must exactly match available balance
-    /// - Updates released_amount and refunded_amount atomically
-    /// - Emits dispute resolution event for indexers
-    /// - Sets final contract status based on resolution outcome
-    pub fn resolve_dispute(
-        env: Env,
-        contract_id: u32,
-        arbiter: Address,
-        resolution: DisputeResolution,
-    ) -> bool {
-        Self::require_not_paused(&env);
-        arbiter.require_auth();
-
-        let mut contract: Contract = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
-
-        ttl::extend_contract_ttl(&env, contract_id);
-        Self::require_not_finalized(&env, contract_id);
-
-        // Verify contract is in Disputed state
-        if contract.status != ContractStatus::Disputed {
-            env.panic_with_error(EscrowError::InvalidStatusTransition);
-        }
-
-        // Verify caller is the assigned arbiter
-        match &contract.arbiter {
-            Some(contract_arbiter) if *contract_arbiter == arbiter => {}
-            _ => env.panic_with_error(EscrowError::UnauthorizedRole),
-        }
-
-        // Compute payouts based on resolution
-        let (client_payout, freelancer_payout) =
-            dispute::resolution_payouts(&contract, &resolution)
-                .unwrap_or_else(|e| env.panic_with_error(e));
-
-        // Update contract accounting
-        contract.refunded_amount += client_payout;
-        contract.released_amount += freelancer_payout;
-
-        // Set final status
-        contract.status = dispute::final_status_after_resolution(&contract);
-        if contract.status == ContractStatus::Completed {
-            Self::grant_pending_reputation_credit(&env, &contract.freelancer);
-        }
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Contract(contract_id), &contract);
-
-        ttl::extend_contract_ttl(&env, contract_id);
-
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("resolved")),
-            (contract_id, resolution.code()),
-        );
-
-        true
-    }
+pub(crate) fn emit_status_changed(
+    env: &Env,
+    contract_id: u32,
+    old_status: ContractStatus,
+    new_status: ContractStatus,
+) {
+    env.events().publish(
+        (symbol_short!("status"), contract_id),
+        (old_status as u32, new_status as u32, env.ledger().timestamp()),
+    );
 }
 
 #[cfg(test)]

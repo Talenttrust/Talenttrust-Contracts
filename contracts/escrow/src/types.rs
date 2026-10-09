@@ -99,6 +99,25 @@ pub enum Error {
     ContractIdOverflow = 28,
     EmptyComment = 29,
     CommentTooLong = 30,
+
+    // ── Governance validation errors ─────────────────────────────────────────
+
+    /// Returned by `propose_governance_admin` when the caller proposes their
+    /// own address as the new admin. Self-transfer of admin rights is a
+    /// no-op that would leave the two-step timelock protectionless.
+    CannotProposeSelf = 31,
+
+    /// Returned by `cancel_governance_admin_proposal` and
+    /// `accept_governance_admin` when no pending proposal exists in storage.
+    NoPendingAdminProposal = 32,
+
+    /// Returned by `accept_governance_admin` when the minimum ledger delay
+    /// since the corresponding proposal has not yet elapsed.
+    TimelockNotElapsed = 33,
+
+    /// Returned by `set_governed_params` when protocol_fee_bps exceeds 10 000
+    /// (i.e. 100%) or when max_escrow_total_stroops is not strictly positive.
+    InvalidProtocolParameters = 34,
 }
 
 /// Contract lifecycle states

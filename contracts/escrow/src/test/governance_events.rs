@@ -1,19 +1,39 @@
 #![cfg(test)]
 
-use super::register_client;
-use soroban_sdk::testutils::{Address as _, Events};
-use soroban_sdk::{Address, Env, Symbol, TryFromVal};
+use soroban_sdk::{
+    testutils::{Address as _, Events, Ledger as _, LedgerInfo},
+    Address, Env, Symbol, TryFromVal,
+};
+
+use crate::{Escrow, EscrowClient, ADMIN_ROTATION_MIN_DELAY_LEDGERS};
+
+fn register_initialized(env: &Env) -> (EscrowClient<'_>, Address) {
+    env.mock_all_auths();
+    let id = env.register(Escrow, ());
+    let client = EscrowClient::new(env, &id);
+    let admin = Address::generate(env);
+    client.initialize(&admin);
+    (client, admin)
+}
+
+fn advance_ledgers(env: &Env, delta: u32) {
+    let info = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: info.sequence_number + delta,
+        timestamp: info.timestamp + (delta as u64) * 5,
+        protocol_version: info.protocol_version,
+        network_id: info.network_id,
+        base_reserve: info.base_reserve,
+        min_temp_entry_ttl: info.min_temp_entry_ttl,
+        min_persistent_entry_ttl: info.min_persistent_entry_ttl,
+        max_entry_ttl: info.max_entry_ttl,
+    });
+}
 
 #[test]
 fn protocol_fee_bps_change_emits_event() {
     let env = Env::default();
-    env.mock_all_auths();
-
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
-    // initialize sets the admin for the contract
-    client.initialize(&admin);
+    let (client, _admin) = register_initialized(&env);
 
     // Change protocol fee bps
     assert!(client.set_protocol_fee_bps(&100u32));
@@ -36,15 +56,13 @@ fn protocol_fee_bps_change_emits_event() {
 #[test]
 fn admin_propose_and_accept_emit_events() {
     let env = Env::default();
-    env.mock_all_auths();
-
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
+    let (client, _admin) = register_initialized(&env);
 
     let next_admin = Address::generate(&env);
     client.propose_governance_admin(&next_admin);
+
+    // Advance past timelock before accepting
+    advance_ledgers(&env, ADMIN_ROTATION_MIN_DELAY_LEDGERS);
 
     // Accept requires the proposed admin to authorize — mock_all_auths covers this.
     client.accept_governance_admin();

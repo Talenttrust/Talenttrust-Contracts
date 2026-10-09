@@ -1,16 +1,60 @@
-use super::register_client;
-use soroban_sdk::testutils::{Address as _, Events};
+//! Tests for governance admin transfer and cancel operations.
+//!
+//! Uses local helpers to avoid the double-initialize issue that would occur
+//! if `super::register_client` (which calls `initialize`) were combined with
+//! a second `initialize` call in the test body.
+
+#![cfg(test)]
+
+use soroban_sdk::testutils::{Address as _, Events, Ledger as _, LedgerInfo};
 use soroban_sdk::{Address, Env, Symbol, TryFromVal};
 
+use crate::{Error, EscrowError, Escrow, EscrowClient, ADMIN_ROTATION_MIN_DELAY_LEDGERS};
+
+// ── Local helpers ─────────────────────────────────────────────────────────────
+
+/// Register the contract WITHOUT calling `initialize`.
+/// Used for "not initialized" rejection tests.
+fn register_uninitialized(env: &Env) -> EscrowClient<'_> {
+    env.mock_all_auths();
+    let id = env.register(Escrow, ());
+    EscrowClient::new(env, &id)
+}
+
+/// Register the contract and call `initialize` with a fresh admin.
+/// Returns `(client, admin_address)`.
+fn register_initialized(env: &Env) -> (EscrowClient<'_>, Address) {
+    env.mock_all_auths();
+    let id = env.register(Escrow, ());
+    let client = EscrowClient::new(env, &id);
+    let admin = Address::generate(env);
+    client.initialize(&admin);
+    (client, admin)
+}
+
+/// Advance the test ledger by `delta` ledgers.
+fn advance_ledgers(env: &Env, delta: u32) {
+    let info = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: info.sequence_number + delta,
+        timestamp: info.timestamp + (delta as u64) * 5,
+        protocol_version: info.protocol_version,
+        network_id: info.network_id,
+        base_reserve: info.base_reserve,
+        min_temp_entry_ttl: info.min_temp_entry_ttl,
+        min_persistent_entry_ttl: info.min_persistent_entry_ttl,
+        max_entry_ttl: info.max_entry_ttl,
+    });
+}
+
+// ── Happy path ────────────────────────────────────────────────────────────────
+
+/// Propose a next admin, advance past timelock, accept.
 #[test]
 fn admin_transfer_propose_and_accept_happy_path() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
+    let (client, _admin) = register_initialized(&env);
     let next_admin = Address::generate(&env);
-    client.initialize(&admin);
 
     assert!(client.propose_governance_admin(&next_admin));
     assert_eq!(
@@ -18,37 +62,37 @@ fn admin_transfer_propose_and_accept_happy_path() {
         Some(next_admin.clone())
     );
 
+    advance_ledgers(&env, ADMIN_ROTATION_MIN_DELAY_LEDGERS);
+
     assert!(client.accept_governance_admin());
     assert_eq!(client.get_governance_admin(), Some(next_admin));
     assert_eq!(client.get_pending_governance_admin(), None);
 }
 
+// ── Self-proposal guard ───────────────────────────────────────────────────────
+
+/// Proposing the current admin's own address as next admin must fail.
 #[test]
 fn propose_self_as_admin_rejected() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
+    let (client, admin) = register_initialized(&env);
 
     let result = client.try_propose_governance_admin(&admin);
-    super::assert_contract_error(result, crate::Error::CannotProposeSelf);
+    super::assert_contract_error(result, Error::CannotProposeSelf);
 
-    // Pending admin should still be None
+    // Pending admin should remain None — no partial state mutation.
     assert_eq!(client.get_pending_governance_admin(), None);
 }
 
+// ── Re-propose (overwrite) ────────────────────────────────────────────────────
+
+/// Re-proposing a different candidate silently overwrites the first.
 #[test]
 fn propose_overwrites_pending_admin() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
+    let (client, _admin) = register_initialized(&env);
     let first_pending = Address::generate(&env);
     let second_pending = Address::generate(&env);
-    client.initialize(&admin);
 
     assert!(client.propose_governance_admin(&first_pending));
     assert_eq!(
@@ -56,7 +100,7 @@ fn propose_overwrites_pending_admin() {
         Some(first_pending.clone())
     );
 
-    // Re-proposing should overwrite without error
+    // Re-proposing should overwrite without error.
     assert!(client.propose_governance_admin(&second_pending));
     assert_eq!(
         client.get_pending_governance_admin(),
@@ -64,15 +108,14 @@ fn propose_overwrites_pending_admin() {
     );
 }
 
+// ── Cancel ────────────────────────────────────────────────────────────────────
+
+/// Cancelling a live proposal clears the pending entry.
 #[test]
 fn cancel_proposal_clears_pending_admin() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
+    let (client, _admin) = register_initialized(&env);
     let proposed = Address::generate(&env);
-    client.initialize(&admin);
 
     assert!(client.propose_governance_admin(&proposed));
     assert_eq!(
@@ -84,77 +127,72 @@ fn cancel_proposal_clears_pending_admin() {
     assert_eq!(client.get_pending_governance_admin(), None);
 }
 
+/// Cancelling when no proposal is pending returns `Error::NoPendingAdminProposal`.
 #[test]
 fn cancel_without_proposal_fails() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
+    let (client, _admin) = register_initialized(&env);
 
     let result = client.try_cancel_governance_admin_proposal();
-    super::assert_contract_error(result, crate::Error::NoPendingAdminProposal);
+    super::assert_contract_error(result, Error::NoPendingAdminProposal);
 }
 
+/// Trying to accept after a cancel returns `Error::InvalidState`.
 #[test]
 fn accept_after_cancel_fails() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
+    let (client, _admin) = register_initialized(&env);
     let proposed = Address::generate(&env);
-    client.initialize(&admin);
 
     assert!(client.propose_governance_admin(&proposed));
     assert!(client.cancel_governance_admin_proposal());
 
     let result = client.try_accept_governance_admin();
-    super::assert_contract_error(result, crate::Error::InvalidState);
+    super::assert_contract_error(result, Error::InvalidState);
 }
 
+// ── Not-initialized gate ──────────────────────────────────────────────────────
+
+/// `propose_governance_admin` before `initialize` → `EscrowError::NotInitialized`.
 #[test]
 fn propose_not_initialized_fails() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
+    let client = register_uninitialized(&env);
 
     let proposed = Address::generate(&env);
     let result = client.try_propose_governance_admin(&proposed);
-    super::assert_contract_error(result, crate::Error::NotInitialized);
+    super::assert_contract_error(result, EscrowError::NotInitialized);
 }
 
+/// `accept_governance_admin` before `initialize` → `EscrowError::NotInitialized`.
 #[test]
 fn accept_not_initialized_fails() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
+    let client = register_uninitialized(&env);
 
     let result = client.try_accept_governance_admin();
-    super::assert_contract_error(result, crate::Error::NotInitialized);
+    super::assert_contract_error(result, EscrowError::NotInitialized);
 }
 
+/// `cancel_governance_admin_proposal` before `initialize` → `EscrowError::NotInitialized`.
 #[test]
 fn cancel_not_initialized_fails() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
+    let client = register_uninitialized(&env);
 
     let result = client.try_cancel_governance_admin_proposal();
-    super::assert_contract_error(result, crate::Error::NotInitialized);
+    super::assert_contract_error(result, EscrowError::NotInitialized);
 }
 
+// ── Composite flow ────────────────────────────────────────────────────────────
+
+/// Full lifecycle: propose → cancel → propose different → accept.
 #[test]
 fn propose_then_cancel_then_new_propose_then_accept() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
+    let (client, _admin) = register_initialized(&env);
     let first_proposed = Address::generate(&env);
     let second_proposed = Address::generate(&env);
-    client.initialize(&admin);
 
     // Propose first candidate
     assert!(client.propose_governance_admin(&first_proposed));
@@ -175,20 +213,20 @@ fn propose_then_cancel_then_new_propose_then_accept() {
     );
 
     // Accept moves second candidate to admin
+    advance_ledgers(&env, ADMIN_ROTATION_MIN_DELAY_LEDGERS);
     assert!(client.accept_governance_admin());
     assert_eq!(client.get_governance_admin(), Some(second_proposed));
     assert_eq!(client.get_pending_governance_admin(), None);
 }
 
+// ── Events ────────────────────────────────────────────────────────────────────
+
+/// `cancel_governance_admin_proposal` emits `(admin, "cancelled")` topics.
 #[test]
 fn cancel_emits_event() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
+    let (client, _admin) = register_initialized(&env);
     let proposed = Address::generate(&env);
-    client.initialize(&admin);
 
     client.propose_governance_admin(&proposed);
     client.cancel_governance_admin_proposal();
@@ -210,15 +248,12 @@ fn cancel_emits_event() {
     assert!(found_cancelled, "cancel event should be emitted");
 }
 
+/// `propose_governance_admin` emits `(admin, "proposed")` topics.
 #[test]
 fn propose_emits_event() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
+    let (client, _admin) = register_initialized(&env);
     let proposed = Address::generate(&env);
-    client.initialize(&admin);
 
     client.propose_governance_admin(&proposed);
 

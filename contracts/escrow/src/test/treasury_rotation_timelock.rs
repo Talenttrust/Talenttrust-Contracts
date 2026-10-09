@@ -6,13 +6,24 @@
 //! `ADMIN_ROTATION_MIN_DELAY_LEDGERS` have elapsed since the matching
 //! `propose_governance_admin` call.
 
-use crate::{EscrowError, ADMIN_ROTATION_MIN_DELAY_LEDGERS};
+use crate::{EscrowError, Escrow, EscrowClient, ADMIN_ROTATION_MIN_DELAY_LEDGERS};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _, LedgerInfo},
     Address, Env,
 };
 
-use super::register_client;
+// ---------------------------------------------------------------------------
+// Local setup helpers
+// ---------------------------------------------------------------------------
+
+fn register_initialized(env: &Env) -> (EscrowClient<'_>, Address) {
+    env.mock_all_auths();
+    let id = env.register(Escrow, ());
+    let client = EscrowClient::new(env, &id);
+    let admin = Address::generate(env);
+    client.initialize(&admin);
+    (client, admin)
+}
 
 // ---------------------------------------------------------------------------
 // Helper: advance the test ledger by `delta` ledgers.
@@ -41,13 +52,9 @@ fn advance_ledgers(env: &Env, delta: u32) {
 #[test]
 fn accept_succeeds_after_min_delay_ledgers_elapse() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
-
+    let (client, _admin) = register_initialized(&env);
     let next_admin = Address::generate(&env);
+
     client.propose_governance_admin(&next_admin);
 
     // Advance to exactly the minimum required delay.
@@ -67,13 +74,9 @@ fn accept_succeeds_after_min_delay_ledgers_elapse() {
 #[test]
 fn accept_rejected_immediately_after_proposal() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
-
+    let (client, _admin) = register_initialized(&env);
     let next_admin = Address::generate(&env);
+
     client.propose_governance_admin(&next_admin);
 
     // No ledger advancement — timelock has not elapsed.
@@ -88,13 +91,9 @@ fn accept_rejected_immediately_after_proposal() {
 #[test]
 fn accept_rejected_one_ledger_before_min_delay() {
     let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
-
+    let (client, _admin) = register_initialized(&env);
     let next_admin = Address::generate(&env);
+
     client.propose_governance_admin(&next_admin);
 
     // Advance to one ledger short of the required minimum.
