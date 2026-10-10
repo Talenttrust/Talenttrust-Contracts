@@ -8,11 +8,12 @@
 mod tests {
     use crate::amount_validation::{
         safe_add_amounts, safe_subtract_amounts, validate_contract_total, validate_deposit_amount,
-        validate_milestone_amounts, validate_single_amount, EscrowError,
+        validate_milestone_amounts, validate_single_amount,
         MAX_SINGLE_AMOUNT_STROOPS, MIN_POSITIVE_AMOUNT,
     };
+    use crate::EscrowError;
     use crate::MAX_TOTAL_ESCROW_STROOPS;
-    use std::thread;
+    use std::{thread, vec};
 
     #[test]
     fn test_validate_single_amount_works() {

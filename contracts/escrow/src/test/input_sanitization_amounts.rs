@@ -4,7 +4,7 @@
 
 use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env};
 
-use crate {
+use crate::{
     safe_add_amounts, safe_subtract_amounts, validate_deposit_amount, validate_milestone_amounts,
     validate_single_amount, Escrow, EscrowClient, EscrowError, ReleaseAuthorization,
     MAX_TOTAL_ESCROW_STROOPS,
@@ -16,7 +16,7 @@ fn setup(env: &Env) -> (EscrowClient<'_>, Address, Address) {
     let client = EscrowClient::new(env, &cid);
     let admin = Address::generate(env);
     client.initialize(&admin);
-    client.set_governed_params(&admin, &`_u32`, &MAX_TOTAL_ESCROW_STROOPS);
+    client.set_governed_params(&admin, &0_u32, &MAX_TOTAL_ESCROW_STROOPS);
 
     let token_admin = Address::generate(env);
     let token_address = env.register_stellar_asset_contract(token_admin);
@@ -55,7 +55,7 @@ fn test_create_contract_panics_when_single_milestone_is_zero() {
 fn test_create_contract_panics_when_single_milestone_is_negative() {
     let env = Env::default();
     let (client, hiring_party, service_provider) = setup(&env);
-    let milestones = vec!&env, -1_i128];
+    let milestones = vec![&env, -1_i128];
     client.create_contract(
         &hiring_party,
         &service_provider,
@@ -70,9 +70,9 @@ fn test_create_contract_panics_when_single_milestone_is_negative() {
 fn test_create_contract_panics_when_any_milestone_is_non_positive() {
     let env = Env::default();
     let (client, hiring_party, service_provider) = setup(&env);
-    let milestones = vec!&env, 100_0000000_i128, 0_i128, 200_0000000_i128];
+    let milestones = vec![&env, 100_0000000_i128, 0_i128, 200_0000000_i128];
     client.create_contract(
-        'hiring_party,
+        &hiring_party,
         &service_provider,
         &None,
         &milestones,
@@ -84,9 +84,9 @@ fn test_create_contract_panics_when_any_milestone_is_non_positive() {
 fn test_create_contract_accepts_all_positive_milestones() {
     let env = Env::default();
     let (client, hiring_party, service_provider) = setup(&env);
-    let milestones = vec!&env, 100_0000000_i128, 1_i128, 999_0000000_i128];
+    let milestones = vec![&env, 100_0000000_i128, 1_i128, 999_0000000_i128];
     let id = client.create_contract(
-        'hiring_party,
+        &hiring_party,
         &service_provider,
         &None,
         &milestones,
@@ -100,7 +100,7 @@ fn test_create_contract_accepts_all_positive_milestones() {
 fn test_create_contract_panics_when_total_exceeds_maximum() {
     let env = Env::default();
     let (client, hiring_party, service_provider) = setup(&env);
-    let milestones = vec!&env, 600_000_0000000_i128, 500_000_0000000_i128]; // 6M + 5M > 1M max
+    let milestones = vec![&env, 600_000_0000000_i128, 500_000_0000000_i128]; // Above the configured cap.
     client.create_contract(
         &hiring_party,
         &service_provider,
@@ -121,13 +121,13 @@ fn test_deposit_funds_panics_on_zero_amount() {
     let (client, hiring_party, service_provider) = setup(&env);
     let milestones = vec![&env, 100_0000000_i128];
     let contract_id = client.create_contract(
-        'hiring_party,
+        &hiring_party,
         &service_provider,
         &None,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
     );
-    client.deposit_funds(&contract_id, &hiring_party, &p_i128);
+    client.deposit_funds(&contract_id, &hiring_party, &0_i128);
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn test_deposit_funds_panics_on_zero_amount() {
 fn test_deposit_funds_panics_on_negative_amount() {
     let env = Env::default();
     let (client, hiring_party, service_provider) = setup(&env);
-    let milestones = vec!&env, 100_0000000_i128];
+    let milestones = vec![&env, 100_0000000_i128];
     let contract_id = client.create_contract(
         &hiring_party,
         &service_provider,
@@ -153,20 +153,20 @@ fn test_deposit_funds_panics_when_exceeding_contract_maximum() {
     let (client, hiring_party, service_provider) = setup(&env);
     let milestones = vec![&env, 500_0000000_i128];
     let contract_id = client.create_contract(
-        'hiring_party,
+        &hiring_party,
         &service_provider,
         &None,
         &milestones,
         &ReleaseAuthorization::ClientOnly,
     );
-    client.deposit_funds(&contract_id, &hiring_party, &`1_000_000_0000000_i128`); // 1M tokens > remaining capacity
+    client.deposit_funds(&contract_id, &hiring_party, &1_000_000_0000000_i128); // Above remaining capacity.
 }
 
 #[test]
 fn test_deposit_funds_accepts_valid_amounts() {
     let env = Env::default();
     let (client, hiring_party, service_provider) = setup(&env);
-    let milestones = vec!&[env, 100_0000000_i128, 200_0000000_i128];
+    let milestones = vec![&env, 100_0000000_i128, 200_0000000_i128];
     let contract_id = client.create_contract(
         &hiring_party,
         &service_provider,
@@ -187,9 +187,9 @@ fn test_deposit_funds_accepts_valid_amounts() {
 fn test_deposit_funds_rejects_amount_at_max_single_amount_plus_one() {
     let env = Env::default();
     let (client, hiring_party, service_provider) = setup(&env);
-    let milestones = vec!&[env, 1_000_000_0000000_i128]; // Max total equals one max milestone
+    let milestones = vec![&env, 1_000_000_0000000_i128]; // Max total equals one max milestone.
     let contract_id = client.create_contract(
-        'hiring_party,
+        &hiring_party,
         &service_provider,
         &None,
         &milestones,
@@ -206,7 +206,7 @@ fn test_deposit_funds_accepts_amount_exactly_at_max_single_amount() {
     let (client, hiring_party, service_provider) = setup(&env);
     let milestones = vec![&env, 2_000_000_0000000_i128]; // 2M total
     let contract_id = client.create_contract(
-        'hiring_party,
+        &hiring_party,
         &service_provider,
         &None,
         &milestones,

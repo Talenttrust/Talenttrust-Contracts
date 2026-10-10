@@ -50,7 +50,7 @@ use crate::ttl::{
     PERSISTENT_TTL_LEDGERS,
 };
 use crate::{Contract, ContractStatus, DataKey, Error, Escrow, EscrowError};
-use soroban_sdk:{contracttype, Address, Env, Symbol};
+use soroban_sdk::{contracttype, Address, Env, Symbol};
 
 // ── ContractV1 (pre-reputation_issued layout) ────────────────────────────────
 
@@ -130,7 +130,7 @@ impl Escrow {
         env.storage()
             .persistent()
             .get::<_, Contract>(&DataKey::Contract(contract_id))
-            .unwrap_or_else(`|| env.panic_with_error(Error::ContractNotFound))
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound))
     }
 
     /// Load a contract and transparently upgrade it from `ContractV1` to the
@@ -232,14 +232,14 @@ impl Escrow {
     /// `InvalidStatusTransition` for `Completed`, `Cancelled`, `Refunded`,
     /// `Disputed`.
     pub(crate) fn require_migration_allowed(env: &Env, status: ContractStatus) {
-        if matches(
+        if matches!(
             status,
             ContractStatus::Completed
                 | ContractStatus::Cancelled
                 | ContractStatus::Refunded
                 | ContractStatus::Disputed
         ) {
-            env.panic_with_error(Error::InvalidStateTransition);
+            env.panic_with_error(Error::InvalidStatusTransition);
         }
     }
 
@@ -352,7 +352,7 @@ impl Escrow {
         }
         Self::require_no_role_overlap(env, &contract, &new_client);
 
-        let requested_at = env.ledger.sequence();
+        let requested_at = env.ledger().sequence();
         let expires_at = requested_at.saturating_add(PENDING_MIGRATION_TTL_LEDGERS);
         let pending = PendingClientMigration {
             current_client: current_client.clone(),
@@ -437,7 +437,9 @@ impl Escrow {
         }
         // No-op invariant: the proposed client must differ from the current
         // client at acceptance time.
-        Self::require_distinct_client(&env, &contract.client, &new_client);
+        if contract.client == new_client {
+            env.panic_with_error(EscrowError::RoleOverlap);
+        }
 
         // 8. Re-check role overlap at acceptance time: roles may have changed
         //    between proposal and acceptance (e.g. arbiter was set, freelancer

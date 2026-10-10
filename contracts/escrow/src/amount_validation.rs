@@ -158,6 +158,28 @@ pub fn validate_milestone_amounts(
     Ok(total)
 }
 
+/// Validate aggregate escrow accounting before a state transition is stored.
+pub fn validate_accounting_invariant(
+    funded_amount: i128,
+    released_amount: i128,
+    refunded_amount: i128,
+    accumulated_fees: i128,
+) -> Result<(), crate::EscrowError> {
+    if funded_amount < 0 || released_amount < 0 || refunded_amount < 0 || accumulated_fees < 0 {
+        return Err(crate::EscrowError::AccountingInvariantViolated);
+    }
+
+    let accounted = released_amount
+        .checked_add(refunded_amount)
+        .and_then(|amount| amount.checked_add(accumulated_fees))
+        .ok_or(crate::EscrowError::AccountingInvariantViolated)?;
+
+    if accounted > funded_amount {
+        return Err(crate::EscrowError::AccountingInvariantViolated);
+    }
+    Ok(())
+}
+
 /// Validates a deposit amount against remaining contract capacity.
 ///
 /// This is the pure preflight used by deposit-shaped callers. It rejects any
@@ -280,6 +302,7 @@ pub fn accumulate_amounts<I: IntoIterator<Item = i128>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{vec, vec::Vec};
 
     #[test]
     fn test_classify_amount_boundaries() {

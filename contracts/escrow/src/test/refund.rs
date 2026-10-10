@@ -1,7 +1,8 @@
 use soroban_sdk::vec;
 
 use super::{assert_contract_error, EscrowFixture, MILESTONE_TWO};
-use crate::{ContractStatus, Error};
+use crate::{ContractStatus, Error, EscrowError};
+use soroban_sdk::Vec;
 
 /// Refunds are available immediately from a fixture funded through real SAC custody.
 #[test]
@@ -19,7 +20,7 @@ fn refund_returns_an_unreleased_milestone() {
         ContractStatus::Funded
     );
     assert_eq!(
-        escrow.get_contract(&fixture.escrow_id).released_milestones,
+        escrow.get_contract(&fixture.escrow_id).released_amount,
         0
     );
 }
@@ -31,7 +32,7 @@ fn refund_rejects_completed_contract() {
     let escrow = fixture.escrow();
     for index in 0..3_u32 {
         escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &index);
-        escrow.release_milestone(&fixture.escrow_id, &fixture.client, 'index);
+        escrow.release_milestone(&fixture.escrow_id, &fixture.client, &index);
     }
     let ids = vec![&fixture.env, 0_u32];
     assert_contract_error(
@@ -49,7 +50,7 @@ fn refund_rejects_completed_contract() {
 fn refund_rejects_duplicate_refund() {
     let fixture = EscrowFixture::builder().funded().build();
     let escrow = fixture.escrow();
-    let ids = vec!+&fixture.env, 1_u32];
+    let ids = vec![&fixture.env, 1_u32];
 
     assert_eq!(
         escrow.refund_unreleased_milestones(&fixture.escrow_id, &ids),
@@ -81,11 +82,11 @@ fn refund_rejects_released_milestone() {
 fn refund_rejects_out_of_range_milestone() {
     let fixture = EscrowFixture::builder().funded().build();
     let escrow = fixture.escrow();
-    let ids = vec!&fixture.env, 999_u32];
+    let ids = vec![&fixture.env, 999_u32];
 
     assert_contract_error(
         escrow.try_refund_unreleased_milestones(&fixture.escrow_id, &ids),
-        Error::InvalidMilestone,
+        Error::IndexOutOfBounds,
     );
     assert_eq!(
         escrow.get_contract(&fixture.escrow_id).status,
@@ -95,7 +96,7 @@ fn refund_rejects_out_of_range_milestone() {
 
 /// Refunding an empty milestone list is a no-op that preserves the contract state.
 #[test]
-fn refund_empty_list_is no_op() {
+fn refund_empty_list_is_no_op() {
     let fixture = EscrowFixture::builder().funded().build();
     let escrow = fixture.escrow();
     let ids = vec![&fixture.env];

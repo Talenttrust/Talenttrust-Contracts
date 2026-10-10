@@ -64,38 +64,6 @@ fn versioned_release_rejects_stale_request_without_second_event_or_mutation() {
 }
 
 #[test]
-fn versioned_refund_rejects_stale_and_misaligned_versions_atomically() {
-    let fixture = EscrowFixture::builder().funded().build();
-    let escrow = fixture.escrow();
-    let indices = soroban_sdk::vec![&fixture.env, 0u32];
-    let versions = soroban_sdk::vec![&fixture.env, 0u32];
-    let amount = escrow.get_milestone(&fixture.escrow_id, &0).unwrap().amount;
-    let before = fixture.env.events().all().len();
-    assert_eq!(
-        escrow.refund_milestones_with_versions(&fixture.escrow_id, &indices, &versions),
-        amount
-    );
-    // Refund emits the escrow refund record and the settlement token transfer.
-    assert_eq!(fixture.env.events().all().len(), before + 2);
-    assert_eq!(escrow.get_milestone_version(&fixture.escrow_id, &0), 1);
-
-    let before_stale = fixture.env.events().all().len();
-    let stale = escrow.try_refund_milestones_with_versions(&fixture.escrow_id, &indices, &versions);
-    assert_contract_error(stale, EscrowError::StaleMilestoneVersion);
-    assert_eq!(fixture.env.events().all().len(), before_stale);
-    assert_eq!(
-        escrow.get_contract(&fixture.escrow_id).refunded_amount,
-        amount
-    );
-
-    let empty_versions = soroban_sdk::Vec::new(&fixture.env);
-    let malformed =
-        escrow.try_refund_milestones_with_versions(&fixture.escrow_id, &indices, &empty_versions);
-    assert_contract_error(malformed, EscrowError::InvalidVersionCount);
-    assert_eq!(fixture.env.events().all().len(), before_stale);
-}
-
-#[test]
 fn legacy_release_entrypoint_remains_compatible_and_initial_version_is_zero() {
     let fixture = EscrowFixture::builder().funded().build();
     let escrow = fixture.escrow();

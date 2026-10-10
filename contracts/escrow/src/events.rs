@@ -1,13 +1,13 @@
 use crate::types::Contract;
 use crate::EscrowError;
-use soroban_sdk:{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Address, Env, String, Symbol};
 
 #[soroban_sdk::contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventInput {
-    pub topic: soroban_sdk:Symbol,
+    pub topic: Symbol,
     pub contract_id: u32,
-    pub data: soroban_sdk:Symbol,
+    pub data: Symbol,
 }
 
 /// Maximum number of events processed in a batch operations.
@@ -159,8 +159,6 @@ pub fn emit_dispute_opened_event(
             contract.refunded_amount,
         ),
     );
-
-    true
 }
 
 /// Emits an indexed event when a dispute is resolved.
@@ -205,8 +203,6 @@ pub fn emit_dispute_resolved_event(
             final_status as u32,
         ),
     );
-
-    true
 }
 
 /// Emits an event when a milestone is released to a freelancer.
@@ -254,8 +250,6 @@ pub fn emit_milestone_released_event(
             env.ledger().timestamp(),
         ),
     );
-
-    true
 }
 
 /// Emits an event when a milestone is refunded to the client.
@@ -288,8 +282,6 @@ pub fn emit_milestone_refunded_event(
             env.ledger().timestamp(),
         ),
     );
-
-    true
 }
 
 /// Emits an event when a milestone is approved by client or arbiter.
@@ -315,8 +307,6 @@ pub fn emit_milestone_approved_event(
             env.ledger().timestamp(),
         ),
     );
-
-    true
 }
 
 /// Emits an event when work evidence is submitted for a milestone.
@@ -328,7 +318,7 @@ pub fn emit_work_evidence_submitted_event(
     contract_id: u32,
     milestone_index: u32,
     submitter: &Address,
-    evidence: &soroban_sdk:Symbol,
+    evidence: &String,
 ) {
     if contract_id == 0 {
         env.panic_with_error(EscrowError::InvalidContractId);
@@ -344,6 +334,4 @@ pub fn emit_work_evidence_submitted_event(
             env.ledger().timestamp(),
         ),
     );
-
-    true
 }

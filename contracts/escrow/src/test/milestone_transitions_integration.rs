@@ -363,18 +363,16 @@ fn test_idempotent_retry_does_not_advance_version() {
     assert_eq!(v1, 1);
 
     // A retry that reads the current version must observe the latest value.
-    let (observed_version, observed_actor) =
-        read_milestone_version_and_actor(&env, contract_id, milestone_index);
-    assert_eq!(observed_version, v1);
-    assert_eq!(observed_actor, actor);
+    let observed = read_milestone_version_and_actor(&env, contract_id, milestone_index);
+    assert_eq!(observed.version, v1);
+    assert_eq!(observed.last_modified_by, actor);
 
     // The retry must pass the concurrency check without mutating state.
     assert!(check_version_for_concurrency(&env, contract_id, milestone_index, v1).is_ok());
 
     // Re-reading must still report the same version (no accidental bump).
-    let (observed_version_again, _) =
-        read_milestone_version_and_actor(&env, contract_id, milestone_index);
-    assert_eq!(observed_version_again, v1);
+    let observed_again = read_milestone_version_and_actor(&env, contract_id, milestone_index);
+    assert_eq!(observed_again.version, v1);
 }
 
 #[test]

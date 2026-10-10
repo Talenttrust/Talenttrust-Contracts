@@ -1,10 +1,10 @@
-#`!cfg(test)]
+#![cfg(test)]
 
 /// Tests for the newly added events: `mlstn_app` (milestone approval) and
 /// `rep_issd` (reputation issuance).
 
 use soroban_sdk::String;
-use soroban_sdk:{testutils::Events as _, Address, Env, Symbol, TryIntoVal, Val, Vec};
+use soroban_sdk::{testutils::Events as _, Address, Env, Symbol, TryIntoVal, Val, Vec};
 
 use crate::test::EscrowFixture;
 use crate::ReleaseAuthorization;
@@ -77,13 +77,13 @@ fn event_count_for_contract(env: &Env, contract_address: &Address) -> u32 {
 /// given contract address. This is the compatibility contract: failed
 /// operations must not leak events.
 fn assert_no_event_for_topic(env: &Env, contract_address: &Address, topic: Symbol) {
-    assert_eq(
-        event_count_for_topic(env, topic),
+    assert_eq!(
+           event_count_for_topic(env, topic),
         0,
         "no event with this topic should be emitted"
     );
-    assert_eq(
-        event_count_for_contract(env, contract_address),
+    assert_eq!(
+           event_count_for_contract(env, contract_address),
         0,
         "no event should be emitted by the contract on failure"
     );
@@ -106,15 +106,15 @@ fn approve_milestone_release_emits_mlstn_app_exactly_once() {
         topic.clone(),
         contract_id,
     );
-    assert_eq(events.len(), 1, "Expected exactly one mlstn_app event");
+    assert_eq!(events.len(), 1, "Expected exactly one mlstn_app event");
 
     let (idx, payload) = events.get(0).unwrap();
-    assert_eq(idx, milestone_index);
+    assert_eq!(idx, milestone_index);
     let decoded: (u32, Address, u64) = payload.try_into_val(&fixture.env).unwrap();
-    assert_eq(decoded.0, milestone_index);
-    assert_eq(decoded.1, fixture.client);
+    assert_eq!(decoded.0, milestone_index);
+    assert_eq!(decoded.1, fixture.client);
     // Check that timestamp equals the ledger timestamp (which may be 0 in tests)
-    assert_eq(decoded.2, fixture.env.ledger().timestamp());
+    assert_eq!(decoded.2, fixture.env.ledger().timestamp());
 }
 
 #[test]
@@ -155,14 +155,14 @@ fn issue_reputation_emits_rep_issd_exactly_once() {
         topic.clone(),
         contract_id,
     );
-    assert_eq(events.len(), 1, "Expected exactly one rep_issd event");
+    assert_eq!(events.len(), 1, "Expected exactly one rep_issd event");
 
     let (idx, payload) = events.get(0).unwrap();
-    assert_eq(idx, 0);
+    assert_eq!(idx, 0);
     let decoded: (Address, u32, u64) = payload.try_into_val(&fixture.env).unwrap();
-    assert_eq(decoded.0, fixture.freelancer);
-    assert_eq(decoded.1, rating);
-    assert_eq(decoded.2, fixture.env.ledger().timestamp());
+    assert_eq!(decoded.0, fixture.freelancer);
+    assert_eq!(decoded.1, rating);
+    assert_eq!(decoded.2, fixture.env.ledger().timestamp());
 }
 
 #[test]

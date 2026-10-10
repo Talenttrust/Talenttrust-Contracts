@@ -467,7 +467,7 @@ impl Escrow {
         // instead of being silently folded into a successful-looking total, and a
         // released milestone reports `MilestoneAlreadyReleased` rather than the
         // inconsistent `AlreadyRefunded`.
-        let total_refund_amount =
+        let mut total_refund_amount =
             match refund::validate_milestones(&milestones, &milestone_indices, now_seconds(&env)) {
                 Ok(total) => total,
                 Err(error) => return err(error as u32),

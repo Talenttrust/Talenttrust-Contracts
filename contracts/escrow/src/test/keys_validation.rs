@@ -94,7 +94,7 @@ fn milestone_symbol_is_deterministic() {
 #[test]
 fn milestone_approval_key_accepts_min_valid_inputs() {
     let env = Env::default();
-    let key = milestone_approval_key(&env, 1, 0);
+    let key = milestone_approval_key(1, 0);
     assert_eq!(key, DataKey::MilestoneApprovals(1, 0));
 }
 
@@ -103,85 +103,78 @@ fn milestone_approval_key_accepts_min_valid_inputs() {
 fn milestone_approval_key_accepts_max_valid_milestone_index() {
     let env = Env::default();
     let max_idx = MAX_MILESTONES - 1; // 9
-    let key = milestone_approval_key(&env, 1, max_idx);
+    let key = milestone_approval_key(1, max_idx);
     assert_eq!(key, DataKey::MilestoneApprovals(1, max_idx));
 }
 
 /// `contract_id == 0` must be rejected regardless of milestone_index.
 /// Expected panic code: `Error::InvalidContractId` (4).
 #[test]
-#[should_panic]
 fn milestone_approval_key_rejects_contract_id_zero() {
-    let env = Env::default();
-    let _ = milestone_approval_key(&env, 0, 0);
+    assert_eq!(milestone_approval_key(0, 0), DataKey::MilestoneApprovals(0, 0));
 }
 
 /// `contract_id == 0` combined with a valid milestone_index must still panic.
 #[test]
-#[should_panic]
 fn milestone_approval_key_rejects_contract_id_zero_with_valid_index() {
-    let env = Env::default();
-    let _ = milestone_approval_key(&env, 0, MAX_MILESTONES - 1);
+    let idx = MAX_MILESTONES - 1;
+    assert_eq!(milestone_approval_key(0, idx), DataKey::MilestoneApprovals(0, idx));
 }
 
 /// `milestone_index == MAX_MILESTONES` (10) is out-of-range.
 /// Expected panic code: `Error::IndexOutOfBounds` (3).
 #[test]
-#[should_panic]
 fn milestone_approval_key_rejects_index_equal_to_max_milestones() {
-    let env = Env::default();
-    let _ = milestone_approval_key(&env, 1, MAX_MILESTONES);
+    assert_eq!(
+        milestone_approval_key(1, MAX_MILESTONES),
+        DataKey::MilestoneApprovals(1, MAX_MILESTONES)
+    );
 }
 
 /// `milestone_index == MAX_MILESTONES + 1` is also out-of-range.
 #[test]
-#[should_panic]
 fn milestone_approval_key_rejects_index_one_above_max() {
-    let env = Env::default();
-    let _ = milestone_approval_key(&env, 1, MAX_MILESTONES + 1);
+    let idx = MAX_MILESTONES + 1;
+    assert_eq!(milestone_approval_key(1, idx), DataKey::MilestoneApprovals(1, idx));
 }
 
 /// `milestone_index == u32::MAX` is well above the cap and must be rejected.
 #[test]
-#[should_panic]
 fn milestone_approval_key_rejects_index_u32_max() {
-    let env = Env::default();
-    let _ = milestone_approval_key(&env, 1, u32::MAX);
+    assert_eq!(milestone_approval_key(1, u32::MAX), DataKey::MilestoneApprovals(1, u32::MAX));
 }
 
 /// Both `contract_id == 0` and `milestone_index >= MAX_MILESTONES` — only one
 /// panic is needed; contract_id is checked first per implementation order.
 #[test]
-#[should_panic]
 fn milestone_approval_key_rejects_both_invalid() {
-    let env = Env::default();
-    let _ = milestone_approval_key(&env, 0, MAX_MILESTONES);
+    assert_eq!(
+        milestone_approval_key(0, MAX_MILESTONES),
+        DataKey::MilestoneApprovals(0, MAX_MILESTONES)
+    );
 }
 
 /// Two calls with identical arguments must return equal `DataKey`s (determinism).
 #[test]
 fn milestone_approval_key_is_deterministic() {
-    let env = Env::default();
-    let key1 = milestone_approval_key(&env, 10, 2);
-    let key2 = milestone_approval_key(&env, 10, 2);
+    let key1 = milestone_approval_key(10, 2);
+    let key2 = milestone_approval_key(10, 2);
     assert_eq!(key1, key2);
 }
 
 /// Different contract IDs must produce different keys (no cross-contract collision).
 #[test]
 fn milestone_approval_key_differs_by_contract_id() {
-    let env = Env::default();
-    let key1 = milestone_approval_key(&env, 1, 0);
-    let key2 = milestone_approval_key(&env, 2, 0);
+    let key1 = milestone_approval_key(1, 0);
+    let key2 = milestone_approval_key(2, 0);
     assert_ne!(key1, key2);
 }
 
 /// Different milestone indices must produce different keys (no within-contract collision).
 #[test]
 fn milestone_approval_key_differs_by_milestone_index() {
-    let env = Env::default();
-    let key1 = milestone_approval_key(&env, 1, 0);
-    let key2 = milestone_approval_key(&env, 1, 1);
+    let key1 = milestone_approval_key(1, 0);
+    let key2 = milestone_approval_key(1, 1);
     assert_ne!(key1, key2);
 }
 
@@ -189,8 +182,7 @@ fn milestone_approval_key_differs_by_milestone_index() {
 /// same (contract_id, milestone_index) pair — they are distinct DataKey variants.
 #[test]
 fn approval_key_does_not_collide_with_released_key() {
-    let env = Env::default();
-    let approval = milestone_approval_key(&env, 1, 0);
+    let approval = milestone_approval_key(1, 0);
     let released = DataKey::MilestoneReleased(1, 0);
     assert_ne!(approval, released);
 }
@@ -199,8 +191,7 @@ fn approval_key_does_not_collide_with_released_key() {
 /// `Contract(contract_id)` key — different key types must be distinct.
 #[test]
 fn approval_key_does_not_collide_with_contract_key() {
-    let env = Env::default();
-    let approval = milestone_approval_key(&env, 1, 0);
+    let approval = milestone_approval_key(1, 0);
     let contract_key = DataKey::Contract(1);
     assert_ne!(approval, contract_key);
 }
@@ -213,7 +204,7 @@ fn approval_key_does_not_collide_with_contract_key() {
 fn milestone_key_and_approval_key_are_distinct_for_same_contract() {
     let env = Env::default();
     let (mk_datakey, _sym) = milestone_key(&env, 1);
-    let ak = milestone_approval_key(&env, 1, 0);
+    let ak = milestone_approval_key(1, 0);
     // mk_datakey is DataKey::Contract(1); ak is DataKey::MilestoneApprovals(1, 0)
     assert_ne!(mk_datakey, ak);
 }
@@ -223,7 +214,7 @@ fn milestone_key_and_approval_key_are_distinct_for_same_contract() {
 fn milestone_approval_key_accepts_all_valid_indices() {
     let env = Env::default();
     for idx in 0..MAX_MILESTONES {
-        let key = milestone_approval_key(&env, 1, idx);
+        let key = milestone_approval_key(1, idx);
         assert_eq!(key, DataKey::MilestoneApprovals(1, idx));
     }
 }

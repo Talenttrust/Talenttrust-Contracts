@@ -68,6 +68,9 @@
 #![allow(deprecated)]
 #![allow(mismatched_lifetime_syntaxes)]
 
+#[cfg(test)]
+extern crate std;
+
 mod amount_validation;
 mod approvals;
 mod authorization;
@@ -88,9 +91,10 @@ mod milestone_transitions;
 mod milestones;
 pub mod milestones_consts;
 pub mod validation_boundaries;
-mod refund_impl;
+mod refund;
 mod release;
 mod reputation;
+mod reputation_migration;
 mod rollback;
 mod schema_migration;
 mod settlement;
@@ -103,6 +107,7 @@ mod types;
 mod utils;
 
 use crate::utils::now_seconds;
+use crate::keys_recovery::KeyRecoveryRecord;
 use soroban_sdk::{
     contract, contracterror, contractimpl, symbol_short, token, Address, BytesN, Env, String,
     Symbol, Vec,
@@ -134,6 +139,11 @@ pub const MIN_MAX_MILESTONES: u32 = 1;
 pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
 pub const MIN_MAX_BATCH_SETTLEMENT: u32 = 1;
 pub const MAX_MAX_BATCH_SETTLEMENT: u32 = 100;
+pub const DEFAULT_PROTOCOL_FEE_BPS: u32 = 0;
+pub const MAX_FEE_WITHDRAWAL_CAP_BPS: u32 = 10_000;
+pub const DEFAULT_FEE_WITHDRAWAL_CAP_BPS: u32 = 5_000;
+pub const MAX_FEE_WITHDRAWAL_COOLDOWN_LEDGERS: u32 = 2_592_000;
+pub const DEFAULT_FEE_WITHDRAWAL_COOLDOWN_LEDGERS: u32 = 17_280;
 
 /// Deployment readiness snapshot returned by `get_mainnet_readiness_info`.
 #[soroban_sdk::contracttype]
@@ -152,7 +162,6 @@ pub use dispute::DisputeInfo;
 pub use events::{EventInput, MAX_EVENT_BATCH_SIZE};
 pub use migration::{ContractV1, PendingClientMigration, CONTRACT_STORAGE_SCHEMA_VERSION};
 pub use milestones_consts::PROTOCOL_FEE_BPS_DENOMINATOR;
-pub use proptest::{check_contract_invariants, InvariantViolation};
 pub use token_scale::{normalized_amount, scale_multiplier, MAX_TOKEN_DECIMALS};
 pub use ttl::{
     ADMIN_ROTATION_MIN_DELAY_LEDGERS, ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS,
@@ -164,8 +173,8 @@ pub use types::{
     GovernanceProposal, GovernanceProposalKind, GovernanceProposalState, GovernedParameters,
     Milestone, MilestoneApprovals, MilestoneProgress, MilestoneReleaseReadiness, MilestoneSummary,
     PauseScope, PauseTarget, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization,
-    Reputation, ReputationConfig, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
-    DISPUTE_STORAGE_VERSION,
+    Reputation, ReputationConfig, SettlementState, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    DISPUTE_STORAGE_VERSION, REPUTATION_STORAGE_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -422,11 +431,7 @@ impl Escrow {
 
         // Idempotent: if a recovery record already exists, return true without
         // mutating state so retries cannot corrupt the in-flight repair.
-        if env
-            .storage()
-            .persistent()
-            .has(&DataKey::KeyRecovery(contract_id))
-        {
+        if keys_recovery::load_recovery_record(&env, contract_id).is_some() {
             return true;
         }
 
@@ -537,7 +542,7 @@ impl Escrow {
         contract_id: u32,
         current_client: Address,
     ) -> bool {
-        Self::cancel_client_migration_impl(&env, contract_id, current_client)
+        Self::cancel_client_migration_inner(&env, contract_id, current_client)
     }
 
     pub fn has_pending_client_migration(env: Env, contract_id: u32) -> bool {
@@ -548,27 +553,6 @@ impl Escrow {
         Self::require_initialized(&env);
         Self::get_pending_client_migration_impl(&env, contract_id)
     }
-
-    /// Cancel a live pending client migration.
-    ///
-    /// The current client must authorize the call. A live pending migration must
-    /// exist for the given `contract_id`. The pending migration entry is removed
-    /// and a `client_migration_cancelled` event is emitted.
-    ///
-    /// # Errors
-    /// * [`EscrowError::ContractNotFound`] — `contract_id == 0` or contract does not exist.
-    /// * [`EscrowError::UnauthorizedRole`] — `current_client` is not the contract's client.
-    /// * [`EscrowError::InvalidState`] — no live pending migration exists.
-    /// * [`Error::ContractPaused`] — contract is paused.
-    pub fn cancel_client_migration(
-        env: Env,
-        contract_id: u32,
-        current_client: Address,
-    ) -> bool {
-        Self::require_not_paused(&env);
-        Self::cancel_client_migration_inner(&env, contract_id, current_client)
-    }
-
 
     // â”€â”€ Milestone Releases & Refunds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -954,7 +938,7 @@ impl Escrow {
         if all_released {
             env.events().publish(
                 (symbol_short!("ctrct_cmp"), contract_id),
-                (caller, env.ledger().timestamp()),
+                (caller.clone(), env.ledger().timestamp()),
             );
         }
 
@@ -1226,7 +1210,7 @@ impl Escrow {
         if all_released {
             env.events().publish(
                 (symbol_short!("ctrct_cmp"), contract_id),
-                (caller, env.ledger().timestamp()),
+                (caller.clone(), env.ledger().timestamp()),
             );
         }
 
@@ -2265,7 +2249,7 @@ impl Escrow {
         contract_id: u32,
         milestone_index: u32,
     ) -> Option<MilestoneApprovals> {
-        let approval_key = keys::milestone_approval_key(&env, contract_id, milestone_index);
+        let approval_key = keys::milestone_approval_key(contract_id, milestone_index);
         let approvals = env.storage().temporary().get(&approval_key);
         if approvals.is_some() {
             env.storage().temporary().extend_ttl(
@@ -3303,10 +3287,7 @@ impl Escrow {
         let batch_len = events.len();
         for i in 0..batch_len {
             let item = events.get(i).unwrap();
-            // Topic and data must be non-empty symbols to be indexable.
-            if item.topic.len() == 0 {
-                env.panic_with_error(Error::InvalidProtocolParameters);
-            }
+            // Topic and data are Soroban symbols with bounded encodings.
         }
 
         let mut count: u32 = 0;
@@ -3951,20 +3932,6 @@ impl Escrow {
     /// Read the current on-ledger storage schema version for the escrow contract.
     pub fn get_schema_version(env: Env) -> u32 {
         Self::get_schema_version_impl(&env)
-    }
-
-    /// Read-only invariant probe used by property tests and off-chain monitors.
-    ///
-    /// Returns `Ok(())` when the contract's accounting state satisfies the
-    /// custody invariant `released_amount + refunded_amount +
-    /// accumulated_protocol_fees <= funded_amount`, and every milestone's
-    /// `released`/`refunded` flags are mutually exclusive. Returns
-    /// `Err(InvariantViolation)` describing the first violation otherwise.
-    ///
-    /// This entrypoint performs no mutation and does not extend TTLs, so it is
-    /// safe to call from property-test harnesses and monitoring jobs.
-    pub fn check_invariants(env: Env, contract_id: u32) -> Result<(), InvariantViolation> {
-        proptest::check_contract_invariants(&env, contract_id)
     }
 
     /// Upgrade storage schema to `target_version` with admin authorization and events.

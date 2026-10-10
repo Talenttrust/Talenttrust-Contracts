@@ -42,7 +42,7 @@
 //! - Upgrades are safe: adding a new validated field to an entrypoint requires
 //!   adding a new `validate_*` call and a corresponding `compat` test.
 
-use crate::milestones_consts::MAX_SINGLE_AMOUNT_STROOPS;
+use crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 use crate::milestones_consts::{
     MAX_FEE_BPS, MAX_MILESTONES, MAX_RATING, MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING,
     MAX_REPUTATION_CONFIG_RATING_CEILING, MIN_COMMENT_BYTES, MIN_RATING,
@@ -302,6 +302,16 @@ pub(crate) fn validate_protocol_fee_bps_value(bps: u32) -> Result<(), Error> {
 /// * [`EscrowError::InvalidMilestoneAmount`] when `amount > MAX_SINGLE_AMOUNT_STROOPS`.
 pub(crate) fn validate_stroop_amount(env: &Env, amount: i128) {
     validate_stroop_amount_value(amount).unwrap_or_else(|err| env.panic_with_error(err));
+}
+
+pub(crate) fn validate_stroop_amount_value(amount: i128) -> Result<(), EscrowError> {
+    if amount <= 0 {
+        return Err(EscrowError::AmountMustBePositive);
+    }
+    if amount > MAX_SINGLE_AMOUNT_STROOPS {
+        return Err(EscrowError::InvalidMilestoneAmount);
+    }
+    Ok(())
 }
 
 // ── Concurrent-execution hardening (issue #1535) ─────────────────────────────

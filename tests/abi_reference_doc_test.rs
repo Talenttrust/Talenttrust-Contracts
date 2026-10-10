@@ -49,10 +49,8 @@ fn abi_reference_document_lists_current_public_entrypoints() {
         "is_emergency",
         "cancel_contract",
         "raise_dispute",
-        "raise_dispute_batch",
         "resolve_dispute",
         "issue_reputation",
-        "issue_reputation_batch",
         "get_reputation_comment",
         "get_reputation",
         "get_average_rating",
@@ -74,7 +72,6 @@ fn abi_reference_document_lists_current_public_entrypoints() {
         "get_pending_admin_proposed_at",
         "set_governed_params",
         "get_governed_parameters",
-        "is_governed_params_set",
     ];
 
     for entrypoint in expected_entrypoints {

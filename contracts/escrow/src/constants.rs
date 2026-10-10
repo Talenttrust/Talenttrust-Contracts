@@ -113,6 +113,29 @@ pub(crate) const fn normalize_page_limit(limit: u32) -> u32 {
     }
 }
 
+/// Decrement one pending reputation credit, rejecting empty or corrupt ledgers.
+pub const fn consume_pending_credit(current: i128) -> Option<i128> {
+    if current < 1 || current > MAX_PENDING_REPUTATION_CREDITS {
+        None
+    } else {
+        Some(current - 1)
+    }
+}
+
+/// Add one pending reputation credit without exceeding the configured ceiling.
+pub const fn accrue_pending_credit(current: i128) -> Option<i128> {
+    if current < 0 || current >= MAX_PENDING_REPUTATION_CREDITS {
+        None
+    } else {
+        Some(current + REPUTATION_CREDIT_INCREMENT)
+    }
+}
+
+/// Check that a persisted pending-credit value is within protocol bounds.
+pub const fn is_valid_pending_credit_ledger(value: i128) -> bool {
+    value >= 0 && value <= MAX_PENDING_REPUTATION_CREDITS
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

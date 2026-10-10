@@ -1,5 +1,12 @@
 use crate::{DataKey, Error, Milestone};
-use soroban_sdk::{Address, BytesN, Env};
+use soroban_sdk::{symbol_short, Address, BytesN, Env, Symbol};
+
+fn milestone_key(contract_id: u32, milestone_index: u32) -> (DataKey, (Symbol, u32)) {
+    (
+        DataKey::Contract(contract_id),
+        (symbol_short!("mile"), milestone_index),
+    )
+}
 
 /// Represents the logical state of a milestone based on its `released` and `refunded` flags.
 ///
@@ -247,7 +254,7 @@ pub fn apply_milestone_transition(
     check_version_for_concurrency(env, contract_id, milestone_index, expected_version)?;
 
     // 2. Load the milestone and derive its current state.
-    let key = DataKey::Milestone(contract_id, milestone_index);
+    let key = milestone_key(contract_id, milestone_index);
     let mut milestone: Milestone = env
         .storage()
         .persistent()
@@ -566,7 +573,7 @@ mod tests {
     fn store_milestone(env: &Env, contract_id: u32, index: u32, milestone: &Milestone) {
         env.storage()
             .persistent()
-            .set(&DataKey::Milestone(contract_id, index), milestone);
+            .set(&milestone_key(contract_id, index), milestone);
     }
 
     #[test]
@@ -591,7 +598,7 @@ mod tests {
         let stored: Milestone = env
             .storage()
             .persistent()
-            .get(&DataKey::Milestone(contract_id, index))
+            .get(&milestone_key(contract_id, index))
             .unwrap();
         assert!(stored.released);
         assert!(!stored.refunded);
@@ -619,7 +626,7 @@ mod tests {
         let stored: Milestone = env
             .storage()
             .persistent()
-            .get(&DataKey::Milestone(contract_id, index))
+            .get(&milestone_key(contract_id, index))
             .unwrap();
         assert!(!stored.released);
         assert!(stored.refunded);
@@ -660,7 +667,7 @@ mod tests {
         let stored: Milestone = env
             .storage()
             .persistent()
-            .get(&DataKey::Milestone(contract_id, index))
+            .get(&milestone_key(contract_id, index))
             .unwrap();
         assert!(stored.released);
         assert!(!stored.refunded);

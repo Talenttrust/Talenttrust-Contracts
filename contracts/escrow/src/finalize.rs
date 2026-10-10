@@ -40,6 +40,7 @@
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Vec};
 
 use crate::{
+    settlement,
     ttl::{self, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_TTL_LEDGERS},
     Contract, ContractStatus, ContractSummary, DataKey, Error, Escrow, EscrowError, Milestone,
     MilestoneSummary, CONTRACT_SUMMARY_SCHEMA_VERSION,
