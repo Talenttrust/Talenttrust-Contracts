@@ -56,20 +56,10 @@ use soroban_sdk::{Env, Symbol, Vec};
 /// - `ContractNotFound` if the contract is still missing after all retries
 pub(crate) fn load_contract_recoverable(env: &Env, contract_id: u32) -> Contract {
     validate_contract_id_bounds(env, contract_id);
-    let outcome = recover_or_panic(env, || {
-        env.storage()
-            .persistent()
-            .get::<_, Contract>(&DataKey::Contract(contract_id))
-            .ok_or(Error::ContractNotFound)
-    });
-    match outcome {
-        Ok(_) => env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound)),
-        Err(err) => env.panic_with_error(err),
-    }
+    env.storage()
+        .persistent()
+        .get(&DataKey::Contract(contract_id))
+        .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound))
 }
 
 /// Deterministically load milestones, retrying transient storage failures.
@@ -86,23 +76,10 @@ pub(crate) fn load_milestones_recoverable(
 ) -> Vec<crate::Milestone> {
     validate_contract_id_bounds(env, contract_id);
     let milestone_key = Symbol::new(env, "milestones");
-    let outcome = recover_or_panic(env, || {
-        env.storage()
-            .persistent()
-            .get::<_, Vec<crate::Milestone>>(&(
-                DataKey::Contract(contract_id),
-                milestone_key.clone(),
-            ))
-            .ok_or(Error::ContractNotFound)
-    });
-    match outcome {
-        Ok(_) => env
-            .storage()
-            .persistent()
-            .get(&(DataKey::Contract(contract_id), milestone_key))
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound)),
-        Err(err) => env.panic_with_error(err),
-    }
+    env.storage()
+        .persistent()
+        .get(&(DataKey::Contract(contract_id), milestone_key))
+        .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound))
 }
 
 /// Validate that contract_id is within numeric bounds (non-zero).
@@ -373,8 +350,12 @@ pub(crate) fn validate_milestone_accounting(
     env: &Env,
     milestone: &crate::Milestone,
 ) {
-    let total = milestone
-        .released_amount
+    let released_amount = if milestone.released {
+        milestone.funded_amount
+    } else {
+        0
+    };
+    let total = released_amount
         .checked_add(milestone.refunded_amount)
         .unwrap_or_else(|| env.panic_with_error(EscrowError::AccountingMismatch));
     if total > milestone.funded_amount {
@@ -493,22 +474,16 @@ pub(crate) fn validate_release_authorization(
     use crate::ReleaseAuthorization;
     let authorized = match contract.release_authorization {
         ReleaseAuthorization::ClientOnly => caller == &contract.client,
-        ReleaseAuthorization::FreelancerOnly => caller == &contract.freelancer,
-        ReleaseAuthorization::ClientOrFreelancer => {
+        ReleaseAuthorization::MultiSig => {
             caller == &contract.client || caller == &contract.freelancer
         }
         ReleaseAuthorization::ArbiterOnly => {
             contract.arbiter.as_ref().map_or(false, |a| caller == a)
         }
-        ReleaseAuthorization::ClientOrArbiter => {
+        ReleaseAuthorization::ClientAndArbiter => {
             caller == &contract.client
                 || contract.arbiter.as_ref().map_or(false, |a| caller == a)
         }
-        ReleaseAuthorization::FreelancerOrArbiter => {
-            caller == &contract.freelancer
-                || contract.arbiter.as_ref().map_or(false, |a| caller == a)
-        }
-        ReleaseAuthorization::Any => true,
     };
     if !authorized {
         env.panic_with_error(Error::Unauthorized);
@@ -535,6 +510,11 @@ pub(crate) fn validate_contract_status_consistency(env: &Env, contract: &Contrac
                 env.panic_with_error(EscrowError::InvalidContractStatus);
             }
         }
+        ContractStatus::Accepted | ContractStatus::PartiallyFunded => {
+            if contract.funded_amount == 0 {
+                env.panic_with_error(EscrowError::InvalidContractStatus);
+            }
+        }
         ContractStatus::Funded => {
             if contract.funded_amount == 0 {
                 env.panic_with_error(EscrowError::InvalidContractStatus);
@@ -551,6 +531,11 @@ pub(crate) fn validate_contract_status_consistency(env: &Env, contract: &Contrac
             }
         }
         ContractStatus::Disputed => {}
+        ContractStatus::Refunded => {
+            if contract.refunded_amount == 0 {
+                env.panic_with_error(EscrowError::InvalidContractStatus);
+            }
+        }
     }
 }
 
@@ -679,26 +664,6 @@ pub(crate) fn require_not_initialized(env: &Env) {
 pub(crate) fn save_initialized(env: &Env, admin: &crate::Address) {
     env.storage().persistent().set(&DataKey::Initialized, &true);
     env.storage().persistent().set(&DataKey::Admin, admin);
-}
-
-// ── Contract ID bounds ────────────────────────────────────────────────────────
-
-/// Validate that `contract_id` is within numeric bounds (non-zero).
-///
-/// Zero is rejected because contracts are allocated starting from ID 1. Any
-/// read or write against ID 0 is a programming error and must fail loudly.
-///
-/// # Panics
-/// - `InvalidContractId` if `contract_id == 0`
-///
-/// # Correctness note
-/// Callers that pass the result of a prior validated allocation (from
-/// `create_contract`) will never see a zero here in normal operation. This
-/// guard exists to reject malicious or confused client inputs.
-pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
-    if contract_id == 0 {
-        env.panic_with_error(Error::InvalidContractId);
-    }
 }
 
 // ── Contract loading ──────────────────────────────────────────────────────────
@@ -994,7 +959,6 @@ pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
     env.storage()
         .persistent()
         .set(&DataKey::AdminNonce, &expected);
-    true
 }
 
 // ── Finalization guards ───────────────────────────────────────────────────────

@@ -26,7 +26,7 @@
 use crate::ttl::GOVERNANCE_PROPOSAL_TTL_LEDGERS;
 use crate::{
     Error, Escrow, EscrowClient, GovernanceProposalKind, GovernanceProposalState,
-    GovernedParameters, MAX_FEE_BPS,
+    GovernedParameters, MAX_FEE_BPS, MIN_MAX_MILESTONES,
 };
 use soroban_sdk::testutils::{Address as _, Events, Ledger as _, LedgerInfo};
 use soroban_sdk::{symbol_short, Address, Env, Symbol, TryFromVal};

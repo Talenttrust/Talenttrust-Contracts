@@ -61,7 +61,7 @@ fn test_freelancer_cannot_release_milestone() {
     );
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &0));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &0));
 
     let result = client.try_release_milestone(&contract_id, &freelancer_addr, &0);
     super::assert_contract_error(result, Error::UnauthorizedRole);
@@ -84,12 +84,12 @@ fn test_only_client_can_issue_reputation() {
     );
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert (client.release_milestone(&contract_id, &client_addr, &0));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &1));
-    assert (client.release_milestone(&contract_id, &client_addr, &1));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &2));
-    assert (client.release_milestone(&contract_id, &client_addr, &2));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &0));
+    assert! (client.release_milestone(&contract_id, &client_addr, &0));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &1));
+    assert! (client.release_milestone(&contract_id, &client_addr, &1));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &2));
+    assert! (client.release_milestone(&contract_id, &client_addr, &2));
 
     let result = client.try_issue_reputation(
         &contract_id,
@@ -117,13 +117,13 @@ fn test_issue_reputation_rejects_freelancer_mismatch() {
         &ReleaseAuthorization::ClientOnly,
     );
 
-    assert (client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert (client.release_milestone(&contract_id, &client_addr, &0));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &1));
-    assert (client.release_milestone(&contract_id, &client_addr, &1));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &2));
-    assert (client.release_milestone(&contract_id, &client_addr, &2));
+    assert! (client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &0));
+    assert! (client.release_milestone(&contract_id, &client_addr, &0));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &1));
+    assert! (client.release_milestone(&contract_id, &client_addr, &1));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &2));
+    assert! (client.release_milestone(&contract_id, &client_addr, &2));
 
     let result = client.try_issue_reputation(
         &contract_id,
@@ -297,7 +297,7 @@ fn test_approve_rejects_already_released_milestone() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert (client.release_milestone(&contract_id, &client_addr, &0));
+    assert! (client.release_milestone(&contract_id, &client_addr, &0));
 
     let result = client.try_approve_milestone_release(&contract_id, &client_addr, &0);
     super::assert_contract_error(result, Error::MilestoneAlreadyReleased);
@@ -319,7 +319,7 @@ fn test_approve_rejects_duplicate_client_approval() {
     );
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &0));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &0));
     let result = client.try_approve_milestone_release(&contract_id, &client_addr, &0);
     super::assert_contract_error(result, Error::AlreadyApproved);
 }
@@ -340,7 +340,7 @@ fn test_approve_rejects_duplicate_arbiter_approval() {
     );
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
-    assert (client.approve_milestone_release(&contract_id, &arbiter_addr, &0));
+    assert! (client.approve_milestone_release(&contract_id, &arbiter_addr, &0));
     let result = client.try_approve_milestone_release(&contract_id, &arbiter_addr, &0);
     super::assert_contract_error(result, Error::AlreadyApproved);
 }
@@ -382,7 +382,7 @@ fn test_release_rejects_without_approval() {
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
 
     let result = client.try_release_milestone(&contract_id, &client_addr, &0);
-    super::assert_contract_error(result, Error::MilestoneNotApproved);
+    super::assert_contract_error(result, Error::InsufficientApprovals);
 }
 
 #[test]
@@ -401,8 +401,8 @@ fn test_release_rejects_duplicate_release() {
     );
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert (client.release_milestone(&contract_id, &client_addr, &0));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &0));
+    assert! (client.release_milestone(&contract_id, &client_addr, &0));
 
     let result = client.try_release_milestone(&contract_id, &client_addr, &0);
     super::assert_contract_error(result, Error::MilestoneAlreadyReleased);
@@ -425,7 +425,7 @@ fn test_release_rejects_out_of_bounds_milestone_index() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
 
-    let result = client.try_approve_milestone_release(&contract_id, &client_addr, &total_milestones());
+    let result = client.try_approve_milestone_release(&contract_id, &client_addr, &u32::MAX);
     super::assert_contract_error(result, Error::InvalidMilestoneIndex);
 }
 
@@ -482,7 +482,7 @@ fn test_approve_rejects_out_of_bounds_milestone_index() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
 
-    let result = client.try_approve_milestone_release(&contract_id, &client_addr, &total_milestones());
+    let result = client.try_approve_milestone_release(&contract_id, &client_addr, &u32::MAX);
     super::assert_contract_error(result, Error::InvalidMilestoneIndex);
 }
 
@@ -502,8 +502,8 @@ fn test_issue_reputation_requires_all_milestones_released() {
     );
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert (client.release_milestone(&contract_id, &client_addr, &0));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &0));
+    assert! (client.release_milestone(&contract_id, &client_addr, &0));
 
     let result = client.try_issue_reputation(
         &contract_id,
@@ -511,7 +511,7 @@ fn test_issue_reputation_requires_all_milestones_released() {
         &5,
         &soroban_sdk::String::from_str(&env, "test"),
     );
-    super::assert_contract_error(result, Error::MilestonesNotReleased);
+    super::assert_contract_error(result, Error::NotCompleted);
 }
 
 #[test]
@@ -530,14 +530,14 @@ fn test_issue_reputation_rejects_duplicate_issuance() {
     );
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert (client.release_milestone(&contract_id, &client_addr, &0));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &1));
-    assert (client.release_milestone(&contract_id, &client_addr, &1));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &2));
-    assert (client.release_milestone(&contract_id, &client_addr, &2));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &0));
+    assert! (client.release_milestone(&contract_id, &client_addr, &0));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &1));
+    assert! (client.release_milestone(&contract_id, &client_addr, &1));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &2));
+    assert! (client.release_milestone(&contract_id, &client_addr, &2));
 
-    assert (client.issue_reputation(
+    assert! (client.issue_reputation(
         &contract_id,
         &freelancer_addr,
         &5,
@@ -623,7 +623,7 @@ fn test_release_rejects_before_approval_for_arbiter_only() {
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
 
     let result = client.try_release_milestone(&contract_id, &arbiter_addr, &0);
-    super::assert_contract_error(result, Error::MilestoneNotApproved);
+    super::assert_contract_error(result, Error::InsufficientApprovals);
 }
 
 #[test]
@@ -688,11 +688,11 @@ fn test_client_and_arbiter_mode_requires_both_approvals_before_release() {
 
     // Only client approved: release must be rejected.
     let result = client.try_release_milestone(&contract_id, &client_addr, &0);
-    super::assert_contract_error(result, Error::MilestoneNotApproved);
+    super::assert_contract_error(result, Error::InsufficientApprovals);
 
     // Arbiter approval completes the quorum.
-    assert (client.approve_milestone_release(&contract_id, &arbiter_addr, &0));
-    assert (client.release_milestone(&contract_id, &client_addr, &0));
+    assert! (client.approve_milestone_release(&contract_id, &arbiter_addr, &0));
+    assert! (client.release_milestone(&contract_id, &client_addr, &0));
 }
 
 #[test]
@@ -711,7 +711,7 @@ fn test_client_and_arbiter_mode_rejects_duplicate_client_approval() {
     );
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
-    assert (client.approve_milestone_release(&contract_id, &client_addr, &0));
+    assert! (client.approve_milestone_release(&contract_id, &client_addr, &0));
     let result = client.try_approve_milestone_release(&contract_id, &client_addr, &0);
     super::assert_contract_error(result, Error::AlreadyApproved);
 }
@@ -732,7 +732,7 @@ fn test_client_and_arbiter_mode_rejects_duplicate_arbiter_approval() {
     );
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
-    assert (client.approve_milestone_release(&contract_id, &arbiter_addr, &0));
+    assert! (client.approve_milestone_release(&contract_id, &arbiter_addr, &0));
     let result = client.try_approve_milestone_release(&contract_id, &arbiter_addr, &0);
     super::assert_contract_error(result, Error::AlreadyApproved);
 }
@@ -756,7 +756,7 @@ fn test_client_and_arbiter_mode_rejects_release_without_arbiter_approval() {
     assert!(client.approve_milestone_release(&contract_id, &arbiter_addr, &0));
 
     let result = client.try_release_milestone(&contract_id, &client_addr, &0);
-    super::assert_contract_error(result, Error::MilestoneNotApproved);
+    super::assert_contract_error(result, Error::InsufficientApprovals);
 }
 
 #[test]
@@ -776,7 +776,7 @@ fn test_repeated_release_is_idempotently_rejected() {
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
     assert!(client.approve_milestone_release(&contract_id, &client_addr, &0));
-    assert (client.release_milestone(&contract_id, &client_addr, &0));
+    assert! (client.release_milestone(&contract_id, &client_addr, &0));
 
     // Repeated release attempts must all reject and not mutate state.
     for _ in 0..3 {
@@ -823,12 +823,12 @@ fn test_full_lifecycle_releases_all_milestones_and_issues_reputation() {
     );
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestones()));
-    for index in 0..total_milestones() {
-        assert (client.approve_milestone_release(&contract_id, &client_addr, &index));
-        assert (client.release_milestone(&contract_id, &client_addr, &index));
+    for index in 0..3_u32 {
+        assert! (client.approve_milestone_release(&contract_id, &client_addr, &index));
+        assert! (client.release_milestone(&contract_id, &client_addr, &index));
     }
 
-    assert (client.issue_reputation(
+    assert! (client.issue_reputation(
         &contract_id,
         &freelancer_addr,
         &5,

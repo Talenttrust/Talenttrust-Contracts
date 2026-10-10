@@ -664,6 +664,40 @@ mod tests {
     };
     use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env};
 
+    fn commit_finalization(
+        env: &Env,
+        contract_id: u32,
+        record: &FinalizationRecord,
+    ) -> Result<CommitOutcome, Error> {
+        validate_contract_id(contract_id)?;
+        if let Some(existing) = read_finalization(env, contract_id) {
+            return if existing == *record {
+                Ok(CommitOutcome::Recovered)
+            } else {
+                Err(Error::AlreadyFinalized)
+            };
+        }
+        write_finalization(env, contract_id, record);
+        Ok(CommitOutcome::Committed)
+    }
+
+    fn assert_contract_error<
+        T: core::fmt::Debug,
+        InnerError: core::fmt::Debug,
+        E: Into<soroban_sdk::Error> + core::fmt::Debug,
+    >(
+        result: Result<
+            Result<T, InnerError>,
+            Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
+        >,
+        expected: E,
+    ) {
+        match result {
+            Err(Ok(actual)) => assert_eq!(actual, expected.into()),
+            other => panic!("expected contract error {:?}, got {:?}", expected, other),
+        }
+    }
+
     /// Passes the first external token probe but fails the later `decimals`
     /// dependency call used during binding.
     #[contract]

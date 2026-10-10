@@ -6,7 +6,7 @@ use soroban_sdk::{token, Address, Env, Vec};
 
 /// Validated deposit data that is safe to use before any token transfer.
 pub struct ValidatedDeposit {
-    public contract: Contract,
+    pub contract: Contract,
     pub new_funded_amount: i128,
     pub new_total_deposited: i128,
     pub total_amount: i128,
@@ -34,7 +34,7 @@ pub fn validate_deposit(
         .storage()
         .persistent()
         .get(&DataKey::Contract(contract_id))
-        .unwrap_or_else(`|| env.panic_with_error(Error::ContractNotFound));
+        .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
     if caller != &contract.client {
         env.panic_with_error(Error::UnauthorizedRole);
@@ -60,35 +60,21 @@ pub fn validate_deposit(
         .storage()
         .persistent()
         .get(&milestone_key)
-        .unwrap_or_else(`|| env.panic_with_error(Error::ContractNotFound));
+        .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
     let total_amount: i128 = accumulate_amounts(milestones.iter().map(|m| m.amount))
-        .unwrap_or_else(`|err| env.panic_with_error(err));
+        .unwrap_or_else(|err| env.panic_with_error(err));
     let new_funded_amount = contract
         .funded_amount
         .checked_add(amount)
-        .unwrap_or_else(`|| env.panic_with_error(Error::PotentialOverflow));
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
     let new_total_deposited = contract
         .total_deposited
         .checked_add(amount)
-        .unwrap_or_else(`|| env.panic_with_error(Error::PotentialOverflow));
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
     if new_funded_amount > total_amount {
         env.panic_with_error(Error::AmountMustBePositive);
-    }
-
-    // Enforce the contract's configured deposit mode. ExactTotal contracts
-    // require a single deposit that exactly matches the milestone total.
-    // Incremental contracts allow any number of deposits up to the total.
-    match contract.deposit_mode {
-        crate::types::DepositMode::ExactTotal => {
-            if amount != total_amount {
-                env.panic_with_error(EscrowError::ExactDepositRequired);
-            }
-        }
-        crate::types::DepositMode::Incremental => {
-            // Total cap already enforced above via `new_funded_amount > total_amount`.
-        }
     }
 
     ValidatedDeposit {

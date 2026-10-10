@@ -64,6 +64,8 @@ use crate::ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, ADMIN_ROTATION_PROPOSAL_TTL_L
 use crate::{
     DataKey, Error, Escrow, EscrowArgs, EscrowClient, GovernedParameters, PendingAdminProposal,
     ReadinessChecklist, MAX_FEE_BPS, MAX_MAX_MILESTONES, MIN_MAX_MILESTONES,
+    DEFAULT_PROTOCOL_FEE_BPS, MAX_FEE_WITHDRAWAL_CAP_BPS, DEFAULT_FEE_WITHDRAWAL_CAP_BPS,
+    MAX_FEE_WITHDRAWAL_COOLDOWN_LEDGERS, DEFAULT_FEE_WITHDRAWAL_COOLDOWN_LEDGERS,
 };
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol};
 

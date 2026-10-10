@@ -3,6 +3,7 @@ use crate::{
     EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization,
     MAX_MAX_MILESTONES, MAX_MILESTONES, MIN_MAX_MILESTONES,
 };
+use crate::EscrowArgs;
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Vec};
 
 #[contractimpl]
@@ -260,6 +261,10 @@ impl Escrow {
             .persistent()
             .get::<_, Contract>(&DataKey::Contract(id))
             .is_some()
+            || env
+                .storage()
+                .persistent()
+                .has(&keys::milestone_key(env, id))
         {
             env.panic_with_error(Error::ContractIdCollision);
         }

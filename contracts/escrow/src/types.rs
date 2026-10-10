@@ -443,6 +443,24 @@ pub enum Error {
     /// contract can never produce this error, so it always signals corrupted
     /// or stale on-ledger state discovered before it could be propagated.
     StorageInvariantViolated = 87,
+    /// Contract ID allocation is already in progress in the current ledger.
+    ContractCreationInProgress = 88,
+    InvariantViolation = 89,
+    InvalidDisputeReason = 90,
+    MilestoneNotFound = 91,
+    InvalidMilestoneIndex = 92,
+    InvalidDeadline = 93,
+    InvalidMilestoneCount = 94,
+    MilestoneAlreadyRefunded = 95,
+    MilestoneOverFunded = 96,
+    MilestoneAlreadyFunded = 97,
+    MilestoneNotFunded = 98,
+    InvalidContractStatus = 99,
+    OutstandingFunds = 100,
+    AccountingMismatch = 101,
+    InvalidParties = 102,
+    ReputationNotIssued = 103,
+    Unauthorized = 104,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────

@@ -126,24 +126,24 @@ pub use crate::constants::PAGE_CEILING;
 /// Absolute minimum value for the admin-configurable max-milestones cap.
 ///
 /// `set_max_milestones` rejects values below this with `Error::LimitOutOfRange`.
-pub use crate::contracts::MIN_MAX_MILESTONES;
+pub use crate::MIN_MAX_MILESTONES;
 
 /// Absolute maximum value for the admin-configurable max-milestones cap.
 ///
 /// `set_max_milestones` rejects values above this with `Error::LimitOutOfRange`.
-pub use crate::contracts::MAX_MAX_MILESTONES;
+pub use crate::MAX_MAX_MILESTONES;
 
 /// Absolute minimum for the admin-configurable max-escrow-stroops cap.
 ///
 /// Equivalent to 0.01 XLM (1 000 000 stroops). `set_max_escrow_stroops` rejects
 /// values strictly below this with `Error::LimitOutOfRange`.
-pub use crate::contracts::MIN_MAX_ESCROW_STROOPS;
+pub use crate::MIN_MAX_ESCROW_STROOPS;
 
 /// Absolute minimum for the admin-configurable batch-settlement limit.
-pub use crate::contracts::MIN_MAX_BATCH_SETTLEMENT;
+pub use crate::MIN_MAX_BATCH_SETTLEMENT;
 
 /// Absolute maximum for the admin-configurable batch-settlement limit.
-pub use crate::contracts::MAX_MAX_BATCH_SETTLEMENT;
+pub use crate::MAX_MAX_BATCH_SETTLEMENT;
 
 // ── Derived boundary helpers ──────────────────────────────────────────────────
 

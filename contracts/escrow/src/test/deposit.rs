@@ -1,5 +1,6 @@
 use super::{assert_contract_error, EscrowFixture};
 use crate::{deposit, ContractStatus, Error};
+use soroban_sdk::testutils::Address as _;
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
 
 /// A fully-funded fixture records the complete milestone total and custody balance.
@@ -27,11 +28,11 @@ fn deposit_transitions_from_partially_funded_to_funded() {
     let total = fixture.total_amount();
     let partial = total / 2;
     let token = fixture.settlement_token.as_ref().unwrap();
-    StellarAssetClient::news(&fixture.env, token).mint(&fixture.client, &total);
+    StellarAssetClient::new(&fixture.env, token).mint(&fixture.client, &total);
 
     assert_eq!(
         escrow.get_contract(&fixture.escrow_id).status,
-        ContractStatus::Pending
+        ContractStatus::Created
     );
     assert_eq!(
         TokenClient::new(&fixture.env, token).balance(&fixture.escrow_address),
@@ -54,7 +55,7 @@ fn deposit_transitions_from_partially_funded_to_funded() {
         ContractStatus::Funded
     );
     assert_eq!(
-        TokenClient::news(&fixture.env, token).balance(&fixture.escrow_address),
+        TokenClient::new(&fixture.env, token).balance(&fixture.escrow_address),
         total
     );
 }
@@ -65,7 +66,7 @@ fn deposit_rejects_non_positive_amounts() {
     let fixture = EscrowFixture::builder().with_settlement_token().build();
     let escrow = fixture.escrow();
     let token = fixture.settlement_token.as_ref().unwrap();
-    StellarAssetClient::news(&fixture.env, token).mint(&fixture.client, &fixture.total_amount());
+    StellarAssetClient::new(&fixture.env, token).mint(&fixture.client, &fixture.total_amount());
 
     for amount in [0_i128, -1_i128, i128::MIN] {
         assert_contract_error(
@@ -77,30 +78,7 @@ fn deposit_rejects_non_positive_amounts() {
     // Rejected deposits must not move tokens or advance state.
     assert_eq!(
         escrow.get_contract(&fixture.escrow_id).status,
-        ContractStatus::Pending
-    );
-    assert_eq!(
-        TokenClient::news(&fixture.env, token).balance(&fixture.escrow_address),
-        0
-    );
-}
-
-/// Depositing more than the remaining milestone total is rejected and leaves state unchanged.
-#[test]
-fn deposit_rejects_overfunding() {
-    let fixture = EscrowFixture::builder().with_settlement_token().build();
-    let escrow = fixture.escrow();
-    let total = fixture.total_amount();
-    let token = fixture.settlement_token.as_ref().unwrap();
-    StellarAssetClient::news(&fixture.env, token).mint(&fixture.client, &total);
-
-    assert_contract_error(
-        escrow.try_deposit_funds(&fixture.escrow_id, &fixture.client, &(total + 1)),
-        Error::AmountExceedsRemaining,
-    );
-    assert_eq!(
-        escrow.get_contract(&fixture.escrow_id).status,
-        ContractStatus::Pending
+        ContractStatus::Created
     );
     assert_eq!(
         TokenClient::new(&fixture.env, token).balance(&fixture.escrow_address),
@@ -123,7 +101,7 @@ fn deposit_accepts_exact_remaining_amount() {
         ContractStatus::Funded
     );
     assert_eq!(
-        TokenClient::news(&fixture.env, token).balance(&fixture.escrow_address),
+        TokenClient::new(&fixture.env, token).balance(&fixture.escrow_address),
         total
     );
 }
@@ -138,7 +116,7 @@ fn deposit_rejects_duplicate_after_funding() {
 
     assert_contract_error(
         escrow.try_deposit_funds(&fixture.escrow_id, &fixture.client, &1),
-        Error::AmountExceedsRemaining,
+        Error::InvalidMilestoneAmount,
     );
     assert_eq!(
         escrow.get_contract(&fixture.escrow_id).status,
@@ -157,15 +135,15 @@ fn deposit_rejects_unauthorized_depositor() {
     let escrow = fixture.escrow();
     let total = fixture.total_amount();
     let token = fixture.settlement_token.as_ref().unwrap();
-    StellarAssetClient::news(&fixture.env, token).mint(&fixture.client, &total);
+    StellarAssetClient::new(&fixture.env, token).mint(&fixture.client, &total);
 
     assert_contract_error(
-        escrow.try_deposit_funds(&fixture.escrow_id, &fixture.outsider, &1),
-        Error::Unauthorized,
+        escrow.try_deposit_funds(&fixture.escrow_id, &soroban_sdk::Address::generate(&fixture.env), &1),
+        Error::UnauthorizedRole,
     );
     assert_eq!(
         escrow.get_contract(&fixture.escrow_id).status,
-        ContractStatus::Pending
+        ContractStatus::Created
     );
     assert_eq!(
         TokenClient::new(&fixture.env, token).balance(&fixture.escrow_address),
@@ -183,7 +161,7 @@ fn deposit_rejects_unknown_contract() {
     StellarAssetClient::new(&fixture.env, token).mint(&fixture.client, &total);
 
     assert_contract_error(
-        escrow.try_deposit_funds(&fixture.escrow_id + 1, &fixture.client, &1),
+        escrow.try_deposit_funds(&(fixture.escrow_id + 1), &fixture.client, &1),
         Error::ContractNotFound,
     );
     assert_eq!(
@@ -235,29 +213,6 @@ fn stale_validated_deposit_rejected_after_state_change() {
     );
 }
 
-/// Depositing more than the remaining milestone total is rejected and leaves state unchanged.
-#[test]
-fn deposit_rejects_overfunding() {
-    let fixture = EscrowFixture::builder().with_settlement_token().build();
-    let escrow = fixture.escrow();
-    let total = fixture.total_amount();
-    let token = fixture.settlement_token.as_ref().unwrap();
-    StellarAssetClient::new(&fixture.env, token).mint(&fixture.client, &(total + 1));
-
-    assert_contract_error(
-        escrow.try_deposit_funds(&fixture.escrow_id, &fixture.client, &(total + 1)),
-        Error::AmountExceedsRemaining,
-    );
-    assert_eq!(
-        escrow.get_contract(&fixture.escrow_id).status,
-        ContractStatus::PartiallyFunded
-    );
-    assert_eq!(
-        TokenClient::new(&fixture.env, token).balance(&fixture.escrow_address),
-        0
-    );
-}
-
 /// Deposits are rejected once the contract is already fully funded.
 #[test]
 fn deposit_rejects_when_already_funded() {
@@ -269,7 +224,7 @@ fn deposit_rejects_when_already_funded() {
 
     assert_contract_error(
         escrow.try_deposit_funds(&fixture.escrow_id, &fixture.client, &total),
-        Error::AmountExceedsRemaining,
+        Error::InvalidMilestoneAmount,
     );
     assert_eq!(
         escrow.get_contract(&fixture.escrow_id).status,

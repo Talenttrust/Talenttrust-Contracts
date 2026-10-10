@@ -37,6 +37,19 @@ fn set_now(env: &Env, secs: u64) {
     });
 }
 
+fn assert_overdue_compat_contract(
+    _env: &Env,
+    client: &crate::EscrowClient<'_>,
+    contract_id: &u32,
+    milestone_index: &u32,
+    expected: bool,
+) {
+    assert_eq!(
+        client.is_milestone_overdue(contract_id, milestone_index),
+        expected
+    );
+}
+
 /// Snapshot the persisted milestone at `index` so we can assert that read-only
 /// entrypoints do not mutate it (deterministic recovery invariant).
 fn read_milestone(
@@ -88,24 +101,6 @@ struct MilestoneSnapshot {
     released: bool,
     refunded: bool,
     amount: i128,
-}
-
-/// Read milestone `index` directly from persistent storage without going
-/// through any entrypoint, so we can assert on raw state.
-fn read_milestone(
-    env: &Env,
-    contract_addr: &Address,
-    contract_id: u32,
-    index: u32,
-) -> Milestone {
-    env.as_contract(contract_addr, || {
-        let key = (
-            DataKey::Contract(contract_id),
-            Symbol::new(env, "milestones"),
-        );
-        let milestones: SorobanVec<Milestone> = env.storage().persistent().get(&key).unwrap();
-        milestones.get(index).unwrap()
-    })
 }
 
 /// Capture a snapshot of the milestone at `index`.
@@ -381,8 +376,8 @@ proptest! {
             "released milestone must never be overdue (now={}, deadline={})", now, deadline
         );
         let after = snapshot_milestone(&env, &client.address, id, 0);
-        prop_assert_eq!(before, after, "deadline check must not mutate milestone state");
         prop_assert!(after.released, "released flag must remain true");
+        prop_assert_eq!(before, after, "deadline check must not mutate milestone state");
     }
 }
 
@@ -407,8 +402,8 @@ proptest! {
             "None deadline must never be overdue at now={}", now
         );
         let after = snapshot_milestone(&env, &client.address, id, 0);
-        prop_assert_eq!(before, after, "deadline check must not mutate milestone state");
         prop_assert_eq!(after.deadline, None, "None deadline must remain None");
+        prop_assert_eq!(before, after, "deadline check must not mutate milestone state");
     }
 }
 
@@ -521,7 +516,7 @@ proptest! {
         prop_assert_eq!(before.released, after.released, "released must not change");
 
         // Cross-check against the strict `>` invariant.
-        let expected = !released && deadline.map_or(false, |d| now > d);
+        let expected = !released && deadline != 0 && now > deadline;
         prop_assert_eq!(first, expected, "result must match strict > invariant");
     }
 
