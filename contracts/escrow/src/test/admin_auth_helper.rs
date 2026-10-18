@@ -29,6 +29,17 @@ fn setup_uninitialized(env: &Env) -> EscrowClient<'_> {
     EscrowClient::new(env, &id)
 }
 
+#[test]
+fn initialize_rejects_missing_admin_auth_without_storing_admin() {
+    let env = Env::default();
+    let id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &id);
+    let admin = Address::generate(&env);
+
+    assert!(client.try_initialize(&admin).is_err());
+    assert_eq!(client.get_admin(), None);
+}
+
 // ─── NotInitialized on each entrypoint ───────────────────────────────────────
 
 /// `load_and_auth_admin` must panic `NotInitialized` when no admin is stored.
