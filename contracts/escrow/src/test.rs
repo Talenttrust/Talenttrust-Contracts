@@ -15,13 +15,14 @@ fn test_sweep_surplus_and_direct_deposit() {
     let token_id = client_token.address();
 
     let token_client = token::Client::new(&env, &token_id);
+    let token_admin_client = token::StellarAssetClient::new(&env, &token_id);
 
     // Initialize contract
     let escrow_client = EscrowClient::new(&env, &contract_id);
     escrow_client.initialize(&admin);
 
-    // Mint tokens to client
-    token_client.mint(&client, &1000);
+    // Mint tokens to client using admin client
+    token_admin_client.mint(&client, &1000);
 
     // Create two live escrows
     let id1 = escrow_client.create_contract(
@@ -42,10 +43,9 @@ fn test_sweep_surplus_and_direct_deposit() {
     escrow_client.deposit_funds(&id2, &200);
 
     // Send 50 tokens directly to the contract address (untracked surplus)
-    token_client.mint(&env.current_contract_address(), &50);
+    token_admin_client.mint(&contract_id, &50);
 
-    // Test sweeping with zero surplus first (if we sweep after, or test separate zero surplus)
-    // Here surplus is 50. Let's test non-admin sweep rejection first.
+    // Test non-admin sweep rejection
     let non_admin = Address::generate(&env);
     let sweep_result = escrow_client.try_sweep_surplus(&token_id, &non_admin);
     assert!(sweep_result.is_err());
@@ -77,12 +77,14 @@ fn test_randomized_lifecycle() {
     let contract_id = env.register(Escrow, ());
     let client_token = env.register_stellar_asset_issuer(admin.clone());
     let token_id = client_token.address();
+
     let token_client = token::Client::new(&env, &token_id);
+    let token_admin_client = token::StellarAssetClient::new(&env, &token_id);
 
     let escrow_client = EscrowClient::new(&env, &contract_id);
     escrow_client.initialize(&admin);
 
-    token_client.mint(&client, &100_000);
+    token_admin_client.mint(&client, &100_000);
 
     // Create 3 escrows
     let mut escrow_ids = Vec::new(&env);
@@ -131,7 +133,7 @@ fn test_randomized_lifecycle() {
             }
         }
 
-        // Assert balance == liability after every step
+        // Assert balance >= liability after every step
         let balance = token_client.balance(&contract_id);
         let liability = escrow_client.get_liability(&token_id);
         assert!(balance >= liability);
