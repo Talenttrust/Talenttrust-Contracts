@@ -11,7 +11,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
+    Symbol, Vec,
 };
 
 pub const MAX_MILESTONES: u32 = 20;
@@ -39,6 +40,7 @@ pub enum EscrowError {
     InvalidSplit = 14,
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
+    EscrowFrozen = 17,
 }
 
 #[contracttype]
@@ -89,6 +91,7 @@ enum DataKey {
     NextId,
     Contract(u64),
     Reputation(Address),
+    Frozen(u64),
 }
 
 #[contract]
@@ -115,6 +118,18 @@ fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
         .unwrap_or(false)
     {
         return Err(EscrowError::Paused);
+    }
+    Ok(())
+}
+
+fn is_frozen(env: &Env, id: u64) -> bool {
+    let key = DataKey::Frozen(id);
+    env.storage().persistent().get(&key).unwrap_or(false)
+}
+
+fn require_not_frozen(env: &Env, id: u64) -> Result<(), EscrowError> {
+    if is_frozen(env, id) {
+        return Err(EscrowError::EscrowFrozen);
     }
     Ok(())
 }
@@ -185,6 +200,50 @@ impl Escrow {
             .unwrap_or(false)
     }
 
+    /// Freezes a single escrow agreement (Admin only).
+    pub fn freeze_escrow(env: Env, id: u64, reason: Symbol) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        if !env.storage().persistent().has(&DataKey::Contract(id)) {
+            return Err(EscrowError::ContractNotFound);
+        }
+        if is_frozen(&env, id) {
+            return Err(EscrowError::EscrowFrozen);
+        }
+        let key = DataKey::Frozen(id);
+        env.storage().persistent().set(&key, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+
+        env.events()
+            .publish((symbol_short!("frozen"), id), reason);
+        Ok(())
+    }
+
+    /// Unfreezes a frozen escrow agreement (Admin only).
+    pub fn unfreeze_escrow(env: Env, id: u64) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        if !env.storage().persistent().has(&DataKey::Contract(id)) {
+            return Err(EscrowError::ContractNotFound);
+        }
+        if !is_frozen(&env, id) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let key = DataKey::Frozen(id);
+        env.storage().persistent().set(&key, &false);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+
+        env.events().publish((symbol_short!("unfrozen"), id), ());
+        Ok(())
+    }
+
+    /// Checks if a specific escrow is frozen.
+    pub fn is_frozen(env: Env, id: u64) -> bool {
+        is_frozen(&env, id)
+    }
+
     /// Creates a new escrow agreement. Returns the escrow id.
     pub fn create_contract(
         env: Env,
@@ -240,6 +299,7 @@ impl Escrow {
     pub fn deposit_funds(env: Env, id: u64, amount: i128) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
         c.client.require_auth();
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
@@ -274,6 +334,7 @@ impl Escrow {
     pub fn release_milestone(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
         c.client.require_auth();
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
@@ -311,6 +372,7 @@ impl Escrow {
     pub fn open_dispute(env: Env, id: u64, caller: Address) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
         caller.require_auth();
         if caller != c.client && caller != c.freelancer {
             return Err(EscrowError::Unauthorized);
@@ -326,6 +388,7 @@ impl Escrow {
 
     /// Admin resolves a dispute, paying `freelancer_bps` (0..=10000) of the escrowed
     /// balance to the freelancer and refunding the rest to the client.
+    /// Note: This operation remains allowed even when frozen.
     pub fn resolve_dispute(env: Env, id: u64, freelancer_bps: u32) -> Result<(), EscrowError> {
         require_admin(&env)?;
         let mut c = load(&env, id)?;
@@ -354,6 +417,7 @@ impl Escrow {
     pub fn cancel_contract(env: Env, id: u64) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
         c.client.require_auth();
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
@@ -376,6 +440,7 @@ impl Escrow {
     /// After completion the client may rate the freelancer (1..=5) once per contract.
     pub fn issue_reputation(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
         let mut c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
         c.client.require_auth();
         if c.status != ContractStatus::Completed {
             return Err(EscrowError::InvalidStatus);
