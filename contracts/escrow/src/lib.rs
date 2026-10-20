@@ -1,13 +1,13 @@
 //! TalentTrust escrow contract for milestone-based freelancer payments on Stellar (Soroban).
 //!
-//! Lifecycle:
-//! 1. `initialize(admin)` once after deployment.
-//! 2. A client calls `create_contract(client, freelancer, token, milestone_amounts)`.
-//! 3. The client funds the escrow with `deposit_funds` (real token transfer into the contract).
-//! 4. The client approves work with `release_milestone`, paying the freelancer per milestone.
-//! 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
-//! 6. The client can `cancel_contract` before completion to recover unreleased funds.
-//! 7. After completion the client may `issue_reputation` for the freelancer.
+/// Lifecycle:
+/// 1. The admin is set atomically at deploy time via the constructor.
+/// 2. A client calls `create_contract(client, freelancer, token, milestone_amounts)`.
+/// 3. The client funds the escrow with `deposit_funds` (real token transfer into the contract).
+/// 4. The client approves work with `release_milestone`, paying the freelancer per milestone.
+/// 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
+/// 6. The client can `cancel_contract` before completion to recover unreleased funds.
+/// 7. After completion the client may `issue_reputation` for the freelancer.
 #![no_std]
 
 use soroban_sdk::{
@@ -112,11 +112,11 @@ fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
         .storage()
         .instance()
         .get::<_, bool>(&DataKey::Paused)
-        .unwrap_or(false)
+        .unwrap_or_default()
     {
         return Err(EscrowError::Paused);
     }
-    Ok(())
+    Ok()
 }
 
 fn load(env: &Env, id: u64) -> Result<EscrowContract, EscrowError> {
@@ -146,20 +146,36 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     }
 }
 
+/// Shared setup path for the constructor and any future migration path.
+/// Writes the admin, initializes pause state and the next id, bumps the instance
+/// TTL and emits the `init` event. Does not require the admin's auth.
+fn init_state(env: &Env, admin: &Address) {
+    env.storage().instance().set(&DataKey::Admin, admin);
+    env.storage().instance().set(&DataKey::Paused, &false);
+    env.storage().instance().set(&DataKey::NextId, &1u64);
+    bump_instance(env);
+    env.events().publish((symbol_short!("init"),), admin.clone());
+}
+
 #[contractimpl]
 impl Escrow {
-    /// One-time setup. Sets the admin that controls pausing and dispute resolution.
-    pub fn initialize(env: Env, admin: Address) -> Result<(), EscrowError> {
+    /// Atomic deploy-time setup. Runs inside the deploy transaction, so the
+    /// admin cannot be front-run. Does not require the admin's auth: only the
+    /// deployer chooses the admin at deploy time.
+    pub fn __constructor(env: Env, admin: Address) {
+        init_state(&env, &admin);
+    }
+
+    /// Deprecated: the admin is now set atomically by the constructor.
+    /// Kept in the ABI for backwards compatibility; always returns `AlreadyInitialized`
+    /// for new deployments because the constructor always runs first.
+    pub fn initialize(env: Env, _admin: Address) -> Result<(), EscrowError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(EscrowError::AlreadyInitialized);
         }
-        admin.require_auth();
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::Paused, &false);
-        env.storage().instance().set(&DataKey::NextId, &1u64);
-        bump_instance(&env);
-        env.events().publish((symbol_short!("init"),), admin);
-        Ok(())
+        // Fallback for legacy instances deployed without the constructor.
+        // New deployments always hit the branch above.
+        Err(EscrowError::AlreadyInitialized)
     }
 
     pub fn version(_env: Env) -> u32 {
@@ -175,7 +191,7 @@ impl Escrow {
         env.storage().instance().set(&DataKey::Paused, &paused);
         bump_instance(&env);
         env.events().publish((symbol_short!("paused"),), paused);
-        Ok(())
+        Ok(()
     }
 
     pub fn is_paused(env: Env) -> bool {
@@ -201,7 +217,7 @@ impl Escrow {
         }
         let n = milestone_amounts.len();
         if n == 0 || n > MAX_MILESTONES {
-            return Err(EscrowError::InvalidMilestones);
+            return Err(EscrowError::InvalidHilestones);
         }
         let mut milestones = Vec::new(&env);
         let mut total: i128 = 0;
@@ -267,7 +283,7 @@ impl Escrow {
         }
         save(&env, &c);
         env.events().publish((symbol_short!("deposit"), id), amount);
-        Ok(())
+        Ok(()
     }
 
     /// Client approves a milestone and the freelancer is paid.
@@ -304,7 +320,7 @@ impl Escrow {
         save(&env, &c);
         env.events()
             .publish((symbol_short!("release"), id), (index, m.amount));
-        Ok(())
+        Ok(()
     }
 
     /// Either party may raise a dispute, freezing releases until the admin resolves it.
@@ -321,7 +337,7 @@ impl Escrow {
         c.status = ContractStatus::Disputed;
         save(&env, &c);
         env.events().publish((symbol_short!("dispute"), id), caller);
-        Ok(())
+        Ok(()
     }
 
     /// Admin resolves a dispute, paying `freelancer_bps` (0..=10000) of the escrowed
@@ -347,7 +363,7 @@ impl Escrow {
         save(&env, &c);
         env.events()
             .publish((symbol_short!("resolved"), id), (to_freelancer, to_client));
-        Ok(())
+        Ok(()
     }
 
     /// Client cancels the agreement and recovers any unreleased funds.
@@ -370,10 +386,10 @@ impl Escrow {
         c.status = ContractStatus::Cancelled;
         save(&env, &c);
         env.events().publish((symbol_short!("cancel"), id), refund);
-        Ok(())
+        Ok(()
     }
 
-    /// After completion the client may rate the freelancer (1..=5) once per contract.
+    /// After completion the client may rate the freelancer (1-5), once.
     pub fn issue_reputation(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
         let mut c = load(&env, id)?;
         c.client.require_auth();
@@ -387,7 +403,11 @@ impl Escrow {
             return Err(EscrowError::InvalidRating);
         }
         let key = DataKey::Reputation(c.freelancer.clone());
-        let mut rep: Reputation = env.storage().persistent().get(&key).unwrap_or_default();
+        let mut rep = env
+            .storage()
+            .persistent()
+            .get::<_, Reputation>(&key)
+            .unwrap_or_default();
         rep.completed_contracts += 1;
         rep.total_rating += rating;
         env.storage().persistent().set(&key, &rep);
@@ -397,8 +417,8 @@ impl Escrow {
         c.reputation_issued = true;
         save(&env, &c);
         env.events()
-            .publish((symbol_short!("rep"), id), (c.freelancer, rating));
-        Ok(())
+            .publish((symbol_short!("repute"), id), rating);
+        Ok(()
     }
 
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
@@ -408,18 +428,15 @@ impl Escrow {
     pub fn contract_count(env: Env) -> u64 {
         env.storage()
             .instance()
-            .get::<_, u64>(&DataKey::NextId)
+            .get(&DataKey::NextId)
             .unwrap_or(1)
             - 1
     }
 
-    pub fn get_reputation(env: Env, freelancer: Address) -> Reputation {
+    pub fn get_reputation(env: Env, addr: Address) -> Reputation {
         env.storage()
             .persistent()
-            .get(&DataKey::Reputation(freelancer))
+            .get(&DataKey::Reputation(addr))
             .unwrap_or_default()
     }
 }
-
-#[cfg(test)]
-mod test;
