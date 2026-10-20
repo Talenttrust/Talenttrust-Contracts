@@ -9,6 +9,7 @@ struct Setup<'a> {
     token: TokenClient<'a>,
     client: Address,
     freelancer: Address,
+    admin: Address,
 }
 
 fn setup<'a>() -> Setup<'a> {
@@ -29,6 +30,7 @@ fn setup<'a>() -> Setup<'a> {
         token,
         client,
         freelancer,
+        admin,
     }
 }
 
@@ -94,7 +96,7 @@ fn dispute_split_and_cancel() {
     );
     s.escrow.deposit_funds(&id, &400);
     s.escrow.open_dispute(&id, &s.freelancer);
-    s.escrow.resolve_dispute(&id, &2_500);
+    s.escrow.resolve_dispute(&s.admin, &id, &2_500);
     assert_eq!(s.token.balance(&s.freelancer), 100);
     assert_eq!(s.token.balance(&s.client), 900);
 
@@ -116,7 +118,7 @@ fn dispute_split_and_cancel() {
 #[test]
 fn pause_blocks_mutations() {
     let s = setup();
-    s.escrow.set_paused(&true);
+    s.escrow.set_paused(&s.admin, &true);
     assert_eq!(
         s.escrow.try_create_contract(
             &s.client,
