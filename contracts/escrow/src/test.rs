@@ -10,9 +10,9 @@ fn test_sweep_surplus_and_direct_deposit() {
     let client = Address::generate(&env);
     let freelancer1 = Address::generate(&env);
     let freelancer2 = Address::generate(&env);
+
     let contract_id = env.register(Escrow, ());
-    let client_token = env.register_stellar_asset_issuer(admin.clone());
-    let token_id = client_token.address();
+    let token_id = env.register_stellar_asset_contract(admin.clone());
 
     let token_client = token::Client::new(&env, &token_id);
     let token_admin_client = token::StellarAssetClient::new(&env, &token_id);
@@ -31,6 +31,7 @@ fn test_sweep_surplus_and_direct_deposit() {
         &token_id,
         &vec![&env, 100],
     );
+
     let id2 = escrow_client.create_contract(
         &client,
         &freelancer2,
@@ -74,9 +75,9 @@ fn test_randomized_lifecycle() {
     let admin = Address::generate(&env);
     let client = Address::generate(&env);
     let freelancer = Address::generate(&env);
+
     let contract_id = env.register(Escrow, ());
-    let client_token = env.register_stellar_asset_issuer(admin.clone());
-    let token_id = client_token.address();
+    let token_id = env.register_stellar_asset_contract(admin.clone());
 
     let token_client = token::Client::new(&env, &token_id);
     let token_admin_client = token::StellarAssetClient::new(&env, &token_id);
@@ -88,6 +89,7 @@ fn test_randomized_lifecycle() {
 
     // Create 3 escrows
     let mut escrow_ids = Vec::new(&env);
+
     for _ in 0..3 {
         let id = escrow_client.create_contract(
             &client,
@@ -95,11 +97,13 @@ fn test_randomized_lifecycle() {
             &token_id,
             &vec![&env, 100, 100],
         );
+
         escrow_ids.push_back(id);
     }
 
     // Simple LCG PRNG for randomized lifecycle test (≥200 iterations)
     let mut rng_state: u32 = 42;
+
     let mut lcg = || {
         rng_state = rng_state.wrapping_mul(1103515245).wrapping_add(12345);
         rng_state
@@ -112,6 +116,7 @@ fn test_randomized_lifecycle() {
         let action = (rand_val / 3) % 3;
 
         let contract_info = escrow_client.try_get_contract(&id);
+
         if let Ok(Ok(c)) = contract_info {
             match action {
                 0 => {
@@ -136,6 +141,7 @@ fn test_randomized_lifecycle() {
         // Assert balance >= liability after every step
         let balance = token_client.balance(&contract_id);
         let liability = escrow_client.get_liability(&token_id);
+
         assert!(balance >= liability);
     }
 }
