@@ -39,6 +39,7 @@ pub enum EscrowError {
     InvalidSplit = 14,
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
+    MilestoneOutOfOrder = 17,
 }
 
 #[contracttype]
@@ -72,6 +73,7 @@ pub struct EscrowContract {
     pub released_amount: i128,
     pub status: ContractStatus,
     pub reputation_issued: bool,
+    pub sequential_milestones: bool,
 }
 
 #[contracttype]
@@ -192,6 +194,7 @@ impl Escrow {
         freelancer: Address,
         token: Address,
         milestone_amounts: Vec<i128>,
+        sequential_milestones: bool,
     ) -> Result<u64, EscrowError> {
         admin(&env)?;
         require_not_paused(&env)?;
@@ -229,6 +232,7 @@ impl Escrow {
             released_amount: 0,
             status: ContractStatus::Created,
             reputation_issued: false,
+            sequential_milestones,
         };
         save(&env, &c);
         env.events()
@@ -288,6 +292,19 @@ impl Escrow {
         if c.funded_amount - c.released_amount < m.amount {
             return Err(EscrowError::InsufficientFunds);
         }
+        if c.sequential_milestones {
+            let mut expected_index: u32 = 0;
+            for (i, milestone) in c.milestones.iter().enumerate() {
+                if milestone.released {
+                    expected_index = (i + 1) as u32;
+                } else {
+                    break;
+                }
+            }
+            if index != expected_index {
+                return Err(EscrowError::MilestoneOutOfOrder);
+            }
+        }
         transfer(
             &env,
             &c.token,
@@ -304,6 +321,108 @@ impl Escrow {
         save(&env, &c);
         env.events()
             .publish((symbol_short!("release"), id), (index, m.amount));
+        Ok(())
+    }
+
+    /// Client approves multiple milestones in a single call with one storage write.
+    /// All indices are validated before any transfers occur.
+    pub fn release_milestones(env: Env, id: u64, indices: Vec<u32>) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let mut c = load(&env, id)?;
+        c.client.require_auth();
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+            return Err(EscrowError::InvalidStatus);
+        }
+
+        // Validate all indices first before any state changes
+        if indices.is_empty() {
+            return Err(EscrowError::InvalidMilestones);
+        }
+
+        let mut total_amount: i128 = 0;
+        let mut seen_indices = Vec::new(&env);
+
+        for &index in indices.iter() {
+            // Check for duplicates
+            for &seen in seen_indices.iter() {
+                if seen == index {
+                    return Err(EscrowError::InvalidMilestones);
+                }
+            }
+            seen_indices.push_back(index);
+
+            let m = c
+                .milestones
+                .get(index)
+                .ok_or(EscrowError::MilestoneNotFound)?;
+
+            if m.released {
+                return Err(EscrowError::MilestoneAlreadyReleased);
+            }
+
+            total_amount = total_amount
+                .checked_add(m.amount)
+                .ok_or(EscrowError::InvalidAmount)?;
+        }
+
+        // Check sufficient funds for total
+        if c.funded_amount - c.released_amount < total_amount {
+            return Err(EscrowError::InsufficientFunds);
+        }
+
+        // For sequential milestones, validate order
+        if c.sequential_milestones {
+            let mut expected_index: u32 = 0;
+            for (i, milestone) in c.milestones.iter().enumerate() {
+                if milestone.released {
+                    expected_index = (i + 1) as u32;
+                } else {
+                    break;
+                }
+            }
+
+            // Check that indices are sequential starting from expected_index
+            let mut sorted_indices = Vec::new(&env);
+            for &index in indices.iter() {
+                sorted_indices.push_back(index);
+            }
+            sorted_indices.sort();
+
+            for (i, &index) in sorted_indices.iter().enumerate() {
+                if index != expected_index + i as u32 {
+                    return Err(EscrowError::MilestoneOutOfOrder);
+                }
+            }
+        }
+
+        // Single transfer for total amount
+        transfer(
+            &env,
+            &c.token,
+            &env.current_contract_address(),
+            &c.freelancer,
+            total_amount,
+        );
+
+        // Update all milestones
+        for &index in indices.iter() {
+            let mut m = c.milestones.get(index).unwrap();
+            m.released = true;
+            c.milestones.set(index, m.clone());
+            c.released_amount += m.amount;
+
+            // Publish event for each milestone
+            env.events()
+                .publish((symbol_short!("release"), id), (index, m.amount));
+        }
+
+        // Check if all milestones are now released
+        if c.milestones.iter().all(|x| x.released) {
+            c.status = ContractStatus::Completed;
+        }
+
+        // Single storage write
+        save(&env, &c);
         Ok(())
     }
 
