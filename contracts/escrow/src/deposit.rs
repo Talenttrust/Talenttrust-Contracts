@@ -1,11 +1,12 @@
 use crate::{
     accumulate_amounts, ttl, Contract, ContractStatus, DataKey, Error, EscrowError, Milestone,
 };
-use soroban_sdk::{Address, Env, Symbol, Vec};
+use soroban_sdk::{symbol_short, Address, Env, Symbol, Vec};
 
 /// Validated deposit data that is safe to use before any token transfer.
 pub struct ValidatedDeposit {
     pub contract: Contract,
+    pub amount: i128,
     pub new_funded_amount: i128,
     pub new_total_deposited: i128,
     pub total_amount: i128,
@@ -79,6 +80,7 @@ pub fn validate_deposit(
 
     ValidatedDeposit {
         contract,
+        amount,
         new_funded_amount,
         new_total_deposited,
         total_amount,
@@ -107,6 +109,11 @@ pub fn deposit_funds_impl(env: &Env, contract_id: u32, caller: Address, amount: 
 }
 
 /// Apply a deposit after the caller has been validated and the token transfer succeeded.
+///
+/// Emits a `("deposit", contract_id)` event with
+/// `(caller, amount, new_funded_amount, new_status, timestamp)` so off-chain
+/// indexers observe deposits identically whether triggered by `deposit_funds`
+/// or the atomic `create_and_fund` entrypoint.
 pub fn apply_validated_deposit(
     env: &Env,
     contract_id: u32,
@@ -115,14 +122,13 @@ pub fn apply_validated_deposit(
 ) -> bool {
     let ValidatedDeposit {
         mut contract,
+        amount,
         new_funded_amount,
         new_total_deposited,
         total_amount,
     } = validated;
 
     ttl::extend_contract_ttl(&env, contract_id);
-
-    caller.require_auth();
 
     contract.funded_amount = new_funded_amount;
     contract.total_deposited = new_total_deposited;
@@ -135,11 +141,29 @@ pub fn apply_validated_deposit(
         contract.status = ContractStatus::PartiallyFunded;
     }
 
+    let new_status = contract.status.clone();
+
     env.storage()
         .persistent()
         .set(&DataKey::Contract(contract_id), &contract);
 
     ttl::extend_contract_ttl(&env, contract_id);
+
+    // Emit deposit event after state is persisted.
+    //
+    // Topics : `(symbol_short!("deposit"), contract_id: u32)`
+    // Data   : `(caller: Address, amount: i128, funded_amount: i128,
+    //            status: ContractStatus, timestamp: u64)`
+    env.events().publish(
+        (symbol_short!("deposit"), contract_id),
+        (
+            caller,
+            amount,
+            new_funded_amount,
+            new_status,
+            env.ledger().timestamp(),
+        ),
+    );
 
     true
 }

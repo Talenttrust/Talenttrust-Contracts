@@ -502,6 +502,10 @@ impl Escrow {
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
 
+        // Authenticate the caller before any cross-contract SAC transfer so
+        // the auth check is always the root invocation.
+        caller.require_auth();
+
         // Validate all contract-local preconditions before any SAC transfer so
         // rejected deposits cannot debit the client and then fail state checks.
         let validated = deposit::validate_deposit(&env, contract_id, &caller, amount);
