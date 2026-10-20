@@ -53,13 +53,13 @@ fn setup_completed_contract(env: &Env, client: &EscrowClient) -> (Address, Addre
 
 #[test]
 fn pause_then_unpause_toggles_state() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
 
     assert!(!client.is_paused());
-    client.pause();
+    client.pause(&admin);
     assert!(client.is_paused());
-    client.unpause();
+    client.unpause(&admin);
     assert!(!client.is_paused());
 }
 
@@ -67,9 +67,9 @@ fn pause_then_unpause_toggles_state() {
 
 #[test]
 fn pause_blocks_create_contract() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
-    client.pause();
+    client.pause(&admin);
 
     let a = Address::generate(&env);
     let b = Address::generate(&env);
@@ -87,10 +87,10 @@ fn pause_blocks_create_contract() {
 
 #[test]
 fn unpause_restores_create_contract() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
-    client.pause();
-    client.unpause();
+    client.pause(&admin);
+    client.unpause(&admin);
 
     let a = Address::generate(&env);
     let b = Address::generate(&env);
@@ -106,9 +106,9 @@ fn unpause_restores_create_contract() {
 
 #[test]
 fn pause_gate_runs_before_auth_on_create_contract() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
-    client.pause();
+    client.pause(&admin);
 
     let outsider = Address::generate(&env);
     let other = Address::generate(&env);
@@ -128,10 +128,10 @@ fn pause_gate_runs_before_auth_on_create_contract() {
 
 #[test]
 fn pause_blocks_deposit_funds() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
     let (client_addr, _freelancer, id) = setup_funded_contract(&env, &client);
-    client.pause();
+    client.pause(&admin);
 
     super::assert_contract_error(
         client.try_deposit_funds(&id, &client_addr, &50_i128),
@@ -141,10 +141,10 @@ fn pause_blocks_deposit_funds() {
 
 #[test]
 fn unpause_restores_deposit_funds() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
-    client.pause();
-    client.unpause();
+    client.pause(&admin);
+    client.unpause(&admin);
 
     let a = Address::generate(&env);
     let b = Address::generate(&env);
@@ -162,10 +162,10 @@ fn unpause_restores_deposit_funds() {
 
 #[test]
 fn pause_blocks_release_milestone() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
     let (client_addr, _freelancer, id) = setup_funded_contract(&env, &client);
-    client.pause();
+    client.pause(&admin);
 
     super::assert_contract_error(
         client.try_release_milestone(&id, &client_addr, &0),
@@ -175,11 +175,11 @@ fn pause_blocks_release_milestone() {
 
 #[test]
 fn unpause_restores_release_milestone() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
     let (client_addr, _freelancer, id) = setup_funded_contract(&env, &client);
-    client.pause();
-    client.unpause();
+    client.pause(&admin);
+    client.unpause(&admin);
 
     client.approve_milestone_release(&id, &client_addr, &0);
     client.release_milestone(&id, &client_addr, &0);
@@ -189,10 +189,10 @@ fn unpause_restores_release_milestone() {
 
 #[test]
 fn pause_blocks_refund_unreleased_milestones() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
     let (_client_addr, _freelancer, id) = setup_funded_contract(&env, &client);
-    client.pause();
+    client.pause(&admin);
 
     super::assert_contract_error(
         client.try_refund_unreleased_milestones(&id, &vec![&env, 1_u32]),
@@ -202,11 +202,11 @@ fn pause_blocks_refund_unreleased_milestones() {
 
 #[test]
 fn unpause_restores_refund_unreleased_milestones() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
     let (_client_addr, _freelancer, id) = setup_funded_contract(&env, &client);
-    client.pause();
-    client.unpause();
+    client.pause(&admin);
+    client.unpause(&admin);
 
     client.refund_unreleased_milestones(&id, &vec![&env, 1_u32]);
 }
@@ -215,10 +215,10 @@ fn unpause_restores_refund_unreleased_milestones() {
 
 #[test]
 fn pause_blocks_cancel_contract() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
     let (client_addr, _freelancer, id) = setup_funded_contract(&env, &client);
-    client.pause();
+    client.pause(&admin);
 
     super::assert_contract_error(
         client.try_cancel_contract(&id, &client_addr),
@@ -228,11 +228,11 @@ fn pause_blocks_cancel_contract() {
 
 #[test]
 fn unpause_restores_cancel_contract() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
     let (client_addr, _freelancer, id) = setup_funded_contract(&env, &client);
-    client.pause();
-    client.unpause();
+    client.pause(&admin);
+    client.unpause(&admin);
 
     client.cancel_contract(&id, &client_addr);
 }
@@ -242,10 +242,10 @@ fn unpause_restores_cancel_contract() {
 #[test]
 #[ignore]
 fn pause_blocks_issue_reputation() {
-    let (env, contract_id, _admin) = setup_initialized();
+    let (env, contract_id, admin) = setup_initialized();
     let client = EscrowClient::new(&env, &contract_id);
     let (client_addr, _freelancer_addr, id) = setup_completed_contract(&env, &client);
-    client.pause();
+    client.pause(&admin);
 
     let comment = String::from_str(&env, "Great work");
     super::assert_contract_error(

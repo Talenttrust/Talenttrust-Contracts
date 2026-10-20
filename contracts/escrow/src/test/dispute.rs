@@ -25,7 +25,7 @@
 #![cfg(test)]
 
 use crate::{
-    Contract, ContractStatus, DisputeResolution, DisputeSplit, Error, Escrow, EscrowClient,
+    Contract, ContractStatus, DisputeResolution, DisputeSplit, Error, Escrow, EscrowClient, Role,
     ReleaseAuthorization,
 };
 use soroban_sdk::{testutils::Address as _, vec, Address, Env};
@@ -42,12 +42,12 @@ fn make_env() -> Env {
     env
 }
 
-fn make_client(env: &Env) -> EscrowClient<'_> {
+fn make_client(env: &Env) -> (EscrowClient<'_>, Address) {
     let id = env.register(Escrow, ());
     let client = EscrowClient::new(env, &id);
     let admin = Address::generate(env);
     client.initialize(&admin);
-    client
+    (client, admin)
 }
 
 /// Build a bare `Contract` value with controlled accounting fields for unit tests
@@ -110,9 +110,10 @@ fn funded_contract_no_arbiter(env: &Env, client: &EscrowClient<'_>) -> (Address,
 
 /// Helper: create a funded contract with arbiter and raise a dispute.
 /// Returns (client_addr, freelancer_addr, arbiter_addr, contract_id).
-fn disputed_contract(env: &Env, client: &EscrowClient<'_>) -> (Address, Address, Address, u32) {
+fn disputed_contract(env: &Env, client: &EscrowClient<'_>, admin: &Address) -> (Address, Address, Address, u32) {
     let (client_addr, freelancer_addr, arbiter_addr, contract_id) =
         funded_contract_with_arbiter(env, client);
+    client.grant_role(admin, &Role::Resolver, &arbiter_addr);
     assert!(client.raise_dispute(&contract_id, &client_addr));
     (client_addr, freelancer_addr, arbiter_addr, contract_id)
 }
@@ -377,7 +378,7 @@ fn final_status_after_resolution_returns_refunded_only_when_fully_refunded() {
 #[test]
 fn resolve_full_refund_conserves_and_marks_refunded() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, admin) = make_client(&env);
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
     let arbiter_addr = Address::generate(&env);
@@ -392,7 +393,7 @@ fn resolve_full_refund_conserves_and_marks_refunded() {
     client.deposit_funds(&escrow_id, &client_addr, &200_i128);
 
     client.raise_dispute(&escrow_id, &client_addr);
-    client.resolve_dispute(&escrow_id, &arbiter_addr, &DisputeResolution::FullRefund);
+    client.resolve_dispute(&arbiter_addr, &escrow_id, &DisputeResolution::FullRefund);
 
     let contract = client.get_contract(&escrow_id);
     assert_eq!(contract.status, ContractStatus::Refunded);
@@ -408,7 +409,7 @@ fn resolve_full_refund_conserves_and_marks_refunded() {
 #[test]
 fn resolve_full_payout_conserves_and_marks_completed() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, admin) = make_client(&env);
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
     let arbiter_addr = Address::generate(&env);
@@ -423,7 +424,7 @@ fn resolve_full_payout_conserves_and_marks_completed() {
     client.deposit_funds(&escrow_id, &client_addr, &150_i128);
 
     client.raise_dispute(&escrow_id, &client_addr);
-    client.resolve_dispute(&escrow_id, &arbiter_addr, &DisputeResolution::FullPayout);
+    client.resolve_dispute(&arbiter_addr, &escrow_id, &DisputeResolution::FullPayout);
 
     let contract = client.get_contract(&escrow_id);
     assert_eq!(contract.status, ContractStatus::Completed);
@@ -439,7 +440,7 @@ fn resolve_full_payout_conserves_and_marks_completed() {
 #[test]
 fn resolve_partial_refund_conserves_70_30_split() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, admin) = make_client(&env);
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
     let arbiter_addr = Address::generate(&env);
@@ -454,7 +455,7 @@ fn resolve_partial_refund_conserves_70_30_split() {
     client.deposit_funds(&escrow_id, &client_addr, &100_i128);
 
     client.raise_dispute(&escrow_id, &client_addr);
-    client.resolve_dispute(&escrow_id, &arbiter_addr, &DisputeResolution::PartialRefund);
+    client.resolve_dispute(&arbiter_addr, &escrow_id, &DisputeResolution::PartialRefund);
 
     let contract = client.get_contract(&escrow_id);
     assert_eq!(contract.status, ContractStatus::Completed);
@@ -468,7 +469,7 @@ fn resolve_partial_refund_conserves_70_30_split() {
 #[test]
 fn resolve_split_conserves_custom_amounts() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, admin) = make_client(&env);
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
     let arbiter_addr = Address::generate(&env);
@@ -487,7 +488,7 @@ fn resolve_split_conserves_custom_amounts() {
         client_amount: 35,
         freelancer_amount: 65,
     };
-    client.resolve_dispute(&escrow_id, &arbiter_addr, &DisputeResolution::Split(split));
+    client.resolve_dispute(&arbiter_addr, &escrow_id, &DisputeResolution::Split(split));
 
     let contract = client.get_contract(&escrow_id);
     assert_eq!(contract.status, ContractStatus::Completed);
@@ -507,7 +508,7 @@ fn resolve_split_conserves_custom_amounts() {
 #[test]
 fn raise_dispute_by_client_succeeds() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, admin) = make_client(&env);
     let (client_addr, _, _, contract_id) = funded_contract_with_arbiter(&env, &client);
 
     assert!(client.raise_dispute(&contract_id, &client_addr));
@@ -521,7 +522,7 @@ fn raise_dispute_by_client_succeeds() {
 #[test]
 fn raise_dispute_by_freelancer_succeeds() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, admin) = make_client(&env);
     let (_, freelancer_addr, _, contract_id) = funded_contract_with_arbiter(&env, &client);
 
     assert!(client.raise_dispute(&contract_id, &freelancer_addr));
@@ -535,7 +536,7 @@ fn raise_dispute_by_freelancer_succeeds() {
 #[test]
 fn raise_dispute_by_non_party_is_rejected() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, admin) = make_client(&env);
     let (_, _, _, contract_id) = funded_contract_with_arbiter(&env, &client);
     let outsider = Address::generate(&env);
 
@@ -553,7 +554,7 @@ fn raise_dispute_by_non_party_is_rejected() {
 #[test]
 fn raise_dispute_without_arbiter_is_rejected() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, admin) = make_client(&env);
     let (client_addr, _, contract_id) = funded_contract_no_arbiter(&env, &client);
 
     super::assert_contract_error(
@@ -571,7 +572,7 @@ fn raise_dispute_without_arbiter_is_rejected() {
 #[test]
 fn raise_dispute_on_completed_contract_is_rejected() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, admin) = make_client(&env);
     let milestones = vec![&env, 100_i128];
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -601,10 +602,10 @@ fn raise_dispute_on_completed_contract_is_rejected() {
 #[test]
 fn resolve_dispute_by_arbiter_succeeds() {
     let env = make_env();
-    let client = make_client(&env);
-    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+    let (client, admin) = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client, &admin);
 
-    assert!(client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund,));
+    assert!(client.resolve_dispute(&arbiter_addr, &contract_id, &DisputeResolution::FullRefund,));
     let contract = client.get_contract(&contract_id);
     assert_eq!(contract.status, ContractStatus::Refunded);
     assert_eq!(contract.refunded_amount, 100);
@@ -614,18 +615,18 @@ fn resolve_dispute_by_arbiter_succeeds() {
 #[test]
 fn resolve_dispute_by_non_arbiter_is_rejected() {
     let env = make_env();
-    let client = make_client(&env);
-    let (client_addr, _, _, contract_id) = disputed_contract(&env, &client);
+    let (client, admin) = make_client(&env);
+    let (client_addr, _, _, contract_id) = disputed_contract(&env, &client, &admin);
     let outsider = Address::generate(&env);
 
     // Client is a party but not the arbiter — must be rejected.
     super::assert_contract_error(
-        client.try_resolve_dispute(&contract_id, &client_addr, &DisputeResolution::FullRefund),
+        client.try_resolve_dispute(&client_addr, &contract_id, &DisputeResolution::FullRefund),
         Error::UnauthorizedRole,
     );
     // Random outsider is also rejected.
     super::assert_contract_error(
-        client.try_resolve_dispute(&contract_id, &outsider, &DisputeResolution::FullRefund),
+        client.try_resolve_dispute(&outsider, &contract_id, &DisputeResolution::FullRefund),
         Error::UnauthorizedRole,
     );
     // Contract remains in Disputed state.
@@ -639,11 +640,11 @@ fn resolve_dispute_by_non_arbiter_is_rejected() {
 #[test]
 fn double_resolve_is_rejected() {
     let env = make_env();
-    let client = make_client(&env);
-    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+    let (client, admin) = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client, &admin);
 
     // First resolution succeeds.
-    assert!(client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund,));
+    assert!(client.resolve_dispute(&arbiter_addr, &contract_id, &DisputeResolution::FullRefund,));
     assert_eq!(
         client.get_contract(&contract_id).status,
         ContractStatus::Refunded
@@ -651,7 +652,7 @@ fn double_resolve_is_rejected() {
 
     // Second resolution must fail — contract is no longer Disputed.
     super::assert_contract_error(
-        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullPayout),
+        client.try_resolve_dispute(&arbiter_addr, &contract_id, &DisputeResolution::FullPayout),
         Error::InvalidStatusTransition,
     );
 }
@@ -661,7 +662,7 @@ fn double_resolve_is_rejected() {
 #[test]
 fn raise_dispute_after_settle_is_rejected() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, admin) = make_client(&env);
     let milestones = vec![&env, 50_i128, 50_i128];
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -694,10 +695,10 @@ fn raise_dispute_after_settle_is_rejected() {
 #[test]
 fn resolve_moves_funds_correctly_full_payout() {
     let env = make_env();
-    let client = make_client(&env);
-    let (_, _freelancer_addr, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+    let (client, admin) = make_client(&env);
+    let (_, _freelancer_addr, arbiter_addr, contract_id) = disputed_contract(&env, &client, &admin);
 
-    assert!(client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullPayout,));
+    assert!(client.resolve_dispute(&arbiter_addr, &contract_id, &DisputeResolution::FullPayout,));
     let contract = client.get_contract(&contract_id);
     assert_eq!(contract.status, ContractStatus::Completed);
     assert_eq!(contract.released_amount, 100);
@@ -711,10 +712,10 @@ fn resolve_moves_funds_correctly_full_payout() {
 #[test]
 fn resolve_moves_funds_correctly_full_refund() {
     let env = make_env();
-    let client = make_client(&env);
-    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+    let (client, admin) = make_client(&env);
+    let (_, _, arbiter_addr, contract_id) = disputed_contract(&env, &client, &admin);
 
-    assert!(client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund,));
+    assert!(client.resolve_dispute(&arbiter_addr, &contract_id, &DisputeResolution::FullRefund,));
     let contract = client.get_contract(&contract_id);
     assert_eq!(contract.status, ContractStatus::Refunded);
     assert_eq!(contract.released_amount, 0);
@@ -729,13 +730,13 @@ fn resolve_moves_funds_correctly_full_refund() {
 #[test]
 fn raise_dispute_on_refunded_contract_is_rejected() {
     let env = make_env();
-    let client = make_client(&env);
+    let (client, admin) = make_client(&env);
     let (client_addr, freelancer_addr, arbiter_addr, contract_id) =
         funded_contract_with_arbiter(&env, &client);
 
     // Resolve as FullRefund to reach Refunded terminal state.
     assert!(client.raise_dispute(&contract_id, &client_addr));
-    assert!(client.resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund,));
+    assert!(client.resolve_dispute(&arbiter_addr, &contract_id, &DisputeResolution::FullRefund,));
     assert_eq!(
         client.get_contract(&contract_id).status,
         ContractStatus::Refunded
@@ -752,14 +753,14 @@ fn raise_dispute_on_refunded_contract_is_rejected() {
 #[test]
 fn resolve_after_finalize_is_rejected() {
     let env = make_env();
-    let client = make_client(&env);
-    let (client_addr, _, arbiter_addr, contract_id) = disputed_contract(&env, &client);
+    let (client, admin) = make_client(&env);
+    let (client_addr, _, arbiter_addr, contract_id) = disputed_contract(&env, &client, &admin);
 
     // Finalize the disputed contract.
     assert!(client.finalize_contract(&contract_id, &client_addr));
 
     super::assert_contract_error(
-        client.try_resolve_dispute(&contract_id, &arbiter_addr, &DisputeResolution::FullRefund),
+        client.try_resolve_dispute(&arbiter_addr, &contract_id, &DisputeResolution::FullRefund),
         Error::AlreadyFinalized,
     );
 }

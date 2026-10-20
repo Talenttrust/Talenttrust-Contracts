@@ -58,6 +58,13 @@ pub struct ContractBounds {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Role {
+    Pauser,
+    Resolver,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
     // Admin / pause / emergency
     Initialized,
@@ -90,6 +97,10 @@ pub enum DataKey {
     Finalization(u32),
     // Settlement token
     SettlementToken,
+    // Admin-configurable settlement limit (max single milestone amount in stroops)
+    SettlementLimit,
+    // Role-based access control
+    RoleMember(Role, Address),
 }
 
 /// Canonical contract error type for all entrypoint-facing errors.

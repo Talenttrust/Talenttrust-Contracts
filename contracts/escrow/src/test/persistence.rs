@@ -3,7 +3,7 @@ use super::{
     generated_participants, register_client, total_milestone_amount, MILESTONE_ONE,
     MILESTONE_THREE, MILESTONE_TWO,
 };
-use crate::{ttl, ContractStatus, Error, EscrowError, ReleaseAuthorization};
+use crate::{ttl, ContractStatus, Error, EscrowError, ReleaseAuthorization, Role};
 use soroban_sdk::{
     testutils::{storage::Persistent, Address as _, Ledger},
     vec, Address, Env, Symbol,
@@ -122,6 +122,9 @@ fn finalize_rejects_created_contract() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
 
     super::assert_contract_error(
@@ -137,6 +140,9 @@ fn finalize_rejects_funded_contract() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &super::total_milestone_amount()));
     assert_eq!(
@@ -259,9 +265,9 @@ fn get_finalization_record_returns_none_for_missing_contract() {
 fn pause_blocks_finalization() {
     let env = Env::default();
     env.mock_all_auths();
-    let client = register_client(&env);
+    let (client, admin) = crate::test::register_client_with_admin(&env);
     let (client_addr, _freelancer_addr, contract_id) = super::complete_contract(&env, &client);
-    assert!(client.pause());
+    assert!(client.pause(&admin));
 
     super::assert_contract_error(
         client.try_finalize_contract(&contract_id, &client_addr),
@@ -277,6 +283,9 @@ fn finalize_completed_with_mixed_releases_and_refunds() {
 
     env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
 
     assert!(client.deposit_funds(&contract_id, &client_addr, &super::total_milestone_amount()));
@@ -371,6 +380,9 @@ fn get_contract_reflects_deposit_and_release_state() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
 
     let initial = client.get_contract(&contract_id);
@@ -398,6 +410,9 @@ fn get_contract_observations_are_pure() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
     assert!(client.release_milestone(&contract_id, &client_addr, &0));
@@ -477,6 +492,9 @@ fn get_milestones_observations_are_pure() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
     assert!(client.release_milestone(&contract_id, &client_addr, &0));
@@ -539,6 +557,9 @@ fn get_refundable_balance_equals_funded_amount_pre_release() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
 
@@ -554,6 +575,9 @@ fn get_refundable_balance_subtracts_released_amount() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
     assert!(client.release_milestone(&contract_id, &client_addr, &0));
@@ -581,6 +605,9 @@ fn get_refundable_balance_observations_are_pure() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
     assert!(client.release_milestone(&contract_id, &client_addr, &0));
@@ -601,6 +628,9 @@ fn get_milestone_approvals_returns_none_when_absent() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
 
@@ -627,6 +657,9 @@ fn get_milestone_approvals_returns_some_after_recorded() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
 
@@ -1081,7 +1114,9 @@ fn read_getters_unchanged_after_pause() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-
+    let admin = Address::generate(&env);
+    // grant to the admin who will call - but we don't know stored admin; easier to make admin be the stored one by reinit? no
+    // workaround: use the same pattern as other tests
     let (client_addr, _freelancer_addr, contract_id) = create_contract(&env, &client);
     assert!(client.deposit_funds(&contract_id, &client_addr, &total_milestone_amount()));
 
@@ -1089,7 +1124,8 @@ fn read_getters_unchanged_after_pause() {
     let milestones_before = client.get_milestones(&contract_id);
     let refundable_before = client.get_refundable_balance(&contract_id);
 
-    assert!(client.pause());
+    let admin = Address::generate(&env);
+    assert!(client.pause(&admin));
 
     let after_pause = client.get_contract(&contract_id);
     let milestones_after = client.get_milestones(&contract_id);

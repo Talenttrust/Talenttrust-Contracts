@@ -36,14 +36,14 @@ fn setup_uninitialized(env: &Env) -> EscrowClient<'_> {
 fn pause_before_initialize_panics_not_initialized() {
     let env = Env::default();
     let client = setup_uninitialized(&env);
-    super::assert_contract_error(client.try_pause(), EscrowError::NotInitialized);
+    super::assert_contract_error(client.try_pause(&admin), EscrowError::NotInitialized);
 }
 
 #[test]
 fn unpause_before_initialize_panics_not_initialized() {
     let env = Env::default();
     let client = setup_uninitialized(&env);
-    super::assert_contract_error(client.try_unpause(), EscrowError::NotInitialized);
+    super::assert_contract_error(client.try_unpause(&admin), EscrowError::NotInitialized);
 }
 
 #[test]
@@ -70,8 +70,8 @@ fn resolve_emergency_before_initialize_panics_not_initialized() {
 #[test]
 fn pause_succeeds_with_admin_auth() {
     let env = Env::default();
-    let (client, _admin) = setup(&env);
-    assert!(client.pause(), "pause must return true");
+    let (client, admin) = setup(&env);
+    assert!(client.pause(&admin), "pause must return true");
     assert!(client.is_paused(), "contract must be in paused state");
 }
 
@@ -79,9 +79,9 @@ fn pause_succeeds_with_admin_auth() {
 #[test]
 fn unpause_succeeds_after_pause() {
     let env = Env::default();
-    let (client, _admin) = setup(&env);
-    client.pause();
-    assert!(client.unpause(), "unpause must return true");
+    let (client, admin) = setup(&env);
+    client.pause(&admin);
+    assert!(client.unpause(&admin), "unpause must return true");
     assert!(!client.is_paused(), "contract must be unpaused");
 }
 
@@ -89,7 +89,7 @@ fn unpause_succeeds_after_pause() {
 #[test]
 fn activate_emergency_pause_succeeds_with_admin_auth() {
     let env = Env::default();
-    let (client, _admin) = setup(&env);
+    let (client, admin) = setup(&env);
     assert!(client.activate_emergency_pause());
     assert!(client.is_paused());
     assert!(client.is_emergency());
@@ -99,7 +99,7 @@ fn activate_emergency_pause_succeeds_with_admin_auth() {
 #[test]
 fn resolve_emergency_succeeds_with_admin_auth() {
     let env = Env::default();
-    let (client, _admin) = setup(&env);
+    let (client, admin) = setup(&env);
     client.activate_emergency_pause();
     assert!(client.resolve_emergency());
     assert!(!client.is_emergency());
@@ -121,7 +121,7 @@ fn resolve_emergency_succeeds_with_admin_auth() {
 #[test]
 fn emergency_round_trip_preserves_flag_consistency() {
     let env = Env::default();
-    let (client, _admin) = setup(&env);
+    let (client, admin) = setup(&env);
 
     // Initial state
     assert!(!client.is_paused());
@@ -142,12 +142,12 @@ fn emergency_round_trip_preserves_flag_consistency() {
 #[test]
 fn pause_unpause_does_not_affect_emergency_flag() {
     let env = Env::default();
-    let (client, _admin) = setup(&env);
+    let (client, admin) = setup(&env);
 
-    client.pause();
+    client.pause(&admin);
     assert!(!client.is_emergency(), "pause must not set emergency flag");
 
-    client.unpause();
+    client.unpause(&admin);
     assert!(
         !client.is_emergency(),
         "unpause must not set emergency flag"

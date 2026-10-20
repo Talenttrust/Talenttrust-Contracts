@@ -205,7 +205,7 @@ fn pause_blocks_finalization() {
     let admin = Address::generate(&env);
     assert!(client.initialize(&admin));
     let (client_addr, _, contract_id) = completed_contract(&env, &client);
-    assert!(client.pause());
+    assert!(client.pause(&admin));
 
     super::assert_contract_error(
         client.try_finalize_contract(&contract_id, &client_addr),
@@ -360,7 +360,7 @@ fn submit_work_evidence_rejects_paused_contract() {
     assert!(client.initialize(&admin));
 
     let (_, freelancer_addr, contract_id) = funded_contract(&env, &client);
-    assert!(client.pause());
+    assert!(client.pause(&admin));
 
     let evidence = ev(&env, "ipfs://QmPaused");
     let result = client.try_submit_work_evidence(&contract_id, &freelancer_addr, &0, &evidence);

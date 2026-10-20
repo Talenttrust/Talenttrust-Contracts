@@ -349,3 +349,12 @@ pub fn assert_contract_error<
         ),
     }
 }
+
+pub fn register_client_with_admin(env: &Env) -> (EscrowClient<'_>, Address) {
+    let id = env.register(Escrow, ());
+    let client = EscrowClient::new(env, &id);
+    let admin = Address::generate(env);
+    env.mock_all_auths();
+    client.initialize(&admin);
+    (client, admin)
+}

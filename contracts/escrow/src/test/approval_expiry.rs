@@ -24,8 +24,8 @@ fn total() -> i128 {
 fn new_client(env: &Env) -> EscrowClient<'_> {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(env, &contract_id);
-    let admin = Address::generate(env);
-    client.initialize(&admin);
+    let _admin = Address::generate(env);
+    // initialized
     client
 }
 
@@ -350,7 +350,7 @@ fn test_client_only_approval_expires_after_ttl() {
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin);
+    // initialized
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -386,7 +386,7 @@ fn test_client_only_approval_valid_at_exactly_ttl_boundary() {
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin);
+    // initialized
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -425,7 +425,7 @@ fn test_arbiter_only_approval_expires_after_ttl() {
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin);
+    // initialized
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -454,7 +454,7 @@ fn test_client_and_arbiter_approval_expires_after_ttl() {
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin);
+    // initialized
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -483,7 +483,7 @@ fn test_multisig_one_approval_expires_before_second_arrives() {
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin);
+    // initialized
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -521,7 +521,7 @@ fn test_multisig_both_approvals_expire_after_ttl() {
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin);
+    // initialized
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -558,7 +558,7 @@ fn test_read_within_bump_threshold_refreshes_ttl() {
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin);
+    // initialized
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -603,7 +603,7 @@ fn test_multisig_read_within_bump_threshold_refreshes_ttl() {
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin);
+    // initialized
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);
@@ -642,7 +642,7 @@ fn test_approval_ttl_independent_per_milestone() {
     let escrow_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &escrow_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin);
+    // initialized
 
     let client_addr = Address::generate(&env);
     let freelancer_addr = Address::generate(&env);

@@ -66,7 +66,7 @@ fn paused_written_by_pause_and_cleared_by_unpause() {
     let admin = Address::generate(&env);
     client.initialize(&admin);
 
-    client.pause();
+    client.pause(&admin);
     env.as_contract(&client.address, || {
         let v: bool = env
             .storage()
@@ -76,7 +76,7 @@ fn paused_written_by_pause_and_cleared_by_unpause() {
         assert!(v);
     });
 
-    client.unpause();
+    client.unpause(&admin);
     env.as_contract(&client.address, || {
         let v: bool = env
             .storage()
@@ -94,7 +94,7 @@ fn paused_blocks_create_contract() {
     let client = register_client(&env);
     let admin = Address::generate(&env);
     client.initialize(&admin);
-    client.pause();
+    client.pause(&admin);
 
     let (c, f) = generated_participants(&env);
     assert_contract_error(
@@ -118,7 +118,7 @@ fn paused_blocks_deposit_funds() {
     client.initialize(&admin);
 
     let (client_addr, _, id) = create_contract(&env, &client);
-    client.pause();
+    client.pause(&admin);
 
     assert_contract_error(
         client.try_deposit_funds(&id, &client_addr, &total_milestone_amount()),
@@ -136,7 +136,7 @@ fn paused_blocks_release_milestone() {
 
     let (client_addr, _, id) = create_contract(&env, &client);
     client.deposit_funds(&id, &client_addr, &total_milestone_amount());
-    client.pause();
+    client.pause(&admin);
 
     assert_contract_error(
         client.try_release_milestone(&id, &client_addr, &0),
@@ -153,7 +153,7 @@ fn paused_blocks_cancel_contract() {
     client.initialize(&admin);
 
     let (client_addr, _, id) = create_contract(&env, &client);
-    client.pause();
+    client.pause(&admin);
 
     assert_contract_error(
         client.try_cancel_contract(&id, &client_addr),
@@ -170,7 +170,7 @@ fn read_only_queries_not_blocked_by_pause() {
     client.initialize(&admin);
 
     let (_, _, id) = create_contract(&env, &client);
-    client.pause();
+    client.pause(&admin);
 
     let record = client.get_contract(&id);
     assert_eq!(record.status, ContractStatus::Created);
@@ -217,7 +217,7 @@ fn unpause_blocked_while_emergency_active() {
     client.initialize(&admin);
 
     client.activate_emergency_pause();
-    assert_contract_error(client.try_unpause(), EscrowError::EmergencyActive);
+    assert_contract_error(client.try_unpause(&admin), EscrowError::EmergencyActive);
 }
 
 // ─── Contract / NextContractId ────────────────────────────────────────────────
