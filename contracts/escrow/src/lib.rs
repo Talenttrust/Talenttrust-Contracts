@@ -5,17 +5,26 @@
 //! 2. A client calls `create_contract(client, freelancer, token, milestone_amounts)`.
 //! 3. The client funds the escrow with `deposit_funds` (real token transfer into the contract).
 //! 4. The client approves work with `release_milestone`, paying the freelancer per milestone.
-//! 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
+//! 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`
+//!    (high-value escrows at/above `PANEL_THRESHOLD_AMOUNT` settle only via
+//!    M-of-N arbiter panel votes through `vote_resolution`).
 //! 6. The client can `cancel_contract` before completion to recover unreleased funds.
 //! 7. After completion the client may `issue_reputation` for the freelancer.
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Map,
+    Vec,
 };
 
 pub const MAX_MILESTONES: u32 = 20;
 pub const BPS_DENOMINATOR: i128 = 10_000;
+/// Escrows with `total_amount >= PANEL_THRESHOLD_AMOUNT` can only be settled
+/// by the arbiter panel (`vote_resolution`), not by a single `resolve_dispute`
+/// call. 10^12 base units (~100k tokens on a 7-decimal asset).
+pub const PANEL_THRESHOLD_AMOUNT: i128 = 1_000_000_000_000;
+/// Maximum number of members on the arbiter panel.
+pub const PANEL_MAX_MEMBERS: u32 = 7;
 const PERSISTENT_TTL_THRESHOLD: u32 = 17_280; // ~1 day
 const PERSISTENT_TTL_EXTEND: u32 = 518_400; // ~30 days
 
@@ -39,6 +48,8 @@ pub enum EscrowError {
     InvalidSplit = 14,
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
+    InvalidPanel = 17,
+    PanelRequired = 18,
 }
 
 #[contracttype]
@@ -81,6 +92,14 @@ pub struct Reputation {
     pub total_rating: u32,
 }
 
+/// Admin-managed arbiter panel that settles high-value disputes by M-of-N vote.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Panel {
+    pub members: Vec<Address>,
+    pub threshold: u32,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -89,6 +108,8 @@ enum DataKey {
     NextId,
     Contract(u64),
     Reputation(Address),
+    Panel,
+    Votes(u64),
 }
 
 #[contract]
@@ -144,6 +165,26 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     if amount > 0 {
         token::Client::new(env, token_addr).transfer(from, to, &amount);
     }
+}
+
+/// Splits the held balance of a disputed escrow: `freelancer_bps` (0..=10000)
+/// of the held amount goes to the freelancer, the rest is refunded to the
+/// client. Marks the escrow as resolved and emits ("resolved", id).
+fn settle(env: &Env, c: &mut EscrowContract, freelancer_bps: u32) {
+    let held = c.funded_amount - c.released_amount;
+    let to_freelancer = held * freelancer_bps as i128 / BPS_DENOMINATOR;
+    let to_client = held - to_freelancer;
+    let this = env.current_contract_address();
+    transfer(env, &c.token, &this, &c.freelancer, to_freelancer);
+    transfer(env, &c.token, &this, &c.client, to_client);
+    c.released_amount += to_freelancer;
+    c.funded_amount = c.released_amount;
+    c.status = ContractStatus::Resolved;
+    save(env, c);
+    env.events().publish(
+        (symbol_short!("resolved"), c.id),
+        (to_freelancer, to_client),
+    );
 }
 
 #[contractimpl]
@@ -326,27 +367,124 @@ impl Escrow {
 
     /// Admin resolves a dispute, paying `freelancer_bps` (0..=10000) of the escrowed
     /// balance to the freelancer and refunding the rest to the client.
+    /// Escrows at or above `PANEL_THRESHOLD_AMOUNT` must be settled by the
+    /// arbiter panel instead and return `PanelRequired`.
     pub fn resolve_dispute(env: Env, id: u64, freelancer_bps: u32) -> Result<(), EscrowError> {
         require_admin(&env)?;
         let mut c = load(&env, id)?;
         if c.status != ContractStatus::Disputed {
             return Err(EscrowError::InvalidStatus);
         }
+        if c.total_amount >= PANEL_THRESHOLD_AMOUNT {
+            return Err(EscrowError::PanelRequired);
+        }
         if freelancer_bps as i128 > BPS_DENOMINATOR {
             return Err(EscrowError::InvalidSplit);
         }
-        let held = c.funded_amount - c.released_amount;
-        let to_freelancer = held * freelancer_bps as i128 / BPS_DENOMINATOR;
-        let to_client = held - to_freelancer;
-        let this = env.current_contract_address();
-        transfer(&env, &c.token, &this, &c.freelancer, to_freelancer);
-        transfer(&env, &c.token, &this, &c.client, to_client);
-        c.released_amount += to_freelancer;
-        c.funded_amount = c.released_amount;
-        c.status = ContractStatus::Resolved;
-        save(&env, &c);
+        settle(&env, &mut c, freelancer_bps);
+        Ok(())
+    }
+
+    /// Admin replaces the arbiter panel. `threshold` members must agree on the
+    /// same split before a dispute settles. 1 <= threshold <= len <= 7, no
+    /// duplicate members. Changing the panel mid-dispute is allowed; only
+    /// votes from the new members count toward the threshold from then on.
+    pub fn set_panel(env: Env, members: Vec<Address>, threshold: u32) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        let len = members.len();
+        if threshold == 0 || threshold > len || len > PANEL_MAX_MEMBERS {
+            return Err(EscrowError::InvalidPanel);
+        }
+        for i in 0..len {
+            let m = members.get(i).unwrap();
+            if members.slice(i + 1..).iter().any(|x| x == m) {
+                return Err(EscrowError::InvalidPanel);
+            }
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::Panel, &Panel { members, threshold });
+        bump_instance(&env);
         env.events()
-            .publish((symbol_short!("resolved"), id), (to_freelancer, to_client));
+            .publish((symbol_short!("panel"),), (len, threshold));
+        Ok(())
+    }
+
+    /// A current panel member votes on a disputed escrow's split: `freelancer_bps`
+    /// (0..=10000) of the held balance to the freelancer. A member may change
+    /// their vote at any time; the latest vote is the only one that counts.
+    /// Parties to the escrow may not vote. Once `threshold` current members
+    /// have voted for the same split, the escrow settles immediately, votes
+    /// are cleared, and ("resolved", id) plus one ("vote", id) per counted
+    /// vote are emitted.
+    pub fn vote_resolution(
+        env: Env,
+        member: Address,
+        id: u64,
+        freelancer_bps: u32,
+    ) -> Result<(), EscrowError> {
+        member.require_auth();
+        let mut c = load(&env, id)?;
+        if c.status != ContractStatus::Disputed {
+            return Err(EscrowError::InvalidStatus);
+        }
+        if member == c.client || member == c.freelancer {
+            return Err(EscrowError::Unauthorized);
+        }
+        if freelancer_bps as i128 > BPS_DENOMINATOR {
+            return Err(EscrowError::InvalidSplit);
+        }
+        let panel: Panel = env
+            .storage()
+            .instance()
+            .get(&DataKey::Panel)
+            .ok_or(EscrowError::Unauthorized)?;
+        if !panel.members.contains(&member) {
+            return Err(EscrowError::Unauthorized);
+        }
+        let key = DataKey::Votes(id);
+        let mut votes: Map<Address, u32> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        votes.set(member.clone(), freelancer_bps);
+        env.storage().persistent().set(&key, &votes);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
+        // Only votes from members currently on the panel are tallied; stale
+        // votes from removed members never reach the threshold.
+        let mut counted: Vec<(Address, u32)> = Vec::new(&env);
+        for v in votes.iter() {
+            if panel.members.contains(&v.0) {
+                counted.push_back((v.0, v.1));
+            }
+        }
+        let mut winning_bps: u32 = 0;
+        let mut winning_votes: u32 = 0;
+        for (_, bps) in counted.iter() {
+            let mut n: u32 = 0;
+            for (_, other) in counted.iter() {
+                if other == bps {
+                    n += 1;
+                }
+            }
+            if n > winning_votes {
+                winning_votes = n;
+                winning_bps = bps;
+            }
+        }
+        if winning_votes >= panel.threshold {
+            env.storage().persistent().remove(&key);
+            settle(&env, &mut c, winning_bps);
+            for (voter, bps) in counted.iter() {
+                env.events()
+                    .publish((symbol_short!("vote"), id), (voter, bps));
+            }
+        }
         Ok(())
     }
 
@@ -418,6 +556,20 @@ impl Escrow {
             .persistent()
             .get(&DataKey::Reputation(freelancer))
             .unwrap_or_default()
+    }
+
+    /// Returns the current arbiter panel, if one has been set.
+    pub fn get_panel(env: Env) -> Option<Panel> {
+        env.storage().instance().get(&DataKey::Panel)
+    }
+
+    /// Returns the current votes for a disputed escrow (member -> freelancer_bps).
+    /// Votes are cleared once the escrow settles.
+    pub fn get_votes(env: Env, id: u64) -> Map<Address, u32> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Votes(id))
+            .unwrap_or_else(|| Map::new(&env))
     }
 }
 
