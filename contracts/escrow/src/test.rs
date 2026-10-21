@@ -1,7 +1,9 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, token::TokenClient, vec};
+use soroban_sdk::{
+    testutils::Address as _, token::StellarAssetClient, token::TokenClient, vec, InvokeError,
+};
 
 struct Setup<'a> {
     env: Env,
@@ -9,6 +11,7 @@ struct Setup<'a> {
     token: TokenClient<'a>,
     client: Address,
     freelancer: Address,
+    contract_id: Address,
 }
 
 fn setup<'a>() -> Setup<'a> {
@@ -29,6 +32,7 @@ fn setup<'a>() -> Setup<'a> {
         token,
         client,
         freelancer,
+        contract_id: id,
     }
 }
 
@@ -267,3 +271,277 @@ fn cancel_unfunded_escrow_does_not_count_cancellation() {
     assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 1);
 }
 
+/// Every pause category bit, in the order used by the table-driven test.
+const PAUSE_CATEGORIES: [u32; 6] = [
+    PAUSE_CREATE,
+    PAUSE_DEPOSIT,
+    PAUSE_RELEASE,
+    PAUSE_DISPUTE,
+    PAUSE_CANCEL,
+    PAUSE_REPUTATION,
+];
+
+/// Asserts that a mutating call is blocked with `Paused` when `expect_paused`
+/// is true and succeeds otherwise.
+fn assert_gate<T: std::fmt::Debug, E: std::fmt::Debug>(
+    label: &str,
+    res: Result<Result<T, E>, Result<EscrowError, InvokeError>>,
+    expect_paused: bool,
+) {
+    match res {
+        Err(Ok(EscrowError::Paused)) => {
+            assert!(expect_paused, "{label}: unexpectedly blocked with Paused")
+        }
+        Ok(Ok(_)) => assert!(!expect_paused, "{label}: unexpectedly succeeded"),
+        other => panic!("{label}: unexpected result {other:?}"),
+    }
+}
+
+/// Creates a contract with a single milestone and funds it.
+fn funded_contract(s: &Setup<'_>, amount: i128) -> u64 {
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, amount],
+    );
+    s.escrow.deposit_funds(&id, &amount);
+    id
+}
+
+/// Creates a contract with two milestones and funds only the first one, so a
+/// further deposit is still possible.
+fn partially_funded_contract(s: &Setup<'_>, milestone: i128, funded: i128) -> u64 {
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, milestone, milestone],
+    );
+    s.escrow.deposit_funds(&id, &funded);
+    id
+}
+
+/// Creates a contract, funds it and releases its only milestone.
+fn completed_contract(s: &Setup<'_>, amount: i128) -> u64 {
+    let id = funded_contract(s, amount);
+    s.escrow.release_milestone(&id, &0);
+    id
+}
+
+#[test]
+fn pause_blocks_issue_reputation() {
+    let s = setup();
+    let id = completed_contract(&s, 100);
+
+    s.escrow.set_paused(&true);
+    assert_eq!(
+        s.escrow.try_issue_reputation(&id, &5),
+        Err(Ok(EscrowError::Paused))
+    );
+    // No reputation was written while paused.
+    assert_eq!(
+        s.escrow.get_reputation(&s.freelancer).completed_contracts,
+        0
+    );
+
+    // Unpausing restores the reputation write.
+    s.escrow.set_paused(&false);
+    s.escrow.issue_reputation(&id, &5);
+    assert_eq!(
+        s.escrow.get_reputation(&s.freelancer).completed_contracts,
+        1
+    );
+}
+
+#[test]
+fn pause_flags_gate_only_their_own_category() {
+    for flag in PAUSE_CATEGORIES {
+        let s = setup();
+
+        // State prepared before the pause is applied.
+        let deposit_id = partially_funded_contract(&s, 100, 100);
+        let release_id = funded_contract(&s, 100);
+        let dispute_id = funded_contract(&s, 100);
+        let cancel_id = funded_contract(&s, 100);
+        let reputation_id = completed_contract(&s, 100);
+
+        s.escrow.set_pause_flags(&flag);
+        assert_eq!(s.escrow.get_pause_flags(), flag);
+        assert!(s.escrow.is_paused());
+
+        assert_gate(
+            "create_contract",
+            s.escrow.try_create_contract(
+                &s.client,
+                &s.freelancer,
+                &s.token.address,
+                &vec![&s.env, 10i128],
+            ),
+            flag == PAUSE_CREATE,
+        );
+        assert_gate(
+            "deposit_funds",
+            s.escrow.try_deposit_funds(&deposit_id, &100),
+            flag == PAUSE_DEPOSIT,
+        );
+        assert_gate(
+            "release_milestone",
+            s.escrow.try_release_milestone(&release_id, &0),
+            flag == PAUSE_RELEASE,
+        );
+        assert_gate(
+            "open_dispute",
+            s.escrow.try_open_dispute(&dispute_id, &s.client),
+            flag == PAUSE_DISPUTE,
+        );
+        assert_gate(
+            "cancel_contract",
+            s.escrow.try_cancel_contract(&cancel_id),
+            flag == PAUSE_CANCEL,
+        );
+        assert_gate(
+            "issue_reputation",
+            s.escrow.try_issue_reputation(&reputation_id, &5),
+            flag == PAUSE_REPUTATION,
+        );
+    }
+}
+
+#[test]
+fn inflow_pause_still_allows_cancel_refund() {
+    let s = setup();
+    let cancel_id = funded_contract(&s, 300);
+    let dispute_id = funded_contract(&s, 200);
+    let balance_before = s.token.balance(&s.client);
+
+    s.escrow.set_pause_flags(&(PAUSE_CREATE | PAUSE_DEPOSIT));
+    assert_eq!(s.escrow.get_pause_flags(), PAUSE_CREATE | PAUSE_DEPOSIT);
+
+    // New inflows are frozen.
+    assert_eq!(
+        s.escrow.try_create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 10i128]
+        ),
+        Err(Ok(EscrowError::Paused))
+    );
+    assert_eq!(
+        s.escrow.try_deposit_funds(&cancel_id, &10),
+        Err(Ok(EscrowError::Paused))
+    );
+
+    // Users can still exit: cancel refunds the client and dispute still opens.
+    s.escrow.cancel_contract(&cancel_id);
+    assert_eq!(s.token.balance(&s.client), balance_before + 300);
+    assert_eq!(
+        s.escrow.get_contract(&cancel_id).status,
+        ContractStatus::Cancelled
+    );
+    s.escrow.open_dispute(&dispute_id, &s.client);
+    assert_eq!(
+        s.escrow.get_contract(&dispute_id).status,
+        ContractStatus::Disputed
+    );
+}
+
+#[test]
+fn set_pause_flags_rejects_unknown_bits() {
+    let s = setup();
+
+    assert_eq!(
+        s.escrow.try_set_pause_flags(&64),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+    assert_eq!(
+        s.escrow.try_set_pause_flags(&(PAUSE_ALL | 1 << 10)),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+    assert_eq!(
+        s.escrow.try_set_pause_flags(&u32::MAX),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+
+    // A rejected update leaves the pause state untouched.
+    assert_eq!(s.escrow.get_pause_flags(), 0);
+    assert!(!s.escrow.is_paused());
+
+    // Every in-range bit is accepted.
+    s.escrow.set_pause_flags(&PAUSE_ALL);
+    assert_eq!(s.escrow.get_pause_flags(), PAUSE_ALL);
+}
+
+#[test]
+fn default_state_is_unpaused_and_set_paused_toggles_all_flags() {
+    let s = setup();
+
+    // Default (no flags stored) leaves everything unpaused.
+    assert!(!s.escrow.is_paused());
+    assert_eq!(s.escrow.get_pause_flags(), 0);
+
+    // set_paused(true) pauses every category.
+    s.escrow.set_paused(&true);
+    assert!(s.escrow.is_paused());
+    assert_eq!(s.escrow.get_pause_flags(), PAUSE_ALL);
+
+    // set_paused(false) clears every category.
+    s.escrow.set_paused(&false);
+    assert!(!s.escrow.is_paused());
+    assert_eq!(s.escrow.get_pause_flags(), 0);
+
+    // Mutations work again after the pause is lifted.
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+}
+
+#[test]
+fn legacy_pause_flag_is_treated_as_full_pause() {
+    let s = setup();
+
+    // Simulate a deployment created before granular pause flags existed.
+    s.env.as_contract(&s.contract_id, || {
+        s.env.storage().instance().set(&DataKey::Paused, &true);
+    });
+
+    assert_eq!(s.escrow.get_pause_flags(), PAUSE_ALL);
+    assert!(s.escrow.is_paused());
+    assert_eq!(
+        s.escrow.try_create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 10i128]
+        ),
+        Err(Ok(EscrowError::Paused))
+    );
+    assert_eq!(
+        s.escrow.try_issue_reputation(&1, &5),
+        Err(Ok(EscrowError::Paused))
+    );
+
+    // A stored bitmask takes precedence over the legacy boolean.
+    s.escrow.set_pause_flags(&PAUSE_CANCEL);
+    assert_eq!(s.escrow.get_pause_flags(), PAUSE_CANCEL);
+    assert!(s.escrow.is_paused());
+    assert!(s
+        .escrow
+        .try_create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 10i128]
+        )
+        .is_ok());
+    assert_eq!(
+        s.escrow.try_cancel_contract(&1),
+        Err(Ok(EscrowError::Paused))
+    );
+}
