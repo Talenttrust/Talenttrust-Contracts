@@ -4,8 +4,8 @@
 
 - Website: https://talenttrust-frontend.vercel.app
 - Docs: https://talenttrust-frontend.vercel.app/docs
-- API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
-- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W`](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W)
+-  API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
+- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXKu5W`](https://stellarexpert.com/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBJGBKXXK5W)
 
 Soroban smart contract for the TalentTrust freelancer escrow protocol on Stellar.
 Clients lock payment for a job into escrow, release it milestone by milestone as
@@ -15,7 +15,7 @@ work is approved, and either party can raise a dispute that the protocol admin s
 
 | Network | Contract | ID | Explorer |
 | --- | --- | --- | --- |
-| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W) |
+| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXKu5W` | [stellarexpert](https://stellarexpert.com/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXKu5W) |
 
 The contract is initialized with admin `GA7TXEBMEPQCLHIYCWDN7RKAO5IMRD2UV7O7TZXMEW6VZUMEXNR4XBB5`.
 Machine-readable details are in [deployments/testnet.json](deployments/testnet.json).
@@ -31,11 +31,16 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution (increments `disputes_opened`) |
 | `resolve_dispute(id, freelancer_bps)` | admin | Split the held balance (records dispute win/loss outcomes based on 5,000 bps threshold) |
 | `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
+| `emergency_withdraw(id, caller)` | client or freelancer | After `EMERGENCY_EXIT_DELAY_SECS` (30 days) of continuous pause, unwind the escrow: refund unreleased funds to the client, or 50 / 50 split if disputed (rounding remainder to client). Status becomes `Cancelled` |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
-| `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
-| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
+| `set_paused(bool) / is_paused()` | admin / - | Circuit breaker for all mutations |
+| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `get_paused_at()`, `version()` | - | Reads |
 
-Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
+Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. A long continuous pause (>= 30 days) allows either party to force `Cancelled` via `emergency_withdraw`. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
+
+Errors: `AlreadyInitialized = 1`, `NotInitialized = 2`, `Unauthorized = 3`, `Paused = 4`, `ContractNotFound = 5`, `InvalidParties = 6`, `InvalidMilestones = 7`, `InvalidAmount = 8`, `OverFunded = 9`, `InvalidStatus = 10`, `MilestoneNotFound = 11`, `MilestoneAlreadyReleased = 12`, `InsufficientFunds = 13`, `InvalidSplit = 14`, `InvalidRating = 15`, `ReputationAlreadyIssued = 16`, `ArithmeticOverflow = 17`, `EmergencyExitNotAvailable = 18`.
+
+Events: `init`, `paused`, `created`, `deposit`, `release`, `dispute`, `resolve`, `cancel`, `emerg` (topic `("emerg", id)`, data `(to_client, to_freelancer)`), `rating`.
 
 ## Build and test
 
