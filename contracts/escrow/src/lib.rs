@@ -62,8 +62,8 @@ mod utils;
 
 use crate::utils::now_seconds;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, log, symbol_short, token, Address, Env, String, Symbol,
-    Vec,
+    contract, contracterror, contractimpl, log, symbol_short, token, Address, BytesN, Env, String,
+    Symbol, Vec,
 };
 
 pub use amount_validation::accumulate_amounts;
@@ -171,6 +171,8 @@ pub enum EscrowError {
     EmptyComment = 42,
     /// Reputation feedback comment exceeded the 200-character maximum.
     CommentTooLong = 43,
+    /// The metadata (terms hash or milestone hashes) is invalid (issue #1707).
+    InvalidMetadata = 44,
 }
 
 impl Escrow {
@@ -2323,6 +2325,233 @@ impl Escrow {
         );
 
         true
+    }
+
+    // ── Terms and deliverable hashes (issue #1707) ──────────────────────────
+
+    /// Commits a terms hash and optional per-milestone deliverable hashes for an
+    /// escrow, **before any deposit is made**.
+    ///
+    /// Once funded (`funded_amount > 0`) or no longer in `Created` status, terms
+    /// are frozen and this entrypoint panics with `InvalidState`.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `contract_id` - The escrow contract ID
+    /// * `caller` - Must equal the stored `client`; requires auth
+    /// * `terms_hash` - 32-byte hash of the agreed job terms
+    /// * `milestone_hashes` - Per-milestone deliverable hashes; length must be 0
+    ///   or equal the milestone count, otherwise `InvalidMetadata`
+    ///
+    /// # Events
+    /// Emits `("terms", contract_id)` with `terms_hash` as data.
+    ///
+    /// # Errors
+    /// * `ContractPaused` / `EmergencyActive` — pause/emergency gate
+    /// * `ContractNotFound` — unknown `contract_id`
+    /// * `UnauthorizedRole` — `caller` is not the stored client
+    /// * `InvalidState` — contract is not in `Created` or `funded_amount > 0`
+    /// * `InvalidMetadata` — `milestone_hashes.len()` is neither 0 nor the milestone count
+    pub fn set_terms(
+        env: Env,
+        contract_id: u32,
+        caller: Address,
+        terms_hash: BytesN<32>,
+        milestone_hashes: Vec<BytesN<32>>,
+    ) -> bool {
+        Self::require_initialized(&env);
+        Self::require_not_paused(&env);
+        caller.require_auth();
+
+        let contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+
+        ttl::extend_contract_ttl(&env, contract_id);
+
+        if caller != contract.client {
+            env.panic_with_error(EscrowError::UnauthorizedRole);
+        }
+
+        // Terms are frozen once any deposit is made or the contract leaves Created.
+        if contract.status != ContractStatus::Created || contract.funded_amount > 0 {
+            env.panic_with_error(EscrowError::InvalidState);
+        }
+
+        // Validate milestone_hashes length: must be 0 or equal milestone count.
+        let milestone_count = ttl::load_milestones(&env, contract_id).len();
+        let hashes_len = milestone_hashes.len();
+        if hashes_len != 0 && hashes_len != milestone_count {
+            env.panic_with_error(EscrowError::InvalidMetadata);
+        }
+
+        // Persist terms hash and milestone spec hashes.
+        env.storage()
+            .persistent()
+            .set(&DataKey::Terms(contract_id), &terms_hash);
+
+        if hashes_len > 0 {
+            env.storage()
+                .persistent()
+                .set(&DataKey::MilestoneSpecs(contract_id), &milestone_hashes);
+            env.storage().persistent().extend_ttl(
+                &DataKey::MilestoneSpecs(contract_id),
+                ttl::PERSISTENT_BUMP_THRESHOLD,
+                ttl::PERSISTENT_TTL_LEDGERS,
+            );
+        }
+
+        // Bump TTL for the terms key.
+        env.storage().persistent().extend_ttl(
+            &DataKey::Terms(contract_id),
+            ttl::PERSISTENT_BUMP_THRESHOLD,
+            ttl::PERSISTENT_TTL_LEDGERS,
+        );
+
+        env.events()
+            .publish((Symbol::new(&env, "terms"), contract_id), terms_hash);
+
+        true
+    }
+
+    /// Records a deliverable hash for a single milestone.
+    ///
+    /// Only the contract's freelancer may call this. The milestone must not yet
+    /// be released. Overwriting a previous delivery hash is allowed until the
+    /// milestone is released.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `contract_id` - The escrow contract ID
+    /// * `caller` - Must equal the stored `freelancer`; requires auth
+    /// * `index` - Zero-based milestone index
+    /// * `delivery_hash` - 32-byte hash of the milestone deliverable
+    ///
+    /// # Events
+    /// Emits `("deliver", contract_id)` with `(index, delivery_hash)` as data.
+    ///
+    /// # Errors
+    /// * `ContractPaused` / `EmergencyActive` — pause/emergency gate
+    /// * `ContractNotFound` — unknown `contract_id`
+    /// * `AlreadyFinalized` — contract has been finalized
+    /// * `UnauthorizedRole` — `caller` is not the freelancer
+    /// * `IndexOutOfBounds` — `index` exceeds milestone count
+    /// * `MilestoneAlreadyReleased` — milestone is already released
+    pub fn deliver(
+        env: Env,
+        contract_id: u32,
+        caller: Address,
+        index: u32,
+        delivery_hash: BytesN<32>,
+    ) -> bool {
+        Self::require_initialized(&env);
+        Self::require_not_paused(&env);
+        caller.require_auth();
+
+        let contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+
+        ttl::extend_contract_ttl(&env, contract_id);
+        Self::require_not_finalized(&env, contract_id);
+
+        if caller != contract.freelancer {
+            env.panic_with_error(EscrowError::UnauthorizedRole);
+        }
+
+        let milestones = ttl::load_milestones(&env, contract_id);
+        if index >= milestones.len() {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
+
+        let milestone = milestones.get(index).unwrap();
+        if milestone.released {
+            env.panic_with_error(Error::MilestoneAlreadyReleased);
+        }
+
+        // Record the delivery hash.  Overwriting is allowed until the milestone
+        // is released.
+        let delivery_key = DataKey::Delivery(contract_id, index);
+        env.storage()
+            .persistent()
+            .set(&delivery_key, &delivery_hash);
+        env.storage().persistent().extend_ttl(
+            &delivery_key,
+            ttl::PERSISTENT_BUMP_THRESHOLD,
+            ttl::PERSISTENT_TTL_LEDGERS,
+        );
+
+        env.events().publish(
+            (Symbol::new(&env, "deliver"), contract_id),
+            (index, delivery_hash),
+        );
+
+        true
+    }
+
+    /// Returns the stored terms hash and per-milestone spec hashes, if any.
+    ///
+    /// Read-only; does not require authorization. Extends TTL on read.
+    ///
+    /// # Returns
+    /// * `Some((terms_hash, milestone_hashes))` if terms have been set
+    /// * `None` if no terms have been set
+    pub fn get_terms(env: Env, contract_id: u32) -> Option<(BytesN<32>, Vec<BytesN<32>>)> {
+        let terms: Option<BytesN<32>> = env.storage().persistent().get(&DataKey::Terms(contract_id));
+        if terms.is_none() {
+            return None;
+        }
+        let terms = terms.unwrap();
+        let specs: Vec<BytesN<32>> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MilestoneSpecs(contract_id))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        // Bump TTL on read.
+        env.storage().persistent().extend_ttl(
+            &DataKey::Terms(contract_id),
+            ttl::PERSISTENT_BUMP_THRESHOLD,
+            ttl::PERSISTENT_TTL_LEDGERS,
+        );
+        if !specs.is_empty() {
+            env.storage().persistent().extend_ttl(
+                &DataKey::MilestoneSpecs(contract_id),
+                ttl::PERSISTENT_BUMP_THRESHOLD,
+                ttl::PERSISTENT_TTL_LEDGERS,
+            );
+        }
+
+        Some((terms, specs))
+    }
+
+    /// Returns the stored delivery hash for a specific milestone, if any.
+    ///
+    /// Read-only; does not require authorization. Extends TTL on read.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `contract_id` - The escrow contract ID
+    /// * `index` - Zero-based milestone index
+    ///
+    /// # Returns
+    /// * `Some(delivery_hash)` if a delivery hash was recorded
+    /// * `None` if no delivery hash was recorded
+    pub fn get_delivery(env: Env, contract_id: u32, index: u32) -> Option<BytesN<32>> {
+        let delivery_key = DataKey::Delivery(contract_id, index);
+        let hash: Option<BytesN<32>> = env.storage().persistent().get(&delivery_key);
+        if hash.is_some() {
+            env.storage().persistent().extend_ttl(
+                &delivery_key,
+                ttl::PERSISTENT_BUMP_THRESHOLD,
+                ttl::PERSISTENT_TTL_LEDGERS,
+            );
+        }
+        hash
     }
 }
 

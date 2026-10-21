@@ -27,6 +27,9 @@ The supported deployed interface is documented in the [Escrow ABI reference](doc
 | -------------------------- | --------------- | ------------------------------------------------------------------------------------------------- |
 | `create_contract`          | **Implemented** | Core initialization and state persistence                                                         |
 | `create_and_fund`          | **Implemented** | Atomic create + full fund in one transaction ([#1705](https://github.com/Talenttrust/Talenttrust-Contracts/issues/1705)) |
+| `set_terms`                | **Implemented** | Anchor job terms and per-milestone deliverable hashes before funding ([#1707](https://github.com/Talenttrust/Talenttrust-Contracts/issues/1707)) |
+| `deliver`                  | **Implemented** | Freelancer records per-milestone delivery hashes, overwritable until release ([#1707](https://github.com/Talenttrust/Talenttrust-Contracts/issues/1707)) |
+| `get_terms` / `get_delivery` | **Implemented** | Read-only retrieval of stored terms and per-milestone delivery hashes ([#1707](https://github.com/Talenttrust/Talenttrust-Contracts/issues/1707)) |
 | `deposit_funds`            | **Implemented** | Escrow fund collection tracking                                                                   |
 | `release_milestone`        | **Implemented** | Authenticated milestone payouts via `caller.require_auth()`                                       |
 | `finalize_contract`        | **Implemented** | Freezes contract mutable updates                                                                  |
@@ -74,6 +77,24 @@ cargo test -p escrow
 # Run escrow performance tests only
 cargo test test::performance -p escrow
 ```
+
+---
+
+## Escrow Terms and Delivery Hashes
+
+`set_terms(env, contract_id, caller, terms_hash, milestone_hashes)` commits a 32-byte terms hash and optional per-milestone deliverable hashes before the escrow is funded.
+
+- Client-only authorization; only callable while the contract is in `Created` status with `funded_amount == 0`.
+- `milestone_hashes.len()` must be 0 or equal the milestone count, otherwise `InvalidMetadata`.
+- Once any deposit is made, terms are frozen — `set_terms` returns `InvalidState`.
+- Emits `("terms", contract_id) → terms_hash`.
+
+`deliver(env, contract_id, caller, index, delivery_hash)` records a 32-byte delivery hash for a single milestone.
+
+- Freelancer-only authorization; overwriting is allowed until the milestone is released.
+- Emits `("deliver", contract_id) → (index, delivery_hash)`.
+
+Read-only entrypoints `get_terms` and `get_delivery` retrieve the stored hashes.
 
 ---
 

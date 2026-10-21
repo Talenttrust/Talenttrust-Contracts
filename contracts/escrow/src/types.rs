@@ -90,6 +90,10 @@ pub enum DataKey {
     Finalization(u32),
     // Settlement token
     SettlementToken,
+    // Terms hash and per-milestone deliverable spec hashes (issue #1707)
+    Terms(u32),
+    MilestoneSpecs(u32),
+    Delivery(u32, u32),
 }
 
 /// Canonical contract error type for all entrypoint-facing errors.
@@ -193,6 +197,8 @@ pub enum Error {
     SettlementTokenNotConfigured = 52,
     /// The milestone deadline has not yet passed.
     MilestoneNotOverdue = 53,
+    /// The metadata (terms hash or milestone hashes) is invalid (issue #1707).
+    InvalidMetadata = 54,
 }
 
 /// Contract lifecycle states

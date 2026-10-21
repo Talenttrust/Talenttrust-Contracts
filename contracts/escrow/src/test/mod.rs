@@ -26,6 +26,7 @@ mod release;
 mod release_authorization;
 mod reputation;
 mod security;
+mod terms_delivery;
 mod ttl_tests;
 
 // --- Shared constants ---
