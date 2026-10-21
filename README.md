@@ -27,15 +27,19 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `initialize(admin)` | admin | One-time setup |
 | `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones |
 | `deposit_funds(id, amount)` | client | Transfer tokens into escrow (cannot exceed total) |
-| `release_milestone(id, index)` | client | Pay the freelancer for a milestone |
-| `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution (increments `disputes_opened`) |
-| `resolve_dispute(id, freelancer_bps)` | admin | Split the held balance (records dispute win/loss outcomes based on 5,000 bps threshold) |
-| `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
-| `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
+| `set_team_split(id, payees)` | freelancer | Configure 1-5 fixed-bps payee shares (sum 10,000) while `Created` |
+| `release_milestone(id, index)` | client | Pay the milestone to the team split, or the freelancer if unset |
+| `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution |
+| `resolve_dispute(id, freelancer_bps)` | admin | Split the held balance; the freelancer share follows the team split |
+| `cancel_contract(id)` | client | Refund unreleased funds and close |
+| `issue_reputation(id, rating)` | client | Rate a completed job (1-5), once |
 | `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
-| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
+| `get_contract(id)`, `get_team_split(id)`, `contract_count()`, `get_reputation(addr)`, `get_admin()`, `version()` | - | Reads |
 
-Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
+Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits.
+A team split can only be configured while the escrow is `Created`; payouts then split each
+milestone (and the freelancer portion of a dispute) by the fixed basis-point shares, with
+rounding remainder assigned to the first payee.
 
 ## Build and test
 

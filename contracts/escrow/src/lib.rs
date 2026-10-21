@@ -16,10 +16,6 @@ use soroban_sdk::{
 
 pub const MAX_MILESTONES: u32 = 20;
 pub const BPS_DENOMINATOR: i128 = 10_000;
-/// Threshold for dispute outcome accounting (5,000 basis points, or 50%).
-/// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
-/// the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
-pub const DISPUTE_WIN_THRESHOLD_BPS: u32 = 5_000;
 const PERSISTENT_TTL_THRESHOLD: u32 = 17_280; // ~1 day
 const PERSISTENT_TTL_EXTEND: u32 = 518_400; // ~30 days
 
@@ -43,7 +39,7 @@ pub enum EscrowError {
     InvalidSplit = 14,
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
-    ArithmeticOverflow = 17,
+    InvalidSplitConfig = 17,
 }
 
 #[contracttype]
@@ -87,15 +83,6 @@ pub struct Reputation {
 }
 
 #[contracttype]
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Outcomes {
-    pub disputes_opened: u32,
-    pub disputes_won: u32,
-    pub disputes_lost: u32,
-    pub cancellations: u32,
-}
-
-#[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
@@ -103,7 +90,7 @@ enum DataKey {
     NextId,
     Contract(u64),
     Reputation(Address),
-    Outcomes(Address),
+    Team(u64),
 }
 
 #[contract]
@@ -158,6 +145,49 @@ fn bump_instance(env: &Env) {
 fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amount: i128) {
     if amount > 0 {
         token::Client::new(env, token_addr).transfer(from, to, &amount);
+    }
+}
+
+fn team_split(env: &Env, id: u64) -> Vec<(Address, u32)> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Team(id))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Distributes `amount` across fixed basis-point shares. Each share is rounded
+/// down and the remainder is added to the first (lead) payee, so the sum of all
+/// transfers is always exactly `amount`.
+fn distribute(env: &Env, token_addr: &Address, payees: &Vec<(Address, u32)>, amount: i128) {
+    if amount <= 0 || payees.is_empty() {
+        return;
+    }
+    let mut floor_total: i128 = 0;
+    for (_, bps) in payees.iter() {
+        floor_total += amount * bps as i128 / BPS_DENOMINATOR;
+    }
+    let remainder = amount - floor_total;
+    let this = env.current_contract_address();
+    let mut is_lead = true;
+    for (payee, bps) in payees.iter() {
+        let mut share = amount * bps as i128 / BPS_DENOMINATOR;
+        if is_lead {
+            share += remainder;
+            is_lead = false;
+        }
+        transfer(env, token_addr, &this, &payee, share);
+    }
+}
+
+/// Pays `amount` to the configured team split, or to `fallback` when no split
+/// has been configured for the escrow.
+fn pay_out(env: &Env, token_addr: &Address, id: u64, fallback: &Address, amount: i128) {
+    let payees = team_split(env, id);
+    if payees.is_empty() {
+        let this = env.current_contract_address();
+        transfer(env, token_addr, &this, fallback, amount);
+    } else {
+        distribute(env, token_addr, &payees, amount);
     }
 }
 
@@ -251,6 +281,52 @@ impl Escrow {
         Ok(id)
     }
 
+    /// Freelancer configures fixed basis-point shares for a team of up to five
+    /// payees. The shares must be non-zero and sum to exactly 10,000 bps.
+    pub fn set_team_split(
+        env: Env,
+        id: u64,
+        payees: Vec<(Address, u32)>,
+    ) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let c = load(&env, id)?;
+        c.freelancer.require_auth();
+        if c.status != ContractStatus::Created || c.funded_amount != 0 {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let len = payees.len();
+        if len == 0 || len > 5 {
+            return Err(EscrowError::InvalidSplitConfig);
+        }
+        let this = env.current_contract_address();
+        let mut total: u32 = 0;
+        for i in 0..len {
+            let (payee, bps) = payees.get(i).unwrap();
+            if bps == 0 || payee == c.client || payee == this {
+                return Err(EscrowError::InvalidSplitConfig);
+            }
+            for j in (i + 1)..len {
+                if payee == payees.get(j).unwrap().0 {
+                    return Err(EscrowError::InvalidSplitConfig);
+                }
+            }
+            total = total
+                .checked_add(bps)
+                .ok_or(EscrowError::InvalidSplitConfig)?;
+        }
+        if total as i128 != BPS_DENOMINATOR {
+            return Err(EscrowError::InvalidSplitConfig);
+        }
+        let key = DataKey::Team(id);
+        env.storage().persistent().set(&key, &payees);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        env.events()
+            .publish((symbol_short!("team"), id), payees.len());
+        Ok(())
+    }
+
     /// Client deposits `amount` of the escrow token into the contract.
     pub fn deposit_funds(env: Env, id: u64, amount: i128) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
@@ -303,13 +379,7 @@ impl Escrow {
         if c.funded_amount - c.released_amount < m.amount {
             return Err(EscrowError::InsufficientFunds);
         }
-        transfer(
-            &env,
-            &c.token,
-            &env.current_contract_address(),
-            &c.freelancer,
-            m.amount,
-        );
+        pay_out(&env, &c.token, id, &c.freelancer, m.amount);
         m.released = true;
         c.released_amount += m.amount;
         c.milestones.set(index, m.clone());
@@ -335,38 +405,12 @@ impl Escrow {
         }
         c.status = ContractStatus::Disputed;
         save(&env, &c);
-
-        // Increment disputes_opened for the caller using checked arithmetic
-        let outcome_key = DataKey::Outcomes(caller.clone());
-        let mut caller_outcomes: Outcomes = env
-            .storage()
-            .persistent()
-            .get(&outcome_key)
-            .unwrap_or_default();
-        caller_outcomes.disputes_opened = caller_outcomes
-            .disputes_opened
-            .checked_add(1)
-            .ok_or(EscrowError::ArithmeticOverflow)?;
-        env.storage()
-            .persistent()
-            .set(&outcome_key, &caller_outcomes);
-        env.storage().persistent().extend_ttl(
-            &outcome_key,
-            PERSISTENT_TTL_THRESHOLD,
-            PERSISTENT_TTL_EXTEND,
-        );
-
         env.events().publish((symbol_short!("dispute"), id), caller);
         Ok(())
     }
 
     /// Admin resolves a dispute, paying `freelancer_bps` (0..=10000) of the escrowed
     /// balance to the freelancer and refunding the rest to the client.
-    ///
-    /// Outcomes:
-    /// If freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS (5_000 bps, or 50%),
-    /// freelancer gets a dispute win and client gets a dispute loss.
-    /// Otherwise, freelancer gets a loss and client gets a win.
     pub fn resolve_dispute(env: Env, id: u64, freelancer_bps: u32) -> Result<(), EscrowError> {
         require_admin(&env)?;
         let mut c = load(&env, id)?;
@@ -380,73 +424,18 @@ impl Escrow {
         let to_freelancer = held * freelancer_bps as i128 / BPS_DENOMINATOR;
         let to_client = held - to_freelancer;
         let this = env.current_contract_address();
-        transfer(&env, &c.token, &this, &c.freelancer, to_freelancer);
+        pay_out(&env, &c.token, id, &c.freelancer, to_freelancer);
         transfer(&env, &c.token, &this, &c.client, to_client);
         c.released_amount += to_freelancer;
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Resolved;
         save(&env, &c);
-
-        // Record dispute outcomes for both parties
-        let freelancer_key = DataKey::Outcomes(c.freelancer.clone());
-        let mut freelancer_outcomes: Outcomes = env
-            .storage()
-            .persistent()
-            .get(&freelancer_key)
-            .unwrap_or_default();
-
-        let client_key = DataKey::Outcomes(c.client.clone());
-        let mut client_outcomes: Outcomes = env
-            .storage()
-            .persistent()
-            .get(&client_key)
-            .unwrap_or_default();
-
-        if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS {
-            freelancer_outcomes.disputes_won = freelancer_outcomes
-                .disputes_won
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-            client_outcomes.disputes_lost = client_outcomes
-                .disputes_lost
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-        } else {
-            freelancer_outcomes.disputes_lost = freelancer_outcomes
-                .disputes_lost
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-            client_outcomes.disputes_won = client_outcomes
-                .disputes_won
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-        }
-
-        env.storage()
-            .persistent()
-            .set(&freelancer_key, &freelancer_outcomes);
-        env.storage().persistent().extend_ttl(
-            &freelancer_key,
-            PERSISTENT_TTL_THRESHOLD,
-            PERSISTENT_TTL_EXTEND,
-        );
-
-        env.storage()
-            .persistent()
-            .set(&client_key, &client_outcomes);
-        env.storage().persistent().extend_ttl(
-            &client_key,
-            PERSISTENT_TTL_THRESHOLD,
-            PERSISTENT_TTL_EXTEND,
-        );
-
         env.events()
             .publish((symbol_short!("resolved"), id), (to_freelancer, to_client));
         Ok(())
     }
 
     /// Client cancels the agreement and recovers any unreleased funds.
-    /// If any funds were held and refunded, cancellations is incremented for the client.
     pub fn cancel_contract(env: Env, id: u64) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
@@ -465,38 +454,15 @@ impl Escrow {
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Cancelled;
         save(&env, &c);
-
-        // Increment cancellations for client only when funds were held
-        if refund > 0 {
-            let client_key = DataKey::Outcomes(c.client.clone());
-            let mut client_outcomes: Outcomes = env
-                .storage()
-                .persistent()
-                .get(&client_key)
-                .unwrap_or_default();
-            client_outcomes.cancellations = client_outcomes
-                .cancellations
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-            env.storage()
-                .persistent()
-                .set(&client_key, &client_outcomes);
-            env.storage().persistent().extend_ttl(
-                &client_key,
-                PERSISTENT_TTL_THRESHOLD,
-                PERSISTENT_TTL_EXTEND,
-            );
-        }
-
         env.events().publish((symbol_short!("cancel"), id), refund);
         Ok(())
     }
 
-    /// After completion or dispute resolution the client may rate the freelancer (1..=5) once per contract.
+    /// After completion the client may rate the freelancer (1..=5) once per contract.
     pub fn issue_reputation(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
         let mut c = load(&env, id)?;
         c.client.require_auth();
-        if !matches!(c.status, ContractStatus::Completed | ContractStatus::Resolved) {
+        if c.status != ContractStatus::Completed {
             return Err(EscrowError::InvalidStatus);
         }
         if c.reputation_issued {
@@ -539,11 +505,9 @@ impl Escrow {
             .unwrap_or_default()
     }
 
-    pub fn get_outcomes(env: Env, addr: Address) -> Outcomes {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Outcomes(addr))
-            .unwrap_or_default()
+    /// Returns the configured team split, or an empty vector if none is set.
+    pub fn get_team_split(env: Env, id: u64) -> Vec<(Address, u32)> {
+        team_split(&env, id)
     }
 }
 
