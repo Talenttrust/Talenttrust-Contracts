@@ -25,7 +25,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | Function | Auth | Description |
 | --- | --- | --- |
 | `initialize(admin)` | admin | One-time setup |
-| `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones |
+| `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones. Rejects self-referential parties (client, freelancer or token equal to the contract address), admin as client or freelancer, milestones below `MIN_MILESTONE_AMOUNT` (1 000 000), and totals above `MAX_ESCROW_TOTAL` (10¹⁸). Validation order: parties → milestones → amounts. |
 | `deposit_funds(id, amount)` | client | Transfer tokens into escrow (cannot exceed total) |
 | `release_milestone(id, index)` | client | Pay the freelancer for a milestone |
 | `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution |
@@ -36,6 +36,33 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_admin()`, `version()` | - | Reads |
 
 Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits.
+
+## Error catalog
+
+| Code | Variant | Raised by |
+| ---: | --- | --- |
+| 1 | `AlreadyInitialized` | `initialize` |
+| 2 | `NotInitialized` | any call before `initialize` |
+| 3 | `Unauthorized` | `open_dispute` when caller is neither party |
+| 4 | `Paused` | any mutating function while paused |
+| 5 | `ContractNotFound` | any function with an unknown escrow id |
+| 6 | `InvalidParties` | `create_contract` — client, freelancer, or token equals the contract address; or client == freelancer |
+| 7 | `InvalidMilestones` | `create_contract` — zero milestones or more than 20 |
+| 8 | `InvalidAmount` | `create_contract` — non-positive milestone amount or total > `MAX_ESCROW_TOTAL` (10¹⁸); also `deposit_funds` |
+| 9 | `OverFunded` | `deposit_funds` — would exceed the escrow total |
+| 10 | `InvalidStatus` | status machine violation |
+| 11 | `MilestoneNotFound` | `release_milestone` |
+| 12 | `MilestoneAlreadyReleased` | `release_milestone` |
+| 13 | `InsufficientFunds` | `release_milestone` — not enough deposited yet |
+| 14 | `InvalidSplit` | `resolve_dispute` — basis points > 10 000 |
+| 15 | `InvalidRating` | `issue_reputation` — rating outside 1–5 |
+| 16 | `ReputationAlreadyIssued` | `issue_reputation` — already rated this contract |
+| 17 | `AdminCannotBeParty` | `create_contract` — client or freelancer is the admin address |
+| 18 | `MilestoneTooSmall` | `create_contract` — milestone amount < `MIN_MILESTONE_AMOUNT` (1 000 000) |
+
+Constants: `MIN_MILESTONE_AMOUNT = 1_000_000` (0.1 token at 7 decimals), `MAX_ESCROW_TOTAL = 10^18` stroops, `MAX_MILESTONES = 20`.
+
+Error codes are **append-only** and never renumbered — the frontend and backend map directly on them.
 
 ## Build and test
 
