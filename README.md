@@ -31,15 +31,15 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `deposit_funds(id, amount)` | client | Transfer tokens into escrow (cannot exceed total) |
 | `release_milestone(id, index)` | client | Pay the freelancer for a milestone |
 | `pay_bonus(id, amount)` | client | Transfer a tip/bonus directly client → freelancer (Funded or Completed escrows) |
-| `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution |
-| `resolve_dispute(id, freelancer_bps)` | admin | Split the held balance (basis points to freelancer) |
-| `cancel_contract(id)` | client | Refund unreleased funds and close |
-| `issue_reputation(id, rating)` | client | Rate a completed job (1-5), once |
+| `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution (increments `disputes_opened`) |
+| `resolve_dispute(id, freelancer_bps)` | admin | Split the held balance (records dispute win/loss outcomes based on 5,000 bps threshold) |
+| `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
+| `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
 | `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
-| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_admin()`, `version()` | - | Reads |
+| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
 | `get_bonus(id)`, `get_bonus_total(freelancer)` | - | Reads for cumulative bonus amounts |
 
-Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits.
+Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
 Bonuses are allowed while an escrow is `Funded` or `Completed`; they do not change the escrow status or accounting.
 
 ## Events
