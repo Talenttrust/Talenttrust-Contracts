@@ -1,1 +1,449 @@
-ZXh0ZXJuIGNyYXRlIHN0ZDsKCnVzZSBzdXBlcjo6KjsKdXNlIHNvcm9iYW5fc2RrezoKICAgIHRlc3R1dGlscyB7QWRkcmVzcyBhcyBfLCBMZWRnZXIgYXMgXywgVGltZSBhcyBffSwKICAgIHRva2VuOjpTdGVsbGFyQXNzZXRDbGllbnQsCiAgICB0b2tlbjo6VG9rZW5DbGllbnQsCiAgICB2ZWMsCn07CgpzdHJ1Y3QgU2V0dXA8J2E+IHsKICAgIGVudjogRW52LAogICAgZXNjcm93OiBFc2Nyb3dDbGllbnQ8J2E+LAogICAgdG9rZW46IFRva2VuQ2xpZW50PCdhPiwKICAgIGNsaWVudDogQWRkcmVzcywKICAgIGZyZWVsYW5jZXI6IEFkZHJlc3MsCn0KCmZuIHNldHVwPCdhPigpIC0+IFNldHVwPCdhPiB7CiAgICBsZXQgZW52ID0gRW52OjpkZWZhdWx0KCk7CiAgICBlbnYubW9ja19hbGxfYXV0aHMoKTsKICAgIGxldCBhZG1pbiA9IEFkZHJlc3M6OmdlbmVyYXRlKCZlbnYpOwogICAgbGV0IGNsaWVudCA9IEFkZHJlc3M6OmdlbmVyYXRlKCZlbnYpOwogICAgbGV0IGZyZWVsYW5jZXIgPSBBZGRyZXNzOjpnZW5lcmF0ZSgmZW52KTsKICAgIGxldCBzYWMgPSBlbnYucmVnaXN0ZXJfc3RlbGxhcl9hc3NldF9jb250cmFjdF92MihhZG1pbi5jbG9uZSgpKTsKICAgIFN0ZWxsYXJBc3NldENsaWVudDo6bmV3KCZlbnYsICZzYWMuYWRkcmVzcygpKS5taW50KCZjbGllbnQsICZsb19mdW5kcygpKTsKICAgIGxldCBpZCA9IGVudi5yZWdpc3RlcihFc2Nyb3csICgpKTsKICAgIGxldCBlc2Nyb3cgPSBFc2Nyb3dDbGllbnQ6Om5ldygmZW52LCAmaWQpOwogICAgZXNjcm93LmluaXRpYWxpemUoJmFkbWluKTsKICAgIGxldCB0b2tlbiA9IFRva2VuQ2xpZW50OjpuZXcoJmVudiwgJnNhYy5hZGRyZXNzKCkpOwogICAgU2V0dXAgewogICAgICAgIGVudiwKICAgICAgICBlc2Nyb3csCiAgICAgICAgdG9rZW4sCiAgICAgICAgY2xpZW50LAogICAgICAgIGZyZWVsYW5jZXIsCiAgICB9Cn0KCmZuIGxvX2Z1bmRzKCkgLT4gaTEyOCB7CiAgICAxXzAwMF8wMDAKfQoKI1t0ZXN0XQpmbiBpbml0aWFsaXplX29ubHlfb25jZSgpIHsKICAgIGxldCBzID0gc2V0dXAoKTsKICAgIGxldCBvdGhlciA9IEFkZHJlc3M6OmdlbmVyYXRlKCZzLmVudik7CiAgICBhc3NlcnRfZXEoCiAgICAgICAgcy5lc2Nyb3cudHJ5X2luaXRpYWxpemUoJm90aGVyKSwKICAgICAgICBFcnIoKE9rKEVzY3Jvd0Vycm9yOjpBbHJlYWR5SW5pdGlhbGl6ZWQpKQogICAgKTsKfQoKI1t0ZXN0XQpmbiBmdWxsX2hhcHB5X3BhdGgoKSB7CiAgICBsZXQgcyA9IHNldHVwKCk7CiAgICBsZXQgaWQgPSBzLmVzY3Jvdy5jcmVhdGVfY29udHJhY3QoCiAgICAgICAgJnMuY2xpZW50LAogICAgICAgICZzLmZyZWVsYW5jZXIsCiAgICAgICAgJnMudG9rZW4uYWRkcmVzcywKICAgICAgICAmdmVjWyZzLmVudiwgMTAwaTEyOCwgMjAwaTEyOF0sCiAgICApOwogICAgYXNzZXJ0X2VxIShpZCwgMSk7CiAgICBzLmVzY3Jvdy5kZXBvc2l0X2Z1bmRzKCZpZCwgJjMwMCk7CiAgICBhc3NlcnRfZXEhKHMudG9rZW4uYmFsYW5jZSgmc3QuY2xpZW50KSwgbG9fZnVuZHMoKSAtIDMwMCk7CiAgICBhc3NlcnRfZXEhKHMuZXNjcm93LmdldF9jb250cmFjdCgmaWQpLnN0YXR1cywgQ29udHJhY3RTdGF0dXM6OkZ1bmRlZCk7CiAgICBzLmVzY3Jvdy5yZWxlYXNlX21pbGVzdG9uZSgmaWQsICYwKTsKICAgIHMuZXNjcm93LnJlbGVhc2VfbWlsZXN0b25lKCZpZCwgJjEpOwogICAgYXNzZXJ0X2VxIShzLnRva2VuLmJhbGFuY2UoJnMuZnJlZWxhbmNlciksIDMwMCk7CiAgICBhc3NlcnRfZXEhKHMuZXNjcm93LmdldF9jb250cmFjdCgmaWQpLnN0YXR1cywgQ29udHJhY3RTdGF0dXM6OkNvbXBsZXRlZCk7CiAgICBzLmVzY3Jvdy5pc3N1ZV9yZXB1dGF0aW9uKCZpZCwgJjUpOwogICAgbGV0IHJlcCA9IHMuZXNjcm93LmdldF9yZXB1dGF0aW9uKCZzLmZyZWVsYW5jZXIpOwogICAgYXNzZXJ0X2VxIShyZXAuY29tcGxldGVkX2NvbnRyYWN0cywgMSk7CiAgICBhc3NlcnRfZXEhKHJlcC50b3RhbF9yYXRpbmcsIDUpOwp9CgojW3Rlc3RdCmZuIHJlamVjdHNfb3ZlcmZ1bmRpbmdfYW5kX2RvdWJsZV9yZWxlYXNlKCkgewogICAgbGV0IHMgPSBzZXR1cCgpOwogICAgbGV0IGlkID0gcy5lc2Nyb3cuY3JlYXRlX2NvbnRyYWN0KAogICAgICAgICZzLmNsaWVudCwKICAgICAgICAmcy5mcmVlbGFuY2VyLAogICAgICAgICZzLnRva2VuLmFkZHJlc3MsCiAgICAgICAgJnZlY1smcy5lbnYsIDEwMGkxMjhdLAogICAgKTsKICAgIGFzc2VydF9lcSEoCiAgICAgICAgcy5lc2Nyb3cudHJ5X2RlcG9zaXRfZnVuZHMoJmlkLCAmMTAxKSwKICAgICAgICBFcnIoKE9rKEVzY3Jvd0Vycm9yOjpPdmVyRnVuZGVkKSkKICAgICk7CiAgICBzLmVzY3Jvdy5kZXBvc2l0X2Z1bmRzKCZpZCwgJjEwMCk7CiAgICBzLmVzY3Jvdy5yZWxlYXNlX21pbGVzdG9uZSgmaWQsICYwKTsKICAgIGFzc2VydCEocy5lc2Nyb3cudHJ5X3JlbGVhc2VfbWlsZXN0b25lKCZpZCwgJjApLmlzX2VycigpKTsKfQoKI1t0ZXN0XQpmbiBkaXNwdXRlX3NwbGl0X2FuZF9jYW5jZWwoKSB7CiAgICBsZXQgcyA9IHNldHVwKCk7CiAgICBsZXQgaWQgPSBzLmVzY3Jvdy5jcmVhdGVfY29udHJhY3QoCiAgICAgICAgJnMuY2xpZW50LAogICAgICAgICZzLmZyZWVsYW5jZXIsCiAgICAgICAgJnMudG9rZW4uYWRkcmVzcywKICAgICAgICAmdmVjWyZzLmVudiwgNDAwaTEyOF0sCiAgICApOwogICAgcy5lc2Nyb3cuZGVwb3NpdF9mdW5kcygmaWQsICY0MDApOwogICAgcy5lc2Nyb3cub3Blbl9kaXNwdXRlKCZpZCwgJnMuZnJlZWxhbmNlcik7CiAgICBzLmVzY3Jvdy5yZXNvbHZlX2Rpc3B1dGUoJmlkLCAmMl81MDApOwogICAgYXNzZXJ0X2VxIShzLnRva2VuLmJhbGFuY2UoJnMuZnJlZWxhbmNlciksIDEwMCk7CiAgICBhc3NlcnRfZXEhKHMudG9rZW4uYmFsYW5jZSgmc3QuY2xpZW50KSwgbG9fZnVuZHMoKSAtIDMwMCk7CgogICAgbGV0IGlkMiA9IHMuZXNjcm93LmNyZWF0ZV9jb250cmFjdCgKICAgICAgICAmcy5jbGllbnQsCiAgICAgICAgJnMuZnJlZWxhbmNlciwKICAgICAgICAmcy50b2tlbi5hZGRyZXNzLAogICAgICAgICZ2ZWNbJnMuZW52LCA1MGkxMjhdLAogICAgKTsKICAgIHMuZXNjcm93LmRlcG9zaXRfZnVuZHMoJmlkMiwgJjUwKTsKICAgIHMuZXNjcm93LmNhbmNlbF9jb250cmFjdCgmaWQyKTsKICAgIGFzc2VydF9lcSEocy50b2tlbi5iYWxhbmNlKCZzLmNsaWVudCksIGxvX2Z1bmRzKCkgLSAzMDApOwogICAgYXNzZXJ0X2VxISgKICAgICAgICBzLmVzY3Jvdy5nZXRfY29udHJhY3QoJmlkMikuc3RhdHVzLAogICAgICAgIENvbnRyYWN0U3RhdHVzOjpDYW5jZWxsZWQKICAgICk7Cn0K CiNbdGVzdF0KZm4gcGF1c2VfYmxvY2tzX211dGF0aW9ucygpIHsKICAgIGxldCBzID0gc2V0dXAoKTsKICAgIHMuZXNjcm93LnNldF9wYXVzZWQoJnRydWUpOwogICAgYXNzZXJ0X2VxISgKICAgICAgICBzLmVzY3Jvdy50cnlfY3JlYXRlX2NvbnRyYWN0KAogICAgICAgICAgICAmcy5jbGllbnQsCiAgICAgICAgICAgICZzLmZyZWVsYW5jZXIsCiAgICAgICAgICAgICZzLnRva2VuLmFkZHJlc3MsCiAgICAgICAgICAgICZ2ZWNbJnMuZW52LCAxaTEyOF0KICAgICAgICApLAogICAgICAgIEVycig(T2soRXNjcm93RXJyb3I6OlBhdXNlZCkpCiAgICApOwp9CgovLyAtLS0gRGVhZGxpbmUgLyByZWNsYWltIHRlc3RzIC0tLQoKZm4gbm93KHM6ICZTZXR1cCkgLT4gdTY0IHsKICAgIHMuaW52LmxlZGdlcigpLnRpbWVzdGFtcCgpCn0KCmZuIGFkdmFuY2UocyYgU2V0dXAsIHNlY3M6IHU2NCkgewogICAgcy5lbnYubGVkZ2VyKCkuc2V0X3RpbWVzdGFtcChzLmVudi5sZWRnZXIoKS50aW1lc3RhbXAoKSArIHNlY3MpOwp9CgojW3Rlc3RdCmZuIGRlYWRsaW5lX2JvdW5kYXJ5X2FuZF9yZWZ1bmQoKSB7CiAgICBsZXQgcyA9IHNldHVwKCk7CiAgICBsZXQgZGVhZGxpbmUgPSBub3coJnMpICsgMTAwMDsKICAgIGxldCBpZCA9IHMuZXNjcm93LmNyZWF0ZV9jb250cmFjdF93aXRoX2RlYWRsaW5lcygKICAgICAgICAmcy5jbGllbnQsCiAgICAgICAgJnMuZnJlZWxhbmNlciwKICAgICAgICAmcy50b2tlbi5hZGRyZXNzLAogICAgICAgICZ2ZWNbJnMuZW52LCAxMDBpMTI4XSwKICAgICAgICAmdmVjWyZzLmVudiwgZGVhZGxpbmVdLAogICAgKTsKICAgIHMuZXNjcm93LmRlcG9zaXRfZnVuZHMoJmlkLCAmMTAwKTsKICAgIGFzc2VydF9lcSEocy50b2tlbi5iYWxhbmNlKCZzLmNsaWVudCksIGxvX2Z1bmRzKCkgLSAxMDApOwogICAgLy8gT25lIHNlY29uZCBiZWZvcmUgZGVhZGxpbmUgKyBncmFjZS4KICAgIGxldCB0YXJnZXQgPSBkZWFkbGluZSArIERFQURMSU5FX0dSQUNFX1NFQ1M7CiAgICBzLmVudi5sZWRnZXIoKS5zZXRfdGltZXN0YW1wKHRhcmdldCAtIDEpOwogICAgYXNzZXJ0X2VxISgKICAgICAgICBzLmVzY3Jvdy50cnlfcmVjbGFpbV9vdmVyZHVlKCZpZCwgJjApLAogICAgICAgIEVycig(T2soRXNjcm93RXJyb3I6Ok5vdE92ZXJkdWUpKQogICAgKTsKICAgIC8vIEF0IGRlYWRsaW5lICsgZ3JhY2UuCiAgICBzLmVudi5sZWRnZXIoKS5zZXRfdGltZXN0YW1wKHRhcmdldCk7CiAgICBzLmVzY3Jvdy5yZWNsYWltX292ZXJkdWUoJmlkLCAmMCk7CiAgICBhc3NlcnRfZXEhKHMudG9rZW4uYmFsYW5jZSgmc3QuY2xpZW50KSwgbG9fZnVuZHMoKSk7CiAgICBhc3NlcnRfZXEhKHMudG9rZW4uYmFsYW5jZSgmc3QuZnJlZWxhbmNlciksIDApOwogICAgbGV0IGMgPSBzLmVzY3Jvdy5nZXRfY29udHJhY3QoJmlkKTsKICAgIGFzc2VydF9lcSEoYy5mdW5kZWRfYW1vdW50IC0gYy5yZWxlYXNlZF9hbW91bnQsIDApOwogICAgYXNzZXJ0X2VxIShjLnN0YXR1cywgQ29udHJhY3RTdGF0dXM6OkNhbmNlbGxlZCk7CiAgICAvLyBSZWNsYWltIHR3aWNlIHJlamVjdGVkLgogICAgYXNzZXJ0X2VxISgKICAgICAgICBzLmVzY3Jvdy50cnlfcmVjbGFpbV9vdmVyZHVlKCZpZCwgJjApLAogICAgICAgIEVycig(T2soRXNjcm93RXJyb3I6Ok1pbGVzdG9uZUFscmVhZHlSZWxlYXNlZCkpCiAgICApOwp9CgojW3Rlc3RdCmZuIHJlY2xhaW1fbWlsZXN0b25lX3plcm9fb2ZfdGhyZWUoKSB7CiAgICBsZXQgcyA9IHNldHVwKCk7CiAgICBsZXQgZCA9IG5vdygmcykgKyAxMDAwOwogICAgbGV0IGlkID0gcy5lc2Nyb3cuY3JlYXRlX2NvbnRyYWN0X3dpdGhfZGVhZGxpbmVzKAogICAgICAgICZzLmNsaWVudCwKICAgICAgICAmcy5mcmVlbGFuY2VyLAogICAgICAgICZzLnRva2VuLmFkZHJlc3MsCiAgICAgICAgJnZlY1smcy5lbnYsIDEwMGkxMjgsIDIwMGkxMjgsIDMwMGkxMjhdLAogICAgICAgICZ2ZWNbJnMuZW52LCBkLCBkICsgMTAwMCwgZCArIDIwMDBdLAogICAgKTsKICAgIHMuZXNjcm93LmRlcG9zaXRfZnVuZHMoJmlkLCAmNjAwKTsKICAgIGFzc2VydF9lcSEocy50b2tlbi5iYWxhbmNlKCZzLmNsaWVudCksIGxvX2Z1bmRzKCkgLSA2MDApOwogICAgcy5lbnYubGVkZ2VyKCkuc2V0X3RpbWVzdGFtcChkICsgREVBREZMSU5FX0dSQUNFX1NFQ1MpOwogICAgcy5lc2Nyb3cucmVjbGFpbV9vdmVyZHVlKCZpZCwgJjApOwogICAgYXNzZXJ0X2VxIShzLnRva2VuLmJhbGFuY2UoJnMuY2xpZW50KSwgbG9fZnVuZHMoKSAtIDUwMCk7CiAgICBsZXQgYyA9IHMuZXNjcm93LmdldF9jb250cmFjdCgmaWQpOwogICAgYXNzZXJ0X2VxIShjLnN0YXR1cywgQ29udHJhY3RTdGF0dXM6OkZ1bmRlZCk7CiAgICBhc3NlcnRfZXEhKGMuZnVuZGVkX2Ftb3VudCAtIGMucmVsZWFzZWRfYW1vdW50LCA1MDApOwogICAgLy8gTWlsZXN0b25lcyAxIGFuZCAyIHJlbWFpbiByZWxlYXNhYmxlLgogICAgcy5lc2Nyb3cucmVsZWFzZV9taWxlc3RvbmUoJmlkLCAmMSk7CiAgICBzLmVzY3Jvdy5yZWxlYXNlX21pbGVzdG9uZSgmaWQsICYyKTsKICAgIGFzc2VydF9lcSEocy50b2tlbi5iYWxhbmNlKCZzLmZyZWVsYW5jZXIpLCA1MDApOwogICAgbGV0IGMgPSBzLmVzY3Jvdy5nZXRfY29udHJhY3QoJmlkKTsKICAgIGFzc2VydF9lcSEoYy5zdGF0dXMsIENvbnRyYWN0U3RhdHVzOjpDb21wbGV0ZWQpOwogICAgYXNzZXJ0X2VxIShjLmZ1bmRlZF9hbW91bnQgLSBjLnJlbGVhc2VkX2Ftb3VudCwgMCk7CiAgICAvLyBSZWxlYXNpbmcgYSByZWNsYWltZWQgbWlsZXN0b25lIGlzIHJlamVjdGVkLgogICAgYXNzZXJ0X2VxISgKICAgICAgICBzLmVzY3Jvdy50cnlfcmVsZWFzZV9taWxlc3RvbmUoJmlkLCAmMCksCiAgICAgICAgRXJyKE9rKEVzY3Jvd0Vycm9yOjpNaWxlc3RvbmVBbHJlYWR5UmVsZWFzZWQpKQogICAgKTsKfQoKI1t0ZXN0XQpmbiBpbnZhbGlkX2RlYWRsaW5lX3ZlY3RvcnNfcmVqZWN0ZWQoKSB7CiAgICBsZXQgcyA9IHNldHVwKCk7CiAgICBsZXQgZCA9IG5vdygmcykgKyAxMDAwOwogICAgLy8gTGVuZ3RoIG1pc21hdGNoLgogICAgYXNzZXJ0X2VxISgKICAgICAgICBzLmVzY3Jvdy50cnlfY3JlYXRlX2NvbnRyYWN0X3dpdGhfZGVhZGxpbmVzKAogICAgICAgICAgICAmcy5jbGllbnQsCiAgICAgICAgICAgICZzLmZyZWVsYW5jZXIsCiAgICAgICAgICAgICZzLnRva2VuLmFkZHJlc3MsCiAgICAgICAgICAgICZ2ZWNbJnMuZW52LCAxMDBpMTI4LCAyMDBpMTI4XSwKICAgICAgICAgICAgJnZlY1smcy5lbnYsIGRdLAogICAgICAgICksCiAgICAgICAgRXJyKE9rKEVzY3Jvd0Vycm9yOjpJbnZhbGlkRGVhZGxpbmUpKQogICAgKTsKICAgIC8vIFBhc3QgdGltZXN0YW1wLgogICAgYXNzZXJ0X2VxISgKICAgICAgICBzLmVzY3Jvdy50cnlfY3JlYXRlX2NvbnRyYWN0X3dpdGhfZGVhZGxpbmVzKAogICAgICAgICAgICAmcy5jbGllbnQsCiAgICAgICAgICAgICZzLmZyZWVsYW5jZXIsCiAgICAgICAgICAgICZzLnRva2VuLmFkZHJlc3MsCiAgICAgICAgICAgICZ2ZWNbJnMuZW52LCAxMDBpMTI4XSwKICAgICAgICAgICAgJnZlY1smcy5lbnYsIG5vdygmcyldLAogICAgICAgICksCiAgICAgICAgRXJyKE9rKEVzY3Jvd0Vycm9yOjpJbnZhbGlkRGVhZGxpbmUpKQogICAgKTsKICAgIC8vIERlY3JlYXNpbmcuCiAgICBhc3NlcnRfZXEhKAogICAgICAgIHMuZXNjcm93LnRyeV9jcmVhdGVfY29udHJhY3Rfd2l0aF9kZWFkbGluZXMoCiAgICAgICAgICAgICZzLmNsaWVudCwKICAgICAgICAgICAgJnMuZnJlZWxhbmNlciwKICAgICAgICAgICAgJnMudG9rZW4uYWRkcmVzcywKICAgICAgICAgICAgJnZlY1smcy5lbnYsIDEwMGkxMjgsIDIwMGkxMjhdLAogICAgICAgICAgICAmdmVjWyZzLmVudiwgZCArIDEwMDAsIGRdLAogICAgICAgICksCiAgICAgICAgRXJyKE9rKEVzY3Jvd0Vycm9yOjpJbnZhbGlkRGVhZGxpbmUpKQogICAgKTsKfQoKI1t0ZXN0XQpmbiByZWNsYWltX3dpdGhvdXRfZGVhZGxpbmVfcmVqZWN0ZWQoKSB7CiAgICBsZXQgcyA9IHNldHVwKCk7CiAgICBsZXQgaWQgPSBzLmVzY3Jvdy5jcmVhdGVfY29udHJhY3QoCiAgICAgICAgJnMuY2xpZW50LAogICAgICAgICZzLmZyZWVsYW5jZXIsCiAgICAgICAgJnMudG9rZW4uYWRkcmVzcywKICAgICAgICAmdmVjWyZzLmVudiwgMTAwaTEyOF0sCiAgICApOwogICAgcy5lc2Nyb3cuZGVwb3NpdF9mdW5kcygmaWQsICYxMDApOwogICAgcy5lbnYubGVkZ2VyKCkuc2V0X3RpbWVzdGFtcChub3coJnMpICsgMTAwXzAwMCk7CiAgICBhc3NlcnRfZXEhKAogICAgICAgIHMuZXNjcm93LnRyeV9yZWNsYWltX292ZXJkdWUoJmlkLCAmMCksCiAgICAgICAgRXJyKE9rKEVzY3Jvd0Vycm9yOjpOb3RPdmVyZHVlKSkKICAgICk7CiAgICAvLyBEZWFkbGluZXMgcmVhZCBpcyBlbXB0eSBmb3IgdGhlIGxlZ2FjeSBwYXRoLgogICAgYXNzZXJ0X2VxIShzLmVzY3Jvdy5nZXRfZGVhZGxpbmVzKCZpZCkubGVuKCksIDApOwp9CgojW3Rlc3RdCmZuIHJlY2xhaW1fcmVqZWN0c19yZWxlYXNlZF9taWxlc3RvbmUoKSB7CiAgICBsZXQgcyA9IHNldHVwKCk7CiAgICBsZXQgZCA9IG5vdygmcykgKyAxMDAwOwogICAgbGV0IGlkID0gcy5lc2Nyb3cuY3JlYXRlX2NvbnRyYWN0X3dpdGhfZGVhZGxpbmVzKAogICAgICAgICZzLmNsaWVudCwKICAgICAgICAmcy5mcmVlbGFuY2VyLAogICAgICAgICZzLnRva2VuLmFkZHJlc3MsCiAgICAgICAgJnZlY1smcy5lbnYsIDEwMGkxMjhdLAogICAgICAgICZ2ZWNbJnMuZW52LCBkXSwKICAgICk7CiAgICBzLmVzY3Jvdy5kZXBvc2l0X2Z1bmRzKCZpZCwgJjEwMCk7CiAgICBzLmVzY3Jvdy5yZWxlYXNlX21pbGVzdG9uZSgmaWQsICYwKTsKICAgIHMuZW52LmxlZGdlcigpLnNldF90aW1lc3RhbXAoZCArIERFQURMSU5FX0dSQUNFX1NFQ1MpOwogICAgYXNzZXJ0X2VxISgKICAgICAgICBzLmVzY3Jvdy50cnlfcmVjbGFpbV9vdmVyZHVlKCZpZCwgJjApLAogICAgICAgIEVycig(T2soRXNjcm93RXJyb3I6OkludmFsaWRTdGF0dXMpKQogICAgKTsKfQoKI1t0ZXN0XQpmbiBnZXRfZGVhZGxpbmVzX3JvdW5kdHJpcCgpIHsKICAgIGxldCBzID0gc2V0dXAoKTsKICAgIGxldCBkID0gbm93KCZzKSArIDEwMDA7CiAgICBsZXQgaWQgPSBzLmVzY3Jvdy5jcmVhdGVfY29udHJhY3Rfd2l0aF9kZWFkbGluZXMoCiAgICAgICAgJnMuY2xpZW50LAogICAgICAgICZzLmZyZWVsYW5jZXIsCiAgICAgICAgJnMudG9rZW4uYWRkcmVzcywKICAgICAgICAmdmVjWyZzLmVudiwgMTAwaTEyOCwgMjAwaTEyOF0sCiAgICAgICAgJnZlY1smcy5lbnYsIDAsIGRdLAogICAgKTsKICAgIGxldCBkcyA9IHMuZXNjcm93LmdldF9kZWFkbGluZXMoJmlkKTsKICAgIGFzc2VydF9lcSEoZHMuZ2V0KDApLnVud3JhcCgpLCAwKTsKICAgIGFzc2VydF9lcSEoZHMuZ2V0KDEpLnVud3JhcCgpLCBkKTsKfQo=
+extern crate std;
+
+use super::*;
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _, Time as _},
+    token::StellarAssetClient,
+    token::TokenClient,
+    vec,
+};
+
+struct Setup<'a> {
+    env: Env,
+    escrow: EscrowClient<'a>,
+    token: TokenClient<'a>,
+    client: Address,
+    freelancer: Address,
+}
+
+fn setup<'a>() -> Setup<'a> {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    StellarAssetClient::new(&env, &sac.address()).mint(&client, &lo_funds());
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    escrow.initialize(&admin);
+    let token = TokenClient::new(&env, &sac.address());
+    Setup {
+        env,
+        escrow,
+        token,
+        client,
+        freelancer,
+    }
+}
+
+fn lo_funds() -> i128 {
+    1_000_000
+}
+
+#[test]
+fn initialize_only_once() {
+    let s = setup();
+    let other = Address::generate(&s.env);
+    assert_eq!(
+        s.escrow.try_initialize(&other),
+        Err(Ok(EscrowError::AlreadyInitialized))
+    );
+}
+
+#[test]
+fn full_happy_path() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128, 200i128],
+    );
+    assert_eq!(id, 1);
+    s.escrow.deposit_funds(&id, &300);
+    assert_eq!(s.token.balance(&s.client), lo_funds() - 300);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.release_milestone(&id, &1);
+    assert_eq!(s.token.balance(&s.freelancer), 300);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+    s.escrow.issue_reputation(&id, &5);
+    let rep = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep.completed_contracts, 1);
+    assert_eq!(rep.total_rating, 5);
+}
+
+#[test]
+fn rejects_overfunding_and_double_release() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    assert_eq!(
+        s.escrow.try_deposit_funds(&id, &101),
+        Err(Ok(EscrowError::OverFunded))
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.release_milestone(&id, &0);
+    assert!(s.escrow.try_release_milestone(&id, &0).is_err());
+}
+
+#[test]
+fn dispute_split_and_cancel() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 400i128],
+    );
+    s.escrow.deposit_funds(&id, &400);
+    s.escrow.open_dispute(&id, &s.freelancer);
+    s.escrow.resolve_dispute(&id, &2_500);
+    assert_eq!(s.token.balance(&s.freelancer), 100);
+    assert_eq!(s.token.balance(&s.client), lo_funds() - 300);
+
+    let id2 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128],
+    );
+    s.escrow.deposit_funds(&id2, &50);
+    s.escrow.cancel_contract(&id2);
+    assert_eq!(s.token.balance(&s.client), lo_funds() - 300);
+    assert_eq!(
+        s.escrow.get_contract(&id2).status,
+        ContractStatus::Cancelled
+    );
+}
+
+#[test]
+fn pause_blocks_mutations() {
+    let s = setup();
+    s.escrow.set_paused(&true);
+    assert_eq!(
+        s.escrow.try_create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 1i128]
+        ),
+        Err(Ok(EscrowError::Paused))
+    );
+}
+
+#[test]
+fn dispute_outcomes_freelancer_client_and_exact_threshold() {
+    let s = setup();
+
+    // 1. Freelancer-favoured resolution (> 5_000 bps): 7_500 bps
+    let id1 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 200i128],
+    );
+    s.escrow.deposit_funds(&id1, &200);
+    s.escrow.open_dispute(&id1, &s.client);
+    s.escrow.resolve_dispute(&id1, &7_500);
+
+    let client_outcomes1 = s.escrow.get_outcomes(&s.client);
+    let freelancer_outcomes1 = s.escrow.get_outcomes(&s.freelancer);
+    assert_eq!(client_outcomes1.disputes_opened, 1);
+    assert_eq!(client_outcomes1.disputes_won, 0);
+    assert_eq!(client_outcomes1.disputes_lost, 1);
+    assert_eq!(freelancer_outcomes1.disputes_opened, 0);
+    assert_eq!(freelancer_outcomes1.disputes_won, 1);
+    assert_eq!(freelancer_outcomes1.disputes_lost, 0);
+
+    // 2. Client-favoured resolution (< 5_000 bps): 2_000 bps
+    let id2 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 200i128],
+    );
+    s.escrow.deposit_funds(&id2, &200);
+    s.escrow.open_dispute(&id2, &s.freelancer);
+    s.escrow.resolve_dispute(&id2, &2_000);
+
+    let client_outcomes2 = s.escrow.get_outcomes(&s.client);
+    let freelancer_outcomes2 = s.escrow.get_outcomes(&s.freelancer);
+    assert_eq!(client_outcomes2.disputes_opened, 1);
+    assert_eq!(client_outcomes2.disputes_won, 1);
+    assert_eq!(client_outcomes2.disputes_lost, 1);
+    assert_eq!(freelancer_outcomes2.disputes_opened, 1);
+    assert_eq!(freelancer_outcomes2.disputes_won, 1);
+    assert_eq!(freelancer_outcomes2.disputes_lost, 1);
+
+    // 3. Exactly 5_000 bps threshold: counts as a win for freelancer, loss for client
+    let id3 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 200i128],
+    );
+    s.escrow.deposit_funds(&id3, &200);
+    s.escrow.open_dispute(&id3, &s.client);
+    s.escrow.resolve_dispute(&id3, &5_000);
+
+    let client_outcomes3 = s.escrow.get_outcomes(&s.client);
+    let freelancer_outcomes3 = s.escrow.get_outcomes(&s.freelancer);
+    assert_eq!(client_outcomes3.disputes_opened, 2);
+    assert_eq!(client_outcomes3.disputes_won, 1);
+    assert_eq!(client_outcomes3.disputes_lost, 2);
+    assert_eq!(freelancer_outcomes3.disputes_opened, 1);
+    assert_eq!(freelancer_outcomes3.disputes_won, 2);
+    assert_eq!(freelancer_outcomes3.disputes_lost, 1);
+}
+
+#[test]
+fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
+    let s = setup();
+
+    // Create and resolve dispute
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.open_dispute(&id, &s.client);
+    s.escrow.resolve_dispute(&id, &5_000);
+
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+
+    // Rating a Resolved escrow succeeds once
+    s.escrow.issue_reputation(&id, &4);
+    let rep = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep.completed_contracts, 1);
+    assert_eq!(rep.total_rating, 4);
+
+    // Second rating attempt is rejected
+    assert_eq!(
+        s.escrow.try_issue_reputation(&id, &4),
+        Err(Ok(EscrowError::ReputationAlreadyIssued))
+    );
+
+    // Cancelled escrow rating is rejected
+    let id_cancel = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128],
+    );
+    s.escrow.deposit_funds(&id_cancel, &50);
+    s.escrow.cancel_contract(&id_cancel);
+    assert_eq!(
+        s.escrow.get_contract(&id_cancel).status,
+        ContractStatus::Cancelled
+    );
+    assert_eq!(
+        s.escrow.try_issue_reputation(&id_cancel, &5),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+}
+
+#[test]
+fn cancel_unfunded_escrow_does_not_count_cancellation() {
+    let s = setup();
+
+    // 1. Unfunded cancellation -> cancellations remains 0
+    let id1 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.cancel_contract(&id1);
+    assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 0);
+
+    // 2. Funded cancellation -> cancellations increments to 1
+    let id2 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id2, &100);
+    s.escrow.cancel_contract(&id2);
+    assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 1);
+}
+
+// --- Deadline / reclaim tests ---
+
+fn now(s: &Setup) -> u64 {
+    s.env.ledger().timestamp()
+}
+
+fn advance(s: &Setup, secs: u64) {
+    s.env.ledger().set_timestamp(s.env.ledger().timestamp() + secs);
+}
+
+#[test]
+fn deadline_boundary_and_refund() {
+    let s = setup();
+    let deadline = now(&s) + 1000;
+    let id = s.escrow.create_contract_with_deadlines(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+        &vec![&s.env, deadline],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    assert_eq!(s.token.balance(&s.client), lo_funds() - 100);
+    // One second before deadline + grace.
+    let target = deadline + DEADLINE_GRACE_SECS;
+    s.env.ledger().set_timestamp(target - 1);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::NotOverdue))
+    );
+    // At deadline + grace.
+    s.env.ledger().set_timestamp(target);
+    s.escrow.reclaim_overdue(&id, &0);
+    assert_eq!(s.token.balance(&s.client), lo_funds());
+    assert_eq!(s.token.balance(&s.freelancer), 0);
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.funded_amount - c.released_amount, 0);
+    assert_eq!(c.status, ContractStatus::Cancelled);
+    // Reclaim twice rejected.
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::MilestoneAlreadyReleased))
+    );
+}
+
+#[test]
+fn reclaim_milestone_zero_of_three() {
+    let s = setup();
+    let d = now(&s) + 1000;
+    let id = s.escrow.create_contract_with_deadlines(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128, 200i128, 300i128],
+        &vec![&s.env, d, d + 1000, d + 2000],
+    );
+    s.escrow.deposit_funds(&id, &600);
+    assert_eq!(s.token.balance(&s.client), lo_funds() - 600);
+    s.env.ledger().set_timestamp(d + DEADLINE_GRACE_SECS);
+    s.escrow.reclaim_overdue(&id, &0);
+    assert_eq!(s.token.balance(&s.client), lo_funds() - 500);
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Funded);
+    assert_eq!(c.funded_amount - c.released_amount, 500);
+    // Milestones 1 and 2 remain releasable.
+    s.escrow.release_milestone(&id, &1);
+    s.escrow.release_milestone(&id, &2);
+    assert_eq!(s.token.balance(&s.freelancer), 500);
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Completed);
+    assert_eq!(c.funded_amount - c.released_amount, 0);
+    // Releasing a reclaimed milestone is rejected.
+    assert_eq!(
+        s.escrow.try_release_milestone(&id, &0),
+        Err(Ok(EscrowError::MilestoneAlreadyReleased))
+    );
+}
+
+#[test]
+fn invalid_deadline_vectors_rejected() {
+    let s = setup();
+    let d = now(&s) + 1000;
+    // Length mismatch.
+    assert_eq!(
+        s.escrow.try_create_contract_with_deadlines(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 100i128, 200i128],
+            &vec![&s.env, d],
+        ),
+        Err(Ok(EscrowError::InvalidDeadline))
+    );
+    // Past timestamp.
+    assert_eq!(
+        s.escrow.try_create_contract_with_deadlines(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 100i128],
+            &vec![&s.env, now(&s)],
+        ),
+        Err(Ok(EscrowError::InvalidDeadline))
+    );
+    // Decreasing.
+    assert_eq!(
+        s.escrow.try_create_contract_with_deadlines(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 100i128, 200i128],
+            &vec![&s.env, d + 1000, d],
+        ),
+        Err(Ok(EscrowError::InvalidDeadline))
+    );
+}
+
+#[test]
+fn reclaim_without_deadline_rejected() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.env.ledger().set_timestamp(now(&s) + 100_000);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::NotOverdue))
+    );
+    // Deadlines read is empty for the legacy path.
+    assert_eq!(s.escrow.get_deadlines(&id).len(), 0);
+}
+
+#[test]
+fn reclaim_rejects_released_milestone() {
+    let s = setup();
+    let d = now(&s) + 1000;
+    let id = s.escrow.create_contract_with_deadlines(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+        &vec![&s.env, d],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.release_milestone(&id, &0);
+    s.env.ledger().set_timestamp(d + DEADLINE_GRACE_SECS);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+}
+
+#[test]
+fn get_deadlines_roundtrip() {
+    let s = setup();
+    let d = now(&s) + 1000;
+    let id = s.escrow.create_contract_with_deadlines(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128, 200i128],
+        &vec![&s.env, 0, d],
+    );
+    let ds = s.escrow.get_deadlines(&id);
+    assert_eq!(ds.get(0).unwrap(), 0);
+    assert_eq!(ds.get(1).unwrap(), d);
+}
