@@ -4,18 +4,19 @@
 
 - Website: https://talenttrust-frontend.vercel.app
 - Docs: https://talenttrust-frontend.vercel.app/docs
-- API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
-- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W`](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W)
+-  API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
+- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXKX5F`](https://stellarexpert.com/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBRGBKXXK5W)
 
 Soroban smart contract for the TalentTrust freelancer escrow protocol on Stellar.
 Clients lock payment for a job into escrow, release it milestone by milestone as
 work is approved, and either party can raise a dispute that the protocol admin settles.
+Client and freelancer can also mutually settle at an agreed split without an admin.
 
 ## Deployments
 
 | Network | Contract | ID | Explorer |
 | --- | --- | --- | --- |
-| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W) |
+| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXKX5``| [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXKX5) |
 
 The contract is initialized with admin `GA7TXEBMEPQCLHIYCWDN7RKAO5IMRD2UV7O7TZXMEW6VZUMEXNR4XBB5`.
 Machine-readable details are in [deployments/testnet.json](deployments/testnet.json).
@@ -26,16 +27,34 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | --- | --- | --- |
 | `initialize(admin)` | admin | One-time setup |
 | `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones |
-| `deposit_funds(id, amount)` | client | Transfer tokens into escrow (cannot exceed total) |
-| `release_milestone(id, index)` | client | Pay the freelancer for a milestone |
-| `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution (increments `disputes_opened`) |
+| `deposit_funds(id, amount)` | client | Transfer tokens into escrow (cannot exceed total); invalidates any pending settlement proposal |
+| `release_milestone(id, index)` | client | Pay the freelancer for a milestone; invalidates any pending settlement proposal |
+| `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution (increments `disputes_opened) |
 | `resolve_dispute(id, freelancer_bps)` | admin | Split the held balance (records dispute win/loss outcomes based on 5,000 bps threshold) |
 | `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
+| `propose_settlement(id, proposer, freelancer_amount)` | client or freelancer | Propose a mutual split of the held balance (Created/Funded/Disputed); replaces any earlier proposal |
+| `accept_settlement(id, acceptor, freelaner_amount)` | other party | Accept the proposal by echoing the exact amount; pays both sides and marks the escrow `Resolved` |
+| `withdraw_settlement(id, proposer)` | proposer | Remove the pending settlement proposal |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
 | `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
-| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
+| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_settlement(id)`, `get_admin()`, `version()` | - | Reads |
 
-Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
+Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. A mutual settlement also moves the escrow to `Resolved` from `Created`, `Funded` or `Disputed`. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
+
+## Events
+
+| Event | Payload | Description |
+| --- | --- | --- |
+| `settle_p` | `(id, proposer, freelancer_amount)` | Settlement proposed or replaced |
+| `settled` | `(id, to_freelancer, to_client)` | Mutual settlement executed and both sides paid |
+
+## Errors
+
+| Code | Name | Description |
+| --- | --- | --- |
+| 17 | `SettlementMismatch` | Acceptor echoed a different amount than the pending proposal (or no proposal exists) |
+
+New error variants are append-only; existing codes are never renumbered or reused.
 
 ## Build and test
 
