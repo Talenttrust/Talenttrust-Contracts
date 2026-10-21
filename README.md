@@ -33,7 +33,17 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
 | `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
-| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
+| `schedule_upgrade(wasm_hash)` | admin | Queue a WASM upgrade; executable only after a 48-hour delay (`UPGRADE_DELAY_SECS = 172_800`). Re-scheduling resets the timer. Event: `("upg_sched",) → (wasm_hash, eta)` |
+| `cancel_upgrade()` | admin | Cancel the pending upgrade. Fails with `NoPendingUpgrade` if none queued. Event: `("upg_cncl",) → wasm_hash` |
+| `execute_upgrade()` | admin | Execute the scheduled upgrade after the delay. Increments the on-chain version, replaces the WASM, clears the pending record. Allowed while paused (security fix path). Event: `("upgraded",) → (wasm_hash, new_version)` |
+| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `get_pending_upgrade()`, `version()` | - | Reads |
+
+**Upgrade errors** (append-only; existing codes never renumbered):
+
+| Code | Variant | When |
+| --- | --- | --- |
+| 18 | `NoPendingUpgrade` | `cancel_upgrade` or `execute_upgrade` called with nothing scheduled |
+| 19 | `UpgradeNotReady` | `execute_upgrade` called before the 48-h delay has elapsed |
 
 Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
 

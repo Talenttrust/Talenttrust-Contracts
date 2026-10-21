@@ -11,11 +11,14 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN,
+    Env, Vec,
 };
 
 pub const MAX_MILESTONES: u32 = 20;
 pub const BPS_DENOMINATOR: i128 = 10_000;
+/// 48-hour time-lock delay before an upgrade can be executed.
+pub const UPGRADE_DELAY_SECS: u64 = 172_800;
 /// Threshold for dispute outcome accounting (5,000 basis points, or 50%).
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
 /// the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
@@ -44,6 +47,8 @@ pub enum EscrowError {
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
     ArithmeticOverflow = 17,
+    NoPendingUpgrade = 18,
+    UpgradeNotReady = 19,
 }
 
 #[contracttype]
@@ -95,6 +100,16 @@ pub struct Outcomes {
     pub cancellations: u32,
 }
 
+/// Holds an in-flight upgrade request placed by the admin.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingUpgrade {
+    /// The WASM hash that will be installed.
+    pub wasm_hash: BytesN<32>,
+    /// The earliest ledger timestamp at which `execute_upgrade` may succeed.
+    pub eta: u64,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -104,6 +119,8 @@ enum DataKey {
     Contract(u64),
     Reputation(Address),
     Outcomes(Address),
+    PendingUpgrade,
+    Version,
 }
 
 #[contract]
@@ -177,8 +194,11 @@ impl Escrow {
         Ok(())
     }
 
-    pub fn version(_env: Env) -> u32 {
-        1
+    pub fn version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get::<_, u32>(&DataKey::Version)
+            .unwrap_or(1)
     }
 
     pub fn get_admin(env: Env) -> Result<Address, EscrowError> {
@@ -544,6 +564,111 @@ impl Escrow {
             .persistent()
             .get(&DataKey::Outcomes(addr))
             .unwrap_or_default()
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Upgrade functions
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /// Admin schedules a WASM upgrade. The stored hash can only be executed after
+    /// `UPGRADE_DELAY_SECS` (48 h) have elapsed, giving users time to react.
+    ///
+    /// Calling `schedule_upgrade` again while one is pending **resets** the timer
+    /// (re-scheduling with the same or a different hash always restarts the delay).
+    ///
+    /// Event: `("upg_sched",) → (wasm_hash, eta)`
+    pub fn schedule_upgrade(env: Env, wasm_hash: BytesN<32>) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        let now = env.ledger().timestamp();
+        let eta = now
+            .checked_add(UPGRADE_DELAY_SECS)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        let pending = PendingUpgrade {
+            wasm_hash: wasm_hash.clone(),
+            eta,
+        };
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingUpgrade, &pending);
+        bump_instance(&env);
+        env.events()
+            .publish((symbol_short!("upg_sched"),), (wasm_hash, eta));
+        Ok(())
+    }
+
+    /// Admin cancels a scheduled upgrade before it executes.
+    ///
+    /// Fails with `NoPendingUpgrade` if nothing is scheduled.
+    ///
+    /// Event: `("upg_cncl",) → wasm_hash`
+    pub fn cancel_upgrade(env: Env) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        let pending: PendingUpgrade = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingUpgrade)
+            .ok_or(EscrowError::NoPendingUpgrade)?;
+        env.storage()
+            .instance()
+            .remove(&DataKey::PendingUpgrade);
+        bump_instance(&env);
+        env.events()
+            .publish((symbol_short!("upg_cncl"),), pending.wasm_hash);
+        Ok(())
+    }
+
+    /// Admin executes a previously scheduled upgrade.
+    ///
+    /// Fails with:
+    /// - `NoPendingUpgrade` — no upgrade has been scheduled (or was already cancelled).
+    /// - `UpgradeNotReady`  — the 48-h delay has not yet elapsed.
+    ///
+    /// On success the contract WASM is replaced, the on-chain version counter is
+    /// incremented, the pending record is cleared, and an event is emitted.
+    ///
+    /// Note: `execute_upgrade` is intentionally allowed while paused so that a
+    /// critical security fix can be deployed even when the circuit breaker is active.
+    ///
+    /// Event: `("upgraded",) → (wasm_hash, new_version)`
+    pub fn execute_upgrade(env: Env) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        let pending: PendingUpgrade = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingUpgrade)
+            .ok_or(EscrowError::NoPendingUpgrade)?;
+        let now = env.ledger().timestamp();
+        if now < pending.eta {
+            return Err(EscrowError::UpgradeNotReady);
+        }
+        // Bump version (default 1 → 2 on first upgrade).
+        let old_version: u32 = env
+            .storage()
+            .instance()
+            .get::<_, u32>(&DataKey::Version)
+            .unwrap_or(1);
+        let new_version = old_version
+            .checked_add(1)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::Version, &new_version);
+        // Clear the pending record before deploying (re-entrancy safety).
+        env.storage()
+            .instance()
+            .remove(&DataKey::PendingUpgrade);
+        bump_instance(&env);
+        // Install the new WASM — this replaces the executing contract's code.
+        env.deployer()
+            .update_current_contract_wasm(pending.wasm_hash.clone());
+        env.events()
+            .publish((symbol_short!("upgraded"),), (pending.wasm_hash, new_version));
+        Ok(())
+    }
+
+    /// Returns the currently scheduled upgrade, or `None` if none is pending.
+    pub fn get_pending_upgrade(env: Env) -> Option<PendingUpgrade> {
+        env.storage().instance().get(&DataKey::PendingUpgrade)
     }
 }
 
