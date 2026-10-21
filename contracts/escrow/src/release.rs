@@ -1,6 +1,6 @@
 use crate::{
-    approvals, ttl, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
-    ReleaseAuthorization,
+    approvals, events, ttl, Contract, ContractStatus, DataKey, Error, Escrow, Milestone,
+    ReleaseAuthorization, ReleaseEvent,
 };
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
@@ -137,9 +137,17 @@ impl Escrow {
 
         ttl::extend_contract_and_milestones_ttl(env, contract_id);
 
-        env.events().publish(
-            (Symbol::new(&env, "milestone_released"), contract_id),
-            (caller, milestone_index, milestone.amount),
+        events::emit_release(
+            &env,
+            contract_id,
+            ReleaseEvent {
+                index: milestone_index,
+                amount: milestone.amount,
+                fee: 0,
+                to: contract.freelancer.clone(),
+                released_amount: contract.released_amount,
+                status: contract.status.clone(),
+            },
         );
 
         true

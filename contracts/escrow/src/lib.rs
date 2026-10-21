@@ -54,6 +54,7 @@
 mod amount_validation;
 mod approvals;
 mod deposit;
+pub mod events;
 mod finalize;
 mod migration;
 mod ttl;
@@ -74,6 +75,11 @@ pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
 pub use dispute::final_status_after_resolution;
 pub use dispute::resolution_payouts;
+pub use events::{
+    CancelEvent, CompletedEvent, CreatedEvent, DepositEvent, DisputeEvent, EmergencyActivatedEvent,
+    EmergencyResolvedEvent, EvidenceEvent, InitEvent, PausedEvent, RefundedEvent, ReleaseEvent,
+    ReputationEvent, ResolvedEvent, SettlementTokenBoundEvent, UnpausedEvent, EVENT_SCHEMA_V,
+};
 pub use migration::PendingClientMigration;
 pub use ttl::{ADMIN_ROTATION_MIN_DELAY_LEDGERS, PENDING_MIGRATION_TTL_LEDGERS};
 // Keep shared storage keys and escrow domain types centralized in `types.rs`.
@@ -307,9 +313,12 @@ impl Escrow {
 
         // Emit after the binding write succeeds so indexers can track the bound
         // asset. Consistent topic naming with `init` / `protocol_fee_bps` events.
-        env.events().publish(
-            (Symbol::new(&env, "settlement_token_bound"),),
-            (admin, token, env.ledger().timestamp()),
+        events::emit_settlement_token_bound(
+            &env,
+            SettlementTokenBoundEvent {
+                admin,
+                token,
+            },
         );
         true
     }
@@ -392,10 +401,7 @@ impl Escrow {
             .persistent()
             .set(&DataKey::ReadinessChecklist, &checklist);
 
-        env.events().publish(
-            (symbol_short!("init"), Symbol::new(&env, "admin_set")),
-            (admin.clone(), env.ledger().timestamp()),
-        );
+        events::emit_init(&env, InitEvent { admin: admin.clone() });
 
         true
     }
@@ -905,31 +911,27 @@ impl Escrow {
         // no secrets — all fields are already public contract state or
         // caller-supplied arguments.
 
-        /// `mlstn_rls` — fired on every successful milestone release.
-        ///
-        /// Topics : `(symbol_short!("mlstn_rls"), contract_id: u32)`
-        /// Data   : `(milestone_index: u32, amount: i128, fee: i128,
-        ///            new_released_amount: i128, caller: Address, timestamp: u64)`
-        env.events().publish(
-            (symbol_short!("mlstn_rls"), contract_id),
-            (
-                milestone_index,
-                gross_amount,
-                protocol_fee,
-                contract.released_amount,
-                caller.clone(),
-                env.ledger().timestamp(),
-            ),
+        events::emit_release(
+            &env,
+            contract_id,
+            ReleaseEvent {
+                index: milestone_index,
+                amount: gross_amount,
+                fee: protocol_fee,
+                to: contract.freelancer.clone(),
+                released_amount: contract.released_amount,
+                status: contract.status.clone(),
+            },
         );
 
-        // `ctrct_cmp` — fired only when this release completes the contract.
-        //
-        /// Topics : `(symbol_short!("ctrct_cmp"), contract_id: u32)`
-        /// Data   : `(caller: Address, timestamp: u64)`
+        // `complete` — fired only when this release completes the contract.
         if all_released {
-            env.events().publish(
-                (symbol_short!("ctrct_cmp"), contract_id),
-                (caller, env.ledger().timestamp()),
+            events::emit_completed(
+                &env,
+                contract_id,
+                CompletedEvent {
+                    released_amount: contract.released_amount,
+                },
             );
         }
 
@@ -1154,15 +1156,13 @@ impl Escrow {
 
         // Emit `refunded` event after all state mutations succeed.
         //
-        // Topics : `(symbol_short!("refunded"), contract_id: u32)`
-        // Data   : `(total_refund_amount: i128, new_status: ContractStatus, timestamp: u64)`
-        env.events().publish(
-            (symbol_short!("refunded"), contract_id),
-            (
-                total_refund_amount,
-                contract.status,
-                env.ledger().timestamp(),
-            ),
+        events::emit_refunded(
+            &env,
+            contract_id,
+            RefundedEvent {
+                amount: total_refund_amount,
+                status: contract.status,
+            },
         );
 
         total_refund_amount
@@ -1437,8 +1437,7 @@ impl Escrow {
         admin.require_auth();
         env.storage().persistent().set(&DataKey::Paused, &true);
 
-        env.events()
-            .publish((symbol_short!("pause"), env.ledger().timestamp()), (admin,));
+        events::emit_paused(&env, PausedEvent { admin: admin.clone() });
         true
     }
 
@@ -1463,10 +1462,7 @@ impl Escrow {
         admin.require_auth();
         env.storage().persistent().set(&DataKey::Paused, &false);
 
-        env.events().publish(
-            (symbol_short!("unpaused"), env.ledger().timestamp()),
-            (admin,),
-        );
+        events::emit_unpaused(&env, UnpausedEvent { admin });
         true
     }
 
@@ -1517,18 +1513,15 @@ impl Escrow {
             .persistent()
             .set(&DataKey::ReadinessChecklist, &checklist);
 
-        env.events().publish(
-            (
-                Symbol::new(&env, "emergency"),
-                Symbol::new(&env, "activated"),
-            ),
-            (
-                env.storage()
+        events::emit_emergency_activated(
+            &env,
+            EmergencyActivatedEvent {
+                admin: env
+                    .storage()
                     .persistent()
                     .get::<_, Address>(&DataKey::Admin)
                     .unwrap(),
-                env.ledger().timestamp(),
-            ),
+            },
         );
         true
     }
@@ -1561,13 +1554,7 @@ impl Escrow {
         env.storage()
             .persistent()
             .set(&DataKey::ReadinessChecklist, &checklist);
-        env.events().publish(
-            (
-                Symbol::new(&env, "emergency"),
-                Symbol::new(&env, "resolved"),
-            ),
-            (admin, env.ledger().timestamp()),
-        );
+        events::emit_emergency_resolved(&env, EmergencyResolvedEvent { admin });
         true
     }
 
@@ -1648,9 +1635,14 @@ impl Escrow {
             .set(&DataKey::Contract(contract_id), &contract);
         ttl::extend_contract_ttl(&env, contract_id);
 
-        env.events().publish(
-            (symbol_short!("cancelled"), contract_id),
-            (client, refund_amount, env.ledger().timestamp()),
+        events::emit_cancel(
+            &env,
+            contract_id,
+            CancelEvent {
+                refund: refund_amount,
+                to: client,
+                status: contract.status,
+            },
         );
 
         true
@@ -1761,6 +1753,17 @@ impl Escrow {
             &comment_key,
             ttl::PERSISTENT_BUMP_THRESHOLD,
             ttl::PERSISTENT_TTL_LEDGERS,
+        );
+
+        events::emit_reputation(
+            &env,
+            contract_id,
+            ReputationEvent {
+                freelancer: contract.freelancer,
+                rating,
+                completed_contracts: rep.completed_contracts,
+                total_rating: rep.total_rating,
+            },
         );
 
         true
@@ -1921,13 +1924,13 @@ impl Escrow {
         // Extend TTL on contract write (milestone TTL already extended by store_milestones)
         ttl::extend_contract_ttl(&env, contract_id);
 
-        env.events().publish(
-            (symbol_short!("evidence"), contract_id),
-            (
+        events::emit_evidence(
+            &env,
+            contract_id,
+            EvidenceEvent {
                 milestone_index,
-                contract.freelancer,
-                env.ledger().timestamp(),
-            ),
+                freelancer: contract.freelancer,
+            },
         );
 
         true
@@ -2226,9 +2229,13 @@ impl Escrow {
 
         ttl::extend_contract_ttl(&env, contract_id);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("opened")),
-            (contract_id, caller),
+        events::emit_dispute(
+            &env,
+            contract_id,
+            DisputeEvent {
+                by: caller,
+                status: contract.status,
+            },
         );
 
         true
@@ -2319,9 +2326,14 @@ impl Escrow {
 
         ttl::extend_contract_ttl(&env, contract_id);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("resolved")),
-            (contract_id, resolution.code()),
+        events::emit_resolved(
+            &env,
+            contract_id,
+            ResolvedEvent {
+                to_freelancer: freelancer_payout,
+                to_client: client_payout,
+                status: contract.status,
+            },
         );
 
         true

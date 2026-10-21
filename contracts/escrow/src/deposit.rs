@@ -1,7 +1,8 @@
 use crate::{
-    accumulate_amounts, ttl, Contract, ContractStatus, DataKey, Error, EscrowError, Milestone,
+    accumulate_amounts, events, ttl, Contract, ContractStatus, DataKey, DepositEvent, Error,
+    EscrowError, Milestone,
 };
-use soroban_sdk::{symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{Address, Env, Symbol, Vec};
 
 /// Validated deposit data that is safe to use before any token transfer.
 pub struct ValidatedDeposit {
@@ -149,20 +150,15 @@ pub fn apply_validated_deposit(
 
     ttl::extend_contract_ttl(&env, contract_id);
 
-    // Emit deposit event after state is persisted.
-    //
-    // Topics : `(symbol_short!("deposit"), contract_id: u32)`
-    // Data   : `(caller: Address, amount: i128, funded_amount: i128,
-    //            status: ContractStatus, timestamp: u64)`
-    env.events().publish(
-        (symbol_short!("deposit"), contract_id),
-        (
-            caller,
+    events::emit_deposit(
+        &env,
+        contract_id,
+        DepositEvent {
+            from: caller,
             amount,
-            new_funded_amount,
-            new_status,
-            env.ledger().timestamp(),
-        ),
+            funded_amount: new_funded_amount,
+            status: new_status,
+        },
     );
 
     true

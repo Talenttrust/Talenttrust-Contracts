@@ -98,6 +98,40 @@ Read-only entrypoints `get_terms` and `get_delivery` retrieve the stored hashes.
 
 ---
 
+## Escrow Event Catalogue (#1712)
+
+All escrow events carry a schema-version sentinel as the first topic so indexers can evolve without re-deploying.
+
+**Topic shapes**
+
+| Class | Topics | Data struct |
+|---|---|---|
+| Escrow-scoped | `(1u32, symbol, contract_id: u32)` | event struct (see below) |
+| Global | `(1u32, symbol)` | event struct (see below) |
+
+**`EVENT_SCHEMA_V = 1`** — bump this constant when any payload struct layout changes.
+
+| Symbol | When emitted | Payload struct | Key fields |
+|---|---|---|---|
+| `init` | `initialize` succeeds | `InitEvent` | `admin` |
+| `token_bound` | `bind_settlement_token` succeeds | `SettlementTokenBoundEvent` | `admin`, `token` |
+| `created` | `create_contract` / `create_and_fund` | `CreatedEvent` | `client`, `freelancer`, `token`, `total`, `milestone_count` |
+| `deposit` | `deposit_funds` / `create_and_fund` | `DepositEvent` | `from`, `amount`, `funded_amount`, `status` |
+| `mlstn_rls` | `release_milestone` (each release) | `ReleaseEvent` | `index`, `amount`, `fee`, `to`, `released_amount`, `status` |
+| `complete` | `release_milestone` when last milestone completes | `CompletedEvent` | `released_amount` |
+| `cancelled` | `cancel_contract` | `CancelEvent` | `refund`, `to`, `status` |
+| `refunded` | `refund_unreleased_milestones` | `RefundedEvent` | `amount`, `status` |
+| `dispute_opened` | `raise_dispute` | `DisputeEvent` | `by`, `status` |
+| `dispute_resolved` | `resolve_dispute` | `ResolvedEvent` | `to_freelancer`, `to_client`, `status` |
+| `reputation` | `issue_reputation` | `ReputationEvent` | `freelancer`, `rating`, `completed_contracts`, `total_rating` |
+| `evidence` | `submit_work_evidence` | `EvidenceEvent` | `milestone_index`, `freelancer` |
+| `paused` | `pause` | `PausedEvent` | `admin` |
+| `unpaused` | `unpause` | `UnpausedEvent` | `admin` |
+| `emergency_on` | `activate_emergency_pause` | `EmergencyActivatedEvent` | `admin` |
+| `emergency_off` | `resolve_emergency` | `EmergencyResolvedEvent` | `admin` |
+
+---
+
 ## Escrow Emergency Controls
 
 The escrow contract supports critical-incident response with admin-managed controls:

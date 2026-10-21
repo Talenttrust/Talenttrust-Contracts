@@ -1,8 +1,9 @@
 use crate::{
-    amount_validation, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowArgs,
-    EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization, MAX_MILESTONES,
+    amount_validation, events, ttl, Contract, ContractStatus, CreatedEvent, DataKey, DepositEvent,
+    Error, Escrow, EscrowArgs, EscrowClient, EscrowError, GovernedParameters, Milestone,
+    ReleaseAuthorization, MAX_MILESTONES,
 };
-use soroban_sdk::{contractimpl, symbol_short, token, Address, Env, Symbol, Vec};
+use soroban_sdk::{contractimpl, token, Address, Env, Symbol, Vec};
 
 /// Validated and pre-built escrow parameters, ready to be written in one
 /// storage pass.  Produced by [`build_escrow`]; consumed by `create_contract`
@@ -237,11 +238,16 @@ impl Escrow {
         let freelancer_addr = freelancer.clone();
 
         // Emit creation event for indexers and off-chain subscribers.
-        // Topics : `(symbol_short!("created"), id: u32)`
-        // Data   : `(client: Address, freelancer: Address, timestamp: u64)`
-        env.events().publish(
-            (symbol_short!("created"), built.id),
-            (client, freelancer_addr, env.ledger().timestamp()),
+        events::emit_created(
+            &env,
+            built.id,
+            CreatedEvent {
+                client: client.clone(),
+                freelancer: freelancer_addr.clone(),
+                token: crate::Escrow::read_settlement_token(&env),
+                total: built.total_amount,
+                milestone_count: built.milestone_vec.len(),
+            },
         );
 
         built.id
@@ -349,27 +355,29 @@ impl Escrow {
 
         let timestamp = env.ledger().timestamp();
 
-        // Emit `created` event — identical payload to `create_contract`.
-        // Topics : `(symbol_short!("created"), id: u32)`
-        // Data   : `(client: Address, freelancer: Address, timestamp: u64)`
-        env.events().publish(
-            (symbol_short!("created"), id),
-            (client.clone(), freelancer.clone(), timestamp),
+        // Emit `created` event — structured payload.
+        events::emit_created(
+            &env,
+            id,
+            CreatedEvent {
+                client: client.clone(),
+                freelancer: freelancer.clone(),
+                token: Some(token.clone()),
+                total: total_amount,
+                milestone_count: funded_built.milestone_vec.len(),
+            },
         );
 
-        // Emit `deposit` event — identical payload to `deposit_funds`.
-        // Topics : `(symbol_short!("deposit"), id: u32)`
-        // Data   : `(caller: Address, amount: i128, funded_amount: i128,
-        //            status: ContractStatus, timestamp: u64)`
-        env.events().publish(
-            (symbol_short!("deposit"), id),
-            (
-                client,
-                total_amount,
-                total_amount,
-                ContractStatus::Funded,
-                timestamp,
-            ),
+        // Emit `deposit` event — structured payload.
+        events::emit_deposit(
+            &env,
+            id,
+            DepositEvent {
+                from: client,
+                amount: total_amount,
+                funded_amount: total_amount,
+                status: ContractStatus::Funded,
+            },
         );
 
         id as u64
