@@ -44,6 +44,10 @@ pub enum EscrowError {
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
     ArithmeticOverflow = 17,
+    /// The token moved a different amount than was requested, so the transfer is
+    /// rejected: the contract only ever credits what it actually received and
+    /// only ever sends what it recorded sending. See [`transfer_checked`].
+    TransferAmountMismatch = 18,
 }
 
 #[contracttype]
@@ -155,10 +159,60 @@ fn bump_instance(env: &Env) {
         .extend_ttl(PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
 }
 
-fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amount: i128) {
-    if amount > 0 {
-        token::Client::new(env, token_addr).transfer(from, to, &amount);
+/// Reads the contract's balance of `token_addr`.
+fn token_balance(env: &Env, token_addr: &Address) -> i128 {
+    token::Client::new(env, token_addr).balance(&env.current_contract_address())
+}
+
+/// Transfers `amount` and verifies the contract's token balance actually moved
+/// by exactly `amount` whenever the contract is on either side of the transfer.
+///
+/// Fee-on-transfer, rebasing or misreporting tokens would otherwise let the
+/// recorded `funded_amount` drift above what the contract holds — and later
+/// payouts would spend other escrows' tokens to cover the shortfall. Any
+/// mismatch fails with [`EscrowError::TransferAmountMismatch`], reverting the
+/// whole transaction, so the sender loses nothing and the ledger stays true.
+fn transfer_checked(
+    env: &Env,
+    token_addr: &Address,
+    from: &Address,
+    to: &Address,
+    amount: i128,
+) -> Result<(), EscrowError> {
+    if amount == 0 {
+        return Ok(());
     }
+    let this = env.current_contract_address();
+    let touches_contract = *from == this || *to == this;
+
+    let before = if touches_contract {
+        token_balance(env, token_addr)
+    } else {
+        0
+    };
+
+    token::Client::new(env, token_addr).transfer(from, to, &amount);
+
+    if !touches_contract {
+        return Ok(());
+    }
+
+    let after = token_balance(env, token_addr);
+    // `to == this` grows the balance, `from == this` shrinks it; either way the
+    // magnitude of the delta must equal `amount` exactly.
+    let delta = if *to == this {
+        after
+            .checked_sub(before)
+            .ok_or(EscrowError::TransferAmountMismatch)?
+    } else {
+        before
+            .checked_sub(after)
+            .ok_or(EscrowError::TransferAmountMismatch)?
+    };
+    if delta != amount {
+        return Err(EscrowError::TransferAmountMismatch);
+    }
+    Ok(())
 }
 
 #[contractimpl]
@@ -269,13 +323,15 @@ impl Escrow {
         if new_funded > c.total_amount {
             return Err(EscrowError::OverFunded);
         }
-        transfer(
+        // Credit exactly what arrived: `transfer_checked` fails the whole
+        // deposit if the token delivers anything other than `amount`.
+        transfer_checked(
             &env,
             &c.token,
             &c.client,
             &env.current_contract_address(),
             amount,
-        );
+        )?;
         c.funded_amount = new_funded;
         if c.funded_amount == c.total_amount {
             c.status = ContractStatus::Funded;
@@ -303,13 +359,13 @@ impl Escrow {
         if c.funded_amount - c.released_amount < m.amount {
             return Err(EscrowError::InsufficientFunds);
         }
-        transfer(
+        transfer_checked(
             &env,
             &c.token,
             &env.current_contract_address(),
             &c.freelancer,
             m.amount,
-        );
+        )?;
         m.released = true;
         c.released_amount += m.amount;
         c.milestones.set(index, m.clone());
@@ -380,8 +436,8 @@ impl Escrow {
         let to_freelancer = held * freelancer_bps as i128 / BPS_DENOMINATOR;
         let to_client = held - to_freelancer;
         let this = env.current_contract_address();
-        transfer(&env, &c.token, &this, &c.freelancer, to_freelancer);
-        transfer(&env, &c.token, &this, &c.client, to_client);
+        transfer_checked(&env, &c.token, &this, &c.freelancer, to_freelancer)?;
+        transfer_checked(&env, &c.token, &this, &c.client, to_client)?;
         c.released_amount += to_freelancer;
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Resolved;
@@ -455,13 +511,13 @@ impl Escrow {
             return Err(EscrowError::InvalidStatus);
         }
         let refund = c.funded_amount - c.released_amount;
-        transfer(
+        transfer_checked(
             &env,
             &c.token,
             &env.current_contract_address(),
             &c.client,
             refund,
-        );
+        )?;
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Cancelled;
         save(&env, &c);
@@ -549,3 +605,4 @@ impl Escrow {
 
 #[cfg(test)]
 mod test;
+

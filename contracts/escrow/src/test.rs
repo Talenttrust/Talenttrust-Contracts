@@ -1,7 +1,115 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, token::TokenClient, vec};
+use soroban_sdk::{
+    contract as mock_contract, contractimpl as mock_contractimpl, testutils::Address as _,
+    token::StellarAssetClient, token::TokenClient, vec, Address, Env,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mock tokens used to prove the balance-delta defence (#1678).
+//
+// The SAC (and every well-behaved token) moves exactly `amount`; these mocks
+// deliberately do not, so the contract's accounting is exercised against
+// fee-on-transfer and no-op tokens. Each mock lives in its own module because
+// the Soroban contract macro emits spec symbols that cannot share a scope.
+// ─────────────────────────────────────────────────────────────────────────────
+
+mod fee_token {
+    use super::*;
+
+    /// A fee-on-transfer token: `from` is debited the full `amount`, `to` is
+    /// credited `amount - 1%`. `share()` reports what a transfer would deliver.
+    #[mock_contract]
+    pub struct MockFeeToken;
+
+    #[mock_contractimpl]
+    impl MockFeeToken {
+        /// Mints without any balance rebalancing: test set-up only.
+        pub fn mint(env: Env, to: Address, amount: i128) {
+            let mut b: i128 = env.storage().persistent().get(&to).unwrap_or(0);
+            b += amount;
+            env.storage().persistent().set(&to, &b);
+        }
+
+        pub fn balance(env: Env, addr: Address) -> i128 {
+            env.storage().persistent().get(&addr).unwrap_or(0)
+        }
+
+        pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+            let fee = amount / 100; // 1%
+            let from_balance: i128 = env.storage().persistent().get(&from).unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&from, &(from_balance - amount));
+            let to_balance: i128 = env.storage().persistent().get(&to).unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&to, &(to_balance + amount - fee));
+        }
+
+        /// What a `transfer` of `amount` would actually deliver.
+        pub fn share(amount: i128) -> i128 {
+            amount - amount / 100
+        }
+    }
+}
+
+mod short_token {
+    use super::*;
+
+    /// A balance-moving token with a 1-unit fee: `from` is debited `amount`,
+    /// `to` is credited `amount - 1`. Reachable on both deposit and release.
+    #[mock_contract]
+    pub struct MockShortToken;
+
+    #[mock_contractimpl]
+    impl MockShortToken {
+        pub fn mint(env: Env, to: Address, amount: i128) {
+            let mut b: i128 = env.storage().persistent().get(&to).unwrap_or(0);
+            b += amount;
+            env.storage().persistent().set(&to, &b);
+        }
+
+        pub fn balance(env: Env, addr: Address) -> i128 {
+            env.storage().persistent().get(&addr).unwrap_or(0)
+        }
+
+        pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+            let from_balance: i128 = env.storage().persistent().get(&from).unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&from, &(from_balance - amount));
+            let to_balance: i128 = env.storage().persistent().get(&to).unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&to, &(to_balance + amount - 1));
+        }
+    }
+}
+
+mod noop_token {
+    use super::*;
+
+    /// A token that reports a successful transfer while moving nothing at all.
+    #[mock_contract]
+    pub struct MockNoopToken;
+
+    #[mock_contractimpl]
+    impl MockNoopToken {
+        pub fn mint(env: Env, to: Address, amount: i128) {
+            let mut b: i128 = env.storage().persistent().get(&to).unwrap_or(0);
+            b += amount;
+            env.storage().persistent().set(&to, &b);
+        }
+
+        pub fn balance(env: Env, addr: Address) -> i128 {
+            env.storage().persistent().get(&addr).unwrap_or(0)
+        }
+
+        pub fn transfer(_env: Env, _from: Address, _to: Address, _amount: i128) {}
+    }
+}
 
 struct Setup<'a> {
     env: Env,
@@ -267,3 +375,184 @@ fn cancel_unfunded_escrow_does_not_count_cancellation() {
     assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 1);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// #1678 — credit by measured balance delta
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Sets up fee-on-transfer token mock and returns (env, escrow, token addr, client, freelancer, admin).
+fn setup_with_fee_token<'a>() -> (Env, EscrowClient<'a>, Address, Address, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    escrow.initialize(&admin);
+    let token = env.register(fee_token::MockFeeToken, ());
+    fee_token::MockFeeTokenClient::new(&env, &token).mint(&client, &1_000);
+    (env, escrow, token, client, freelancer)
+}
+
+/// Escrow wired to a token whose outgoing transfers under-deliver by 1 unit.
+fn setup_short_token<'a>() -> (Env, EscrowClient<'a>, Address, Address, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    escrow.initialize(&admin);
+    let token = env.register(short_token::MockShortToken, ());
+    short_token::MockShortTokenClient::new(&env, &token).mint(&client, &1_000);
+    (env, escrow, token, client, freelancer)
+}
+
+#[test]
+fn deposit_fee_on_transfer_token_is_rejected() {
+    let (env, escrow, token, client, freelancer) = setup_with_fee_token();
+    let id = escrow.create_contract(&client, &freelancer, &token, &vec![&env, 100i128]);
+
+    assert_eq!(
+        escrow.try_deposit_funds(&id, &100),
+        Err(Ok(EscrowError::TransferAmountMismatch))
+    );
+
+    // Nothing was credited: the escrow neither over-reports funding nor holds
+    // a short balance for other escrows to cover.
+    let c = escrow.get_contract(&id);
+    assert_eq!(c.funded_amount, 0);
+    assert_eq!(c.status, ContractStatus::Created);
+    assert_eq!(
+        fee_token::MockFeeTokenClient::new(&env, &token).balance(&escrow.address),
+        0
+    );
+}
+
+#[test]
+fn deposit_noop_token_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    escrow.initialize(&admin);
+    let token = env.register(noop_token::MockNoopToken, ());
+    let cid = escrow.create_contract(&client, &freelancer, &token, &vec![&env, 100i128]);
+
+    assert_eq!(
+        escrow.try_deposit_funds(&cid, &100),
+        Err(Ok(EscrowError::TransferAmountMismatch))
+    );
+}
+
+#[test]
+fn release_short_delivery_token_is_rejected_without_marking_released() {
+    // A token that debits the escrow the full `amount` but only credits the
+    // recipient `amount - 1`. The escrow's own balance still falls by exactly
+    // `amount`, so the balance-delta guard alone cannot see the shortfall — but
+    // the guard's post-condition is on the CONTRACT's balance, which is what
+    // protects other escrows in the same token. To make that pay out over the
+    // recorded figure, the escrow must hold at least `amount`; it is credited
+    // only `amount - 1` at deposit, which the deposit guard already rejects.
+    // This test pins that a short-delivery token can never get past deposit,
+    // so no milestone can ever be released against a phantom balance.
+    let (env, escrow, token, client, freelancer) = setup_short_token();
+    let id = escrow.create_contract(&client, &freelancer, &token, &vec![&env, 100i128]);
+
+    assert_eq!(
+        escrow.try_deposit_funds(&id, &100),
+        Err(Ok(EscrowError::TransferAmountMismatch))
+    );
+    assert_eq!(escrow.get_contract(&id).funded_amount, 0);
+    assert!(!escrow.get_contract(&id).milestones.get(0).unwrap().released);
+    assert_eq!(
+        short_token::MockShortTokenClient::new(&env, &token).balance(&escrow.address),
+        0
+    );
+}
+
+#[test]
+fn release_escrow_balance_shortfall_is_rejected() {
+    // The outgoing post-condition: the escrow balance must fall by exactly the
+    // amount sent. Fund via the SAC, drain the escrow's balance behind the
+    // contract's back (simulating a token whose balances drift), then prove a
+    // release is refused rather than silently short-paying.
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+
+    // A well-behaved release still works and moves exactly 100.
+    let before = s.token.balance(&s.escrow.address);
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(before - s.token.balance(&s.escrow.address), 100);
+    assert_eq!(s.token.balance(&s.freelancer), 100);
+}
+
+#[test]
+fn resolve_dispute_outgoing_transfers_are_balance_checked() {
+    // Both outgoing legs of a dispute resolution are checked and, with a
+    // well-behaved token, deliver exactly the recorded split.
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 400i128],
+    );
+    s.escrow.deposit_funds(&id, &400);
+    s.escrow.open_dispute(&id, &s.client);
+
+    let escrow_before = s.token.balance(&s.escrow.address);
+    s.escrow.resolve_dispute(&id, &2_500);
+    assert_eq!(escrow_before - s.token.balance(&s.escrow.address), 400);
+    assert_eq!(s.token.balance(&s.freelancer), 100);
+    assert_eq!(s.escrow.get_contract(&id).funded_amount, 100);
+}
+
+#[test]
+fn cancel_outgoing_transfer_is_balance_checked() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+
+    let escrow_before = s.token.balance(&s.escrow.address);
+    s.escrow.cancel_contract(&id);
+    assert_eq!(escrow_before - s.token.balance(&s.escrow.address), 100);
+    assert_eq!(s.token.balance(&s.client), 1_000);
+
+    // Re-cancelling a zero-refund escrow (already cancelled) is rejected by
+    // status, and a refund of 0 skips the transfer entirely.
+    assert_eq!(
+        s.escrow.try_cancel_contract(&id),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+}
+
+#[test]
+fn deposit_records_exactly_the_amount_received_with_a_well_behaved_token() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 300i128],
+    );
+    s.escrow.deposit_funds(&id, &300);
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.funded_amount, 300);
+    assert_eq!(s.token.balance(&s.escrow.address), 300);
+}
