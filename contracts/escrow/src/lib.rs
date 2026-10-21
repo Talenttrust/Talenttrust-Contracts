@@ -19,6 +19,10 @@ use soroban_sdk{
 pub const MAX_MILESTONES: u32 = 20;
 pub const BPS_DENOMINATOR: i128 = 10_000;
 pub const CANCEL_NOTICE_SECS: u64 = 3 * 86_400;
+/// Threshold for dispute outcome accounting (5,000 basis points, or 50%).
+/// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
+/// the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
+pub const DISPUTE_WIN_THRESHOLD_BPS: u32 = 5_000;
 const PERSISTENT_TTL_THRESHOLD: u32 = 17_280; // ~1 day
 const PERSISTENT_TTL_EXTEND: u32 = 518_400; // ~30 days
 
@@ -46,6 +50,7 @@ pub enum EscrowError {
     CancelAlreadyRequested = 17,
     NoticePeriodActive = 18,
     NoticeRequired = 19,
+    ArithmeticOverflow = 20,
 }
 
 #[contracttype]
@@ -89,6 +94,15 @@ pub struct Reputation {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Outcomes {
+    pub disputes_opened: u32,
+    pub disputes_won: u32,
+    pub disputes_lost: u32,
+    pub cancellations: u32,
+}
+
+#[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
@@ -97,6 +111,7 @@ enum DataKey {
     Contract(u64),
     Reputation(Address),
     CancelRequestedAt(u64),
+    Outcomes(Address),
 }
 
 #[contract]
@@ -342,12 +357,38 @@ impl Escrow {
         c.status = ContractStatus::Disputed;
         save(&env, &c);
         clear_cancel_request(&env, id);
+
+        // Increment disputes_opened for the caller using checked arithmetic
+        let outcome_key = DataKey::Outcomes(caller.clone());
+        let mut caller_outcomes: Outcomes = env
+            .storage()
+            .persistent()
+            .get(&outcome_key)
+            .unwrap_or_default();
+        caller_outcomes.disputes_opened = caller_outcomes
+            .disputes_opened
+            .checked_add(1)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        env.storage()
+            .persistent()
+            .set(&outcome_key, &caller_outcomes);
+        env.storage().persistent().extend_ttl(
+            &outcome_key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
+
         env.events().publish((symbol_short!("dispute"), id), caller);
         Ok(())
     }
 
     /// Admin resolves a dispute, paying `freelancer_bps` (0..=10000) of the escrowed
     /// balance to the freelancer and refunding the rest to the client.
+    ///
+    /// Outcomes:
+    /// If freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS (5_000 bps, or 50%),
+    /// freelancer gets a dispute win and client gets a dispute loss.
+    /// Otherwise, freelancer gets a loss and client gets a win.
     pub fn resolve_dispute(env: Env, id: u64, freelancer_bps: u32) -> Result<(), EscrowError> {
         require_admin(&env)?;
         let mut c = load(&env, id)?;
@@ -367,6 +408,60 @@ impl Escrow {
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Resolved;
         save(&env, &c);
+
+        // Record dispute outcomes for both parties
+        let freelancer_key = DataKey::Outcomes(c.freelancer.clone());
+        let mut freelancer_outcomes: Outcomes = env
+            .storage()
+            .persistent()
+            .get(&freelancer_key)
+            .unwrap_or_default();
+
+        let client_key = DataKey::Outcomes(c.client.clone());
+        let mut client_outcomes: Outcomes = env
+            .storage()
+            .persistent()
+            .get(&client_key)
+            .unwrap_or_default();
+
+        if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS {
+            freelancer_outcomes.disputes_won = freelancer_outcomes
+                .disputes_won
+                .checked_add(1)
+                .ok_or(EscrowError::ArithmeticOverflow)?;
+            client_outcomes.disputes_lost = client_outcomes
+                .disputes_lost
+                .checked_add(1)
+                .ok_or(EscrowError::ArithmeticOverflow)?;
+        } else {
+            freelancer_outcomes.disputes_lost = freelancer_outcomes
+                .disputes_lost
+                .checked_add(1)
+                .ok_or(EscrowError::ArithmeticOverflow)?;
+            client_outcomes.disputes_won = client_outcomes
+                .disputes_won
+                .checked_add(1)
+                .ok_or(EscrowError::ArithmeticOverflow)?;
+        }
+
+        env.storage()
+            .persistent()
+            .set(&freelancer_key, &freelancer_outcomes);
+        env.storage().persistent().extend_ttl(
+            &freelancer_key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
+
+        env.storage()
+            .persistent()
+            .set(&client_key, &client_outcomes);
+        env.storage().persistent().extend_ttl(
+            &client_key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
+
         env.events()
             .publish((symbol_short!("resolved"), id), (to_freelancer, to_client));
         Ok(())
@@ -444,6 +539,7 @@ impl Escrow {
     /// Client cancels the agreement and recovers any unreleased funds.
     /// Only instant for `Created` escrows; `Funded` escrows must go through
     /// `request_cancel` -> `Finalize_cancel`.
+    /// If any funds were held and refunded, cancellations is incremented for the client.
     pub fn cancel_contract(env: Env, id: u64) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
@@ -465,19 +561,38 @@ impl Escrow {
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Cancelled;
         save(&env, &c);
+
+        // Increment cancellations for client only when funds were held
+        if refund > 0 {
+            let client_key = DataKey::Outcomes(c.client.clone());
+            let mut client_outcomes: Outcomes = env
+                .storage()
+                .persistent()
+                .get(&client_key)
+                .unwrap_or_default();
+            client_outcomes.cancellations = client_outcomes
+                .cancellations
+                .checked_add(1)
+                .ok_or(EscrowError::ArithmeticOverflow)?;
+            env.storage()
+                .persistent()
+                .set(&client_key, &client_outcomes);
+            env.storage().persistent().extend_ttl(
+                &client_key,
+                PERSISTENT_TTL_THRESHOLD,
+                PERSISTENT_TTL_EXTEND,
+            );
+        }
+
         env.events().publish((symbol_short!("cancel"), id), refund);
         Ok(())
     }
 
-    /// After completion the client may rate the freelancer
-    pub fn issue_reputation(
-        env: Env,
-        id: u64,
-        rating: u32,
-    ) -> Result<(), EscrowError> {
+    /// After completion or dispute resolution the client may rate the freelancer (1..=5) once per contract.
+    pub fn issue_reputation(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
         let mut c = load(&env, id)?;
         c.client.require_auth();
-        if c.status != ContractStatus::Completed {
+        if !matches!(c.status, ContractStatus::Completed | ContractStatus::Resolved) {
             return Err(EscrowError::InvalidStatus);
         }
         if c.reputation_issued {
@@ -510,6 +625,13 @@ impl Escrow {
         env.storage()
             .persistent()
             .get(&DataKey::Reputation(address))
+            .unwrap_or_default()
+    }
+
+    pub fn get_outcomes(env: Env, addr: Address) -> Outcomes {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Outcomes(addr))
             .unwrap_or_default()
     }
 

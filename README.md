@@ -28,18 +28,18 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones |
 | `deposit_funds(id, amount)` | client | Transfer tokens into escrow (cannot exceed total) |
 | `release_milestone(id, index)` | client | Pay the freelancer for a milestone |
-| `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution |
-| `resolve_dispute(id, freelancer_bps)` | admin | Split the held balance (basis points to freelancer) |
+| `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution (increments `disputes_opened`) |
+| `resolve_dispute(id, freelancer_bps)` | admin | Split the held balance (records dispute win/loss outcomes based on 5,000 bps threshold) |
 | `cancel_contract(id)` | client | Instant refund for `Created` escrows; requires notice for `Funded` |
 | `request_cancel(id)` | client | Start a 3-day cancellation notice on a `Funded` escrow |
 | `finalize_cancel(id)` | client | Refund unreleased funds after the notice period elapses |
 | `withdraw_cancel(id)` | client | Withdraw a pending cancellation request |
-| `issue_reputation(id, rating)` | client | Rate a completed job (1-5), once |
+| `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
 | `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
-| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_admin()`, `version()` | - | Reads |
+| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
 
 Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits.
-Cancellation of a `Funded` escrow goes through `request_cancel` -> 3-day notice -> `finalize_cancel`; the freelancer may dispute during the notice period (which clears the request), and the client may still release milestones or `withdraw_cancel`.
+Cancellation of a `Funded` escrow goes through `request_cancel` -> 3-day notice -> `finalize_cancel`; the freelancer may dispute during the notice period (which clears the request), and the client may still release milestones or `withdraw_cancel`. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
 
 ## Errors
 
