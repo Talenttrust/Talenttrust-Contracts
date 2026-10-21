@@ -25,18 +25,74 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | Function | Auth | Description |
 | --- | --- | --- |
 | `initialize(admin)` | admin | One-time setup |
-| `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones |
+| `create_contract(client, freelancer, token, milestone_amounts, review_window_secs) -> u64` | client | Create an escrow with up to 20 milestones; `review_window_secs` must be in [3 600, 2 592 000] |
 | `deposit_funds(id, amount)` | client | Transfer tokens into escrow (cannot exceed total) |
-| `release_milestone(id, index)` | client | Pay the freelancer for a milestone |
+| `submit_milestone(id, index)` | freelancer | Mark a milestone as delivered; starts the review clock |
+| `release_milestone(id, index)` | client | Approve and pay the freelancer for a Pending or Submitted milestone |
+| `claim_milestone(id, index)` | freelancer | Auto-release a Submitted milestone once `review_window_secs` has elapsed and the escrow is not Disputed |
 | `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution (increments `disputes_opened`) |
 | `resolve_dispute(id, freelancer_bps)` | admin | Split the held balance (records dispute win/loss outcomes based on 5,000 bps threshold) |
-| `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
+| `cancel_contract(id)` | client | Refund only the funds backing **Pending** milestones; funds backing **Submitted** milestones remain claimable by the freelancer |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
 | `void_rating(id, reason)` | admin | Void a fraudulent rating, reverse reputation and emit audit trail |
 | `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
 | `get_contract(id)`, `get_rating(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
 
-Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
+### Milestone state machine
+
+Each milestone moves through the following states:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending : created
+    Pending --> Submitted : submit_milestone (freelancer)
+    Pending --> Released : release_milestone (client early-pay)
+    Submitted --> Released : release_milestone (client approval)
+    Submitted --> Released : claim_milestone (freelancer, window elapsed, not Disputed)
+```
+
+### Escrow lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Created : create_contract
+    Created --> Funded : deposit_funds (fully funded)
+    Funded --> Completed : all milestones Released
+    Funded --> Disputed : open_dispute
+    Created --> Disputed : open_dispute
+    Disputed --> Resolved : resolve_dispute (admin)
+    Funded --> Cancelled : cancel_contract
+    Created --> Cancelled : cancel_contract
+```
+
+**Note on `cancel_contract`:** funds backing *Submitted* milestones are NOT refunded to the client.  
+The contract status transitions to `Cancelled`, but those funds remain in the escrow and the  
+freelancer can call `claim_milestone` once the review window elapses.
+
+### Error codes
+
+| Code | Name | Description |
+| ---: | --- | --- |
+| 1 | `AlreadyInitialized` | `initialize` called more than once |
+| 2 | `NotInitialized` | Contract used before `initialize` |
+| 3 | `Unauthorized` | Caller is not the required party |
+| 4 | `Paused` | Contract is paused |
+| 5 | `ContractNotFound` | No escrow with the given id |
+| 6 | `InvalidParties` | Client and freelancer are the same address |
+| 7 | `InvalidMilestones` | Zero or more than 20 milestones |
+| 8 | `InvalidAmount` | Amount ≤ 0 or arithmetic overflow |
+| 9 | `OverFunded` | Deposit would exceed total escrow amount |
+| 10 | `InvalidStatus` | Operation not allowed in the current status |
+| 11 | `MilestoneNotFound` | Index out of range |
+| 12 | `MilestoneAlreadyReleased` | Milestone already released (or re-submitted) |
+| 13 | `InsufficientFunds` | Not enough funded balance to cover the milestone |
+| 14 | `InvalidSplit` | `freelancer_bps` > 10 000 |
+| 15 | `InvalidRating` | Rating not in 1–5 |
+| 16 | `ReputationAlreadyIssued` | Reputation rated more than once per contract |
+| 17 | `ArithmeticOverflow` | Checked arithmetic failure |
+| 18 | `InvalidReviewWindow` | `review_window_secs` outside [3 600, 2 592 000] |
+| 19 | `MilestoneNotSubmitted` | `claim_milestone` called on a non-Submitted milestone |
+| 20 | `ReviewWindowActive` | Review window has not yet elapsed |
 
 ### Reputation Governance & Audit Trail
 - Ratings are recorded per escrow as `RatingRecord { freelancer, rating, issued_at, voided }`.
