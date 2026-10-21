@@ -1,7 +1,7 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, token::TokenClient, vec};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, token::StellarAssetClient, token::TokenClient, vec};
 
 struct Setup<'a> {
     env: Env,
@@ -129,69 +129,173 @@ fn pause_blocks_mutations() {
 }
 
 #[test]
-fn dispute_outcomes_freelancer_client_and_exact_threshold() {
+fn compact_cancelled_escrow() {
     let s = setup();
-
-    // 1. Freelancer-favoured resolution (> 5_000 bps): 7_500 bps
-    let id1 = s.escrow.create_contract(
+    let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
         &s.token.address,
-        &vec![&s.env, 200i128],
+        &vec![&s.env, 100i128],
     );
-    s.escrow.deposit_funds(&id1, &200);
-    s.escrow.open_dispute(&id1, &s.client);
-    s.escrow.resolve_dispute(&id1, &7_500);
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.cancel_contract(&id);
 
-    let client_outcomes1 = s.escrow.get_outcomes(&s.client);
-    let freelancer_outcomes1 = s.escrow.get_outcomes(&s.freelancer);
-    assert_eq!(client_outcomes1.disputes_opened, 1);
-    assert_eq!(client_outcomes1.disputes_won, 0);
-    assert_eq!(client_outcomes1.disputes_lost, 1);
-    assert_eq!(freelancer_outcomes1.disputes_opened, 0);
-    assert_eq!(freelancer_outcomes1.disputes_won, 1);
-    assert_eq!(freelancer_outcomes1.disputes_lost, 0);
-
-    // 2. Client-favoured resolution (< 5_000 bps): 2_000 bps
-    let id2 = s.escrow.create_contract(
-        &s.client,
-        &s.freelancer,
-        &s.token.address,
-        &vec![&s.env, 200i128],
+    // Should be able to compact a cancelled escrow
+    s.escrow.compact_escrow(&id);
+    assert_eq!(
+        s.escrow.try_get_contract(&id),
+        Err(Ok(EscrowError::EscrowCompacted))
     );
-    s.escrow.deposit_funds(&id2, &200);
-    s.escrow.open_dispute(&id2, &s.freelancer);
-    s.escrow.resolve_dispute(&id2, &2_000);
 
-    let client_outcomes2 = s.escrow.get_outcomes(&s.client);
-    let freelancer_outcomes2 = s.escrow.get_outcomes(&s.freelancer);
-    assert_eq!(client_outcomes2.disputes_opened, 1);
-    assert_eq!(client_outcomes2.disputes_won, 1);
-    assert_eq!(client_outcomes2.disputes_lost, 1);
-    assert_eq!(freelancer_outcomes2.disputes_opened, 1);
-    assert_eq!(freelancer_outcomes2.disputes_won, 1);
-    assert_eq!(freelancer_outcomes2.disputes_lost, 1);
-
-    // 3. Exactly 5_000 bps threshold: counts as a win for freelancer, loss for client
-    let id3 = s.escrow.create_contract(
-        &s.client,
-        &s.freelancer,
-        &s.token.address,
-        &vec![&s.env, 200i128],
-    );
-    s.escrow.deposit_funds(&id3, &200);
-    s.escrow.open_dispute(&id3, &s.client);
-    s.escrow.resolve_dispute(&id3, &5_000);
-
-    let client_outcomes3 = s.escrow.get_outcomes(&s.client);
-    let freelancer_outcomes3 = s.escrow.get_outcomes(&s.freelancer);
-    assert_eq!(client_outcomes3.disputes_opened, 2);
-    assert_eq!(client_outcomes3.disputes_won, 1);
-    assert_eq!(client_outcomes3.disputes_lost, 2);
-    assert_eq!(freelancer_outcomes3.disputes_opened, 1);
-    assert_eq!(freelancer_outcomes3.disputes_won, 2);
-    assert_eq!(freelancer_outcomes3.disputes_lost, 1);
+    // Receipt should exist and match the escrow
+    let receipt = s.escrow.get_receipt(&id);
+    assert!(receipt.is_some());
+    let r = receipt.unwrap();
+    assert_eq!(r.id, id);
+    assert_eq!(r.status, ContractStatus::Cancelled);
+    assert_eq!(r.total_amount, 100);
+    assert_eq!(r.released_amount, 0);
+    assert_eq!(r.refunded_amount, 100);
+    assert_eq!(r.milestone_count, 1);
+    assert!(!r.reputation_issued);
 }
+
+#[test]
+fn compact_resolved_escrow() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 400i128],
+    );
+    s.escrow.deposit_funds(&id, &400);
+    s.escrow.open_dispute(&id, &s.freelancer);
+    s.escrow.resolve_dispute(&id, &2_500); // 25% to freelancer
+
+    // Should be able to compact a resolved escrow
+    s.escrow.compact_escrow(&id);
+    assert_eq!(
+        s.escrow.try_get_contract(&id),
+        Err(Ok(EscrowError::EscrowCompacted))
+    );
+
+    // Receipt should exist and match the escrow
+    let receipt = s.escrow.get_receipt(&id);
+    assert!(receipt.is_some());
+    let r = receipt.unwrap();
+    assert_eq!(r.id, id);
+    assert_eq!(r.status, ContractStatus::Resolved);
+    assert_eq!(r.total_amount, 400);
+    assert_eq!(r.released_amount, 100); // 25% of 400
+    assert_eq!(r.refunded_amount, 300); // 75% of 400
+    assert_eq!(r.milestone_count, 1);
+    assert!(!r.reputation_issued);
+}
+
+#[test]
+fn compact_completed_escrow_after_rating() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128, 200i128],
+    );
+    s.escrow.deposit_funds(&id, &300);
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.release_milestone(&id, &1);
+    s.escrow.issue_reputation(&id, &5);
+
+    // Should be able to compact a completed escrow after rating
+    s.escrow.compact_escrow(&id);
+    assert_eq!(
+        s.escrow.try_get_contract(&id),
+        Err(Ok(EscrowError::EscrowCompacted))
+    );
+
+    // Receipt should exist and match the escrow
+    let receipt = s.escrow.get_receipt(&id);
+    assert!(receipt.is_some());
+    let r = receipt.unwrap();
+    assert_eq!(r.id, id);
+    assert_eq!(r.status, ContractStatus::Completed);
+    assert_eq!(r.total_amount, 300);
+    assert_eq!(r.released_amount, 300);
+    assert_eq!(r.refunded_amount, 0);
+    assert_eq!(r.milestone_count, 2);
+    assert!(r.reputation_issued);
+}
+
+#[test]
+fn compact_completed_escrow_after_30_days() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.release_milestone(&id, &0);
+
+    // Cannot compact immediately without rating
+    assert_eq!(
+        s.escrow.try_compact_escrow(&id),
+        Err(Ok(EscrowError::NotCompactable))
+    );
+
+    // Advance 30 days in ledgers
+    s.env.ledger().set_sequence_number(518_400u32);
+
+    // Now should be able to compact
+    s.escrow.compact_escrow(&id);
+    assert_eq!(
+        s.escrow.try_get_contract(&id),
+        Err(Ok(EscrowError::EscrowCompacted))
+    );
+
+    let receipt = s.escrow.get_receipt(&id);
+    assert!(receipt.is_some());
+    let r = receipt.unwrap();
+    assert_eq!(r.status, ContractStatus::Completed);
+    assert!(!r.reputation_issued);
+}
+
+#[test]
+fn cannot_compact_live_escrow() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+
+    // Created status cannot be compacted
+    assert_eq!(
+        s.escrow.try_compact_escrow(&id),
+        Err(Ok(EscrowError::NotCompactable))
+    );
+
+    s.escrow.deposit_funds(&id, &100);
+
+    // Funded status cannot be compacted
+    assert_eq!(
+        s.escrow.try_compact_escrow(&id),
+        Err(Ok(EscrowError::NotCompactable))
+    );
+
+    s.escrow.open_dispute(&id, &s.freelancer);
+
+    // Disputed status cannot be compacted
+    assert_eq!(
+        s.escrow.try_compact_escrow(&id),
+        Err(Ok(EscrowError::NotCompactable))
+    );
+}
+
+
 
 #[test]
 fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
@@ -205,7 +309,7 @@ fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
         &vec![&s.env, 100i128],
     );
     s.escrow.deposit_funds(&id, &100);
-    s.escrow.open_dispute(&id, &s.client);
+    s.escrow.open_dispute(&id, &s.freelancer);
     s.escrow.resolve_dispute(&id, &5_000);
 
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
@@ -242,28 +346,154 @@ fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
 }
 
 #[test]
-fn cancel_unfunded_escrow_does_not_count_cancellation() {
+fn cannot_compact_completed_before_30_days_without_rating() {
     let s = setup();
-
-    // 1. Unfunded cancellation -> cancellations remains 0
-    let id1 = s.escrow.create_contract(
+    let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
         &s.token.address,
         &vec![&s.env, 100i128],
     );
-    s.escrow.cancel_contract(&id1);
-    assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 0);
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.release_milestone(&id, &0);
 
-    // 2. Funded cancellation -> cancellations increments to 1
-    let id2 = s.escrow.create_contract(
+    // Cannot compact without rating and before 30 days
+    assert_eq!(
+        s.escrow.try_compact_escrow(&id),
+        Err(Ok(EscrowError::NotCompactable))
+    );
+
+    // Advance 29 days (just under the threshold)
+    s.env.ledger().set_sequence_number(518_400u32 - 1);
+
+    // Still cannot compact
+    assert_eq!(
+        s.escrow.try_compact_escrow(&id),
+        Err(Ok(EscrowError::NotCompactable))
+    );
+}
+
+#[test]
+fn cannot_double_compact() {
+    let s = setup();
+    let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
         &s.token.address,
         &vec![&s.env, 100i128],
     );
-    s.escrow.deposit_funds(&id2, &100);
-    s.escrow.cancel_contract(&id2);
-    assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 1);
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.cancel_contract(&id);
+
+    // First compaction succeeds
+    s.escrow.compact_escrow(&id);
+
+    // Second compaction fails - receipt already exists
+    assert_eq!(
+        s.escrow.try_compact_escrow(&id),
+        Err(Ok(EscrowError::NotCompactable))
+    );
+}
+
+#[test]
+fn receipt_fields_match_escrow_before_compaction() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128, 200i128, 300i128],
+    );
+    s.escrow.deposit_funds(&id, &600);
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.release_milestone(&id, &1);
+
+    // Cancel to make it terminal
+    s.escrow.cancel_contract(&id);
+
+    // Get the escrow after cancellation (it has the final state)
+    let escrow = s.escrow.get_contract(&id);
+
+    // Compact
+    s.escrow.compact_escrow(&id);
+
+    // Check receipt matches
+    let receipt = s.escrow.get_receipt(&id).unwrap();
+    assert_eq!(receipt.id, escrow.id);
+    assert_eq!(receipt.client, escrow.client);
+    assert_eq!(receipt.freelancer, escrow.freelancer);
+    assert_eq!(receipt.token, escrow.token);
+    assert_eq!(receipt.total_amount, escrow.total_amount);
+    assert_eq!(receipt.released_amount, escrow.released_amount);
+    assert_eq!(receipt.refunded_amount, escrow.refunded_amount);
+    assert_eq!(receipt.status, escrow.status);
+    assert_eq!(receipt.milestone_count, escrow.milestones.len() as u32);
+    assert_eq!(receipt.reputation_issued, escrow.reputation_issued);
+}
+
+#[test]
+fn issue_reputation_on_compacted_unrated_escrow_before_30_days() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.release_milestone(&id, &0);
+
+    // Try to compact before 30 days - should fail
+    assert_eq!(
+        s.escrow.try_compact_escrow(&id),
+        Err(Ok(EscrowError::NotCompactable))
+    );
+
+    // Should still be able to issue reputation
+    s.escrow.issue_reputation(&id, &5);
+
+    // Now compaction should succeed
+    s.escrow.compact_escrow(&id);
+    assert_eq!(
+        s.escrow.try_get_contract(&id),
+        Err(Ok(EscrowError::EscrowCompacted))
+    );
+}
+
+
+
+#[test]
+fn get_contract_returns_escrow_compacted() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.cancel_contract(&id);
+    s.escrow.compact_escrow(&id);
+
+    // get_contract should return EscrowCompacted error
+    assert_eq!(
+        s.escrow.try_get_contract(&id),
+        Err(Ok(EscrowError::EscrowCompacted))
+    );
+}
+
+#[test]
+fn get_receipt_returns_none_for_non_compacted() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+
+    // Receipt should not exist for non-compacted escrow
+    let receipt = s.escrow.get_receipt(&id);
+    assert!(receipt.is_none());
 }
 

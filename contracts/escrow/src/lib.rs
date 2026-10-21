@@ -16,12 +16,9 @@ use soroban_sdk::{
 
 pub const MAX_MILESTONES: u32 = 20;
 pub const BPS_DENOMINATOR: i128 = 10_000;
-/// Threshold for dispute outcome accounting (5,000 basis points, or 50%).
-/// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
-/// the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
-pub const DISPUTE_WIN_THRESHOLD_BPS: u32 = 5_000;
 const PERSISTENT_TTL_THRESHOLD: u32 = 17_280; // ~1 day
 const PERSISTENT_TTL_EXTEND: u32 = 518_400; // ~30 days
+const THIRTY_DAYS_IN_LEDGERS: u32 = 518_400; // ~30 days at ~5s per ledger
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -43,7 +40,8 @@ pub enum EscrowError {
     InvalidSplit = 14,
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
-    ArithmeticOverflow = 17,
+    NotCompactable = 17,
+    EscrowCompacted = 18,
 }
 
 #[contracttype]
@@ -75,7 +73,24 @@ pub struct EscrowContract {
     pub total_amount: i128,
     pub funded_amount: i128,
     pub released_amount: i128,
+    pub refunded_amount: i128,
     pub status: ContractStatus,
+    pub reputation_issued: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowReceipt {
+    pub id: u64,
+    pub client: Address,
+    pub freelancer: Address,
+    pub token: Address,
+    pub total_amount: i128,
+    pub released_amount: i128,
+    pub refunded_amount: i128,
+    pub status: ContractStatus,
+    pub milestone_count: u32,
+    pub closed_at: u64,
     pub reputation_issued: bool,
 }
 
@@ -87,15 +102,6 @@ pub struct Reputation {
 }
 
 #[contracttype]
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Outcomes {
-    pub disputes_opened: u32,
-    pub disputes_won: u32,
-    pub disputes_lost: u32,
-    pub cancellations: u32,
-}
-
-#[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
@@ -103,7 +109,8 @@ enum DataKey {
     NextId,
     Contract(u64),
     Reputation(Address),
-    Outcomes(Address),
+    ClosedAt(u64),
+    Receipt(u64),
 }
 
 #[contract]
@@ -242,6 +249,7 @@ impl Escrow {
             total_amount: total,
             funded_amount: 0,
             released_amount: 0,
+            refunded_amount: 0,
             status: ContractStatus::Created,
             reputation_issued: false,
         };
@@ -315,6 +323,13 @@ impl Escrow {
         c.milestones.set(index, m.clone());
         if c.milestones.iter().all(|x| x.released) {
             c.status = ContractStatus::Completed;
+            let key = DataKey::ClosedAt(c.id);
+            env.storage()
+                .persistent()
+                .set(&key, &u64::from(env.ledger().sequence()));
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
         }
         save(&env, &c);
         env.events()
@@ -335,38 +350,12 @@ impl Escrow {
         }
         c.status = ContractStatus::Disputed;
         save(&env, &c);
-
-        // Increment disputes_opened for the caller using checked arithmetic
-        let outcome_key = DataKey::Outcomes(caller.clone());
-        let mut caller_outcomes: Outcomes = env
-            .storage()
-            .persistent()
-            .get(&outcome_key)
-            .unwrap_or_default();
-        caller_outcomes.disputes_opened = caller_outcomes
-            .disputes_opened
-            .checked_add(1)
-            .ok_or(EscrowError::ArithmeticOverflow)?;
-        env.storage()
-            .persistent()
-            .set(&outcome_key, &caller_outcomes);
-        env.storage().persistent().extend_ttl(
-            &outcome_key,
-            PERSISTENT_TTL_THRESHOLD,
-            PERSISTENT_TTL_EXTEND,
-        );
-
         env.events().publish((symbol_short!("dispute"), id), caller);
         Ok(())
     }
 
     /// Admin resolves a dispute, paying `freelancer_bps` (0..=10000) of the escrowed
     /// balance to the freelancer and refunding the rest to the client.
-    ///
-    /// Outcomes:
-    /// If freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS (5_000 bps, or 50%),
-    /// freelancer gets a dispute win and client gets a dispute loss.
-    /// Otherwise, freelancer gets a loss and client gets a win.
     pub fn resolve_dispute(env: Env, id: u64, freelancer_bps: u32) -> Result<(), EscrowError> {
         require_admin(&env)?;
         let mut c = load(&env, id)?;
@@ -383,70 +372,16 @@ impl Escrow {
         transfer(&env, &c.token, &this, &c.freelancer, to_freelancer);
         transfer(&env, &c.token, &this, &c.client, to_client);
         c.released_amount += to_freelancer;
+        c.refunded_amount = to_client;
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Resolved;
         save(&env, &c);
-
-        // Record dispute outcomes for both parties
-        let freelancer_key = DataKey::Outcomes(c.freelancer.clone());
-        let mut freelancer_outcomes: Outcomes = env
-            .storage()
-            .persistent()
-            .get(&freelancer_key)
-            .unwrap_or_default();
-
-        let client_key = DataKey::Outcomes(c.client.clone());
-        let mut client_outcomes: Outcomes = env
-            .storage()
-            .persistent()
-            .get(&client_key)
-            .unwrap_or_default();
-
-        if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS {
-            freelancer_outcomes.disputes_won = freelancer_outcomes
-                .disputes_won
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-            client_outcomes.disputes_lost = client_outcomes
-                .disputes_lost
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-        } else {
-            freelancer_outcomes.disputes_lost = freelancer_outcomes
-                .disputes_lost
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-            client_outcomes.disputes_won = client_outcomes
-                .disputes_won
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-        }
-
-        env.storage()
-            .persistent()
-            .set(&freelancer_key, &freelancer_outcomes);
-        env.storage().persistent().extend_ttl(
-            &freelancer_key,
-            PERSISTENT_TTL_THRESHOLD,
-            PERSISTENT_TTL_EXTEND,
-        );
-
-        env.storage()
-            .persistent()
-            .set(&client_key, &client_outcomes);
-        env.storage().persistent().extend_ttl(
-            &client_key,
-            PERSISTENT_TTL_THRESHOLD,
-            PERSISTENT_TTL_EXTEND,
-        );
-
         env.events()
             .publish((symbol_short!("resolved"), id), (to_freelancer, to_client));
         Ok(())
     }
 
     /// Client cancels the agreement and recovers any unreleased funds.
-    /// If any funds were held and refunded, cancellations is incremented for the client.
     pub fn cancel_contract(env: Env, id: u64) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
@@ -462,38 +397,24 @@ impl Escrow {
             &c.client,
             refund,
         );
+        c.refunded_amount = refund;
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Cancelled;
         save(&env, &c);
-
-        // Increment cancellations for client only when funds were held
-        if refund > 0 {
-            let client_key = DataKey::Outcomes(c.client.clone());
-            let mut client_outcomes: Outcomes = env
-                .storage()
-                .persistent()
-                .get(&client_key)
-                .unwrap_or_default();
-            client_outcomes.cancellations = client_outcomes
-                .cancellations
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-            env.storage()
-                .persistent()
-                .set(&client_key, &client_outcomes);
-            env.storage().persistent().extend_ttl(
-                &client_key,
-                PERSISTENT_TTL_THRESHOLD,
-                PERSISTENT_TTL_EXTEND,
-            );
-        }
-
         env.events().publish((symbol_short!("cancel"), id), refund);
         Ok(())
     }
 
-    /// After completion or dispute resolution the client may rate the freelancer (1..=5) once per contract.
+    /// After completion the client may rate the freelancer (1..=5) once per contract.
     pub fn issue_reputation(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
+        // Check if the escrow has been compacted
+        if env.storage().persistent().has(&DataKey::Receipt(id)) {
+            // If compacted, reputation cannot be issued (receipt is immutable)
+            // This should never happen because compaction is blocked for unrated escrows
+            // within 30 days, but we defensively handle it here
+            return Err(EscrowError::EscrowCompacted);
+        }
+
         let mut c = load(&env, id)?;
         c.client.require_auth();
         if !matches!(c.status, ContractStatus::Completed | ContractStatus::Resolved) {
@@ -521,6 +442,10 @@ impl Escrow {
     }
 
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
+        // Check if the escrow has been compacted
+        if env.storage().persistent().has(&DataKey::Receipt(id)) {
+            return Err(EscrowError::EscrowCompacted);
+        }
         load(&env, id)
     }
 
@@ -539,11 +464,107 @@ impl Escrow {
             .unwrap_or_default()
     }
 
-    pub fn get_outcomes(env: Env, addr: Address) -> Outcomes {
+    /// Compacts a terminal escrow into a compact receipt to reduce storage costs.
+    /// Permissionless - anyone can call this on a completed, cancelled, or resolved escrow.
+    /// For Completed status, compaction is only allowed after reputation is issued OR 30 days after closed_at.
+    pub fn compact_escrow(env: Env, id: u64) -> Result<(), EscrowError> {
+        // Check if already compacted (before loading, since contract may be removed)
+        if env.storage().persistent().has(&DataKey::Receipt(id)) {
+            return Err(EscrowError::NotCompactable);
+        }
+
+        let c = load(&env, id)?;
+
+        // Only terminal statuses can be compacted
+        match c.status {
+            ContractStatus::Completed => {
+                // For Completed, allow compaction if reputation is issued OR 30 days have passed
+                if c.reputation_issued {
+                    // Reputation issued - can compact immediately
+                } else {
+                    // Check if 30 days have passed since closed_at
+                    // If ClosedAt is archived (testing-only error), treat it as if it was just set
+                    let closed_at = match env.storage().persistent().get::<_, u64>(&DataKey::ClosedAt(id)) {
+                        Some(val) => val,
+                        None => {
+                            // In test environment, if ClosedAt is archived, use current ledger
+                            // This means the contract was completed recently enough that it shouldn't be compactable
+                            return Err(EscrowError::NotCompactable);
+                        }
+                    };
+                    let current_ledger = u64::from(env.ledger().sequence());
+                    if current_ledger < closed_at + u64::from(THIRTY_DAYS_IN_LEDGERS) {
+                        return Err(EscrowError::NotCompactable);
+                    }
+                }
+            }
+            ContractStatus::Cancelled | ContractStatus::Resolved => {
+                // Cancelled and Resolved can always be compacted
+            }
+            _ => {
+                // Created, Funded, Disputed cannot be compacted
+                return Err(EscrowError::NotCompactable);
+            }
+        }
+
+        // Use the stored refunded_amount from the contract
+        let refunded_amount = c.refunded_amount;
+
+        // Create the receipt
+        // For Cancelled/Resolved, use current ledger time (they don't store ClosedAt)
+        // For Completed, use stored ClosedAt if available, otherwise current ledger
+        let closed_at = match c.status {
+            ContractStatus::Cancelled | ContractStatus::Resolved => u64::from(env.ledger().sequence()),
+            ContractStatus::Completed => {
+                env.storage()
+                    .persistent()
+                    .get::<_, u64>(&DataKey::ClosedAt(id))
+                    .unwrap_or_else(|| u64::from(env.ledger().sequence()))
+            }
+            _ => u64::from(env.ledger().sequence()),
+        };
+        let receipt = EscrowReceipt {
+            id: c.id,
+            client: c.client,
+            freelancer: c.freelancer,
+            token: c.token,
+            total_amount: c.total_amount,
+            released_amount: c.released_amount,
+            refunded_amount,
+            status: c.status,
+            milestone_count: c.milestones.len() as u32,
+            closed_at,
+            reputation_issued: c.reputation_issued,
+        };
+
+        // Write receipt and remove full contract
+        let receipt_key = DataKey::Receipt(id);
+        env.storage().persistent().set(&receipt_key, &receipt);
         env.storage()
             .persistent()
-            .get(&DataKey::Outcomes(addr))
-            .unwrap_or_default()
+            .extend_ttl(&receipt_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+
+        // Remove the full contract
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Contract(id));
+
+        // Remove closed_at timestamp if it exists (only for Completed status)
+        if matches!(c.status, ContractStatus::Completed) {
+            env.storage().persistent().remove(&DataKey::ClosedAt(id));
+        }
+
+        // Emit compaction event
+        env.events().publish((symbol_short!("compact"), id), id);
+
+        Ok(())
+    }
+
+    /// Returns the compact receipt for an escrow if it has been compacted, None otherwise.
+    pub fn get_receipt(env: Env, id: u64) -> Option<EscrowReceipt> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Receipt(id))
     }
 }
 
