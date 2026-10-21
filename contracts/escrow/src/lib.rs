@@ -21,6 +21,10 @@ pub const BPS_DENOMINATOR: i128 = 10_000;
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
 /// the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
 pub const DISPUTE_WIN_THRESHOLD_BPS: u32 = 5_000;
+/// Refundable dispute bond rate: 200 bps (2%) of the escrow total.
+pub const DISPUTE_BOND_BPS: i128 = 200;
+/// Floor for the dispute bond. Kept at 0, so tiny escrows round down to no bond.
+pub const DISPUTE_BOND_MIN: i128 = 0;
 const PERSISTENT_TTL_THRESHOLD: u32 = 17_280; // ~1 day
 const PERSISTENT_TTL_EXTEND: u32 = 518_400; // ~30 days
 
@@ -117,6 +121,7 @@ enum DataKey {
     Reputation(Address),
     Outcomes(Address),
     Rating(u64),
+    DisputeBond(u64),
 }
 
 #[contract]
@@ -336,6 +341,7 @@ impl Escrow {
     }
 
     /// Either party may raise a dispute, freezing releases until the admin resolves it.
+    /// The caller pays a refundable bond of max(DISPUTE_BOND_MIN, total * DISPUTE_BOND_BPS / 10_000).
     pub fn open_dispute(env: Env, id: u64, caller: Address) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
@@ -346,6 +352,23 @@ impl Escrow {
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
+        let bond = DISPUTE_BOND_MIN.max(c.total_amount * DISPUTE_BOND_BPS / BPS_DENOMINATOR);
+        transfer(
+            &env,
+            &c.token,
+            &caller,
+            &env.current_contract_address(),
+            bond,
+        );
+        let bond_key = DataKey::DisputeBond(id);
+        env.storage()
+            .persistent()
+            .set(&bond_key, &(caller.clone(), bond));
+        env.storage().persistent().extend_ttl(
+            &bond_key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
         c.status = ContractStatus::Disputed;
         save(&env, &c);
 
@@ -369,18 +392,27 @@ impl Escrow {
             PERSISTENT_TTL_EXTEND,
         );
 
-        env.events().publish((symbol_short!("dispute"), id), caller);
+        env.events()
+            .publish((symbol_short!("dispute"), id), (caller, bond));
         Ok(())
     }
 
     /// Admin resolves a dispute, paying `freelancer_bps` (0..=10000) of the escrowed
     /// balance to the freelancer and refunding the rest to the client.
     ///
+    /// The dispute bond is settled separately and is never part of the split: it returns
+    /// to the opener when `bond_to_opener` is true, otherwise it goes to the counterparty.
+    ///
     /// Outcomes:
     /// If freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS (5_000 bps, or 50%),
     /// freelancer gets a dispute win and client gets a dispute loss.
     /// Otherwise, freelancer gets a loss and client gets a win.
-    pub fn resolve_dispute(env: Env, id: u64, freelancer_bps: u32) -> Result<(), EscrowError> {
+    pub fn resolve_dispute(
+        env: Env,
+        id: u64,
+        freelancer_bps: u32,
+        bond_to_opener: bool,
+    ) -> Result<(), EscrowError> {
         require_admin(&env)?;
         let mut c = load(&env, id)?;
         if c.status != ContractStatus::Disputed {
@@ -389,6 +421,14 @@ impl Escrow {
         if freelancer_bps as i128 > BPS_DENOMINATOR {
             return Err(EscrowError::InvalidSplit);
         }
+        let bond_key = DataKey::DisputeBond(id);
+        let (opener, bond): (Address, i128) = env
+            .storage()
+            .persistent()
+            .get(&bond_key)
+            .ok_or(EscrowError::InvalidStatus)?;
+        env.storage().persistent().remove(&bond_key);
+
         let held = c.funded_amount - c.released_amount;
         let to_freelancer = held * freelancer_bps as i128 / BPS_DENOMINATOR;
         let to_client = held - to_freelancer;
@@ -399,6 +439,16 @@ impl Escrow {
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Resolved;
         save(&env, &c);
+
+        // Settle the bond outside the held split.
+        let bond_recipient = if bond_to_opener {
+            opener
+        } else if opener == c.client {
+            c.freelancer.clone()
+        } else {
+            c.client.clone()
+        };
+        transfer(&env, &c.token, &this, &bond_recipient, bond);
 
         // Record dispute outcomes for both parties
         let freelancer_key = DataKey::Outcomes(c.freelancer.clone());
@@ -453,8 +503,10 @@ impl Escrow {
             PERSISTENT_TTL_EXTEND,
         );
 
-        env.events()
-            .publish((symbol_short!("resolved"), id), (to_freelancer, to_client));
+        env.events().publish(
+            (symbol_short!("resolved"), id),
+            (to_freelancer, to_client, bond_recipient, bond),
+        );
         Ok(())
     }
 
@@ -613,6 +665,11 @@ impl Escrow {
             .persistent()
             .get(&DataKey::Outcomes(addr))
             .unwrap_or_default()
+    }
+
+    /// Returns the (opener, amount) bond held for a disputed escrow, if any.
+    pub fn get_dispute_bond(env: Env, id: u64) -> Option<(Address, i128)> {
+        env.storage().persistent().get(&DataKey::DisputeBond(id))
     }
 }
 
