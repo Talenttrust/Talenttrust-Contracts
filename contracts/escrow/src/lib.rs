@@ -8,6 +8,11 @@
 //! 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
 //! 6. The client can `cancel_contract` before completion to recover unreleased funds.
 //! 7. After completion the client may `issue_reputation` for the freelancer.
+//!
+//! Storage versioning:
+//! Escrow entries are stored under `DataKey::ContractV(id)` as `StoredEscrow::V1(EscrowContract)`.
+//! Legacy entries written under the old `DataKey::Contract(id)` key are lazily migrated on the
+//! first mutating access. The `migrate_escrows` function allows eager, permissionless migration.
 #![no_std]
 
 use soroban_sdk::{
@@ -21,6 +26,8 @@ pub const BPS_DENOMINATOR: i128 = 10_000;
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
 /// the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
 pub const DISPUTE_WIN_THRESHOLD_BPS: u32 = 5_000;
+/// Maximum number of escrow IDs accepted by a single `migrate_escrows` call.
+pub const MAX_MIGRATE_BATCH: u32 = 50;
 const PERSISTENT_TTL_THRESHOLD: u32 = 17_280; // ~1 day
 const PERSISTENT_TTL_EXTEND: u32 = 518_400; // ~30 days
 
@@ -82,6 +89,24 @@ pub struct EscrowContract {
     pub reputation_issued: bool,
 }
 
+/// Versioned storage envelope for `EscrowContract`.
+///
+/// Every new layout version adds a new variant here.  `upgrade_to_latest` is the
+/// single place that converts an older variant into the current working struct.
+#[contracttype]
+#[derive(Clone)]
+pub enum StoredEscrow {
+    V1(EscrowContract),
+}
+
+/// Converts any historical `StoredEscrow` variant into the current `EscrowContract`.
+/// Future versions that add a V2 variant extend this function only.
+pub fn upgrade_to_latest(s: StoredEscrow) -> EscrowContract {
+    match s {
+        StoredEscrow::V1(c) => c,
+    }
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Reputation {
@@ -113,7 +138,10 @@ enum DataKey {
     Admin,
     Paused,
     NextId,
+    /// Legacy key – kept so old ledger entries remain addressable during migration.
     Contract(u64),
+    /// Current versioned key – all new writes use this.
+    ContractV(u64),
     Reputation(Address),
     Outcomes(Address),
     Rating(u64),
@@ -147,19 +175,67 @@ fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
     Ok(())
 }
 
-fn load(env: &Env, id: u64) -> Result<EscrowContract, EscrowError> {
-    env.storage()
+/// Loads an escrow by id.
+///
+/// Read-only path (`mutating = false`): tries `ContractV` first; falls back to the
+/// legacy `Contract` key.  Does **not** write anything.
+///
+/// Mutating path (`mutating = true`): same fallback, but also performs the lazy
+/// migration – removes the legacy key and writes `ContractV` – so the caller's
+/// subsequent `save` lands on the new key.
+fn load_inner(env: &Env, id: u64, mutating: bool) -> Result<EscrowContract, EscrowError> {
+    let new_key = DataKey::ContractV(id);
+
+    // Fast path: already on the new key.
+    if let Some(stored) = env.storage().persistent().get::<_, StoredEscrow>(&new_key) {
+        return Ok(upgrade_to_latest(stored));
+    }
+
+    // Fallback: try the legacy key.
+    let legacy_key = DataKey::Contract(id);
+    let c: EscrowContract = env
+        .storage()
         .persistent()
-        .get(&DataKey::Contract(id))
-        .ok_or(EscrowError::ContractNotFound)
+        .get(&legacy_key)
+        .ok_or(EscrowError::ContractNotFound)?;
+
+    if mutating {
+        // Lazy migration: write new key, remove legacy key.
+        // The caller will call `save` immediately after, but we do the initial
+        // write here so that even if save were skipped the entry is migrated.
+        env.storage()
+            .persistent()
+            .set(&new_key, &StoredEscrow::V1(c.clone()));
+        env.storage()
+            .persistent()
+            .extend_ttl(&new_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        env.storage().persistent().remove(&legacy_key);
+    }
+
+    Ok(c)
+}
+
+fn load(env: &Env, id: u64) -> Result<EscrowContract, EscrowError> {
+    load_inner(env, id, true)
+}
+
+fn load_readonly(env: &Env, id: u64) -> Result<EscrowContract, EscrowError> {
+    load_inner(env, id, false)
 }
 
 fn save(env: &Env, c: &EscrowContract) {
-    let key = DataKey::Contract(c.id);
-    env.storage().persistent().set(&key, c);
+    let key = DataKey::ContractV(c.id);
+    env.storage()
+        .persistent()
+        .set(&key, &StoredEscrow::V1(c.clone()));
     env.storage()
         .persistent()
         .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+    // Ensure any residual legacy entry is gone after a mutating save.
+    let legacy = DataKey::Contract(c.id);
+    if env.storage().persistent().has(&legacy) {
+        env.storage().persistent().remove(&legacy);
+    }
 }
 
 fn bump_instance(env: &Env) {
@@ -191,7 +267,7 @@ impl Escrow {
     }
 
     pub fn version(_env: Env) -> u32 {
-        1
+        2
     }
 
     pub fn get_admin(env: Env) -> Result<Address, EscrowError> {
@@ -589,8 +665,10 @@ impl Escrow {
         env.storage().persistent().get(&DataKey::Rating(id))
     }
 
+    /// Returns the escrow for the given id. Does not mutate storage even if a legacy
+    /// entry is present (safe for indexers and read-only callers).
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
-        load(&env, id)
+        load_readonly(&env, id)
     }
 
     pub fn contract_count(env: Env) -> u64 {
@@ -613,6 +691,43 @@ impl Escrow {
             .persistent()
             .get(&DataKey::Outcomes(addr))
             .unwrap_or_default()
+    }
+
+    /// Eagerly migrates legacy `DataKey::Contract(id)` entries to `DataKey::ContractV(id)`.
+    ///
+    /// - Permissionless: any caller may invoke this.
+    /// - Accepts at most `MAX_MIGRATE_BATCH` (50) ids per call; returns `InvalidAmount` otherwise.
+    /// - Idempotent: already-migrated or unknown ids are silently skipped.
+    /// - Returns the count of entries actually migrated in this call.
+    /// - Does **not** change any field of the stored `EscrowContract`.
+    pub fn migrate_escrows(env: Env, ids: Vec<u64>) -> Result<u32, EscrowError> {
+        if ids.len() > MAX_MIGRATE_BATCH {
+            return Err(EscrowError::InvalidAmount);
+        }
+        let mut migrated: u32 = 0;
+        for id in ids.iter() {
+            let new_key = DataKey::ContractV(id);
+            // Skip if already migrated.
+            if env.storage().persistent().has(&new_key) {
+                continue;
+            }
+            let legacy_key = DataKey::Contract(id);
+            // Skip unknown ids.
+            let maybe: Option<EscrowContract> = env.storage().persistent().get(&legacy_key);
+            if let Some(c) = maybe {
+                env.storage()
+                    .persistent()
+                    .set(&new_key, &StoredEscrow::V1(c));
+                env.storage().persistent().extend_ttl(
+                    &new_key,
+                    PERSISTENT_TTL_THRESHOLD,
+                    PERSISTENT_TTL_EXTEND,
+                );
+                env.storage().persistent().remove(&legacy_key);
+                migrated += 1;
+            }
+        }
+        Ok(migrated)
     }
 }
 

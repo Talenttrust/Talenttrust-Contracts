@@ -34,6 +34,37 @@ fn setup<'a>() -> Setup<'a> {
     }
 }
 
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+/// Write a legacy `DataKey::Contract(id)` entry directly, simulating a pre-v2 ledger state.
+fn write_legacy(env: &Env, contract_addr: &soroban_sdk::Address, c: &EscrowContract) {
+    env.as_contract(contract_addr, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(c.id), c);
+    });
+}
+
+/// Returns true if a `DataKey::ContractV(id)` entry exists.
+fn has_new_key(env: &Env, contract_addr: &soroban_sdk::Address, id: u64) -> bool {
+    env.as_contract(contract_addr, || {
+        env.storage()
+            .persistent()
+            .has(&DataKey::ContractV(id))
+    })
+}
+
+/// Returns true if a legacy `DataKey::Contract(id)` entry still exists.
+fn has_legacy_key(env: &Env, contract_addr: &soroban_sdk::Address, id: u64) -> bool {
+    env.as_contract(contract_addr, || {
+        env.storage()
+            .persistent()
+            .has(&DataKey::Contract(id))
+    })
+}
+
+// ── existing tests (unchanged) ────────────────────────────────────────────────
+
 #[test]
 fn initialize_only_once() {
     let s = setup();
@@ -438,4 +469,221 @@ fn non_admin_cannot_void_rating() {
 
     // Calling void_rating as non-admin must fail
     assert!(s.escrow.try_void_rating(&id, &symbol_short!("fraud")).is_err());
+}
+
+// ── versioned storage tests ──────────────────────────────────────────────────
+
+/// AC-1: A legacy entry is transparently readable, survives all operations, and
+/// the legacy key disappears after the first mutation.
+///
+/// Strategy: plant a legacy entry with funded_amount=0 / status=Created so we
+/// can use deposit_funds (a mutation that also does a real token transfer) as
+/// the first mutating call without needing to pre-seed the contract's token balance.
+#[test]
+fn legacy_entry_is_migrated_on_first_mutation() {
+    let s = setup();
+    let contract_addr = s.escrow.address.clone();
+
+    // Use id=99 — well beyond NextId (starts at 1) to avoid counter collisions.
+    let legacy_escrow = EscrowContract {
+        id: 99,
+        client: s.client.clone(),
+        freelancer: s.freelancer.clone(),
+        token: s.token.address.clone(),
+        milestones: vec![
+            &s.env,
+            Milestone { amount: 100, released: false },
+        ],
+        total_amount: 100,
+        funded_amount: 0,
+        released_amount: 0,
+        status: ContractStatus::Created,
+        reputation_issued: false,
+    };
+
+    // Plant the legacy entry directly (simulates a pre-v2 ledger write).
+    write_legacy(&s.env, &contract_addr, &legacy_escrow);
+
+    // Pre-condition: legacy key exists, new key does not.
+    assert!(has_legacy_key(&s.env, &contract_addr, 99));
+    assert!(!has_new_key(&s.env, &contract_addr, 99));
+
+    // get_contract must read the legacy entry without mutating storage (AC-3).
+    let read = s.escrow.get_contract(&99u64);
+    assert_eq!(read.id, 99);
+    assert_eq!(read.status, ContractStatus::Created);
+    // Storage unchanged after the read-only call.
+    assert!(has_legacy_key(&s.env, &contract_addr, 99));
+    assert!(!has_new_key(&s.env, &contract_addr, 99));
+
+    // deposit_funds is a mutation that performs a real token transfer — it triggers
+    // lazy migration on the way in via load(), then save() writes ContractV.
+    s.escrow.deposit_funds(&99u64, &100i128);
+
+    // After the first mutation: new key must exist, legacy key must be gone.
+    assert!(has_new_key(&s.env, &contract_addr, 99));
+    assert!(!has_legacy_key(&s.env, &contract_addr, 99));
+
+    // The escrow data must still be correct.
+    let after = s.escrow.get_contract(&99u64);
+    assert_eq!(after.status, ContractStatus::Funded);
+    assert_eq!(after.funded_amount, 100);
+
+    // release_milestone also works on the now-migrated entry.
+    s.escrow.release_milestone(&99u64, &0u32);
+    assert_eq!(s.token.balance(&s.freelancer), 100);
+    assert_eq!(s.escrow.get_contract(&99u64).status, ContractStatus::Completed);
+}
+
+/// AC-2 (part a): get_contract on a legacy entry does NOT mutate storage.
+#[test]
+fn get_contract_on_legacy_does_not_mutate_storage() {
+    let s = setup();
+    let contract_addr = s.escrow.address.clone();
+
+    let legacy_escrow = EscrowContract {
+        id: 42,
+        client: s.client.clone(),
+        freelancer: s.freelancer.clone(),
+        token: s.token.address.clone(),
+        milestones: vec![&s.env, Milestone { amount: 50, released: false }],
+        total_amount: 50,
+        funded_amount: 0,
+        released_amount: 0,
+        status: ContractStatus::Created,
+        reputation_issued: false,
+    };
+
+    write_legacy(&s.env, &contract_addr, &legacy_escrow);
+
+    // Call get_contract multiple times.
+    let _ = s.escrow.get_contract(&42u64);
+    let _ = s.escrow.get_contract(&42u64);
+    let _ = s.escrow.get_contract(&42u64);
+
+    // Legacy key must still be present; new key must not exist.
+    assert!(has_legacy_key(&s.env, &contract_addr, 42));
+    assert!(!has_new_key(&s.env, &contract_addr, 42));
+}
+
+/// AC-2 (part b): deposit_funds and release_milestone both work on legacy entries.
+#[test]
+fn deposit_and_release_work_on_legacy_entry() {
+    let s = setup();
+    let contract_addr = s.escrow.address.clone();
+
+    let legacy_escrow = EscrowContract {
+        id: 77,
+        client: s.client.clone(),
+        freelancer: s.freelancer.clone(),
+        token: s.token.address.clone(),
+        milestones: vec![
+            &s.env,
+            Milestone { amount: 200, released: false },
+            Milestone { amount: 300, released: false },
+        ],
+        total_amount: 500,
+        funded_amount: 0,
+        released_amount: 0,
+        status: ContractStatus::Created,
+        reputation_issued: false,
+    };
+
+    write_legacy(&s.env, &contract_addr, &legacy_escrow);
+
+    // deposit_funds should lazily migrate and succeed.
+    s.escrow.deposit_funds(&77u64, &500i128);
+    assert!(has_new_key(&s.env, &contract_addr, 77));
+    assert!(!has_legacy_key(&s.env, &contract_addr, 77));
+    assert_eq!(s.escrow.get_contract(&77u64).status, ContractStatus::Funded);
+
+    // release_milestone works on the now-migrated entry.
+    s.escrow.release_milestone(&77u64, &0u32);
+    s.escrow.release_milestone(&77u64, &1u32);
+    assert_eq!(s.token.balance(&s.freelancer), 500);
+    assert_eq!(s.escrow.get_contract(&77u64).status, ContractStatus::Completed);
+}
+
+/// AC-3: migrate_escrows is idempotent.
+#[test]
+fn migrate_escrows_is_idempotent() {
+    let s = setup();
+    let contract_addr = s.escrow.address.clone();
+
+    let legacy_escrow = EscrowContract {
+        id: 10,
+        client: s.client.clone(),
+        freelancer: s.freelancer.clone(),
+        token: s.token.address.clone(),
+        milestones: vec![&s.env, Milestone { amount: 10, released: false }],
+        total_amount: 10,
+        funded_amount: 0,
+        released_amount: 0,
+        status: ContractStatus::Created,
+        reputation_issued: false,
+    };
+
+    write_legacy(&s.env, &contract_addr, &legacy_escrow);
+
+    // First call: migrates 1 entry.
+    let count1 = s.escrow.migrate_escrows(&vec![&s.env, 10u64]);
+    assert_eq!(count1, 1);
+    assert!(has_new_key(&s.env, &contract_addr, 10));
+    assert!(!has_legacy_key(&s.env, &contract_addr, 10));
+
+    // Second call: already migrated — returns 0.
+    let count2 = s.escrow.migrate_escrows(&vec![&s.env, 10u64]);
+    assert_eq!(count2, 0);
+
+    // Data integrity: entry still readable and correct.
+    let c = s.escrow.get_contract(&10u64);
+    assert_eq!(c.id, 10);
+    assert_eq!(c.status, ContractStatus::Created);
+}
+
+/// AC-3 (continued): migrate_escrows skips unknown ids and respects the 50-id cap.
+#[test]
+fn migrate_escrows_skips_unknown_and_enforces_cap() {
+    let s = setup();
+
+    // Unknown id → skipped, count = 0.
+    let count = s.escrow.migrate_escrows(&vec![&s.env, 9999u64]);
+    assert_eq!(count, 0);
+
+    // Batch of exactly 50 unknown ids → allowed, returns 0 (all unknown).
+    let mut ids = Vec::new(&s.env);
+    for i in 1000u64..1050u64 {
+        ids.push_back(i);
+    }
+    assert_eq!(ids.len(), 50);
+    let count50 = s.escrow.migrate_escrows(&ids);
+    assert_eq!(count50, 0);
+
+    // Batch of 51 → InvalidAmount.
+    let mut ids51 = Vec::new(&s.env);
+    for i in 2000u64..2051u64 {
+        ids51.push_back(i);
+    }
+    assert_eq!(ids51.len(), 51);
+    assert_eq!(
+        s.escrow.try_migrate_escrows(&ids51),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+}
+
+/// AC-4 (bonus): new contracts written by create_contract land directly on ContractV.
+#[test]
+fn new_contracts_use_contractv_key() {
+    let s = setup();
+    let contract_addr = s.escrow.address.clone();
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 10i128],
+    );
+
+    assert!(has_new_key(&s.env, &contract_addr, id));
+    assert!(!has_legacy_key(&s.env, &contract_addr, id));
 }

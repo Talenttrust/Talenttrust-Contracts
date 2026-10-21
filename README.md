@@ -33,6 +33,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
 | `void_rating(id, reason)` | admin | Void a fraudulent rating, reverse reputation and emit audit trail |
+| `migrate_escrows(ids: Vec<u64>) -> u32` | - | Eagerly migrate up to 50 legacy storage entries to the versioned `ContractV` key; returns count migrated; idempotent; unknown ids skipped. Returns `InvalidAmount` if more than 50 ids supplied. |
 | `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
 | `get_contract(id)`, `get_rating(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
 
@@ -43,6 +44,21 @@ Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `
 - Protocol admin can void fraudulent or collusive ratings via `void_rating(id, reason)`, which subtracts the rating and 1 contract from the freelancer's reputation and emits `("rep_void", id) -> (freelancer, rating, reason)`.
 - Voided escrows remain flagged so they cannot be re-rated (`ReputationAlreadyIssued`). Attempting to void twice returns `EscrowError::RatingAlreadyVoided (19)`.
 - Ratings issued before this audit trail upgrade have no `RatingRecord` and return `EscrowError::RatingNotFound (18)`.
+
+### Storage versioning
+
+Escrow entries are stored under `DataKey::ContractV(id)` as `StoredEscrow::V1(EscrowContract)`. Entries written by pre-v2 deployments under the legacy `DataKey::Contract(id)` key are migrated transparently:
+
+- **Lazy migration** — the first mutating call (`deposit_funds`, `release_milestone`, etc.) on a legacy entry rewrites it under `ContractV` and removes the old key automatically.
+- **Read-only safety** — `get_contract` reads legacy entries without touching storage.
+- **Eager migration** — `migrate_escrows(ids)` can be called by anyone to migrate up to 50 entries in one transaction, useful for tooling and indexers before a lazy migration would occur.
+- **Future versions** — add a new variant to `StoredEscrow` and extend `upgrade_to_latest`; no other change is required.
+
+#### Errors added
+
+| Code | Name | When |
+| --- | --- | --- |
+| 8 | `InvalidAmount` | `migrate_escrows` called with more than 50 ids |
 
 ## Build and test
 
