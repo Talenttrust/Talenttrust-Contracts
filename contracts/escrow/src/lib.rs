@@ -8,6 +8,8 @@
 //! 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
 //! 6. The client can `cancel_contract` before completion to recover unreleased funds.
 //! 7. After completion the client may `issue_reputation` for the freelancer.
+//! 8. After completion or resolution the freelancer may `rate_client` to rate the client.
+//! 9. Any caller may `expire_unfunded` to cancel an unfunded escrow past its funding deadline and refund the client.
 #![no_std]
 
 use soroban_sdk::{
@@ -17,6 +19,7 @@ use soroban_sdk::{
 
 pub const MAX_MILESTONES: u32 = 20;
 pub const BPS_DENOMINATOR: i128 = 10_000;
+pub const FUNDING_WINDOW_SECS: u64 = 14 * 86_400;
 /// Threshold for dispute outcome accounting (5,000 basis points, or 50%).
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
 /// the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
@@ -47,6 +50,8 @@ pub enum EscrowError {
     ArithmeticOverflow = 17,
     RatingNotFound = 18,
     RatingAlreadyVoided = 19,
+    FundingExpired = 20,
+    NotExpired = 21,
 }
 
 #[contracttype]
@@ -115,6 +120,9 @@ enum DataKey {
     NextId,
     Contract(u64),
     Reputation(Address),
+    ClientReputation(Address),
+    ClientRated(u64),
+    FundBy(u64),
     Outcomes(Address),
     Rating(u64),
 }
@@ -246,6 +254,13 @@ impl Escrow {
         let id: u64 = env.storage().instance().get(&DataKey::NextId).unwrap_or(1);
         env.storage().instance().set(&DataKey::NextId, &(id + 1));
         bump_instance(&env);
+        let creation_time = env.ledger().timestamp();
+        let fund_by = creation_time + FUNDING_WINDOW_SECS;
+        let fund_key = DataKey::FundBy(id);
+        env.storage().persistent().set(&fund_key, &fund_by);
+        env.storage()
+            .persistent()
+            .extend_ttl(&fund_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
         let c = EscrowContract {
             id,
             client: client.clone(),
@@ -271,6 +286,16 @@ impl Escrow {
         c.client.require_auth();
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
+        }
+        if c.status == ContractStatus::Created {
+            let fund_by: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::FundBy(id))
+                .unwrap_or_default();
+            if env.ledger().timestamp() > fund_by {
+                return Err(EscrowError::FundingExpired);
+            }
         }
         if amount <= 0 {
             return Err(EscrowError::InvalidAmount);
@@ -505,6 +530,41 @@ impl Escrow {
         Ok(())
     }
 
+    /// Anyone may expire an unfunded escrow agreement past its funding deadline and refund any deposit to the client.
+    pub fn expire_unfunded(env: Env, id: u64) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let mut c = load(&env, id)?;
+        if c.status != ContractStatus::Created {
+            return Err(EscrowError::InvalidStatus);
+        }
+        if c.released_amount != 0 {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let fund_by: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FundBy(id))
+            .unwrap_or_default();
+        if env.ledger().timestamp() <= fund_by {
+            return Err(EscrowError::NotExpired);
+        }
+        let refund = c.funded_amount;
+        transfer(
+            &env,
+            &c.token,
+            &env.current_contract_address(),
+            &c.client,
+            refund,
+        );
+        c.funded_amount = 0;
+        c.status = ContractStatus::Cancelled;
+        save(&env, &c);
+        env.events()
+            .publish((symbol_short!("expired"), id), refund);
+        Ok(())
+    }
+
+    /// After completion the client may rate the freelancer (1..=5) once per contract.
     /// After completion or dispute resolution the client may rate the freelancer (1..=5) once per contract.
     pub fn issue_reputation(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
         let mut c = load(&env, id)?;
@@ -544,6 +604,43 @@ impl Escrow {
         save(&env, &c);
         env.events()
             .publish((symbol_short!("rep"), id), (c.freelancer, rating));
+        Ok(())
+    }
+
+    /// After completion or resolution the freelancer may rate the client (1..=5) once per contract.
+    pub fn rate_client(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let c = load(&env, id)?;
+        c.freelancer.require_auth();
+        if !matches!(c.status, ContractStatus::Completed | ContractStatus::Resolved) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let rated_key = DataKey::ClientRated(id);
+        if env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&rated_key)
+            .unwrap_or(false)
+        {
+            return Err(EscrowError::ReputationAlreadyIssued);
+        }
+        if !(1..=5).contains(&rating) {
+            return Err(EscrowError::InvalidRating);
+        }
+        let rep_key = DataKey::ClientReputation(c.client.clone());
+        let mut rep: Reputation = env.storage().persistent().get(&rep_key).unwrap_or_default();
+        rep.completed_contracts += 1;
+        rep.total_rating += rating;
+        env.storage().persistent().set(&rep_key, &rep);
+        env.storage()
+            .persistent()
+            .extend_ttl(&rep_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        env.storage().persistent().set(&rated_key, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&rated_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        env.events()
+            .publish((symbol_short!("rep_cli"), id), (c.client, rating));
         Ok(())
     }
 
@@ -588,9 +685,15 @@ impl Escrow {
     pub fn get_rating(env: Env, id: u64) -> Option<RatingRecord> {
         env.storage().persistent().get(&DataKey::Rating(id))
     }
-
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
         load(&env, id)
+    }
+
+    pub fn get_fund_by(env: Env, id: u64) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FundBy(id))
+            .unwrap_or_default()
     }
 
     pub fn contract_count(env: Env) -> u64 {
@@ -605,6 +708,13 @@ impl Escrow {
         env.storage()
             .persistent()
             .get(&DataKey::Reputation(freelancer))
+            .unwrap_or_default()
+    }
+
+    pub fn get_client_reputation(env: Env, client: Address) -> Reputation {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ClientReputation(client))
             .unwrap_or_default()
     }
 
