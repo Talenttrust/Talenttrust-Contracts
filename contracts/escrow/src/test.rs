@@ -16,7 +16,7 @@ fn setup<'a>() -> Setup<'a> {
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let client = Address::generate(&env);
-    let freelancer = Address::generate(&env);
+    let freelancer: Address = Address::generate(&env);
     let sac = env.register_stellar_asset_contract_v2(admin.clone());
     StellarAssetClient::new(&env, &sac.address()).mint(&client, &1_000);
     let id = env.register(Escrow, ());
@@ -267,3 +267,138 @@ fn cancel_unfunded_escrow_does_not_count_cancellation() {
     assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 1);
 }
 
+#[test]
+fn change_order_on_funded_requires_top_up() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128, 200i128],
+    );
+    s.escrow.deposit_funds(&id, &300);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+
+    s.escrow.propose_change_order(&id, &vec![&s.env, 50i128]);
+    let (count, total) = s.escrow.accept_change_order(&id);
+    assert_eq!(count, 1);
+    assert_eq!(total, 50);
+
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Created);
+    assert_eq!(c.total_amount, 350);
+    assert_eq!(c.funded_amount, 300);
+    assert_eq!(c.milestones.len(), 3);
+
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.release_milestone(&id, &1);
+    assert_eq!(s.token.balance(&s.freelancer), 300);
+
+    // The new milestone is unfunded: existing balance is exhausted.
+    assert!(s.escrow.try_release_milestone(&id, &2).is_err());
+
+    // Client tops up the added amount.
+    s.escrow.deposit_funds(&id, &50);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+    s.escrow.release_milestone(&id, &2);
+    assert_eq!(s.token.balance(&s.freelancer), 350);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+}
+
+#[test]
+fn change_order_on_completed_reopens_and_completes_again() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+
+    s.escrow.propose_change_order(&id, &vec![&s.env, 40i128]);
+    let (count, total) = s.escrow.accept_change_order(&id);
+    assert_eq!(count, 1);
+    assert_eq!(total, 40);
+
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Created);
+    assert_eq!(c.total_amount, 140);
+    assert_eq!(c.funded_amount, 100);
+
+    s.escrow.deposit_funds(&id, &40);
+    s.escrow.release_milestone(&id, &1);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+    assert_eq!(s.token.balance(&s.freelancer), 140);
+}
+
+#[test]
+fn change_order_exceeding_max_milestones_rejected() {
+    let s = setup();
+    let mut amounts = Vec::new(&s.env);
+    for _ in 0..MAX_MILESTONES {
+        amounts.push_back(1i128);
+    }
+    let id = s
+        .escrow
+        .create_contract(&s.client, &s.freelancer, &s.token.address, &amounts);
+    s.escrow.deposit_funds(&id, &20);
+
+    let mut extra = Vec::new(&s.env);
+    extra.push_back(1i128);
+    assert_eq!(
+        s.escrow.try_propose_change_order(&id, &extra),
+        Err(Ok(EscrowError::InvalidMilestones))
+    );
+}
+
+#[test]
+fn freelancer_can_reject_change_order() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+
+    s.escrow.propose_change_order(&id, &vec![&s.env, 50i128]);
+    s.escrow.reject_change_order(&id);
+
+    assert_eq!(
+        s.escrow.try_accept_change_order(&id),
+        Err(Ok(EscrowError::ChangeOrderNotFound))
+    );
+
+    s.escrow.propose_change_order(&id, &vec![&s.env, 25i128]);
+    let (count, total) = s.escrow.accept_change_order(&id);
+    assert_eq!(count, 1);
+    assert_eq!(total, 25);
+}
+
+#[test]
+fn client_cannot_accept_own_change_order() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.propose_change_order(&id, &vec![&s.env, 50i128]);
+
+    // Switch from mocked auth to real auth: no address is authorized now.
+    s.env.set_auths(&[]);
+
+    // The client cannot accept their own change order (only the freelancer can).
+    assert!(s.escrow.try_accept_change_order(&id).is_err());
+
+    // With mocking back on, the freelancer accepts normally.
+    s.env.mock_all_auths();
+    let (count, total) = s.escrow.accept_change_order(&id);
+    assert_eq!((count, total), (1, 50));
+}

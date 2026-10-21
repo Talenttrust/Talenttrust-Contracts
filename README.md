@@ -32,10 +32,26 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `resolve_dispute(id, freelancer_bps)` | admin | Split the held balance (records dispute win/loss outcomes based on 5,000 bps threshold) |
 | `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
+| `propose_change_order(id, amounts)` | client | Propose additional milestones (Created|Funded|Completed) |
+| `accept_change_order(id)` | freelancer | Append proposed milestones, grow `total_amount`, reopen as `Created` |
+| `reject_change_order(id)` | freelancer | Remove a pending change-order proposal |
 | `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
 | `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
 
-Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
+Errors:
+
+| Code | Error | Raised by |
+| --- | --- | --- |
+| 1..=16 | (existing) | see error enum in `lib.rs` |
+| 17 | `ChangeOrderNotFound` | `accept_change_order` / `reject_change_order` with no pending proposal |
+
+Events:
+
+| Topic | Data | Emitted by |
+| --- | --- | --- |
+| `("chg_ord", id)` | `(added_count, added_total)` | `accept_change_order` |
+
+Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. Accepting a change order on a `Completed` escrow reopens it as `Created` (needs funding for the new milestones), so it can reach `Completed` again. Already-released milestones are never altered; new milestones are appended unreleased.
 
 ## Build and test
 
