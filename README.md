@@ -27,13 +27,17 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `initialize(admin)` | admin | One-time setup |
 | `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones |
 | `deposit_funds(id, amount)` | client | Transfer tokens into escrow (cannot exceed total) |
-| `release_milestone(id, index)` | client | Pay the freelancer for a milestone |
+| `release_milestone(id, index)` | client | Pay the freelancer for a milestone (pays only the remaining amount if partially paid) |
+| `release_partial(id, index, amount)` | client | Pay a portion of a milestone (0 < amount <= remaining), tracking paid amount |
 | `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution (increments `disputes_opened`) |
 | `resolve_dispute(id, freelancer_bps)` | admin | Split the held balance (records dispute win/loss outcomes based on 5,000 bps threshold) |
 | `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
 | `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
-| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
+| `get_contract(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_milestone_paid(id, index)`, `get_admin()`, `version()` | - | Reads |
+
+Events: `release` `(index, amount)`, `rel_part` `(index, amount, remaining)`.
+Errors: `InvalidAmount` (amount <= 0 or exceeds remaining), `InsufficientFunds`, `MilestoneAlreadyReleased`.
 
 Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
 

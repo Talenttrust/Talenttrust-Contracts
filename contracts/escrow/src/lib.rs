@@ -102,6 +102,7 @@ enum DataKey {
     Paused,
     NextId,
     Contract(u64),
+    MilestonePaid(u64, u32),
     Reputation(Address),
     Outcomes(Address),
 }
@@ -286,6 +287,7 @@ impl Escrow {
     }
 
     /// Client approves a milestone and the freelancer is paid.
+    /// Pays only the remaining amount of a partially paid milestone.
     pub fn release_milestone(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
@@ -300,7 +302,9 @@ impl Escrow {
         if m.released {
             return Err(EscrowError::MilestoneAlreadyReleased);
         }
-        if c.funded_amount - c.released_amount < m.amount {
+        let paid: i128 = Self::milestone_paid(&env, id, index);
+        let remaining = m.amount - paid;
+        if c.funded_amount - c.released_amount < remaining {
             return Err(EscrowError::InsufficientFunds);
         }
         transfer(
@@ -308,18 +312,99 @@ impl Escrow {
             &c.token,
             &env.current_contract_address(),
             &c.freelancer,
-            m.amount,
+            remaining,
         );
         m.released = true;
-        c.released_amount += m.amount;
+        c.released_amount = c
+            .released_amount
+            .checked_add(remaining)
+            .ok_or(EscrowError::InvalidAmount)?;
+        Self::set_milestone_paid(&env, id, index, m.amount);
         c.milestones.set(index, m.clone());
         if c.milestones.iter().all(|x| x.released) {
             c.status = ContractStatus::Completed;
         }
         save(&env, &c);
         env.events()
-            .publish((symbol_short!("release"), id), (index, m.amount));
+            .publish((symbol_short!("release"), id), (index, remaining));
         Ok(())
+    }
+
+    /// Client releases any portion of a milestone, tracking the amount paid so far.
+    pub fn release_partial(
+        env: Env,
+        id: u64,
+        index: u32,
+        amount: i128,
+    ) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let mut c = load(&env, id)?;
+        c.client.require_auth();
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let mut m = c
+            .milestones
+            .get(index)
+            .ok_or(EscrowError::MilestoneNotFound)?;
+        if m.released {
+            return Err(EscrowError::MilestoneAlreadyReleased);
+        }
+        let paid: i128 = Self::milestone_paid(&env, id, index);
+        let remaining = m.amount - paid;
+        if amount <= 0 || amount > remaining {
+            return Err(EscrowError::InvalidAmount);
+        }
+        if c.funded_amount - c.released_amount < amount {
+            return Err(EscrowError::InsufficientFunds);
+        }
+        transfer(
+            &env,
+            &c.token,
+            &env.current_contract_address(),
+            &c.freelancer,
+            amount,
+        );
+        let new_paid = paid.checked_add(amount).ok_or(EscrowError::InvalidAmount)?;
+        c.released_amount = c
+            .released_amount
+            .checked_add(amount)
+            .ok_or(EscrowError::InvalidAmount)?;
+        Self::set_milestone_paid(&env, id, index, new_paid);
+        let mut remaining_after = remaining - amount;
+        if new_paid == m.amount {
+            m.released = true;
+            remaining_after = 0;
+        }
+        c.milestones.set(index, m.clone());
+        if c.milestones.iter().all(|x| x.released) {
+            c.status = ContractStatus::Completed;
+        }
+        save(&env, &c);
+        env.events()
+            .publish((symbol_short!("rel_part"), id), (index, amount, remaining_after));
+        Ok(())
+    }
+
+    /// Returns how much of a milestone has been paid so far.
+    pub fn get_milestone_paid(env: Env, id: u64, index: u32) -> Result<i128, EscrowError> {
+        load(&env, id)?;
+        Ok(Self::milestone_paid(&env, id, index))
+    }
+
+    fn milestone_paid(env: &Env, id: u64, index: u32) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MilestonePaid(id, index))
+            .unwrap_or(0)
+    }
+
+    fn set_milestone_paid(env: &Env, id: u64, index: u32, paid: i128) {
+        let key = DataKey::MilestonePaid(id, index);
+        env.storage().persistent().set(&key, &paid);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
     }
 
     /// Either party may raise a dispute, freezing releases until the admin resolves it.
