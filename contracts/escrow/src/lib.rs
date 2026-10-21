@@ -15,6 +15,7 @@ use soroban_sdk::{
 };
 
 pub const MAX_MILESTONES: u32 = 20;
+pub const MAX_SUMMARY_BATCH: u32 = 25;
 pub const BPS_DENOMINATOR: i128 = 10_000;
 /// Threshold for dispute outcome accounting (5,000 basis points, or 50%).
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
@@ -80,6 +81,22 @@ pub struct EscrowContract {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowSummary {
+    pub id: u64,
+    pub status: ContractStatus,
+    pub total_amount: i128,
+    pub funded_amount: i128,
+    pub released_amount: i128,
+    pub held: i128,
+    pub remaining_to_fund: i128,
+    pub milestones_total: u32,
+    pub milestones_released: u32,
+    pub next_unreleased: Option<u32>,
+    pub next_release_affordable: bool,
+}
+
+#[contracttype]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Reputation {
     pub completed_contracts: u32,
@@ -139,6 +156,42 @@ fn load(env: &Env, id: u64) -> Result<EscrowContract, EscrowError> {
         .persistent()
         .get(&DataKey::Contract(id))
         .ok_or(EscrowError::ContractNotFound)
+}
+
+fn summarize(c: &EscrowContract) -> EscrowSummary {
+    let mut milestones_released = 0u32;
+    let mut next_unreleased: Option<u32> = None;
+    let mut i = 0u32;
+    while i < c.milestones.len() {
+        if let Some(m) = c.milestones.get(i) {
+            if m.released {
+                milestones_released += 1;
+            } else if next_unreleased.is_none() {
+                next_unreleased = Some(i);
+            }
+        }
+        i += 1;
+    }
+    let next_release_affordable = match next_unreleased {
+        Some(index) => match c.milestones.get(index) {
+            Some(m) => c.funded_amount - c.released_amount >= m.amount,
+            None => false,
+        },
+        None => false,
+    };
+    EscrowSummary {
+        id: c.id,
+        status: c.status,
+        total_amount: c.total_amount,
+        funded_amount: c.funded_amount,
+        released_amount: c.released_amount,
+        held: c.funded_amount - c.released_amount,
+        remaining_to_fund: c.total_amount - c.funded_amount,
+        milestones_total: c.milestones.len(),
+        milestones_released,
+        next_unreleased,
+        next_release_affordable,
+    }
 }
 
 fn save(env: &Env, c: &EscrowContract) {
@@ -522,6 +575,33 @@ impl Escrow {
 
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
         load(&env, id)
+    }
+
+    pub fn get_milestone(env: Env, id: u64, index: u32) -> Result<Milestone, EscrowError> {
+        load(&env, id)?
+            .milestones
+            .get(index)
+            .ok_or(EscrowError::MilestoneNotFound)
+    }
+
+    pub fn get_escrow_summary(env: Env, id: u64) -> Result<EscrowSummary, EscrowError> {
+        Ok(summarize(&load(&env, id)?))
+    }
+
+    pub fn get_escrow_summaries(
+        env: Env,
+        ids: Vec<u64>,
+    ) -> Result<Vec<EscrowSummary>, EscrowError> {
+        if ids.len() > MAX_SUMMARY_BATCH {
+            return Err(EscrowError::InvalidAmount);
+        }
+        let mut result = Vec::new(&env);
+        for id in ids.iter() {
+            if let Ok(c) = load(&env, id) {
+                result.push_back(summarize(&c));
+            }
+        }
+        Ok(result)
     }
 
     pub fn contract_count(env: Env) -> u64 {

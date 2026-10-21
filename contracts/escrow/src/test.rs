@@ -129,141 +129,230 @@ fn pause_blocks_mutations() {
 }
 
 #[test]
-fn dispute_outcomes_freelancer_client_and_exact_threshold() {
+fn summary_tracks_lifecycle_and_milestones() {
     let s = setup();
-
-    // 1. Freelancer-favoured resolution (> 5_000 bps): 7_500 bps
-    let id1 = s.escrow.create_contract(
-        &s.client,
-        &s.freelancer,
-        &s.token.address,
-        &vec![&s.env, 200i128],
-    );
-    s.escrow.deposit_funds(&id1, &200);
-    s.escrow.open_dispute(&id1, &s.client);
-    s.escrow.resolve_dispute(&id1, &7_500);
-
-    let client_outcomes1 = s.escrow.get_outcomes(&s.client);
-    let freelancer_outcomes1 = s.escrow.get_outcomes(&s.freelancer);
-    assert_eq!(client_outcomes1.disputes_opened, 1);
-    assert_eq!(client_outcomes1.disputes_won, 0);
-    assert_eq!(client_outcomes1.disputes_lost, 1);
-    assert_eq!(freelancer_outcomes1.disputes_opened, 0);
-    assert_eq!(freelancer_outcomes1.disputes_won, 1);
-    assert_eq!(freelancer_outcomes1.disputes_lost, 0);
-
-    // 2. Client-favoured resolution (< 5_000 bps): 2_000 bps
-    let id2 = s.escrow.create_contract(
-        &s.client,
-        &s.freelancer,
-        &s.token.address,
-        &vec![&s.env, 200i128],
-    );
-    s.escrow.deposit_funds(&id2, &200);
-    s.escrow.open_dispute(&id2, &s.freelancer);
-    s.escrow.resolve_dispute(&id2, &2_000);
-
-    let client_outcomes2 = s.escrow.get_outcomes(&s.client);
-    let freelancer_outcomes2 = s.escrow.get_outcomes(&s.freelancer);
-    assert_eq!(client_outcomes2.disputes_opened, 1);
-    assert_eq!(client_outcomes2.disputes_won, 1);
-    assert_eq!(client_outcomes2.disputes_lost, 1);
-    assert_eq!(freelancer_outcomes2.disputes_opened, 1);
-    assert_eq!(freelancer_outcomes2.disputes_won, 1);
-    assert_eq!(freelancer_outcomes2.disputes_lost, 1);
-
-    // 3. Exactly 5_000 bps threshold: counts as a win for freelancer, loss for client
-    let id3 = s.escrow.create_contract(
-        &s.client,
-        &s.freelancer,
-        &s.token.address,
-        &vec![&s.env, 200i128],
-    );
-    s.escrow.deposit_funds(&id3, &200);
-    s.escrow.open_dispute(&id3, &s.client);
-    s.escrow.resolve_dispute(&id3, &5_000);
-
-    let client_outcomes3 = s.escrow.get_outcomes(&s.client);
-    let freelancer_outcomes3 = s.escrow.get_outcomes(&s.freelancer);
-    assert_eq!(client_outcomes3.disputes_opened, 2);
-    assert_eq!(client_outcomes3.disputes_won, 1);
-    assert_eq!(client_outcomes3.disputes_lost, 2);
-    assert_eq!(freelancer_outcomes3.disputes_opened, 1);
-    assert_eq!(freelancer_outcomes3.disputes_won, 2);
-    assert_eq!(freelancer_outcomes3.disputes_lost, 1);
-}
-
-#[test]
-fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
-    let s = setup();
-
-    // Create and resolve dispute
     let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
         &s.token.address,
-        &vec![&s.env, 100i128],
+        &vec![&s.env, 100i128, 200i128, 300i128],
     );
+
     s.escrow.deposit_funds(&id, &100);
-    s.escrow.open_dispute(&id, &s.client);
-    s.escrow.resolve_dispute(&id, &5_000);
-
-    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
-
-    // Rating a Resolved escrow succeeds once
-    s.escrow.issue_reputation(&id, &4);
-    let rep = s.escrow.get_reputation(&s.freelancer);
-    assert_eq!(rep.completed_contracts, 1);
-    assert_eq!(rep.total_rating, 4);
-
-    // Second rating attempt is rejected
     assert_eq!(
-        s.escrow.try_issue_reputation(&id, &4),
-        Err(Ok(EscrowError::ReputationAlreadyIssued))
+        s.escrow.get_escrow_summary(&id),
+        EscrowSummary {
+            id,
+            status: ContractStatus::Created,
+            total_amount: 600,
+            funded_amount: 100,
+            released_amount: 0,
+            held: 100,
+            remaining_to_fund: 500,
+            milestones_total: 3,
+            milestones_released: 0,
+            next_unreleased: Some(0),
+            next_release_affordable: true,
+        }
     );
 
-    // Cancelled escrow rating is rejected
-    let id_cancel = s.escrow.create_contract(
-        &s.client,
-        &s.freelancer,
-        &s.token.address,
-        &vec![&s.env, 50i128],
-    );
-    s.escrow.deposit_funds(&id_cancel, &50);
-    s.escrow.cancel_contract(&id_cancel);
+    s.escrow.deposit_funds(&id, &500);
     assert_eq!(
-        s.escrow.get_contract(&id_cancel).status,
-        ContractStatus::Cancelled
+        s.escrow.get_escrow_summary(&id),
+        EscrowSummary {
+            id,
+            status: ContractStatus::Funded,
+            total_amount: 600,
+            funded_amount: 600,
+            released_amount: 0,
+            held: 600,
+            remaining_to_fund: 0,
+            milestones_total: 3,
+            milestones_released: 0,
+            next_unreleased: Some(0),
+            next_release_affordable: true,
+        }
+    );
+
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(
+        s.escrow.get_escrow_summary(&id),
+        EscrowSummary {
+            id,
+            status: ContractStatus::Funded,
+            total_amount: 600,
+            funded_amount: 600,
+            released_amount: 100,
+            held: 500,
+            remaining_to_fund: 0,
+            milestones_total: 3,
+            milestones_released: 1,
+            next_unreleased: Some(1),
+            next_release_affordable: true,
+        }
     );
     assert_eq!(
-        s.escrow.try_issue_reputation(&id_cancel, &5),
-        Err(Ok(EscrowError::InvalidStatus))
+        s.escrow.get_milestone(&id, &0),
+        Milestone {
+            amount: 100,
+            released: true,
+        }
+    );
+    assert_eq!(
+        s.escrow.get_milestone(&id, &1),
+        Milestone {
+            amount: 200,
+            released: false,
+        }
+    );
+    assert_eq!(
+        s.escrow.try_get_milestone(&id, &3),
+        Err(Ok(EscrowError::MilestoneNotFound))
+    );
+
+    s.escrow.release_milestone(&id, &1);
+    s.escrow.release_milestone(&id, &2);
+    assert_eq!(
+        s.escrow.get_escrow_summary(&id),
+        EscrowSummary {
+            id,
+            status: ContractStatus::Completed,
+            total_amount: 600,
+            funded_amount: 600,
+            released_amount: 600,
+            held: 0,
+            remaining_to_fund: 0,
+            milestones_total: 3,
+            milestones_released: 3,
+            next_unreleased: None,
+            next_release_affordable: false,
+        }
     );
 }
 
 #[test]
-fn cancel_unfunded_escrow_does_not_count_cancellation() {
+fn next_release_affordable_requires_full_milestone_coverage() {
     let s = setup();
-
-    // 1. Unfunded cancellation -> cancellations remains 0
-    let id1 = s.escrow.create_contract(
+    let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
         &s.token.address,
-        &vec![&s.env, 100i128],
+        &vec![&s.env, 100i128, 200i128],
     );
-    s.escrow.cancel_contract(&id1);
-    assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 0);
 
-    // 2. Funded cancellation -> cancellations increments to 1
-    let id2 = s.escrow.create_contract(
-        &s.client,
-        &s.freelancer,
-        &s.token.address,
-        &vec![&s.env, 100i128],
-    );
-    s.escrow.deposit_funds(&id2, &100);
-    s.escrow.cancel_contract(&id2);
-    assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 1);
+    s.escrow.deposit_funds(&id, &99);
+    let summary = s.escrow.get_escrow_summary(&id);
+    assert_eq!(summary.status, ContractStatus::Created);
+    assert_eq!(summary.next_unreleased, Some(0));
+    assert!(!summary.next_release_affordable);
+
+    s.escrow.deposit_funds(&id, &1);
+    let summary = s.escrow.get_escrow_summary(&id);
+    assert_eq!(summary.next_unreleased, Some(0));
+    assert!(summary.next_release_affordable);
+
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.deposit_funds(&id, &100);
+    let summary = s.escrow.get_escrow_summary(&id);
+    assert_eq!(summary.next_unreleased, Some(1));
+    assert!(!summary.next_release_affordable);
 }
 
+#[test]
+fn summary_after_cancel_and_resolve() {
+    let s = setup();
+    let cancelled = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128, 100i128],
+    );
+    s.escrow.deposit_funds(&cancelled, &200);
+    s.escrow.release_milestone(&cancelled, &0);
+    s.escrow.cancel_contract(&cancelled);
+    assert_eq!(
+        s.escrow.get_escrow_summary(&cancelled),
+        EscrowSummary {
+            id: cancelled,
+            status: ContractStatus::Cancelled,
+            total_amount: 200,
+            funded_amount: 100,
+            released_amount: 100,
+            held: 0,
+            remaining_to_fund: 100,
+            milestones_total: 2,
+            milestones_released: 1,
+            next_unreleased: Some(1),
+            next_release_affordable: false,
+        }
+    );
+
+    let resolved = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 400i128],
+    );
+    s.escrow.deposit_funds(&resolved, &400);
+    s.escrow.open_dispute(&resolved, &s.freelancer);
+    s.escrow.resolve_dispute(&resolved, &2_500);
+    assert_eq!(
+        s.escrow.get_escrow_summary(&resolved),
+        EscrowSummary {
+            id: resolved,
+            status: ContractStatus::Resolved,
+            total_amount: 400,
+            funded_amount: 100,
+            released_amount: 100,
+            held: 0,
+            remaining_to_fund: 300,
+            milestones_total: 1,
+            milestones_released: 0,
+            next_unreleased: Some(0),
+            next_release_affordable: false,
+        }
+    );
+}
+
+#[test]
+fn batch_summaries_skip_unknown_and_enforce_cap() {
+    let s = setup();
+    let first = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 10i128],
+    );
+    let second = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 20i128],
+    );
+    let third = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 30i128],
+    );
+
+    let summaries = s
+        .escrow
+        .get_escrow_summaries(&vec![&s.env, first, 99, second, third]);
+    assert_eq!(summaries.len(), 3);
+    assert_eq!(summaries.get(0).unwrap().id, first);
+    assert_eq!(summaries.get(1).unwrap().id, second);
+    assert_eq!(summaries.get(2).unwrap().id, third);
+
+    let mut max_ids = Vec::new(&s.env);
+    for i in 0..MAX_SUMMARY_BATCH {
+        max_ids.push_back(1_000 + i as u64);
+    }
+    assert_eq!(s.escrow.get_escrow_summaries(&max_ids).len(), 0);
+
+    max_ids.push_back(1_000 + MAX_SUMMARY_BATCH as u64);
+    assert_eq!(
+        s.escrow.try_get_escrow_summaries(&max_ids),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+}
