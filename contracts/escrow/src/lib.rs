@@ -11,7 +11,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Map,
+    Vec,
 };
 
 pub const MAX_MILESTONES: u32 = 20;
@@ -44,6 +45,7 @@ pub enum EscrowError {
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
     ArithmeticOverflow = 17,
+    TooManyFunders = 18,
 }
 
 #[contracttype]
@@ -104,6 +106,7 @@ enum DataKey {
     Contract(u64),
     Reputation(Address),
     Outcomes(Address),
+    Funders(u64),
 }
 
 #[contract]
@@ -159,6 +162,44 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     if amount > 0 {
         token::Client::new(env, token_addr).transfer(from, to, &amount);
     }
+}
+
+/// Distributes `refund` pro-rata to funders by contribution. The rounding
+/// remainder goes to the largest funder so the sum distributed equals `refund`
+/// exactly (no dust is lost).
+fn refund_funders(env: &Env, c: &EscrowContract, refund: i128) -> Result<(), EscrowError> {
+    if refund <= 0 {
+        return Ok(());
+    }
+    let key = DataKey::Funders(c.id);
+    let funders: Map<Address, i128> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Map::new(env));
+    let total_funded = c.funded_amount;
+    let this = env.current_contract_address();
+    let mut remaining = refund;
+    let mut largest: Option<Address> = None;
+    let mut largest_amt: i128 = -1;
+    for funder in funders.keys() {
+        let contribution = funders.get(funder.clone()).unwrap();
+        let share = contribution * refund / total_funded;
+        if share > 0 {
+            transfer(env, &c.token, &this, &funder, share);
+            remaining = remaining.checked_sub(share).unwrap();
+        }
+        if contribution > largest_amt {
+            largest_amt = contribution;
+            largest = Some(funder);
+        }
+    }
+    if remaining > 0 {
+        if let Some(addr) = largest {
+            transfer(env, &c.token, &this, &addr, remaining);
+        }
+    }
+    Ok(())
 }
 
 #[contractimpl]
@@ -251,11 +292,41 @@ impl Escrow {
         Ok(id)
     }
 
-    /// Client deposits `amount` of the escrow token into the contract.
+    /// Sponsor (or client) deposits `amount` of the escrow token from `funder`.
+    /// Refunds are routed pro-rata to funders by contribution.
+    pub fn deposit_from(
+        env: Env,
+        id: u64,
+        funder: Address,
+        amount: i128,
+    ) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let mut c = load(&env, id)?;
+        Self::apply_deposit(&env, &mut c, &funder, amount)?;
+        save(&env, &c);
+        Ok(())
+    }
+
+    /// Client deposits `amount` of the escrow token into the contract, recording
+    /// the client as a funder.
     pub fn deposit_funds(env: Env, id: u64, amount: i128) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
-        c.client.require_auth();
+        let client = c.client.clone();
+        Self::apply_deposit(&env, &mut c, &client, amount)?;
+        save(&env, &c);
+        Ok(())
+    }
+
+    /// Shared deposit logic: auth the funder, validate status/amount/overfunding,
+    /// transfer tokens, track the funder's contribution, and emit (funder, amount).
+    fn apply_deposit(
+        env: &Env,
+        c: &mut EscrowContract,
+        funder: &Address,
+        amount: i128,
+    ) -> Result<(), EscrowError> {
+        funder.require_auth();
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
@@ -270,18 +341,31 @@ impl Escrow {
             return Err(EscrowError::OverFunded);
         }
         transfer(
-            &env,
+            env,
             &c.token,
-            &c.client,
+            funder,
             &env.current_contract_address(),
             amount,
         );
+        let key = DataKey::Funders(c.id);
+        let mut funders: Map<Address, i128> =
+            env.storage().persistent().get(&key).unwrap_or(Map::new(env));
+        let is_new = funders.get(funder.clone()).is_none();
+        if is_new && funders.len() >= 10 {
+            return Err(EscrowError::TooManyFunders);
+        }
+        let prev = funders.get(funder.clone()).unwrap_or(0);
+        funders.set(
+            funder.clone(),
+            prev.checked_add(amount).ok_or(EscrowError::InvalidAmount)?,
+        );
+        env.storage().persistent().set(&key, &funders);
         c.funded_amount = new_funded;
         if c.funded_amount == c.total_amount {
             c.status = ContractStatus::Funded;
         }
-        save(&env, &c);
-        env.events().publish((symbol_short!("deposit"), id), amount);
+        env.events()
+            .publish((symbol_short!("deposit"), c.id), (funder.clone(), amount));
         Ok(())
     }
 
@@ -381,7 +465,7 @@ impl Escrow {
         let to_client = held - to_freelancer;
         let this = env.current_contract_address();
         transfer(&env, &c.token, &this, &c.freelancer, to_freelancer);
-        transfer(&env, &c.token, &this, &c.client, to_client);
+        refund_funders(&env, &c, to_client)?;
         c.released_amount += to_freelancer;
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Resolved;
@@ -455,13 +539,7 @@ impl Escrow {
             return Err(EscrowError::InvalidStatus);
         }
         let refund = c.funded_amount - c.released_amount;
-        transfer(
-            &env,
-            &c.token,
-            &env.current_contract_address(),
-            &c.client,
-            refund,
-        );
+        refund_funders(&env, &c, refund)?;
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Cancelled;
         save(&env, &c);
@@ -522,6 +600,14 @@ impl Escrow {
 
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
         load(&env, id)
+    }
+
+    /// Returns the map of funder -> contribution for an escrow.
+    pub fn get_funders(env: Env, id: u64) -> Map<Address, i128> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Funders(id))
+            .unwrap_or(Map::new(&env))
     }
 
     pub fn contract_count(env: Env) -> u64 {

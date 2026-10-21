@@ -267,3 +267,232 @@ fn cancel_unfunded_escrow_does_not_count_cancellation() {
     assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 1);
 }
 
+#[test]
+fn sponsor_client_cancel_pro_rata() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let sponsor = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    StellarAssetClient::new(&env, &sac.address()).mint(&client, &1_000);
+    StellarAssetClient::new(&env, &sac.address()).mint(&sponsor, &1_000);
+    let token = TokenClient::new(&env, &sac.address());
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    escrow.initialize(&admin);
+    let id = escrow.create_contract(
+        &client,
+        &freelancer,
+        &token.address,
+        &vec![&env, 100i128],
+    );
+
+    // sponsor funds 60, client funds 40
+    escrow.deposit_from(&id, &sponsor, &60);
+    escrow.deposit_funds(&id, &40);
+
+    let funders = escrow.get_funders(&id);
+    assert_eq!(funders.get(sponsor.clone()).unwrap(), 60);
+    assert_eq!(funders.get(client.clone()).unwrap(), 40);
+
+    let client_before = token.balance(&client);
+    let sponsor_before = token.balance(&sponsor);
+    let freelancer_before = token.balance(&freelancer);
+    let contract_addr = escrow.address.clone();
+    let contract_before = token.balance(&contract_addr);
+
+    // client cancels with no release: refund = 100 split pro-rata
+    escrow.cancel_contract(&id);
+
+    // sponsor gets 60 back, client gets 40 back (not all to client)
+    assert_eq!(token.balance(&sponsor), sponsor_before + 60);
+    assert_eq!(token.balance(&client), client_before + 40);
+    assert_eq!(token.balance(&freelancer), freelancer_before);
+    // the contract is fully refunded, so it holds nothing left
+    assert_eq!(token.balance(&contract_addr), 0);
+
+    // conservation: sum of all balance deltas == 0
+    let sum = (token.balance(&client) - client_before)
+        + (token.balance(&sponsor) - sponsor_before)
+        + (token.balance(&freelancer) - freelancer_before)
+        + (token.balance(&contract_addr) - contract_before);
+    assert_eq!(sum, 0);
+
+    assert_eq!(escrow.get_contract(&id).status, ContractStatus::Cancelled);
+}
+
+#[test]
+fn partial_release_cancel_pro_rata() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let sponsor = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    StellarAssetClient::new(&env, &sac.address()).mint(&client, &1_000);
+    StellarAssetClient::new(&env, &sac.address()).mint(&sponsor, &1_000);
+    let token = TokenClient::new(&env, &sac.address());
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    escrow.initialize(&admin);
+    let milestones = vec![&env, 30i128, 70i128];
+    let id = escrow.create_contract(
+        &client,
+        &freelancer,
+        &token.address,
+        &milestones,
+    );
+    let contract_addr = escrow.address.clone();
+
+    // sponsor funds 60, client funds 40
+    escrow.deposit_from(&id, &sponsor, &60);
+    escrow.deposit_funds(&id, &40);
+
+    let client_before = token.balance(&client);
+    let sponsor_before = token.balance(&sponsor);
+    let freelancer_before = token.balance(&freelancer);
+    let contract_before = token.balance(&contract_addr);
+
+    // release 30 to freelancer
+    escrow.release_milestone(&id, &0);
+    assert_eq!(token.balance(&freelancer), freelancer_before + 30);
+
+    // cancel: refund = 70, split pro-rata: sponsor 42, client 28
+    escrow.cancel_contract(&id);
+
+    assert_eq!(token.balance(&sponsor), sponsor_before + 42);
+    assert_eq!(token.balance(&client), client_before + 28);
+
+    // conservation: no dust lost to rounding
+    let sum = (token.balance(&client) - client_before)
+        + (token.balance(&sponsor) - sponsor_before)
+        + (token.balance(&freelancer) - freelancer_before)
+        + (token.balance(&contract_addr) - contract_before);
+    assert_eq!(sum, 0);
+
+    assert_eq!(escrow.get_contract(&id).status, ContractStatus::Cancelled);
+}
+
+#[test]
+fn dispute_split_pro_rata() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let sponsor = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    StellarAssetClient::new(&env, &sac.address()).mint(&client, &1_000);
+    StellarAssetClient::new(&env, &sac.address()).mint(&sponsor, &1_000);
+    let token = TokenClient::new(&env, &sac.address());
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    escrow.initialize(&admin);
+    let id = escrow.create_contract(
+        &client,
+        &freelancer,
+        &token.address,
+        &vec![&env, 100i128],
+    );
+    let contract_addr = escrow.address.clone();
+
+    // sponsor funds 60, client funds 40
+    escrow.deposit_from(&id, &sponsor, &60);
+    escrow.deposit_funds(&id, &40);
+
+    let client_before = token.balance(&client);
+    let sponsor_before = token.balance(&sponsor);
+    let freelancer_before = token.balance(&freelancer);
+    let contract_before = token.balance(&contract_addr);
+
+    // freelancer opens dispute, admin resolves 25% to freelancer
+    escrow.open_dispute(&id, &freelancer);
+    escrow.resolve_dispute(&id, &2_500);
+
+    // freelancer gets 25 (25% of 100 held)
+    assert_eq!(token.balance(&freelancer), freelancer_before + 25);
+    // client share = 75 split pro-rata: sponsor 45, client 30
+    assert_eq!(token.balance(&sponsor), sponsor_before + 45);
+    assert_eq!(token.balance(&client), client_before + 30);
+
+    // conservation
+    let sum = (token.balance(&client) - client_before)
+        + (token.balance(&sponsor) - sponsor_before)
+        + (token.balance(&freelancer) - freelancer_before)
+        + (token.balance(&contract_addr) - contract_before);
+    assert_eq!(sum, 0);
+}
+
+#[test]
+fn too_many_funders_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    StellarAssetClient::new(&env, &sac.address()).mint(&client, &2_000);
+    let token = TokenClient::new(&env, &sac.address());
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    escrow.initialize(&admin);
+    let id = escrow.create_contract(
+        &client,
+        &freelancer,
+        &token.address,
+        &vec![&env, 2_000i128],
+    );
+
+    // 10 funders deposit 100 each
+    for _ in 0..10 {
+        let funder = Address::generate(&env);
+        StellarAssetClient::new(&env, &sac.address()).mint(&funder, &100);
+        escrow.deposit_from(&id, &funder, &100);
+    }
+
+    // 11th funder rejected
+    let funder11 = Address::generate(&env);
+    StellarAssetClient::new(&env, &sac.address()).mint(&funder11, &100);
+    assert_eq!(
+        escrow.try_deposit_from(&id, &funder11, &100),
+        Err(Ok(EscrowError::TooManyFunders))
+    );
+}
+
+#[test]
+fn funder_auth_enforced() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let sponsor = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    StellarAssetClient::new(&env, &sac.address()).mint(&client, &1_000);
+    StellarAssetClient::new(&env, &sac.address()).mint(&sponsor, &1_000);
+    let token = TokenClient::new(&env, &sac.address());
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    let contract_addr = escrow.address.clone();
+    escrow.initialize(&admin);
+    let id = escrow.create_contract(
+        &client,
+        &freelancer,
+        &token.address,
+        &vec![&env, 100i128],
+    );
+
+    // sponsor (a third party) funds the escrow and is recorded as a funder
+    escrow.deposit_from(&id, &sponsor, &60);
+
+    let funders = escrow.get_funders(&id);
+    assert_eq!(funders.get(sponsor.clone()).unwrap(), 60);
+    assert_eq!(funders.len(), 1);
+
+    // the sponsor's tokens moved into the contract
+    assert_eq!(token.balance(&sponsor), 1_000 - 60);
+    assert_eq!(token.balance(&contract_addr), 60);
+}
