@@ -34,6 +34,10 @@ fn setup<'a>() -> Setup<'a> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Existing tests (unchanged)
+// ---------------------------------------------------------------------------
+
 #[test]
 fn initialize_only_once() {
     let s = setup();
@@ -438,4 +442,269 @@ fn non_admin_cannot_void_rating() {
 
     // Calling void_rating as non-admin must fail
     assert!(s.escrow.try_void_rating(&id, &symbol_short!("fraud")).is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Platform fee tests (issue #1682)
+// ---------------------------------------------------------------------------
+
+/// Helper: set up a fresh environment with a treasury account and a known
+/// starting balance for the client (1_000 units).
+struct FeeSetup<'a> {
+    env: Env,
+    admin: Address,
+    treasury: Address,
+    escrow: EscrowClient<'a>,
+    token: TokenClient<'a>,
+    client: Address,
+    freelancer: Address,
+}
+
+fn fee_setup<'a>() -> FeeSetup<'a> {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    StellarAssetClient::new(&env, &sac.address()).mint(&client, &1_000);
+    let contract_id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &contract_id);
+    escrow.initialize(&admin);
+    let token = TokenClient::new(&env, &sac.address());
+    FeeSetup {
+        env,
+        admin,
+        treasury,
+        escrow,
+        token,
+        client,
+        freelancer,
+    }
+}
+
+/// AC-1: Escrow created at 100 bps; admin raises to 300 bps; release still
+/// charges 100 bps. Balances of freelancer, treasury, and contract are asserted.
+/// Conservation: freelancer + treasury == escrow total.
+#[test]
+fn fee_snapshot_is_immutable_after_admin_raises_rate() {
+    let s = fee_setup();
+
+    // Set fee to 100 bps at creation time.
+    s.escrow.set_fee(&100u32, &s.treasury);
+    assert_eq!(s.escrow.get_fee_config(), (100u32, Some(s.treasury.clone())));
+
+    let amount: i128 = 1_000;
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, amount],
+    );
+    // Snapshot must reflect 100 bps.
+    assert_eq!(s.escrow.get_escrow_fee(&id), 100u32);
+
+    // Admin raises fee to 300 bps — must NOT affect this escrow.
+    s.escrow.set_fee(&300u32, &s.treasury);
+
+    s.escrow.deposit_funds(&id, &amount);
+    let contract_before = s.token.balance(&s.escrow.address);
+    assert_eq!(contract_before, amount);
+
+    s.escrow.release_milestone(&id, &0);
+
+    // fee = 1_000 * 100 / 10_000 = 10
+    let expected_fee: i128 = 10;
+    let expected_freelancer: i128 = amount - expected_fee;
+
+    assert_eq!(s.token.balance(&s.freelancer), expected_freelancer);
+    assert_eq!(s.token.balance(&s.treasury), expected_fee);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+
+    // Conservation: freelancer received + treasury received == total deposited.
+    assert_eq!(expected_freelancer + expected_fee, amount);
+}
+
+/// AC-2: Fee rounding on a 1-unit amount with nonzero bps.
+/// 1 * 100 / 10_000 = 0 (integer division) → fee is 0, freelancer gets everything.
+#[test]
+fn fee_rounds_down_to_zero_on_unit_amount() {
+    let s = fee_setup();
+    s.escrow.set_fee(&100u32, &s.treasury);
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 1i128],
+    );
+    s.escrow.deposit_funds(&id, &1);
+    s.escrow.release_milestone(&id, &0);
+
+    // fee = 1 * 100 / 10_000 = 0 (rounds down)
+    assert_eq!(s.token.balance(&s.freelancer), 1);
+    assert_eq!(s.token.balance(&s.treasury), 0);
+    // Conservation
+    assert_eq!(s.token.balance(&s.freelancer) + s.token.balance(&s.treasury), 1);
+}
+
+/// AC-3a: Dispute split charges fee only on the freelancer's gross share;
+/// the client's refund is untouched.
+/// Conservation: freelancer_net + treasury + client_refund == total held.
+#[test]
+fn dispute_fee_applies_only_to_freelancer_share() {
+    let s = fee_setup();
+    s.escrow.set_fee(&200u32, &s.treasury); // 2 %
+
+    let amount: i128 = 1_000;
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, amount],
+    );
+    s.escrow.deposit_funds(&id, &amount);
+    s.escrow.open_dispute(&id, &s.freelancer);
+
+    // freelancer_bps = 5_000 → gross_freelancer = 500, client_refund = 500
+    // fee on freelancer = 500 * 200 / 10_000 = 10
+    // to_freelancer = 490, treasury = 10, to_client = 500
+    s.escrow.resolve_dispute(&id, &5_000);
+
+    let gross_freelancer: i128 = 500;
+    let fee: i128 = 10;
+    let to_freelancer = gross_freelancer - fee;
+    let to_client: i128 = 500;
+
+    assert_eq!(s.token.balance(&s.freelancer), to_freelancer);
+    assert_eq!(s.token.balance(&s.treasury), fee);
+    // client started with 1_000, deposited 1_000, got 500 back
+    assert_eq!(s.token.balance(&s.client), to_client);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+
+    // Conservation
+    assert_eq!(to_freelancer + fee + to_client, amount);
+}
+
+/// AC-3b: cancel_contract refunds carry no fee.
+#[test]
+fn cancel_charges_no_fee() {
+    let s = fee_setup();
+    s.escrow.set_fee(&300u32, &s.treasury); // 3 %
+
+    let amount: i128 = 500;
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, amount],
+    );
+    s.escrow.deposit_funds(&id, &amount);
+
+    let client_before = s.token.balance(&s.client);
+    s.escrow.cancel_contract(&id);
+
+    // Full refund — no fee deducted.
+    assert_eq!(s.token.balance(&s.client), client_before + amount);
+    assert_eq!(s.token.balance(&s.treasury), 0);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+}
+
+/// AC-4a: set_fee above MAX_FEE_BPS (500) returns FeeTooHigh.
+#[test]
+fn set_fee_above_cap_returns_fee_too_high() {
+    let s = fee_setup();
+    assert_eq!(
+        s.escrow.try_set_fee(&501u32, &s.treasury),
+        Err(Ok(EscrowError::FeeTooHigh))
+    );
+    // Exactly at the cap must succeed.
+    s.escrow.set_fee(&500u32, &s.treasury);
+    assert_eq!(s.escrow.get_fee_config(), (500u32, Some(s.treasury.clone())));
+}
+
+/// AC-4b: non-admin calling set_fee is rejected.
+#[test]
+fn non_admin_cannot_set_fee() {
+    let s = fee_setup();
+    let non_admin = Address::generate(&s.env);
+    s.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &non_admin,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "set_fee",
+            args: soroban_sdk::IntoVal::into_val(&(100u32, s.treasury.clone()), &s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_set_fee(&100u32, &s.treasury).is_err());
+}
+
+/// AC-5 (conservation): release across two milestones — freelancer + treasury
+/// + remaining contract balance == original deposit.
+#[test]
+fn conservation_multi_milestone_release() {
+    let s = fee_setup();
+    s.escrow.set_fee(&250u32, &s.treasury); // 2.5 %
+
+    // Two milestones: 400 and 600
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 400i128, 600i128],
+    );
+    s.escrow.deposit_funds(&id, &1_000);
+
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.release_milestone(&id, &1);
+
+    // fee per milestone: 400*250/10_000=10, 600*250/10_000=15
+    let expected_fee: i128 = 10 + 15;
+    let expected_freelancer: i128 = (400 - 10) + (600 - 15);
+
+    assert_eq!(s.token.balance(&s.freelancer), expected_freelancer);
+    assert_eq!(s.token.balance(&s.treasury), expected_fee);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_eq!(expected_freelancer + expected_fee, 1_000);
+}
+
+/// Zero-fee (default): existing behaviour is preserved — freelancer gets 100 %,
+/// treasury receives nothing.
+#[test]
+fn zero_fee_default_preserves_existing_behaviour() {
+    let s = fee_setup();
+    // No set_fee call — default is 0.
+    let (bps, treasury) = s.escrow.get_fee_config();
+    assert_eq!(bps, 0u32);
+    assert!(treasury.is_none());
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 300i128],
+    );
+    s.escrow.deposit_funds(&id, &300);
+    s.escrow.release_milestone(&id, &0);
+
+    assert_eq!(s.token.balance(&s.freelancer), 300);
+}
+
+/// get_escrow_fee defaults to 0 for escrows created before set_fee was called.
+#[test]
+fn get_escrow_fee_defaults_to_zero() {
+    let s = fee_setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128],
+    );
+    assert_eq!(s.escrow.get_escrow_fee(&id), 0u32);
+
+    // Now raise fee; snapshot for old escrow must remain 0.
+    s.escrow.set_fee(&100u32, &s.treasury);
+    assert_eq!(s.escrow.get_escrow_fee(&id), 0u32);
 }

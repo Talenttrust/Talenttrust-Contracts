@@ -17,6 +17,8 @@ use soroban_sdk::{
 
 pub const MAX_MILESTONES: u32 = 20;
 pub const BPS_DENOMINATOR: i128 = 10_000;
+/// Maximum platform fee in basis points (5 %, i.e. 500 bps).
+pub const MAX_FEE_BPS: u32 = 500;
 /// Threshold for dispute outcome accounting (5,000 basis points, or 50%).
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
 /// the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
@@ -47,6 +49,8 @@ pub enum EscrowError {
     ArithmeticOverflow = 17,
     RatingNotFound = 18,
     RatingAlreadyVoided = 19,
+    /// set_fee called with fee_bps > MAX_FEE_BPS.
+    FeeTooHigh = 20,
 }
 
 #[contracttype]
@@ -117,6 +121,12 @@ enum DataKey {
     Reputation(Address),
     Outcomes(Address),
     Rating(u64),
+    /// Instance storage: current global fee in basis points.
+    FeeBps,
+    /// Instance storage: current treasury address.
+    Treasury,
+    /// Persistent storage: fee snapshot for a specific escrow, written at creation.
+    EscrowFee(u64),
 }
 
 #[contract]
@@ -174,6 +184,14 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     }
 }
 
+/// Returns the fee snapshot stored for an escrow, defaulting to 0 if not present.
+fn escrow_fee_bps(env: &Env, id: u64) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EscrowFee(id))
+        .unwrap_or(0u32)
+}
+
 #[contractimpl]
 impl Escrow {
     /// One-time setup. Sets the admin that controls pausing and dispute resolution.
@@ -213,7 +231,53 @@ impl Escrow {
             .unwrap_or(false)
     }
 
+    // -------------------------------------------------------------------------
+    // Fee management
+    // -------------------------------------------------------------------------
+
+    /// Admin sets the global fee (in basis points, max 500) and treasury address.
+    /// Both values are atomically updated together so it is never possible for
+    /// fee > 0 to exist without a treasury.
+    ///
+    /// Event: `("fee_set",) → (fee_bps, treasury)`
+    pub fn set_fee(env: Env, fee_bps: u32, treasury: Address) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        if fee_bps > MAX_FEE_BPS {
+            return Err(EscrowError::FeeTooHigh);
+        }
+        env.storage().instance().set(&DataKey::FeeBps, &fee_bps);
+        env.storage().instance().set(&DataKey::Treasury, &treasury);
+        bump_instance(&env);
+        env.events()
+            .publish((symbol_short!("fee_set"),), (fee_bps, treasury));
+        Ok(())
+    }
+
+    /// Returns `(fee_bps, Some(treasury))` when a fee is configured, or `(0, None)` otherwise.
+    pub fn get_fee_config(env: Env) -> (u32, Option<Address>) {
+        let fee_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeBps)
+            .unwrap_or(0u32);
+        let treasury: Option<Address> = env.storage().instance().get(&DataKey::Treasury);
+        (fee_bps, treasury)
+    }
+
+    /// Returns the fee snapshot (in bps) that was stored when escrow `id` was created.
+    /// Returns 0 for escrows created before fee tracking was added.
+    pub fn get_escrow_fee(env: Env, id: u64) -> u32 {
+        escrow_fee_bps(&env, id)
+    }
+
+    // -------------------------------------------------------------------------
+    // Core escrow lifecycle
+    // -------------------------------------------------------------------------
+
     /// Creates a new escrow agreement. Returns the escrow id.
+    /// The current global fee is snapshotted at this moment and stored under
+    /// `DataKey::EscrowFee(id)` so that subsequent admin fee changes cannot
+    /// affect already-created escrows.
     pub fn create_contract(
         env: Env,
         client: Address,
@@ -246,6 +310,20 @@ impl Escrow {
         let id: u64 = env.storage().instance().get(&DataKey::NextId).unwrap_or(1);
         env.storage().instance().set(&DataKey::NextId, &(id + 1));
         bump_instance(&env);
+
+        // Snapshot the current fee for this escrow so that future admin
+        // changes to the global fee cannot retroactively affect it.
+        let fee_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeBps)
+            .unwrap_or(0u32);
+        let fee_key = DataKey::EscrowFee(id);
+        env.storage().persistent().set(&fee_key, &fee_bps);
+        env.storage()
+            .persistent()
+            .extend_ttl(&fee_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+
         let c = EscrowContract {
             id,
             client: client.clone(),
@@ -298,7 +376,11 @@ impl Escrow {
         Ok(())
     }
 
-    /// Client approves a milestone and the freelancer is paid.
+    /// Client approves a milestone; the freelancer receives `m.amount - fee` and
+    /// the treasury receives `fee`, where `fee = m.amount * escrow_fee_bps / 10_000`
+    /// (rounds down; minimum fee is 0).
+    ///
+    /// Event payload: `(index, m.amount, fee)`
     pub fn release_milestone(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
@@ -316,22 +398,51 @@ impl Escrow {
         if c.funded_amount - c.released_amount < m.amount {
             return Err(EscrowError::InsufficientFunds);
         }
-        transfer(
-            &env,
-            &c.token,
-            &env.current_contract_address(),
-            &c.freelancer,
-            m.amount,
-        );
+
+        // --- fee logic ---
+        let fee_bps = escrow_fee_bps(&env, id);
+        let fee: i128 = if fee_bps > 0 {
+            // Checked multiply then divide; both operands are non-negative so
+            // an i128 overflow here is practically impossible (max i128 / 10_000
+            // is vastly larger than any realistic token amount), but we guard
+            // anyway.
+            m.amount
+                .checked_mul(fee_bps as i128)
+                .ok_or(EscrowError::ArithmeticOverflow)?
+                / BPS_DENOMINATOR
+        } else {
+            0
+        };
+        let to_freelancer = m.amount - fee; // always >= 0 because fee <= m.amount
+
+        let this = env.current_contract_address();
+
+        // Pay freelancer
+        transfer(&env, &c.token, &this, &c.freelancer, to_freelancer);
+
+        // Pay treasury (only when there is a fee; get_fee_config guarantees
+        // treasury exists whenever fee_bps > 0 — set_fee sets both atomically).
+        if fee > 0 {
+            let treasury: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::Treasury)
+                .ok_or(EscrowError::NotInitialized)?;
+            transfer(&env, &c.token, &this, &treasury, fee);
+        }
+
         m.released = true;
-        c.released_amount += m.amount;
+        c.released_amount = c
+            .released_amount
+            .checked_add(m.amount)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
         c.milestones.set(index, m.clone());
         if c.milestones.iter().all(|x| x.released) {
             c.status = ContractStatus::Completed;
         }
         save(&env, &c);
         env.events()
-            .publish((symbol_short!("release"), id), (index, m.amount));
+            .publish((symbol_short!("release"), id), (index, m.amount, fee));
         Ok(())
     }
 
@@ -376,6 +487,9 @@ impl Escrow {
     /// Admin resolves a dispute, paying `freelancer_bps` (0..=10000) of the escrowed
     /// balance to the freelancer and refunding the rest to the client.
     ///
+    /// The platform fee is applied **only to the freelancer's share**.
+    /// The client's refund is returned in full (no fee on refunds).
+    ///
     /// Outcomes:
     /// If freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS (5_000 bps, or 50%),
     /// freelancer gets a dispute win and client gets a dispute loss.
@@ -390,12 +504,37 @@ impl Escrow {
             return Err(EscrowError::InvalidSplit);
         }
         let held = c.funded_amount - c.released_amount;
-        let to_freelancer = held * freelancer_bps as i128 / BPS_DENOMINATOR;
-        let to_client = held - to_freelancer;
+        let gross_freelancer = held * freelancer_bps as i128 / BPS_DENOMINATOR;
+        let to_client = held - gross_freelancer;
+
+        // Apply the escrow's snapshotted fee only to the freelancer's gross share.
+        let fee_bps = escrow_fee_bps(&env, id);
+        let fee: i128 = if fee_bps > 0 {
+            gross_freelancer
+                .checked_mul(fee_bps as i128)
+                .ok_or(EscrowError::ArithmeticOverflow)?
+                / BPS_DENOMINATOR
+        } else {
+            0
+        };
+        let to_freelancer = gross_freelancer - fee;
+
         let this = env.current_contract_address();
         transfer(&env, &c.token, &this, &c.freelancer, to_freelancer);
+        if fee > 0 {
+            let treasury: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::Treasury)
+                .ok_or(EscrowError::NotInitialized)?;
+            transfer(&env, &c.token, &this, &treasury, fee);
+        }
         transfer(&env, &c.token, &this, &c.client, to_client);
-        c.released_amount += to_freelancer;
+
+        c.released_amount = c
+            .released_amount
+            .checked_add(gross_freelancer)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Resolved;
         save(&env, &c);
@@ -454,11 +593,12 @@ impl Escrow {
         );
 
         env.events()
-            .publish((symbol_short!("resolved"), id), (to_freelancer, to_client));
+            .publish((symbol_short!("resolved"), id), (to_freelancer, to_client, fee));
         Ok(())
     }
 
     /// Client cancels the agreement and recovers any unreleased funds.
+    /// Cancel refunds carry **no fee**.
     /// If any funds were held and refunded, cancellations is incremented for the client.
     pub fn cancel_contract(env: Env, id: u64) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
