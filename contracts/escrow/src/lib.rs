@@ -47,6 +47,7 @@ pub enum EscrowError {
     ArithmeticOverflow = 17,
     RatingNotFound = 18,
     RatingAlreadyVoided = 19,
+    InvalidTransition = 20,
 }
 
 #[contracttype]
@@ -174,6 +175,59 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     }
 }
 
+pub fn transition(c: &mut EscrowContract, to: ContractStatus) -> Result<(), EscrowError> {
+    use ContractStatus::*;
+    let allowed = match (c.status, to) {
+        (Created, Funded) => true,
+        (Created, Completed) => true,
+        (Funded, Completed) => true,
+        (Created, Disputed) => true,
+        (Funded, Disputed) => true,
+        (Disputed, Resolved) => true,
+        (Created, Cancelled) => true,
+        (Funded, Cancelled) => true,
+        _ => false,
+    };
+    if !allowed {
+        return Err(EscrowError::InvalidTransition);
+    }
+    c.status = to;
+    Ok(())
+}
+
+/// Asserts core escrow lifecycle invariants (test + debug only).
+pub fn check_invariants(c: &EscrowContract) {
+    // 0 <= released <= funded <= total
+    assert!(c.released_amount >= 0, "released_amount must be non-negative");
+    assert!(
+        c.released_amount <= c.funded_amount,
+        "released_amount must be <= funded_amount"
+    );
+    assert!(
+        c.funded_amount <= c.total_amount,
+        "funded_amount must be <= total_amount"
+    );
+
+    // status == Completed <=> all milestones released
+    let all_released = c.milestones.iter().all(|x| x.released);
+    assert_eq!(
+        c.status == ContractStatus::Completed,
+        all_released,
+        "status == Completed iff all milestones released"
+    );
+
+    // terminal states hold funded == released
+    if matches!(
+        c.status,
+        ContractStatus::Completed | ContractStatus::Resolved | ContractStatus::Cancelled
+    ) {
+        assert_eq!(
+            c.funded_amount, c.released_amount,
+            "terminal state holds funded_amount == released_amount"
+        );
+    }
+}
+
 #[contractimpl]
 impl Escrow {
     /// One-time setup. Sets the admin that controls pausing and dispute resolution.
@@ -269,7 +323,7 @@ impl Escrow {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
         c.client.require_auth();
-        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+        if c.status != ContractStatus::Created {
             return Err(EscrowError::InvalidStatus);
         }
         if amount <= 0 {
@@ -291,7 +345,7 @@ impl Escrow {
         );
         c.funded_amount = new_funded;
         if c.funded_amount == c.total_amount {
-            c.status = ContractStatus::Funded;
+            transition(&mut c, ContractStatus::Funded)?;
         }
         save(&env, &c);
         env.events().publish((symbol_short!("deposit"), id), amount);
@@ -327,7 +381,7 @@ impl Escrow {
         c.released_amount += m.amount;
         c.milestones.set(index, m.clone());
         if c.milestones.iter().all(|x| x.released) {
-            c.status = ContractStatus::Completed;
+            transition(&mut c, ContractStatus::Completed)?;
         }
         save(&env, &c);
         env.events()
@@ -346,7 +400,7 @@ impl Escrow {
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
-        c.status = ContractStatus::Disputed;
+        transition(&mut c, ContractStatus::Disputed)?;
         save(&env, &c);
 
         // Increment disputes_opened for the caller using checked arithmetic
@@ -397,7 +451,7 @@ impl Escrow {
         transfer(&env, &c.token, &this, &c.client, to_client);
         c.released_amount += to_freelancer;
         c.funded_amount = c.released_amount;
-        c.status = ContractStatus::Resolved;
+        transition(&mut c, ContractStatus::Resolved)?;
         save(&env, &c);
 
         // Record dispute outcomes for both parties
@@ -476,7 +530,7 @@ impl Escrow {
             refund,
         );
         c.funded_amount = c.released_amount;
-        c.status = ContractStatus::Cancelled;
+        transition(&mut c, ContractStatus::Cancelled)?;
         save(&env, &c);
 
         // Increment cancellations for client only when funds were held
