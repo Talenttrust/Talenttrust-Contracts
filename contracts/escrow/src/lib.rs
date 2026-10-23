@@ -1,20 +1,20 @@
 //! TalentTrust escrow contract for milestone-based freelancer payments on Stellar (Soroban).
-///
-/// Lifecycle:
-/// 1. `initialize(admin)` once after deployment.
-/// 2. A client calls `create_contract(client, freelancer, token, milestone_amounts)`.
-/// 3. The client funds the escrow with `deposit_funds` (real token transfer into the contract).
-/// 4. The client approves work with `release_milestone`, paying the freelancer per milestone.
-///    Optionally, the client can register M-of-N approvers via `set_approvers`; then
-///    approvers sign off with `approve_milestone` and a release requires the threshold.
-/// 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
-/// 6. The client can `cancel_contract` before completion to recover unreleased funds.
-/// 7. After completion the client may `issue_reputation` for the freelancer.
-#no_std
-]
+//!
+//! Lifecycle:
+//! 1. `initialize(admin)` once after deployment.
+//! 2. A client calls `create_contract(client, freelancer, token, milestone_amounts)`.
+//! 3. The client funds the escrow with `deposit_funds` (real token transfer into the contract).
+//! 4. The client approves work with `release_milestone`, paying the freelancer per milestone.
+//!    Optionally, the client can register M-of-N approvers via `set_approvers`; then
+//!    approvers sign off with `approve_milestone` and a release requires the threshold.
+//! 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
+//! 6. The client can `cancel_contract` before completion to recover unreleased funds.
+//! 7. After completion the client may `issue_reputation` for the freelancer.
+#![no_std]
 
-use soroban_sdkz{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Vec,
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol,
+    Vec,
 };
 
 pub const MAX_MILESTONES: u32 = 20;
@@ -50,9 +50,10 @@ pub enum EscrowError {
     // Append-only: new variants go after this line.
     InvalidApprovers = 17,
     AlreadyApproved = 18,
-    ApprovalsMent = 19,
-    ApprovalsMissing = 20,
-    ArithmeticOverflow = 21,
+    ApprovalsMissing = 19,
+    ArithmeticOverflow = 20,
+    RatingNotFound = 21,
+    RatingAlreadyVoided = 22,
 }
 
 #[contracttype]
@@ -105,6 +106,15 @@ pub struct Outcomes {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RatingRecord {
+    pub freelancer: Address,
+    pub rating: u32,
+    pub issued_at: u64,
+    pub voided: bool,
+}
+
+#[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
@@ -115,6 +125,7 @@ enum DataKey {
     Approvers(u64),
     Approvals(u64, u32),
     Outcomes(Address),
+    Rating(u64),
 }
 
 #[contract]
@@ -133,7 +144,7 @@ fn require_admin(env: &Env) -> Result<Address, EscrowError> {
     Ok(a)
 }
 
-fn require_not_paused(env: &Env) -> Result<u32, EscrowError> {
+fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
     if env
         .storage()
         .instance()
@@ -176,7 +187,7 @@ fn load_approvers(env: &Env, id: u64) -> Vec<Address> {
     env.storage()
         .persistent()
         .get(&DataKey::Approvers(id))
-        .unwrap_or(f| Vec::new(env))
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 fn save_approvers(env: &Env, id: u64, approvers: &Vec<Address>) {
@@ -191,7 +202,7 @@ fn load_approvals(env: &Env, id: u64, index: u32) -> Vec<Address> {
     env.storage()
         .persistent()
         .get(&DataKey::Approvals(id, index))
-        .unwrap_or(f| Vec::new(env))
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 fn save_approvals(env: &Env, id: u64, index: u32, approvals: &Vec<Address>) {
@@ -211,7 +222,7 @@ fn clear_approvals(env: &Env, id: u64, index: u32) {
 #[contractimpl]
 impl Escrow {
     /// One-time setup. Sets the admin that controls pausing and dispute resolution.
-    pub fn initialize(env: Env, admin: Address) -> Result<<u32, EscrowError> {
+    pub fn initialize(env: Env, admin: Address) -> Result<(), EscrowError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(EscrowError::AlreadyInitialized);
         }
@@ -278,7 +289,7 @@ impl Escrow {
             });
         }
         let id: u64 = env.storage().instance().get(&DataKey::NextId).unwrap_or(1);
-        env.storage().instance().set(&DataKey::NextId, &(d + 1));
+        env.storage().instance().set(&DataKey::NextId, &(id + 1));
         bump_instance(&env);
         let c = EscrowContract {
             id,
@@ -301,8 +312,8 @@ impl Escrow {
     /// Client registers M-of-N approvers for milestone releases.
     ///
     /// Only allowed in `Created` before any deposit. The freelancer cannot be an
-    /// approver, duplicates are rejected, and the threshold must be in `1l...len`
-    /// with `1l...len <= MAX_APPROVERS`.
+    /// approver, duplicates are rejected, and the threshold must be in `1..=len`
+    /// with `len <= MAX_APPROVERS`.
     pub fn set_approvers(
         env: Env,
         id: u64,
@@ -349,16 +360,17 @@ impl Escrow {
         require_not_paused(&env)?;
         let c = load(&env, id)?;
         approver.require_auth();
+        let approvers = load_approvers(&env, id);
         if !approvers.contains(&approver) {
             return Err(EscrowError::Unauthorized);
         }
-        if !approvers.is_empty() {
-            return Err(EscrowError::InvalidApprovers);
-        }
-        if !matches(c.status, ContractStatus::Created | ContractStatus::Funded) {
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
-        let m = c.milestones.get(index).ok_or(EscrowError::MilestoneNotFound)?;
+        let m = c
+            .milestones
+            .get(index)
+            .ok_or(EscrowError::MilestoneNotFound)?;
         if m.released {
             return Err(EscrowError::MilestoneAlreadyReleased);
         }
@@ -383,7 +395,7 @@ impl Escrow {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
         c.client.require_auth();
-        if !matches(c.status, ContractStatus::Created | ContractStatus::Funded) {
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
         if amount <= 0 {
@@ -420,7 +432,7 @@ impl Escrow {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
         c.client.require_auth();
-        if !matches(c.status, ContractStatus::Created | ContractStatus::Funded) {
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
         let mut m = c
@@ -468,7 +480,7 @@ impl Escrow {
         if caller != c.client && caller != c.freelancer {
             return Err(EscrowError::Unauthorized);
         }
-        if !matches(c.status, ContractStatus::Created | ContractStatus::Funded) {
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
         c.status = ContractStatus::Disputed;
@@ -589,7 +601,7 @@ impl Escrow {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
         c.client.require_auth();
-        if !matches(c.status, ContractStatus::Created | ContractStatus::Funded) {
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
         let refund = c.funded_amount - c.released_amount;
@@ -641,29 +653,77 @@ impl Escrow {
         if c.reputation_issued {
             return Err(EscrowError::ReputationAlreadyIssued);
         }
-        if rating < 1 || rating > 5 {
+        if !(1..=5).contains(&rating) {
             return Err(EscrowError::InvalidRating);
         }
         let key = DataKey::Reputation(c.freelancer.clone());
-        let mut rep: Reputation = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_orDefault();
+        let mut rep: Reputation = env.storage().persistent().get(&key).unwrap_or_default();
         rep.completed_contracts += 1;
         rep.total_rating += rating;
         env.storage().persistent().set(&key, &rep);
         env.storage()
             .persistent()
             .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-        c.reputation_issued = true;
-        save(&env, &c);
+
+        let issued_at = env.ledger().timestamp();
+        let rating_record = RatingRecord {
+            freelancer: c.freelancer.clone(),
+            rating,
+            issued_at,
+            voided: false,
+        };
+        let rating_key = DataKey::Rating(id);
+        env.storage().persistent().set(&rating_key, &rating_record);
         env.storage()
             .persistent()
-            .set(&DataKey::Reputation(c.freelancer.clone()), &rep);
-        env.events()
-            .publish((symbol_short!("repute"), id), rating);
+            .extend_ttl(&rating_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+
+        c.reputation_issued = true;
+        save(&env, &c);
+        env.events().publish((symbol_short!("repute"), id), rating);
         Ok(())
+    }
+
+    /// Governance can void fraudulent ratings, reversing their effect and recording an audit trail.
+    pub fn void_rating(env: Env, id: u64, reason: Symbol) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        require_not_paused(&env)?;
+
+        let rating_key = DataKey::Rating(id);
+        let mut record: RatingRecord = env
+            .storage()
+            .persistent()
+            .get(&rating_key)
+            .ok_or(EscrowError::RatingNotFound)?;
+
+        if record.voided {
+            return Err(EscrowError::RatingAlreadyVoided);
+        }
+
+        let rep_key = DataKey::Reputation(record.freelancer.clone());
+        let mut rep: Reputation = env.storage().persistent().get(&rep_key).unwrap_or_default();
+        rep.total_rating = rep.total_rating.saturating_sub(record.rating);
+        rep.completed_contracts = rep.completed_contracts.saturating_sub(1);
+        env.storage().persistent().set(&rep_key, &rep);
+        env.storage()
+            .persistent()
+            .extend_ttl(&rep_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+
+        record.voided = true;
+        env.storage().persistent().set(&rating_key, &record);
+        env.storage()
+            .persistent()
+            .extend_ttl(&rating_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+
+        env.events().publish(
+            (symbol_short!("rep_void"), id),
+            (record.freelancer, record.rating, reason),
+        );
+        Ok(())
+    }
+
+    pub fn get_rating(env: Env, id: u64) -> Option<RatingRecord> {
+        env.storage().persistent().get(&DataKey::Rating(id))
     }
 
     /// Returns the reputation record for a freelancer (defaults to zero if none).
@@ -671,12 +731,20 @@ impl Escrow {
         env.storage()
             .persistent()
             .get(&DataKey::Reputation(freelancer))
-            .unwrap_orDefault()
+            .unwrap_or_default()
     }
 
     /// Returns the escrow record.
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
         load(&env, id)
+    }
+
+    pub fn contract_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get::<_, u64>(&DataKey::NextId)
+            .unwrap_or(1)
+            - 1
     }
 
     /// Returns the configured approvers for an escrow (empty if none).
