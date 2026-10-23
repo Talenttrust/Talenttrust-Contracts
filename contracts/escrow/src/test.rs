@@ -5,6 +5,7 @@ use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, token::Tok
 
 struct Setup<'a> {
     env: Env,
+    admin: Address,
     escrow: EscrowClient<'a>,
     token: TokenClient<'a>,
     client: Address,
@@ -20,11 +21,12 @@ fn setup<'a>() -> Setup<'a> {
     let sac = env.register_stellar_asset_contract_v2(admin.clone());
     StellarAssetClient::new(&env, &sac.address()).mint(&client, &1_000);
     let id = env.register(Escrow, ());
-    let escrow = EscrowClient::new(&env, &amp;id);
+    let escrow = EscrowClient::new(&env, &id);
     escrow.initialize(&admin);
     let token = TokenClient::new(&env, &sac.address());
     Setup {
         env,
+        admin,
         escrow,
         token,
         client,
@@ -51,7 +53,7 @@ fn full_happy_path() {
         &s.token.address,
         &vec[&s.env, 100i128, 200i128],
     );
-    assert_eq!id, 1);
+    assert_eq!(id, 1);
     s.escrow.deposit_funds(&id, &300);
     assert_eq!(s.token.balance(&s.client), 700);
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
@@ -76,7 +78,7 @@ fn rejects_overfunding_and_double_release() {
     );
     assert_eq!(
         s.escrow.try_deposit_funds(&id, &101),
-        Err( Ok(EscrowError::OverFunded))
+        Err(Ok(EscrowError::OverFunded))
     );
     s.escrow.deposit_funds(&id, &100);
     s.escrow.release_milestone(&id, &0);
@@ -123,13 +125,13 @@ fn pause_blocks_mutations() {
     let s = setup();
     s.escrow.set_paused(&true);
     assert_eq!(
-        s.escrows.try_create_contract(
+        s.escrow.try_create_contract(
             &s.client,
             &s.freelancer,
             &s.token.address,
             &vec[&s.env, 1i128]
         ),
-        Err( Ok(EscrowError::Paused))
+        Err(Ok(EscrowError::Paused))
     );
 }
 
@@ -145,10 +147,10 @@ fn cancel_contract_funded_requires_notice() {
     s.escrow.deposit_funds(&id, &100);
     assert_eq!(
         s.escrow.try_cancel_contract(&id),
-        Err( Ok(EscrowError::NoticeRequired))
+        Err(Ok(EscrowError::NoticeRequired))
     );
     assert_eq!(
-        s.escrows.get_contract(&id).status,
+        s.escrow.get_contract(&id).status,
         ContractStatus::Funded
     );
     assert_eq!(s.token.balance(&s.client), 900);
@@ -183,7 +185,7 @@ fn request_cancel_twice_fails() {
     s.escrow.request_cancel(&id);
     assert_eq!(
         s.escrow.try_request_cancel(&id),
-        Err( Ok(EscrowError::CancelAlreadyRequested))
+        Err(Ok(EscrowError::CancelAlreadyRequested))
     );
 }
 
@@ -205,17 +207,17 @@ fn finalize_cancel_boundary() {
         requested_at + CANCEL_NOTICE_SECS - 1,
     );
     assert_eq!(
-        s.escrows.try_finalize_cancel(&id),
-        Err( Ok(EscrowError::NoticePeriodActive))
+        s.escrow.try_finalize_cancel(&id),
+        Err(Ok(EscrowError::NoticePeriodActive))
     );
     assert_eq!(
-        s.escrows.get_contract(&id).status,
+        s.escrow.get_contract(&id).status,
         ContractStatus::Funded
     );
 
     // At the boundary: finalization succeeds.
     s.env.ledger().set_timestamp(requested_at + CANCEL_NOTICE_SECS);
-    s.escrows.finalize_cancel(&id);
+    s.escrow.finalize_cancel(&id);
     assert_eq!(s.token.balance(&s.client), 1_000);
     assert_eq!(
         s.escrow.get_contract(&id).status,
@@ -232,7 +234,7 @@ fn withdraw_cancel_clears_request() {
         &s.token.address,
         &vec[&s.env, 100i128],
     );
-    s.escrows.deposit_funds(&id, &100);
+    s.escrow.deposit_funds(&id, &100);
     s.escrow.request_cancel(&id);
     s.escrow.withdraw_cancel(&id);
     s.env.ledger().set_timestamp(
@@ -240,16 +242,16 @@ fn withdraw_cancel_clears_request() {
     );
     assert_eq!(
         s.escrow.try_finalize_cancel(&id),
-        Err( Ok(EscrowError::InvalidStatus))
+        Err(Ok(EscrowError::InvalidStatus))
     );
     // A new request can be made after withdrawal.
-    s.escrows.request_cancel(&id);
+    s.escrow.request_cancel(&id);
 }
 
 #[test]
 fn release_during_notice_reduces_refund() {
     let s = setup();
-    let id = s.escrows.create_contract(
+    let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
         &s.token.address,
@@ -258,7 +260,7 @@ fn release_during_notice_reduces_refund() {
     s.escrow.deposit_funds(&id, &300);
     s.escrow.request_cancel(&id);
     // Client releases the first milestone during the notice period.
-    s.escrows.release_milestone(&id, &0);
+    s.escrow.release_milestone(&id, &0);
     s.env.ledger().set_timestamp(
         s.env.ledger().timestamp() + CANCEL_NOTICE_SECS,
     );
@@ -288,14 +290,14 @@ fn dispute_during_notice_clears_request() {
         s.env.ledger().timestamp() + CANCEL_NOTICE_SECS,
     );
     assert_eq!(
-        s.escrows.try_finalize_cancel(&id),
-        Err( Ok(EscrowError::InvalidStatus))
+        s.escrow.try_finalize_cancel(&id),
+        Err(Ok(EscrowError::InvalidStatus))
     );
     // Resolving the dispute still works and the request is gone.
     s.escrow.resolve_dispute(&id, &5_000);
     assert_eq!(
         s.escrow.try_finalize_cancel(&id),
-        Err( Ok(EscrowError::InvalidStatus))
+        Err(Ok(EscrowError::InvalidStatus))
     );
     assert_eq!(s.token.balance(&s.freelancer), 50);
     assert_eq!(s.token.balance(&s.client), 950);
@@ -438,4 +440,175 @@ fn cancel_unfunded_escrow_does_not_count_cancellation() {
     s.escrow.deposit_funds(&id2, &100);
     s.escrow.cancel_contract(&id2);
     assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 1);
+}
+
+#[test]
+fn rate_then_void_restores_reputation_and_prevents_rerating() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+
+    // Initial reputation is 0
+    let rep0 = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep0.completed_contracts, 0);
+    assert_eq!(rep0.total_rating, 0);
+
+    // Issue rating 5
+    s.escrow.issue_reputation(&id, &5);
+    let rep1 = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep1.completed_contracts, 1);
+    assert_eq!(rep1.total_rating, 5);
+
+    // Verify rating record is stored
+    let rating_rec = s.escrow.get_rating(&id).expect("rating record must exist");
+    assert_eq!(rating_rec.freelancer, s.freelancer);
+    assert_eq!(rating_rec.rating, 5);
+    assert!(!rating_rec.voided);
+
+    // Admin voids rating
+    let reason = symbol_short!("fraud");
+    s.escrow.void_rating(&id, &reason);
+
+    // Reputation is restored to exact previous values
+    let rep2 = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep2.completed_contracts, 0);
+    assert_eq!(rep2.total_rating, 0);
+
+    // Rating record reflects voided state
+    let rating_rec_voided = s.escrow.get_rating(&id).expect("rating record must exist");
+    assert!(rating_rec_voided.voided);
+
+    // Voiding twice is rejected with RatingAlreadyVoided
+    assert_eq!(
+        s.escrow.try_void_rating(&id, &reason),
+        Err(Ok(EscrowError::RatingAlreadyVoided))
+    );
+
+    // Voided escrow cannot be re-rated (reputation_already_issued remains)
+    assert_eq!(
+        s.escrow.try_issue_reputation(&id, &5),
+        Err(Ok(EscrowError::ReputationAlreadyIssued))
+    );
+}
+
+#[test]
+fn void_unrated_escrow_fails_with_rating_not_found() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    assert_eq!(s.escrow.get_rating(&id), None);
+
+    let reason = symbol_short!("fraud");
+    assert_eq!(
+        s.escrow.try_void_rating(&id, &reason),
+        Err(Ok(EscrowError::RatingNotFound))
+    );
+}
+
+#[test]
+fn void_one_of_three_ratings_preserves_others() {
+    let s = setup();
+
+    // Create 3 escrows
+    let id1 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128],
+    );
+    let id2 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128],
+    );
+    let id3 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128],
+    );
+
+    // Deposit and complete each
+    s.escrow.deposit_funds(&id1, &50);
+    s.escrow.release_milestone(&id1, &0);
+    s.escrow.issue_reputation(&id1, &5);
+
+    s.escrow.deposit_funds(&id2, &50);
+    s.escrow.release_milestone(&id2, &0);
+    s.escrow.issue_reputation(&id2, &4);
+
+    s.escrow.deposit_funds(&id3, &50);
+    s.escrow.release_milestone(&id3, &0);
+    s.escrow.issue_reputation(&id3, &3);
+
+    // Total should be 3 contracts, 12 rating
+    let rep_before = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep_before.completed_contracts, 3);
+    assert_eq!(rep_before.total_rating, 12);
+
+    // Void rating for escrow 2 (rating 4)
+    s.escrow.void_rating(&id2, &symbol_short!("collusion"));
+
+    // Total should now be 2 contracts, 8 rating (5 + 3)
+    let rep_after = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep_after.completed_contracts, 2);
+    assert_eq!(rep_after.total_rating, 8);
+
+    // Check individual records
+    assert!(!s.escrow.get_rating(&id1).unwrap().voided);
+    assert!(s.escrow.get_rating(&id2).unwrap().voided);
+    assert!(!s.escrow.get_rating(&id3).unwrap().voided);
+}
+
+#[test]
+fn ratings_issued_before_upgrade_return_rating_not_found() {
+    let s = setup();
+    let unrecorded_id = 42;
+    assert_eq!(s.escrow.get_rating(&unrecorded_id), None);
+    assert_eq!(
+        s.escrow.try_void_rating(&unrecorded_id, &symbol_short!("legacy")),
+        Err(Ok(EscrowError::RatingNotFound))
+    );
+}
+
+#[test]
+fn non_admin_cannot_void_rating() {
+    let s = setup();
+    assert_eq!(s.escrow.get_admin(), s.admin);
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.issue_reputation(&id, &5);
+
+    let non_admin = Address::generate(&s.env);
+    s.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &non_admin,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "void_rating",
+            args: soroban_sdk::IntoVal::into_val(&(&id, symbol_short!("fraud")), &s.env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    // Calling void_rating as non-admin must fail
+    assert!(s.escrow.try_void_rating(&id, &symbol_short!("fraud")).is_err());
 }
