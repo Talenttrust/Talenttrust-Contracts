@@ -439,3 +439,160 @@ fn non_admin_cannot_void_rating() {
     // Calling void_rating as non-admin must fail
     assert!(s.escrow.try_void_rating(&id, &symbol_short!("fraud")).is_err());
 }
+
+// ---------------------------------------------------------------------------
+// Per-party escrow index
+// ---------------------------------------------------------------------------
+
+fn create_indexed_escrow(s: &Setup, freelancer: &Address) -> u64 {
+    s.escrow.create_contract(
+        &s.client,
+        freelancer,
+        &s.token.address,
+        &vec![&s.env, 1i128],
+    )
+}
+
+fn assert_ids(actual: &Vec<u64>, expected: &[u64]) {
+    assert_eq!(
+        actual.len(),
+        expected.len() as u32,
+        "unexpected number of ids"
+    );
+    for (index, expected_id) in expected.iter().enumerate() {
+        assert_eq!(
+            actual.get(index as u32),
+            Some(*expected_id),
+            "unexpected id at position {index}"
+        );
+    }
+}
+
+fn client_page(s: &Setup, client: &Address, page_index: u32) -> Vec<u64> {
+    s.env.as_contract(&s.escrow.address, || {
+        s.env
+            .storage()
+            .persistent()
+            .get(&DataKey::ClientPage(client.clone(), page_index))
+            .unwrap()
+    })
+}
+
+fn freelancer_page(s: &Setup, freelancer: &Address, page_index: u32) -> Vec<u64> {
+    s.env.as_contract(&s.escrow.address, || {
+        s.env
+            .storage()
+            .persistent()
+            .get(&DataKey::FreelancerPage(freelancer.clone(), page_index))
+            .unwrap()
+    })
+}
+
+#[test]
+fn party_indices_paginate_in_creation_order() {
+    let s = setup();
+    let second_freelancer = Address::generate(&s.env);
+    let expected: std::vec::Vec<u64> = (1..=120).collect();
+
+    for index in 0..120 {
+        let freelancer = if index % 2 == 0 {
+            s.freelancer.clone()
+        } else {
+            second_freelancer.clone()
+        };
+        assert_eq!(create_indexed_escrow(&s, &freelancer), index as u64 + 1);
+    }
+
+    let first = s.escrow.get_client_escrows(&s.client, &0, &50);
+    let second = s.escrow.get_client_escrows(&s.client, &50, &50);
+    let third = s.escrow.get_client_escrows(&s.client, &100, &50);
+
+    assert_ids(&first, &expected[0..50]);
+    assert_ids(&second, &expected[50..100]);
+    assert_ids(&third, &expected[100..120]);
+    assert_eq!(s.escrow.count_client_escrows(&s.client), 120);
+
+    let freelancer_ids: std::vec::Vec<u64> =
+        expected.iter().copied().filter(|id| id % 2 == 1).collect();
+    assert_eq!(
+        s.escrow.count_freelancer_escrows(&s.freelancer),
+        freelancer_ids.len() as u32
+    );
+    assert_eq!(
+        s.escrow.count_freelancer_escrows(&second_freelancer),
+        freelancer_ids.len() as u32
+    );
+
+    let freelancer_first = s.escrow.get_freelancer_escrows(&s.freelancer, &0, &50);
+    let freelancer_second = s.escrow.get_freelancer_escrows(&s.freelancer, &50, &50);
+    assert_ids(&freelancer_first, &freelancer_ids[0..50]);
+    assert_ids(&freelancer_second, &freelancer_ids[50..60]);
+}
+
+#[test]
+fn party_index_reads_clamp_and_bound_the_page() {
+    let s = setup();
+    for _ in 0..120 {
+        create_indexed_escrow(&s, &s.freelancer);
+    }
+
+    assert_eq!(s.escrow.get_client_escrows(&s.client, &0, &0).len(), 0);
+    assert_eq!(s.escrow.get_client_escrows(&s.client, &120, &50).len(), 0);
+    assert_eq!(
+        s.escrow.get_client_escrows(&s.client, &u32::MAX, &50).len(),
+        0
+    );
+
+    let clamped = s.escrow.get_client_escrows(&s.client, &0, &500);
+    assert_eq!(clamped.len(), 50);
+    assert_eq!(clamped.get(0), Some(1));
+    assert_eq!(clamped.get(49), Some(50));
+
+    let crossing = s.escrow.get_client_escrows(&s.client, &45, &50);
+    assert_eq!(crossing.len(), 50);
+    assert_eq!(crossing.get(0), Some(46));
+    assert_eq!(crossing.get(49), Some(95));
+
+    let tail = s.escrow.get_client_escrows(&s.client, &115, &500);
+    assert_eq!(tail.len(), 5);
+    assert_eq!(tail.get(0), Some(116));
+    assert_eq!(tail.get(4), Some(120));
+}
+
+#[test]
+fn party_index_pages_never_exceed_page_size() {
+    let s = setup();
+    let second_freelancer = Address::generate(&s.env);
+    for index in 0..120 {
+        let freelancer = if index % 2 == 0 {
+            s.freelancer.clone()
+        } else {
+            second_freelancer.clone()
+        };
+        create_indexed_escrow(&s, &freelancer);
+    }
+
+    let client_count = s.escrow.count_client_escrows(&s.client);
+    let client_pages = client_count.div_ceil(ESCROW_INDEX_PAGE_SIZE);
+    for page_index in 0..client_pages {
+        let page = client_page(&s, &s.client, page_index);
+        assert!(
+            page.len() <= ESCROW_INDEX_PAGE_SIZE,
+            "client page {page_index} holds {} ids",
+            page.len()
+        );
+    }
+
+    for freelancer in [&s.freelancer, &second_freelancer] {
+        let count = s.escrow.count_freelancer_escrows(freelancer);
+        let pages = count.div_ceil(ESCROW_INDEX_PAGE_SIZE);
+        for page_index in 0..pages {
+            let page = freelancer_page(&s, freelancer, page_index);
+            assert!(
+                page.len() <= ESCROW_INDEX_PAGE_SIZE,
+                "freelancer page {page_index} holds {} ids",
+                page.len()
+            );
+        }
+    }
+}

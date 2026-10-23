@@ -34,9 +34,13 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
 | `void_rating(id, reason)` | admin | Void a fraudulent rating, reverse reputation and emit audit trail |
 | `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
+| `get_client_escrows(client, start, limit)` / `get_freelancer_escrows(freelancer, start, limit)` | - | Paginated escrow ids for a party in creation order; `limit` is clamped to 50 |
+| `count_client_escrows(client)` / `count_freelancer_escrows(freelancer)` | - | Number of escrows indexed for a party |
 | `get_contract(id)`, `get_rating(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
 
 Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
+
+Per-party escrow indexes are maintained from the upgrade onward. Escrows created before this upgrade are **not** backfilled into the indexes; callers that need historical data must still use `contract_count()` plus `get_contract(id)`.
 
 ### Reputation Governance & Audit Trail
 - Ratings are recorded per escrow as `RatingRecord { freelancer, rating, issued_at, voided }`.
