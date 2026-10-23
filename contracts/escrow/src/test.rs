@@ -1,7 +1,13 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, token::TokenClient, vec};
+use soroban_sdk::{
+    testutils::storage::{Instance as _, Persistent as _},
+    testutils::{Address as _, Ledger as _},
+    token::StellarAssetClient,
+    token::TokenClient,
+    vec,
+};
 
 struct Setup<'a> {
     env: Env,
@@ -405,7 +411,8 @@ fn ratings_issued_before_upgrade_return_rating_not_found() {
     let unrecorded_id = 42;
     assert_eq!(s.escrow.get_rating(&unrecorded_id), None);
     assert_eq!(
-        s.escrow.try_void_rating(&unrecorded_id, &symbol_short!("legacy")),
+        s.escrow
+            .try_void_rating(&unrecorded_id, &symbol_short!("legacy")),
         Err(Ok(EscrowError::RatingNotFound))
     );
 }
@@ -437,5 +444,301 @@ fn non_admin_cannot_void_rating() {
     }]);
 
     // Calling void_rating as non-admin must fail
-    assert!(s.escrow.try_void_rating(&id, &symbol_short!("fraud")).is_err());
+    assert!(s
+        .escrow
+        .try_void_rating(&id, &symbol_short!("fraud"))
+        .is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Storage TTL management
+// ---------------------------------------------------------------------------
+
+fn instance_ttl(env: &Env, contract: &Address) -> u32 {
+    env.as_contract(contract, || env.storage().instance().get_ttl())
+}
+
+fn persistent_ttl<K: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(
+    env: &Env,
+    contract: &Address,
+    key: &K,
+) -> u32 {
+    env.as_contract(contract, || env.storage().persistent().get_ttl(key))
+}
+
+/// Advances the ledger so `ttl` drops below the bump threshold but stays live.
+fn age_below_threshold(env: &Env, ttl: u32) -> u32 {
+    let target = PERSISTENT_TTL_THRESHOLD / 2;
+    assert!(ttl > target, "entry already below threshold");
+    let delta = ttl - target;
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + delta);
+    target
+}
+
+fn age_instance_below_threshold(env: &Env, contract: &Address) {
+    let ttl = instance_ttl(env, contract);
+    age_below_threshold(env, ttl);
+}
+
+fn extend_key(env: &Env, contract: &Address, key: &soroban_sdk::Val) {
+    env.as_contract(contract, || {
+        if env.storage().persistent().has(key) {
+            env.storage().persistent().extend_ttl(
+                key,
+                PERSISTENT_TTL_EXTEND - 1,
+                PERSISTENT_TTL_EXTEND,
+            );
+        }
+    });
+}
+
+/// The SAC starts with a shorter TTL than the escrow contract. Refresh the
+/// token instance and the balances touched by escrow flows so only the escrow
+/// instance ends up below its bump threshold.
+fn refresh_token(s: &Setup) {
+    let token = &s.token.address;
+    s.env.as_contract(token, || {
+        s.env
+            .storage()
+            .instance()
+            .extend_ttl(PERSISTENT_TTL_EXTEND - 1, PERSISTENT_TTL_EXTEND);
+    });
+    for addr in [&s.client, &s.freelancer, &s.escrow.address] {
+        let key = soroban_sdk::IntoVal::into_val(&(symbol_short!("Balance"), addr.clone()), &s.env);
+        extend_key(&s.env, token, &key);
+    }
+}
+
+fn assert_bumps_instance_ttl<F: FnOnce()>(s: &Setup, f: F) {
+    refresh_token(s);
+    age_instance_below_threshold(&s.env, &s.escrow.address);
+    let before = instance_ttl(&s.env, &s.escrow.address);
+    assert!(before < PERSISTENT_TTL_THRESHOLD);
+    f();
+    let after = instance_ttl(&s.env, &s.escrow.address);
+    assert!(
+        after >= PERSISTENT_TTL_THRESHOLD,
+        "instance TTL not bumped: before={before} after={after}"
+    );
+}
+
+fn funded_contract(s: &Setup) -> u64 {
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    id
+}
+
+#[test]
+fn initialize_bumps_instance_ttl() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+
+    escrow.initialize(&admin);
+
+    assert!(instance_ttl(&env, &id) >= PERSISTENT_TTL_THRESHOLD);
+}
+
+#[test]
+fn every_mutating_entry_point_bumps_instance_ttl() {
+    let s = setup();
+
+    assert_bumps_instance_ttl(&s, || {
+        s.escrow.set_paused(&false);
+    });
+
+    assert_bumps_instance_ttl(&s, || {
+        s.escrow.create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 100i128],
+        );
+    });
+
+    let id = funded_contract(&s);
+    assert_bumps_instance_ttl(&s, || {
+        s.escrow.release_milestone(&id, &0);
+    });
+
+    let s = setup();
+    let id = funded_contract(&s);
+    assert_bumps_instance_ttl(&s, || {
+        s.escrow.open_dispute(&id, &s.client);
+    });
+
+    let s = setup();
+    let id = funded_contract(&s);
+    s.escrow.open_dispute(&id, &s.client);
+    assert_bumps_instance_ttl(&s, || {
+        s.escrow.resolve_dispute(&id, &5_000);
+    });
+
+    let s = setup();
+    let id = funded_contract(&s);
+    assert_bumps_instance_ttl(&s, || {
+        s.escrow.cancel_contract(&id);
+    });
+
+    let s = setup();
+    let id = funded_contract(&s);
+    s.escrow.release_milestone(&id, &0);
+    assert_bumps_instance_ttl(&s, || {
+        s.escrow.issue_reputation(&id, &5);
+    });
+
+    let s = setup();
+    let id = funded_contract(&s);
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.issue_reputation(&id, &5);
+    assert_bumps_instance_ttl(&s, || {
+        s.escrow.void_rating(&id, &symbol_short!("fraud"));
+    });
+}
+
+#[test]
+fn extend_escrow_ttl_raises_contract_rating_and_instance_ttl() {
+    let s = setup();
+    let id = funded_contract(&s);
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.issue_reputation(&id, &5);
+
+    let key = DataKey::Contract(id);
+    let rating_key = DataKey::Rating(id);
+    let contract_ttl = persistent_ttl(&s.env, &s.escrow.address, &key);
+    age_below_threshold(&s.env, contract_ttl);
+    assert!(persistent_ttl(&s.env, &s.escrow.address, &key) < PERSISTENT_TTL_THRESHOLD);
+    assert!(persistent_ttl(&s.env, &s.escrow.address, &rating_key) < PERSISTENT_TTL_THRESHOLD);
+
+    let state_before = s.escrow.get_contract(&id);
+    s.env.mock_auths(&[]);
+    s.escrow.extend_escrow_ttl(&id);
+
+    assert_eq!(s.escrow.get_contract(&id), state_before);
+    assert!(persistent_ttl(&s.env, &s.escrow.address, &key) >= PERSISTENT_TTL_THRESHOLD);
+    assert!(persistent_ttl(&s.env, &s.escrow.address, &rating_key) >= PERSISTENT_TTL_THRESHOLD);
+    assert!(instance_ttl(&s.env, &s.escrow.address) >= PERSISTENT_TTL_THRESHOLD);
+}
+
+#[test]
+fn extend_escrow_ttl_missing_id_returns_contract_not_found() {
+    let s = setup();
+    assert_eq!(
+        s.escrow.try_extend_escrow_ttl(&999),
+        Err(Ok(EscrowError::ContractNotFound))
+    );
+}
+
+#[test]
+fn extend_reputation_ttl_raises_reputation_and_instance_ttl() {
+    let s = setup();
+    let id = funded_contract(&s);
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.issue_reputation(&id, &5);
+
+    let key = DataKey::Reputation(s.freelancer.clone());
+    let reputation_ttl = persistent_ttl(&s.env, &s.escrow.address, &key);
+    age_below_threshold(&s.env, reputation_ttl);
+    assert!(persistent_ttl(&s.env, &s.escrow.address, &key) < PERSISTENT_TTL_THRESHOLD);
+
+    let reputation_before = s.escrow.get_reputation(&s.freelancer);
+    s.env.mock_auths(&[]);
+    s.escrow.extend_reputation_ttl(&s.freelancer);
+
+    assert_eq!(s.escrow.get_reputation(&s.freelancer), reputation_before);
+    assert!(persistent_ttl(&s.env, &s.escrow.address, &key) >= PERSISTENT_TTL_THRESHOLD);
+    assert!(instance_ttl(&s.env, &s.escrow.address) >= PERSISTENT_TTL_THRESHOLD);
+}
+
+#[test]
+fn extend_reputation_ttl_missing_record_returns_reputation_not_found() {
+    let s = setup();
+    assert_eq!(
+        s.escrow.try_extend_reputation_ttl(&s.freelancer),
+        Err(Ok(EscrowError::ReputationNotFound))
+    );
+}
+
+#[test]
+fn getters_do_not_extend_ttl() {
+    let s = setup();
+    let id = funded_contract(&s);
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.issue_reputation(&id, &5);
+
+    let contract_key = DataKey::Contract(id);
+    let reputation_key = DataKey::Reputation(s.freelancer.clone());
+
+    age_instance_below_threshold(&s.env, &s.escrow.address);
+    let instance_before = instance_ttl(&s.env, &s.escrow.address);
+    let contract_before = persistent_ttl(&s.env, &s.escrow.address, &contract_key);
+    let reputation_before = persistent_ttl(&s.env, &s.escrow.address, &reputation_key);
+
+    let _ = s.escrow.get_contract(&id);
+    let _ = s.escrow.get_rating(&id);
+    let _ = s.escrow.get_reputation(&s.freelancer);
+    let _ = s.escrow.get_outcomes(&s.client);
+    let _ = s.escrow.contract_count();
+    let _ = s.escrow.get_admin();
+    let _ = s.escrow.is_paused();
+    let _ = s.escrow.version();
+
+    assert_eq!(instance_ttl(&s.env, &s.escrow.address), instance_before);
+    assert_eq!(
+        persistent_ttl(&s.env, &s.escrow.address, &contract_key),
+        contract_before
+    );
+    assert_eq!(
+        persistent_ttl(&s.env, &s.escrow.address, &reputation_key),
+        reputation_before
+    );
+}
+
+#[test]
+fn extended_escrow_survives_past_unbumped_expiry() {
+    let s = setup();
+    let id_unbumped = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    let id_kept_alive = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+
+    // Move both entries close to the threshold, then keep only one alive.
+    let key_unbumped = DataKey::Contract(id_unbumped);
+    let key_kept_alive = DataKey::Contract(id_kept_alive);
+    let ttl = persistent_ttl(&s.env, &s.escrow.address, &key_unbumped);
+    let remaining = age_below_threshold(&s.env, ttl);
+    s.escrow.extend_escrow_ttl(&id_kept_alive);
+    assert!(persistent_ttl(&s.env, &s.escrow.address, &key_kept_alive) > remaining);
+
+    // Advance past the point where the unbumped entry would have expired.
+    s.env
+        .ledger()
+        .set_sequence_number(s.env.ledger().sequence() + remaining + 1);
+
+    // The unbumped escrow is now archived. The test host escalates archived
+    // storage access to a panic, so catch it to prove the entry is unreachable.
+    // On the network the call would not be admitted at all.
+    let archived = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        s.escrow.get_contract(&id_unbumped)
+    }));
+    assert!(archived.is_err(), "unbumped escrow should be archived");
+
+    // The escrow kept alive by `extend_escrow_ttl` is still reachable.
+    assert_eq!(s.escrow.get_contract(&id_kept_alive).id, id_kept_alive);
 }

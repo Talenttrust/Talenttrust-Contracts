@@ -47,6 +47,7 @@ pub enum EscrowError {
     ArithmeticOverflow = 17,
     RatingNotFound = 18,
     RatingAlreadyVoided = 19,
+    ReputationNotFound = 20,
 }
 
 #[contracttype]
@@ -294,6 +295,7 @@ impl Escrow {
             c.status = ContractStatus::Funded;
         }
         save(&env, &c);
+        bump_instance(&env);
         env.events().publish((symbol_short!("deposit"), id), amount);
         Ok(())
     }
@@ -330,6 +332,7 @@ impl Escrow {
             c.status = ContractStatus::Completed;
         }
         save(&env, &c);
+        bump_instance(&env);
         env.events()
             .publish((symbol_short!("release"), id), (index, m.amount));
         Ok(())
@@ -370,6 +373,7 @@ impl Escrow {
         );
 
         env.events().publish((symbol_short!("dispute"), id), caller);
+        bump_instance(&env);
         Ok(())
     }
 
@@ -455,6 +459,7 @@ impl Escrow {
 
         env.events()
             .publish((symbol_short!("resolved"), id), (to_freelancer, to_client));
+        bump_instance(&env);
         Ok(())
     }
 
@@ -502,6 +507,7 @@ impl Escrow {
         }
 
         env.events().publish((symbol_short!("cancel"), id), refund);
+        bump_instance(&env);
         Ok(())
     }
 
@@ -544,6 +550,7 @@ impl Escrow {
         save(&env, &c);
         env.events()
             .publish((symbol_short!("rep"), id), (c.freelancer, rating));
+        bump_instance(&env);
         Ok(())
     }
 
@@ -582,6 +589,46 @@ impl Escrow {
             (symbol_short!("rep_void"), id),
             (record.freelancer, record.rating, reason),
         );
+        bump_instance(&env);
+        Ok(())
+    }
+
+    /// Permissionless keep-alive for an escrow. Extends the escrow record, its
+    /// per-escrow rating record (when present), and the contract instance TTL.
+    /// Emits no events and changes no state other than TTL.
+    pub fn extend_escrow_ttl(env: Env, id: u64) -> Result<(), EscrowError> {
+        let key = DataKey::Contract(id);
+        if !env.storage().persistent().has(&key) {
+            return Err(EscrowError::ContractNotFound);
+        }
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+
+        let rating_key = DataKey::Rating(id);
+        if env.storage().persistent().has(&rating_key) {
+            env.storage().persistent().extend_ttl(
+                &rating_key,
+                PERSISTENT_TTL_THRESHOLD,
+                PERSISTENT_TTL_EXTEND,
+            );
+        }
+
+        bump_instance(&env);
+        Ok(())
+    }
+
+    /// Permissionless keep-alive for a freelancer's reputation record and the
+    /// contract instance TTL. Emits no events and changes no state other than TTL.
+    pub fn extend_reputation_ttl(env: Env, freelancer: Address) -> Result<(), EscrowError> {
+        let key = DataKey::Reputation(freelancer);
+        if !env.storage().persistent().has(&key) {
+            return Err(EscrowError::ReputationNotFound);
+        }
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        bump_instance(&env);
         Ok(())
     }
 
