@@ -1,7 +1,12 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, token::TokenClient, vec};
+use soroban_sdk::{
+    testutils::{Address as _, Events as _, Ledger as _},
+    token::StellarAssetClient,
+    token::TokenClient,
+    vec, TryIntoVal,
+};
 
 struct Setup<'a> {
     env: Env,
@@ -131,6 +136,64 @@ fn pause_blocks_mutations() {
 }
 
 #[test]
+fn expired_dispute_boundary_split_and_event() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 401i128],
+    );
+    s.escrow.deposit_funds(&id, &401);
+    s.escrow.open_dispute(&id, &s.client);
+
+    s.env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS - 1);
+    assert_eq!(
+        s.escrow.try_settle_expired_dispute(&id, &s.freelancer),
+        Err(Ok(EscrowError::DisputeNotExpired))
+    );
+    let outsider = Address::generate(&s.env);
+    assert_eq!(
+        s.escrow.try_settle_expired_dispute(&id, &outsider),
+        Err(Ok(EscrowError::Unauthorized))
+    );
+
+    s.env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS);
+    s.escrow.settle_expired_dispute(&id, &s.freelancer);
+    let events = s.env.events().all();
+    let (_, topics, data) = events.get(events.len() - 1).unwrap();
+    let event_name: soroban_sdk::Symbol = topics.get(0).unwrap().try_into_val(&s.env).unwrap();
+    let event_id: u64 = topics.get(1).unwrap().try_into_val(&s.env).unwrap();
+    let event_amounts: (i128, i128) = data.try_into_val(&s.env).unwrap();
+    assert_eq!(event_name, symbol_short!("disp_exp"));
+    assert_eq!(event_id, id);
+    assert_eq!(event_amounts, (200, 201));
+
+    assert_eq!(s.token.balance(&s.freelancer), 200);
+    assert_eq!(s.token.balance(&s.client), 800);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+}
+
+#[test]
+fn admin_resolution_prevents_expired_settlement() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.open_dispute(&id, &s.client);
+    s.escrow.resolve_dispute(&id, &5_000);
+    s.env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS);
+    assert_eq!(
+        s.escrow.try_settle_expired_dispute(&id, &s.freelancer),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+}
+
+#[test]
 fn dispute_outcomes_freelancer_client_and_exact_threshold() {
     let s = setup();
 
@@ -209,7 +272,6 @@ fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
     s.escrow.deposit_funds(&id, &100);
     s.escrow.open_dispute(&id, &s.client);
     s.escrow.resolve_dispute(&id, &5_000);
-
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
 
     // Rating a Resolved escrow succeeds once
@@ -241,6 +303,32 @@ fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
         s.escrow.try_issue_reputation(&id_cancel, &5),
         Err(Ok(EscrowError::InvalidStatus))
     );
+}
+
+#[test]
+fn expired_settlement_rejects_non_disputed_and_is_blocked_while_paused() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS);
+    assert_eq!(
+        s.escrow.try_settle_expired_dispute(&id, &s.client),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    s.escrow.open_dispute(&id, &s.client);
+    s.env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS * 2);
+    s.escrow.set_paused(&true);
+    assert_eq!(
+        s.escrow.try_settle_expired_dispute(&id, &s.client),
+        Err(Ok(EscrowError::Paused))
+    );
+    s.escrow.set_paused(&false);
+    s.escrow.settle_expired_dispute(&id, &s.client);
 }
 
 #[test]
