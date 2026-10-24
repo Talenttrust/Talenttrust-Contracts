@@ -244,6 +244,80 @@ fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
 }
 
 #[test]
+fn resolve_dispute_large_escrow_no_overflow() {
+    let s = setup();
+    let big = i128::MAX / 2;
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, big],
+    );
+    StellarAssetClient::new(&s.env, &s.token.address).mint(&s.client, &big);
+    s.escrow.deposit_funds(&id, &big);
+    s.escrow.open_dispute(&id, &s.client);
+    s.escrow.resolve_dispute(&id, &2_500);
+    let to_freelancer = big / 4;
+    let to_client = big - to_freelancer;
+    assert_eq!(s.token.balance(&s.freelancer), to_freelancer);
+    assert_eq!(s.token.balance(&s.client), to_client);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+}
+
+#[test]
+fn split_formula_matches_reference() {
+    let d: i128 = BPS_DENOMINATOR as i128;
+    let mut cases: std::vec::Vec<(i128, u32)> = std::vec::Vec::new();
+    for &h in &[0i128, 1, 2, 9_999, 10_000, 10_001, i128::MAX / 2, i128::MAX - 1, i128::MAX] {
+        for &b in &[0u32, 1, 2_500, 5_000, 9_999, 10_000] {
+            cases.push((h, b));
+        }
+    }
+    let mut seed: u128 = 0x9E37_79B9_7F4A_7C15;
+    for _ in 0..100 {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let h = (seed % (i128::MAX as u128)) as i128;
+        let b = ((seed >> 64) % 10_001) as u32;
+        cases.push((h, b));
+    }
+    for (held, bps) in cases {
+        let got = (held / d) * (bps as i128) + ((held % d) * (bps as i128)) / d;
+        let reference = soroban_sdk::I256::from_i128(&soroban_sdk::Env::default(), held)
+            .mul(&soroban_sdk::I256::from_i128(&soroban_sdk::Env::default(), bps as i128))
+            .div(&soroban_sdk::I256::from_i128(&soroban_sdk::Env::default(), d))
+            .to_i128()
+            .unwrap();
+        assert_eq!(got, reference, "held={} bps={}", held, bps);
+        assert!(got >= 0 && got <= held);
+    }
+}
+
+#[test]
+fn issue_reputation_overflow_returns_typed_error() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.release_milestone(&id, &0);
+    let key = DataKey::Reputation(s.freelancer.clone());
+    let seeded = Reputation {
+        completed_contracts: 0,
+        total_rating: u32::MAX - 1,
+    };
+    s.env.as_contract(&s.escrow.address, || {
+        s.env.storage().persistent().set(&key, &seeded);
+    });
+    assert_eq!(
+        s.escrow.try_issue_reputation(&id, &5),
+        Err(Ok(EscrowError::ArithmeticOverflow))
+    );
+}
+
+#[test]
 fn cancel_unfunded_escrow_does_not_count_cancellation() {
     let s = setup();
 
