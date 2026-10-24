@@ -46,10 +46,10 @@ pub enum EscrowError {
     InvalidSplit = 14,
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
-    DisputeNotExpired = 17,
     ArithmeticOverflow = 17,
     RatingNotFound = 18,
     RatingAlreadyVoided = 19,
+    DisputeNotExpired = 20,
 }
 
 #[contracttype]
@@ -197,6 +197,54 @@ fn settle_dispute(
     c.funded_amount = c.released_amount;
     c.status = ContractStatus::Resolved;
     save(env, c);
+
+    let freelancer_key = DataKey::Outcomes(c.freelancer.clone());
+    let mut freelancer_outcomes: Outcomes = env
+        .storage()
+        .persistent()
+        .get(&freelancer_key)
+        .unwrap_or_default();
+    let client_key = DataKey::Outcomes(c.client.clone());
+    let mut client_outcomes: Outcomes = env
+        .storage()
+        .persistent()
+        .get(&client_key)
+        .unwrap_or_default();
+    if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS {
+        freelancer_outcomes.disputes_won = freelancer_outcomes
+            .disputes_won
+            .checked_add(1)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        client_outcomes.disputes_lost = client_outcomes
+            .disputes_lost
+            .checked_add(1)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+    } else {
+        freelancer_outcomes.disputes_lost = freelancer_outcomes
+            .disputes_lost
+            .checked_add(1)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        client_outcomes.disputes_won = client_outcomes
+            .disputes_won
+            .checked_add(1)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+    }
+    env.storage()
+        .persistent()
+        .set(&freelancer_key, &freelancer_outcomes);
+    env.storage().persistent().extend_ttl(
+        &freelancer_key,
+        PERSISTENT_TTL_THRESHOLD,
+        PERSISTENT_TTL_EXTEND,
+    );
+    env.storage()
+        .persistent()
+        .set(&client_key, &client_outcomes);
+    env.storage().persistent().extend_ttl(
+        &client_key,
+        PERSISTENT_TTL_THRESHOLD,
+        PERSISTENT_TTL_EXTEND,
+    );
     env.events()
         .publish((event, c.id), (to_freelancer, to_client));
     Ok(())
@@ -449,72 +497,6 @@ impl Escrow {
             return Err(EscrowError::DisputeNotExpired);
         }
         settle_dispute(&env, &mut c, 5_000, symbol_short!("disp_exp"))?;
-        let held = c.funded_amount - c.released_amount;
-        let to_freelancer = held * freelancer_bps as i128 / BPS_DENOMINATOR;
-        let to_client = held - to_freelancer;
-        let this = env.current_contract_address();
-        transfer(&env, &c.token, &this, &c.freelancer, to_freelancer);
-        transfer(&env, &c.token, &this, &c.client, to_client);
-        c.released_amount += to_freelancer;
-        c.funded_amount = c.released_amount;
-        c.status = ContractStatus::Resolved;
-        save(&env, &c);
-
-        // Record dispute outcomes for both parties
-        let freelancer_key = DataKey::Outcomes(c.freelancer.clone());
-        let mut freelancer_outcomes: Outcomes = env
-            .storage()
-            .persistent()
-            .get(&freelancer_key)
-            .unwrap_or_default();
-
-        let client_key = DataKey::Outcomes(c.client.clone());
-        let mut client_outcomes: Outcomes = env
-            .storage()
-            .persistent()
-            .get(&client_key)
-            .unwrap_or_default();
-
-        if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS {
-            freelancer_outcomes.disputes_won = freelancer_outcomes
-                .disputes_won
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-            client_outcomes.disputes_lost = client_outcomes
-                .disputes_lost
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-        } else {
-            freelancer_outcomes.disputes_lost = freelancer_outcomes
-                .disputes_lost
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-            client_outcomes.disputes_won = client_outcomes
-                .disputes_won
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-        }
-
-        env.storage()
-            .persistent()
-            .set(&freelancer_key, &freelancer_outcomes);
-        env.storage().persistent().extend_ttl(
-            &freelancer_key,
-            PERSISTENT_TTL_THRESHOLD,
-            PERSISTENT_TTL_EXTEND,
-        );
-
-        env.storage()
-            .persistent()
-            .set(&client_key, &client_outcomes);
-        env.storage().persistent().extend_ttl(
-            &client_key,
-            PERSISTENT_TTL_THRESHOLD,
-            PERSISTENT_TTL_EXTEND,
-        );
-
-        env.events()
-            .publish((symbol_short!("resolved"), id), (to_freelancer, to_client));
         Ok(())
     }
 

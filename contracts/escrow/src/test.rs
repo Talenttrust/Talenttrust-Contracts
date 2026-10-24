@@ -177,6 +177,23 @@ fn expired_dispute_boundary_split_and_event() {
 #[test]
 fn admin_resolution_prevents_expired_settlement() {
     let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.open_dispute(&id, &s.client);
+    s.escrow.resolve_dispute(&id, &5_000);
+    s.env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS);
+    assert_eq!(
+        s.escrow.try_settle_expired_dispute(&id, &s.freelancer),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+}
+
+#[test]
 fn dispute_outcomes_freelancer_client_and_exact_threshold() {
     let s = setup();
 
@@ -255,10 +272,6 @@ fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
     s.escrow.deposit_funds(&id, &100);
     s.escrow.open_dispute(&id, &s.client);
     s.escrow.resolve_dispute(&id, &5_000);
-    s.env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS);
-    assert_eq!(
-        s.escrow.try_settle_expired_dispute(&id, &s.freelancer),
-
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
 
     // Rating a Resolved escrow succeeds once
@@ -294,6 +307,31 @@ fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
 
 #[test]
 fn expired_settlement_rejects_non_disputed_and_is_blocked_while_paused() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS);
+    assert_eq!(
+        s.escrow.try_settle_expired_dispute(&id, &s.client),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    s.escrow.open_dispute(&id, &s.client);
+    s.env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS * 2);
+    s.escrow.set_paused(&true);
+    assert_eq!(
+        s.escrow.try_settle_expired_dispute(&id, &s.client),
+        Err(Ok(EscrowError::Paused))
+    );
+    s.escrow.set_paused(&false);
+    s.escrow.settle_expired_dispute(&id, &s.client);
+}
+
+#[test]
 fn cancel_unfunded_escrow_does_not_count_cancellation() {
     let s = setup();
 
@@ -329,20 +367,6 @@ fn rate_then_void_restores_reputation_and_prevents_rerating() {
         &vec![&s.env, 100i128],
     );
     s.escrow.deposit_funds(&id, &100);
-    s.env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS);
-    assert_eq!(
-        s.escrow.try_settle_expired_dispute(&id, &s.client),
-        Err(Ok(EscrowError::InvalidStatus))
-    );
-    s.escrow.open_dispute(&id, &s.client);
-    s.env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS * 2);
-    s.escrow.set_paused(&true);
-    assert_eq!(
-        s.escrow.try_settle_expired_dispute(&id, &s.client),
-        Err(Ok(EscrowError::Paused))
-    );
-    s.escrow.set_paused(&false);
-    s.escrow.settle_expired_dispute(&id, &s.client);
     s.escrow.release_milestone(&id, &0);
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
 
