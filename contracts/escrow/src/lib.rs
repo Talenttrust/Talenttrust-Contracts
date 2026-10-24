@@ -47,6 +47,7 @@ pub enum EscrowError {
     ArithmeticOverflow = 17,
     RatingNotFound = 18,
     RatingAlreadyVoided = 19,
+    InvalidSchedule = 20,
 }
 
 #[contracttype]
@@ -108,6 +109,15 @@ pub struct RatingRecord {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Stream {
+    pub start: u64,
+    pub end: u64,
+    pub withdrawn: i128,
+    pub stopped_at: Option<u64>,
+}
+
+#[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
@@ -117,6 +127,7 @@ enum DataKey {
     Reputation(Address),
     Outcomes(Address),
     Rating(u64),
+    Stream(u64),
 }
 
 #[contract]
@@ -162,6 +173,72 @@ fn save(env: &Env, c: &EscrowContract) {
         .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
 }
 
+fn load_stream(env: &Env, id: u64) -> Option<Stream> {
+    env.storage().persistent().get(&DataKey::Stream(id))
+}
+
+fn save_stream(env: &Env, id: u64, s: &Stream) {
+    env.storage().persistent().set(&DataKey::Stream(id), s);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::Stream(id), PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+}
+
+fn vested_amount(env: &Env, c: &EscrowContract, stream: &Stream) -> Result<i128, EscrowError> {
+    if c.total_amount <= 0 {
+        return Ok(0i128);
+    }
+    if stream.end <= stream.start {
+        return Ok(0i128);
+    }
+    let now = env.ledger().timestamp();
+    let effective_end = match stream.stopped_at {
+        Some(stopped) => {
+            if stopped <= stream.start {
+                stream.start
+            } else if stopped >= stream.end {
+                stream.end
+            } else {
+                stopped
+            }
+        }
+        None => {
+            if now >= stream.end {
+                stream.end
+            } else if now <= stream.start {
+                stream.start
+            } else {
+                now
+            }
+        }
+    };
+    if effective_end <= stream.start {
+        return Ok(0i128);
+    }
+    let elapsed = effective_end
+        .checked_sub(stream.start)
+        .ok_or(EscrowError::ArithmeticOverflow)? as i128;
+    let duration = (stream.end as i128)
+        .checked_sub(stream.start as i128)
+        .ok_or(EscrowError::ArithmeticOverflow)?;
+    if duration <= 0 {
+        return Ok(0i128);
+    }
+    let vested = c
+        .total_amount
+        .checked_mul(elapsed)
+        .ok_or(EscrowError::ArithmeticOverflow)?
+        .checked_div(duration)
+        .ok_or(EscrowError::ArithmeticOverflow)?;
+    if vested < 0 {
+        Ok(0i128)
+    } else if vested > c.total_amount {
+        Ok(c.total_amount)
+    } else {
+        Ok(vested)
+    }
+}
+
 fn bump_instance(env: &Env) {
     env.storage()
         .instance()
@@ -188,6 +265,80 @@ impl Escrow {
         bump_instance(&env);
         env.events().publish((symbol_short!("init"),), admin);
         Ok(())
+    }
+
+    /// Create a streaming milestone escrow that vests linearly between `start` and `end`.
+    /// The milestone is funded in full by the client (via `deposit_funds`) like a normal escrow.
+    pub fn create_stream(
+        env: Env,
+        client: Address,
+        freelancer: Address,
+        token: Address,
+        amount: i128,
+        start: u64,
+        end: u64,
+    ) -> Result<u64, EscrowError> {
+        require_not_paused(&env)?;
+        client.require_auth();
+        if client == freelancer {
+            return Err(EscrowError::InvalidParties);
+        }
+        if amount <= 0 {
+            return Err(EscrowError::InvalidAmount);
+        }
+        if start >= end {
+            return Err(EscrowError::InvalidSchedule);
+        }
+        if end.checked_sub(start).ok_or(EscrowError::ArithmeticOverflow)? < 3600 {
+            return Err(EscrowError::InvalidSchedule);
+        }
+
+        let mut id = env
+            .storage()
+            .instance()
+            .get::<_, u64>(&DataKey::NextId)
+            .unwrap_or(1);
+        if id == u64::MAX {
+            return Err(EscrowError::ArithmeticOverflow);
+        }
+        let mut milestones = Vec::new(&env);
+        milestones.push_back(Milestone {
+            amount,
+            released: false,
+        });
+        let c = EscrowContract {
+            id,
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            token: token.clone(),
+            milestones,
+            total_amount: amount,
+            funded_amount: 0,
+            released_amount: 0,
+            status: ContractStatus::Created,
+            reputation_issued: false,
+        };
+        save(&env, &c);
+        let stream = Stream {
+            start,
+            end,
+            withdrawn: 0i128,
+            stopped_at: None,
+        };
+        save_stream(&env, id, &stream);
+        id += 1;
+        env.storage().instance().set(&DataKey::NextId, &id);
+        bump_instance(&env);
+        env.events()
+            .publish((symbol_short!("created"), c.id), (client, freelancer, amount));
+        Ok(c.id)
+    }
+
+    /// Get the amount vested so far for a stream escrow.
+    pub fn vested(env: Env, id: u64) -> Result<i128, EscrowError> {
+        let c = load(&env, id)?;
+        let stream = load_stream(&env, id).ok_or(EscrowError::ContractNotFound)?;
+        vested_amount(&env, &c, &stream)
     }
 
     pub fn version(_env: Env) -> u32 {
@@ -303,6 +454,9 @@ impl Escrow {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
         c.client.require_auth();
+        if load_stream(&env, id).is_some() {
+            return Err(EscrowError::InvalidStatus);
+        }
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
@@ -458,12 +612,180 @@ impl Escrow {
         Ok(())
     }
 
+    /// Withdraw vested funds for a streaming milestone escrow (freelancer only).
+    pub fn withdraw_vested(env: Env, id: u64) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let mut c = load(&env, id)?;
+        let mut stream = load_stream(&env, id).ok_or(EscrowError::ContractNotFound)?;
+        c.freelancer.require_auth();
+        if c.status != ContractStatus::Funded {
+            return Err(EscrowError::InvalidStatus);
+        }
+        if stream.stopped_at.is_some() {
+            return Err(EscrowError::InvalidStatus);
+        }
+        if c.funded_amount < c.total_amount {
+            return Err(EscrowError::InsufficientFunds);
+        }
+        let vested = vested_amount(&env, &c, &stream)?;
+        if vested <= stream.withdrawn {
+            return Err(EscrowError::InvalidAmount);
+        }
+        let to_withdraw = vested
+            .checked_sub(stream.withdrawn)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        if to_withdraw <= 0 {
+            return Err(EscrowError::InvalidAmount);
+        }
+        transfer(
+            &env,
+            &c.token,
+            &env.current_contract_address(),
+            &c.freelancer,
+            to_withdraw,
+        );
+        c.released_amount = c
+            .released_amount
+            .checked_add(to_withdraw)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        stream.withdrawn = stream
+            .withdrawn
+            .checked_add(to_withdraw)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        if vested >= c.total_amount && stream.withdrawn >= c.total_amount {
+            if !c.milestones.is_empty() {
+                let mut milestones = c.milestones.clone();
+                let mut m = milestones.get(0).unwrap();
+                m.released = true;
+                milestones.set(0, m);
+                c.milestones = milestones;
+            }
+            c.status = ContractStatus::Completed;
+        }
+        save(&env, &c);
+        save_stream(&env, id, &stream);
+        env.events().publish((symbol_short!("stream_wd"), id), to_withdraw);
+        Ok(())
+    }
+
+    /// Stop a streaming escrow: pay vested-but-unwithdrawn to freelancer, refund unvested to client.
+    pub fn stop_stream(env: Env, id: u64) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let mut c = load(&env, id)?;
+        let mut stream = load_stream(&env, id).ok_or(EscrowError::ContractNotFound)?;
+        c.client.require_auth();
+        if c.status != ContractStatus::Funded {
+            return Err(EscrowError::InvalidStatus);
+        }
+        if stream.stopped_at.is_some() {
+            return Err(EscrowError::InvalidStatus);
+        }
+        if c.funded_amount < c.total_amount {
+            return Err(EscrowError::InsufficientFunds);
+        }
+        let now = env.ledger().timestamp();
+        stream.stopped_at = Some(now);
+        let vested = vested_amount(&env, &c, &stream)?;
+        let to_freelancer = if vested > stream.withdrawn {
+            vested
+                .checked_sub(stream.withdrawn)
+                .ok_or(EscrowError::ArithmeticOverflow)?
+        } else {
+            0i128
+        };
+        let held = c
+            .funded_amount
+            .checked_sub(c.released_amount)
+            .ok_or(EscrowError::InsufficientFunds)?;
+        let unvested_total = if c.total_amount > vested {
+            c.total_amount
+                .checked_sub(vested)
+                .ok_or(EscrowError::ArithmeticOverflow)?
+        } else {
+            0i128
+        };
+        if to_freelancer > 0 {
+            transfer(
+                &env,
+                &c.token,
+                &env.current_contract_address(),
+                &c.freelancer,
+                to_freelancer,
+            );
+            c.released_amount = c
+                .released_amount
+                .checked_add(to_freelancer)
+                .ok_or(EscrowError::ArithmeticOverflow)?;
+        }
+        if held > to_freelancer {
+            let to_client = held
+                .checked_sub(to_freelancer)
+                .ok_or(EscrowError::ArithmeticOverflow)?;
+            if to_client > 0 {
+                transfer(
+                    &env,
+                    &c.token,
+                    &env.current_contract_address(),
+                    &c.client,
+                    to_client,
+                );
+            }
+        }
+        if !c.milestones.is_empty() {
+            let mut milestones = c.milestones.clone();
+            let mut m = milestones.get(0).unwrap();
+            m.released = true;
+            milestones.set(0, m);
+            c.milestones = milestones;
+        }
+        stream.withdrawn = stream
+            .withdrawn
+            .checked_add(to_freelancer)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        c.funded_amount = c.released_amount;
+        c.status = ContractStatus::Cancelled;
+        save(&env, &c);
+        save_stream(&env, id, &stream);
+
+        // Increment cancellations for client when funds were held
+        if held > 0 {
+            let client_key = DataKey::Outcomes(c.client.clone());
+            let mut client_outcomes: Outcomes = env
+                .storage()
+                .persistent()
+                .get(&client_key)
+                .unwrap_or_default();
+            client_outcomes.cancellations = client_outcomes
+                .cancellations
+                .checked_add(1)
+                .ok_or(EscrowError::ArithmeticOverflow)?;
+            env.storage()
+                .persistent()
+                .set(&client_key, &client_outcomes);
+            env.storage().persistent().extend_ttl(
+                &client_key,
+                PERSISTENT_TTL_THRESHOLD,
+                PERSISTENT_TTL_EXTEND,
+            );
+        }
+
+        env.events()
+            .publish((symbol_short!("stream_st"), id), (to_freelancer, unvested_total));
+        Ok(())
+    }
+
     /// Client cancels the agreement and recovers any unreleased funds.
     /// If any funds were held and refunded, cancellations is incremented for the client.
     pub fn cancel_contract(env: Env, id: u64) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
+        if load_stream(&env, id).is_some() {
+            return Err(EscrowError::InvalidStatus);
+        }
         let mut c = load(&env, id)?;
         c.client.require_auth();
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+            return Err(EscrowError::InvalidStatus);
+        }
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
@@ -591,6 +913,11 @@ impl Escrow {
 
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
         load(&env, id)
+    }
+
+    /// Get stream schedule for a stream escrow.
+    pub fn get_stream(env: Env, id: u64) -> Result<Stream, EscrowError> {
+        load_stream(&env, id).ok_or(EscrowError::ContractNotFound)
     }
 
     pub fn contract_count(env: Env) -> u64 {
