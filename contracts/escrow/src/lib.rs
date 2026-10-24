@@ -5,7 +5,8 @@
 //! 2. A client calls `create_contract(client, freelancer, token, milestone_amounts)`.
 //! 3. The client funds the escrow with `deposit_funds` (real token transfer into the contract).
 //! 4. The client approves work with `release_milestone`, paying the freelancer per milestone.
-//! 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
+//! 5. Either party may `open_dispute`; the admin resolves it at any time, or either party
+//!    triggers a 50/50 fallback after `DISPUTE_TIMEOUT_SECS`.
 //! 6. The client can `cancel_contract` before completion to recover unreleased funds.
 //! 7. After completion the client may `issue_reputation` for the freelancer.
 #![no_std]
@@ -17,6 +18,7 @@ use soroban_sdk::{
 
 pub const MAX_MILESTONES: u32 = 20;
 pub const BPS_DENOMINATOR: i128 = 10_000;
+pub const DISPUTE_TIMEOUT_SECS: u64 = 14 * 86_400;
 /// Threshold for dispute outcome accounting (5,000 basis points, or 50%).
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
 /// the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
@@ -44,6 +46,7 @@ pub enum EscrowError {
     InvalidSplit = 14,
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
+    DisputeNotExpired = 17,
     ArithmeticOverflow = 17,
     RatingNotFound = 18,
     RatingAlreadyVoided = 19,
@@ -114,6 +117,7 @@ enum DataKey {
     Paused,
     NextId,
     Contract(u64),
+    DisputedAt(u64),
     Reputation(Address),
     Outcomes(Address),
     Rating(u64),
@@ -172,6 +176,30 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     if amount > 0 {
         token::Client::new(env, token_addr).transfer(from, to, &amount);
     }
+}
+
+fn settle_dispute(
+    env: &Env,
+    c: &mut EscrowContract,
+    freelancer_bps: u32,
+    event: soroban_sdk::Symbol,
+) -> Result<(), EscrowError> {
+    if freelancer_bps as i128 > BPS_DENOMINATOR {
+        return Err(EscrowError::InvalidSplit);
+    }
+    let held = c.funded_amount - c.released_amount;
+    let to_freelancer = held * freelancer_bps as i128 / BPS_DENOMINATOR;
+    let to_client = held - to_freelancer;
+    let this = env.current_contract_address();
+    transfer(env, &c.token, &this, &c.freelancer, to_freelancer);
+    transfer(env, &c.token, &this, &c.client, to_client);
+    c.released_amount += to_freelancer;
+    c.funded_amount = c.released_amount;
+    c.status = ContractStatus::Resolved;
+    save(env, c);
+    env.events()
+        .publish((event, c.id), (to_freelancer, to_client));
+    Ok(())
 }
 
 #[contractimpl]
@@ -335,7 +363,7 @@ impl Escrow {
         Ok(())
     }
 
-    /// Either party may raise a dispute, freezing releases until the admin resolves it.
+    /// Either party may raise a dispute, freezing releases until settlement.
     pub fn open_dispute(env: Env, id: u64, caller: Address) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
@@ -347,6 +375,14 @@ impl Escrow {
             return Err(EscrowError::InvalidStatus);
         }
         c.status = ContractStatus::Disputed;
+        env.storage()
+            .persistent()
+            .set(&DataKey::DisputedAt(id), &env.ledger().timestamp());
+        env.storage().persistent().extend_ttl(
+            &DataKey::DisputedAt(id),
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
         save(&env, &c);
 
         // Increment disputes_opened for the caller using checked arithmetic
@@ -386,9 +422,33 @@ impl Escrow {
         if c.status != ContractStatus::Disputed {
             return Err(EscrowError::InvalidStatus);
         }
-        if freelancer_bps as i128 > BPS_DENOMINATOR {
-            return Err(EscrowError::InvalidSplit);
+        settle_dispute(&env, &mut c, freelancer_bps, symbol_short!("resolved"))?;
+        Ok(())
+    }
+
+    /// After 14 days either party may trigger an even split, with any remainder refunded to the client.
+    pub fn settle_expired_dispute(env: Env, id: u64, caller: Address) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let mut c = load(&env, id)?;
+        caller.require_auth();
+        if caller != c.client && caller != c.freelancer {
+            return Err(EscrowError::Unauthorized);
         }
+        if c.status != ContractStatus::Disputed {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let disputed_at: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DisputedAt(id))
+            .ok_or(EscrowError::InvalidStatus)?;
+        let deadline = disputed_at
+            .checked_add(DISPUTE_TIMEOUT_SECS)
+            .ok_or(EscrowError::DisputeNotExpired)?;
+        if env.ledger().timestamp() < deadline {
+            return Err(EscrowError::DisputeNotExpired);
+        }
+        settle_dispute(&env, &mut c, 5_000, symbol_short!("disp_exp"))?;
         let held = c.funded_amount - c.released_amount;
         let to_freelancer = held * freelancer_bps as i128 / BPS_DENOMINATOR;
         let to_client = held - to_freelancer;
