@@ -388,7 +388,7 @@ impl Escrow {
             return Err(EscrowError::MilestoneAlreadyReleased);
         }
         let deadlines = load_deadlines(&env, id);
-        let deadline = deadlines.get(index).unwrap_or(EscrowError::NotOverdue);
+        let deadline = deadlines.get(index).unwrap_or(0);
         if deadline == 0 {
             return Err(EscrowError::NotOverdue);
         }
