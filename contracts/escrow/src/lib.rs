@@ -11,11 +11,12 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol,
-    Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
+    Symbol, Vec,
 };
 
 pub const MAX_MILESTONES: u32 = 20;
+pub const MAX_EVIDENCE_PER_PARTY: u32 = 10;
 pub const BPS_DENOMINATOR: i128 = 10_000;
 /// Threshold for dispute outcome accounting (5,000 basis points, or 50%).
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
@@ -44,9 +45,10 @@ pub enum EscrowError {
     InvalidSplit = 14,
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
-    ArithmeticOverflow = 17,
-    RatingNotFound = 18,
-    RatingAlreadyVoided = 19,
+    EvidenceLimit = 17,
+    ArithmeticOverflow = 18,
+    RatingNotFound = 19,
+    RatingAlreadyVoided = 20,
 }
 
 #[contracttype]
@@ -83,6 +85,34 @@ pub struct EscrowContract {
 }
 
 #[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum DisputeReason {
+    NotDelivered,
+    QualityIssue,
+    PaymentWithheld,
+    ScopeChange,
+    Other,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceEntry {
+    pub by: Address,
+    pub hash: BytesN<32>,
+    pub at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeRecord {
+    pub opener: Address,
+    pub reason: DisputeReason,
+    pub opened_at: u64,
+    pub evidence: Vec<EvidenceEntry>,
+    pub rationale: Option<BytesN<32>>,
+}
+
+#[contracttype]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Reputation {
     pub completed_contracts: u32,
@@ -115,6 +145,7 @@ enum DataKey {
     NextId,
     Contract(u64),
     Reputation(Address),
+    Dispute(u64),
     Outcomes(Address),
     Rating(u64),
 }
@@ -157,6 +188,21 @@ fn load(env: &Env, id: u64) -> Result<EscrowContract, EscrowError> {
 fn save(env: &Env, c: &EscrowContract) {
     let key = DataKey::Contract(c.id);
     env.storage().persistent().set(&key, c);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+}
+
+fn load_dispute(env: &Env, id: u64) -> Result<DisputeRecord, EscrowError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Dispute(id))
+        .ok_or(EscrowError::ContractNotFound)
+}
+
+fn save_dispute(env: &Env, id: u64, record: &DisputeRecord) {
+    let key = DataKey::Dispute(id);
+    env.storage().persistent().set(&key, record);
     env.storage()
         .persistent()
         .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
@@ -336,7 +382,13 @@ impl Escrow {
     }
 
     /// Either party may raise a dispute, freezing releases until the admin resolves it.
-    pub fn open_dispute(env: Env, id: u64, caller: Address) -> Result<(), EscrowError> {
+    pub fn open_dispute(
+        env: Env,
+        id: u64,
+        caller: Address,
+        reason: DisputeReason,
+        evidence: BytesN<32>,
+    ) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
         caller.require_auth();
@@ -348,6 +400,20 @@ impl Escrow {
         }
         c.status = ContractStatus::Disputed;
         save(&env, &c);
+        let mut entries = Vec::new(&env);
+        entries.push_back(EvidenceEntry {
+            by: caller.clone(),
+            hash: evidence.clone(),
+            at: env.ledger().timestamp(),
+        });
+        let record = DisputeRecord {
+            opener: caller.clone(),
+            reason,
+            opened_at: env.ledger().timestamp(),
+            evidence: entries,
+            rationale: None,
+        };
+        save_dispute(&env, id, &record);
 
         // Increment disputes_opened for the caller using checked arithmetic
         let outcome_key = DataKey::Outcomes(caller.clone());
@@ -369,8 +435,51 @@ impl Escrow {
             PERSISTENT_TTL_EXTEND,
         );
 
-        env.events().publish((symbol_short!("dispute"), id), caller);
+        env.events()
+            .publish((symbol_short!("dispute"), id), (caller, reason, evidence));
         Ok(())
+    }
+
+    /// Client or freelancer anchors an evidence hash while the dispute is open.
+    pub fn submit_evidence(
+        env: Env,
+        id: u64,
+        caller: Address,
+        hash: BytesN<32>,
+    ) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let c = load(&env, id)?;
+        caller.require_auth();
+        if caller != c.client && caller != c.freelancer {
+            return Err(EscrowError::Unauthorized);
+        }
+        if c.status != ContractStatus::Disputed {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let mut record = load_dispute(&env, id)?;
+        let mut count: u32 = 0;
+        for e in record.evidence.iter() {
+            if e.by == caller {
+                count += 1;
+            }
+        }
+        if count >= MAX_EVIDENCE_PER_PARTY {
+            return Err(EscrowError::EvidenceLimit);
+        }
+        record.evidence.push_back(EvidenceEntry {
+            by: caller.clone(),
+            hash: hash.clone(),
+            at: env.ledger().timestamp(),
+        });
+        save_dispute(&env, id, &record);
+        env.events()
+            .publish((symbol_short!("evidence"), id), (caller, hash));
+        Ok(())
+    }
+
+    /// Returns the dispute record for an escrow, if one exists.
+    pub fn get_dispute(env: Env, id: u64) -> Option<DisputeRecord> {
+        env.storage().persistent().get(&DataKey::Dispute(id))
     }
 
     /// Admin resolves a dispute, paying `freelancer_bps` (0..=10000) of the escrowed
@@ -380,7 +489,12 @@ impl Escrow {
     /// If freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS (5_000 bps, or 50%),
     /// freelancer gets a dispute win and client gets a dispute loss.
     /// Otherwise, freelancer gets a loss and client gets a win.
-    pub fn resolve_dispute(env: Env, id: u64, freelancer_bps: u32) -> Result<(), EscrowError> {
+    pub fn resolve_dispute(
+        env: Env,
+        id: u64,
+        freelancer_bps: u32,
+        rationale: BytesN<32>,
+    ) -> Result<(), EscrowError> {
         require_admin(&env)?;
         let mut c = load(&env, id)?;
         if c.status != ContractStatus::Disputed {
@@ -399,6 +513,9 @@ impl Escrow {
         c.funded_amount = c.released_amount;
         c.status = ContractStatus::Resolved;
         save(&env, &c);
+        let mut record = load_dispute(&env, id)?;
+        record.rationale = Some(rationale.clone());
+        save_dispute(&env, id, &record);
 
         // Record dispute outcomes for both parties
         let freelancer_key = DataKey::Outcomes(c.freelancer.clone());
@@ -453,8 +570,10 @@ impl Escrow {
             PERSISTENT_TTL_EXTEND,
         );
 
-        env.events()
-            .publish((symbol_short!("resolved"), id), (to_freelancer, to_client));
+        env.events().publish(
+            (symbol_short!("resolved"), id),
+            (to_freelancer, to_client, rationale),
+        );
         Ok(())
     }
 

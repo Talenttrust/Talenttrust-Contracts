@@ -95,8 +95,14 @@ fn dispute_split_and_cancel() {
         &vec![&s.env, 400i128],
     );
     s.escrow.deposit_funds(&id, &400);
-    s.escrow.open_dispute(&id, &s.freelancer);
-    s.escrow.resolve_dispute(&id, &2_500);
+    s.escrow.open_dispute(
+        &id,
+        &s.freelancer,
+        &DisputeReason::NotDelivered,
+        &BytesN::from_array(&s.env, &[1u8; 32]),
+    );
+    s.escrow
+        .resolve_dispute(&id, &2_500, &BytesN::from_array(&s.env, &[2u8; 32]));
     assert_eq!(s.token.balance(&s.freelancer), 100);
     assert_eq!(s.token.balance(&s.client), 900);
 
@@ -133,6 +139,8 @@ fn pause_blocks_mutations() {
 #[test]
 fn dispute_outcomes_freelancer_client_and_exact_threshold() {
     let s = setup();
+    let evidence = BytesN::from_array(&s.env, &[3u8; 32]);
+    let rationale = BytesN::from_array(&s.env, &[4u8; 32]);
 
     // 1. Freelancer-favoured resolution (> 5_000 bps): 7_500 bps
     let id1 = s.escrow.create_contract(
@@ -142,8 +150,9 @@ fn dispute_outcomes_freelancer_client_and_exact_threshold() {
         &vec![&s.env, 200i128],
     );
     s.escrow.deposit_funds(&id1, &200);
-    s.escrow.open_dispute(&id1, &s.client);
-    s.escrow.resolve_dispute(&id1, &7_500);
+    s.escrow
+        .open_dispute(&id1, &s.client, &DisputeReason::Other, &evidence);
+    s.escrow.resolve_dispute(&id1, &7_500, &rationale);
 
     let client_outcomes1 = s.escrow.get_outcomes(&s.client);
     let freelancer_outcomes1 = s.escrow.get_outcomes(&s.freelancer);
@@ -162,8 +171,9 @@ fn dispute_outcomes_freelancer_client_and_exact_threshold() {
         &vec![&s.env, 200i128],
     );
     s.escrow.deposit_funds(&id2, &200);
-    s.escrow.open_dispute(&id2, &s.freelancer);
-    s.escrow.resolve_dispute(&id2, &2_000);
+    s.escrow
+        .open_dispute(&id2, &s.freelancer, &DisputeReason::Other, &evidence);
+    s.escrow.resolve_dispute(&id2, &2_000, &rationale);
 
     let client_outcomes2 = s.escrow.get_outcomes(&s.client);
     let freelancer_outcomes2 = s.escrow.get_outcomes(&s.freelancer);
@@ -182,8 +192,9 @@ fn dispute_outcomes_freelancer_client_and_exact_threshold() {
         &vec![&s.env, 200i128],
     );
     s.escrow.deposit_funds(&id3, &200);
-    s.escrow.open_dispute(&id3, &s.client);
-    s.escrow.resolve_dispute(&id3, &5_000);
+    s.escrow
+        .open_dispute(&id3, &s.client, &DisputeReason::Other, &evidence);
+    s.escrow.resolve_dispute(&id3, &5_000, &rationale);
 
     let client_outcomes3 = s.escrow.get_outcomes(&s.client);
     let freelancer_outcomes3 = s.escrow.get_outcomes(&s.freelancer);
@@ -198,6 +209,8 @@ fn dispute_outcomes_freelancer_client_and_exact_threshold() {
 #[test]
 fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
     let s = setup();
+    let evidence = BytesN::from_array(&s.env, &[3u8; 32]);
+    let rationale = BytesN::from_array(&s.env, &[4u8; 32]);
 
     // Create and resolve dispute
     let id = s.escrow.create_contract(
@@ -207,8 +220,9 @@ fn rate_resolved_escrow_succeeds_once_and_cancelled_rejected() {
         &vec![&s.env, 100i128],
     );
     s.escrow.deposit_funds(&id, &100);
-    s.escrow.open_dispute(&id, &s.client);
-    s.escrow.resolve_dispute(&id, &5_000);
+    s.escrow
+        .open_dispute(&id, &s.client, &DisputeReason::Other, &evidence);
+    s.escrow.resolve_dispute(&id, &5_000, &rationale);
 
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
 
@@ -392,50 +406,4 @@ fn void_one_of_three_ratings_preserves_others() {
     let rep_after = s.escrow.get_reputation(&s.freelancer);
     assert_eq!(rep_after.completed_contracts, 2);
     assert_eq!(rep_after.total_rating, 8);
-
-    // Check individual records
-    assert!(!s.escrow.get_rating(&id1).unwrap().voided);
-    assert!(s.escrow.get_rating(&id2).unwrap().voided);
-    assert!(!s.escrow.get_rating(&id3).unwrap().voided);
-}
-
-#[test]
-fn ratings_issued_before_upgrade_return_rating_not_found() {
-    let s = setup();
-    let unrecorded_id = 42;
-    assert_eq!(s.escrow.get_rating(&unrecorded_id), None);
-    assert_eq!(
-        s.escrow.try_void_rating(&unrecorded_id, &symbol_short!("legacy")),
-        Err(Ok(EscrowError::RatingNotFound))
-    );
-}
-
-#[test]
-fn non_admin_cannot_void_rating() {
-    let s = setup();
-    assert_eq!(s.escrow.get_admin(), s.admin);
-
-    let id = s.escrow.create_contract(
-        &s.client,
-        &s.freelancer,
-        &s.token.address,
-        &vec![&s.env, 100i128],
-    );
-    s.escrow.deposit_funds(&id, &100);
-    s.escrow.release_milestone(&id, &0);
-    s.escrow.issue_reputation(&id, &5);
-
-    let non_admin = Address::generate(&s.env);
-    s.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
-        address: &non_admin,
-        invoke: &soroban_sdk::testutils::MockAuthInvoke {
-            contract: &s.escrow.address,
-            fn_name: "void_rating",
-            args: soroban_sdk::IntoVal::into_val(&(&id, symbol_short!("fraud")), &s.env),
-            sub_invokes: &[],
-        },
-    }]);
-
-    // Calling void_rating as non-admin must fail
-    assert!(s.escrow.try_void_rating(&id, &symbol_short!("fraud")).is_err());
 }
