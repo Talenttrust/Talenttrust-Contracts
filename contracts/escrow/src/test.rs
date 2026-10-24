@@ -1,7 +1,12 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, token::TokenClient, vec};
+use soroban_sdk::{
+    testutils::{Address as _, MockAuth, MockAuthInvoke},
+    token::StellarAssetClient,
+    token::TokenClient,
+    vec, IntoVal,
+};
 
 struct Setup<'a> {
     env: Env,
@@ -128,4 +133,158 @@ fn pause_blocks_mutations() {
         ),
         Err(Ok(EscrowError::Paused))
     );
+}
+
+#[test]
+fn pauser_can_pause_but_cannot_resolve_disputes() {
+    let s = setup();
+    let pauser = Address::generate(&s.env);
+    s.escrow.grant_role(&Role::Pauser, &pauser);
+    assert!(s.escrow.has_role(&Role::Pauser, &pauser));
+
+    s.escrow
+        .mock_auths(&[MockAuth {
+            address: &pauser,
+            invoke: &MockAuthInvoke {
+                contract: &s.escrow.address,
+                fn_name: "set_paused",
+                args: (&pauser, true).into_val(&s.env),
+                sub_invokes: &[],
+            },
+        }])
+        .set_paused(&pauser, &true);
+    assert!(s.escrow.is_paused());
+
+    s.escrow
+        .mock_auths(&[MockAuth {
+            address: &pauser,
+            invoke: &MockAuthInvoke {
+                contract: &s.escrow.address,
+                fn_name: "set_paused",
+                args: (&pauser, false).into_val(&s.env),
+                sub_invokes: &[],
+            },
+        }])
+        .set_paused(&pauser, &false);
+    assert!(!s.escrow.is_paused());
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.open_dispute(&id, &s.freelancer);
+
+    let result = s
+        .escrow
+        .mock_auths(&[MockAuth {
+            address: &pauser,
+            invoke: &MockAuthInvoke {
+                contract: &s.escrow.address,
+                fn_name: "resolve_dispute",
+                args: (&pauser, id, 5_000u32).into_val(&s.env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_resolve_dispute(&pauser, &id, &5_000);
+    assert_eq!(result, Err(Ok(EscrowError::Unauthorized)));
+}
+
+#[test]
+fn resolver_can_resolve_but_cannot_pause() {
+    let s = setup();
+    let resolver = Address::generate(&s.env);
+    s.escrow.grant_role(&Role::Resolver, &resolver);
+    assert!(s.escrow.has_role(&Role::Resolver, &resolver));
+
+    let pause_result = s
+        .escrow
+        .mock_auths(&[MockAuth {
+            address: &resolver,
+            invoke: &MockAuthInvoke {
+                contract: &s.escrow.address,
+                fn_name: "set_paused",
+                args: (&resolver, true).into_val(&s.env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_set_paused(&resolver, &true);
+    assert_eq!(pause_result, Err(Ok(EscrowError::Unauthorized)));
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.open_dispute(&id, &s.freelancer);
+
+    s.escrow
+        .mock_auths(&[MockAuth {
+            address: &resolver,
+            invoke: &MockAuthInvoke {
+                contract: &s.escrow.address,
+                fn_name: "resolve_dispute",
+                args: (&resolver, id, 10_000u32).into_val(&s.env),
+                sub_invokes: &[],
+            },
+        }])
+        .resolve_dispute(&resolver, &id, &10_000);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+    assert_eq!(s.token.balance(&s.freelancer), 100);
+}
+
+#[test]
+fn revoking_pauser_role_takes_effect_immediately() {
+    let s = setup();
+    let pauser = Address::generate(&s.env);
+    s.escrow.grant_role(&Role::Pauser, &pauser);
+    s.escrow.revoke_role(&Role::Pauser, &pauser);
+    assert!(!s.escrow.has_role(&Role::Pauser, &pauser));
+
+    let result = s
+        .escrow
+        .mock_auths(&[MockAuth {
+            address: &pauser,
+            invoke: &MockAuthInvoke {
+                contract: &s.escrow.address,
+                fn_name: "set_paused",
+                args: (&pauser, true).into_val(&s.env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_set_paused(&pauser, &true);
+    assert_eq!(result, Err(Ok(EscrowError::Unauthorized)));
+}
+
+#[test]
+fn resolver_who_is_a_party_cannot_resolve_that_escrow() {
+    let s = setup();
+    s.escrow.grant_role(&Role::Resolver, &s.client);
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.open_dispute(&id, &s.freelancer);
+
+    let result = s
+        .escrow
+        .mock_auths(&[MockAuth {
+            address: &s.client,
+            invoke: &MockAuthInvoke {
+                contract: &s.escrow.address,
+                fn_name: "resolve_dispute",
+                args: (&s.client, id, 5_000u32).into_val(&s.env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_resolve_dispute(&s.client, &id, &5_000);
+    assert_eq!(result, Err(Ok(EscrowError::Unauthorized)));
 }

@@ -129,22 +129,6 @@ fn has_role(env: &Env, role: Role, account: &Address) -> bool {
         .unwrap_or(false)
 }
 
-fn require_role_pauser(env: &Env, caller: &Address) -> Result<(), EscrowError> {
-    caller.require_auth();
-    if !has_role(env, Role::Pauser, caller) {
-        return Err(EscrowError::Unauthorized);
-    }
-    Ok(())
-}
-
-fn require_role_resolver(env: &Env, caller: &Address) -> Result<(), EscrowError> {
-    caller.require_auth();
-    if !has_role(env, Role::Resolver, caller) {
-        return Err(EscrowError::Unauthorized);
-    }
-    Ok(())
-}
-
 fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
     if env
         .storage()
@@ -376,7 +360,12 @@ impl Escrow {
 
     /// Resolves a dispute. Caller must be admin or hold Resolver role.
     /// The resolver must not be the escrow's client or freelancer.
-    pub fn resolve_dispute(env: Env, caller: Address, id: u64, freelancer_bps: u32) -> Result<(), EscrowError> {
+    pub fn resolve_dispute(
+        env: Env,
+        caller: Address,
+        id: u64,
+        freelancer_bps: u32,
+    ) -> Result<(), EscrowError> {
         caller.require_auth();
         if !has_role(&env, Role::Resolver, &caller) {
             return Err(EscrowError::Unauthorized);
@@ -480,15 +469,22 @@ impl Escrow {
     pub fn grant_role(env: Env, role: Role, account: Address) -> Result<(), EscrowError> {
         let _admin_addr = require_admin(&env)?;
         let key = DataKey::RoleMember(role.clone(), account.clone());
-        let current = env.storage().persistent().get::<_, bool>(&key).unwrap_or(false);
+        let current = env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&key)
+            .unwrap_or(false);
         if current {
             return Err(EscrowError::RoleUnchanged);
         }
         env.storage().persistent().set(&key, &true);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-        env.events().publish((symbol_short!("role_set"), role), (account, true));
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
+        env.events()
+            .publish((symbol_short!("role_set"), role), (account, true));
         Ok(())
     }
 
@@ -496,15 +492,22 @@ impl Escrow {
     pub fn revoke_role(env: Env, role: Role, account: Address) -> Result<(), EscrowError> {
         let _admin_addr = require_admin(&env)?;
         let key = DataKey::RoleMember(role.clone(), account.clone());
-        let current = env.storage().persistent().get::<_, bool>(&key).unwrap_or(false);
+        let current = env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&key)
+            .unwrap_or(false);
         if !current {
             return Err(EscrowError::RoleUnchanged);
         }
         env.storage().persistent().set(&key, &false);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-        env.events().publish((symbol_short!("role_set"), role), (account, false));
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
+        env.events()
+            .publish((symbol_short!("role_set"), role), (account, false));
         Ok(())
     }
 
