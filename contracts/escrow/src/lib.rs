@@ -334,12 +334,12 @@ impl Escrow {
             return Err(EscrowError::InvalidApprovers);
         }
         for i in 0..n {
-            let a = approvers.get_unwrapped(i);
+            let a = approvers.get(i).ok_or(EscrowError::InvalidApprovers)?;
             if a == c.freelancer {
                 return Err(EscrowError::InvalidApprovers);
             }
             for j in (i + 1)..n {
-                if approvers.get_unwrapped(j) == a {
+                if approvers.get(j).ok_or(EscrowError::InvalidApprovers)? == a {
                     return Err(EscrowError::InvalidApprovers);
                 }
             }
