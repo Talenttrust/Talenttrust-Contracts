@@ -10,8 +10,13 @@
 /// 7. After completion the client may `issue_reputation` for the freelancer.
 #![no_std]
 
+use core::clone::Clone;
+use core::convert::{From, Into, TryFrom};
+use core::default::Default;
+use core::matches;
+use core::result::Result::{Err, Ok};
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Result,
     Vec,
 };
 
@@ -144,7 +149,7 @@ fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
     {
         return Err(EscrowError::Paused);
     }
-    Ok()
+    Ok(())
 }
 
 fn load(env: &Env, id: u64) -> Result<EscrowContract, EscrowError> {
@@ -219,7 +224,7 @@ impl Escrow {
         env.storage().instance().set(&DataKey::Paused, &paused);
         bump_instance(&env);
         env.events().publish((symbol_short!("paused"),), paused);
-        Ok(()
+        Ok(())
     }
 
     pub fn is_paused(env: Env) -> bool {
@@ -245,7 +250,7 @@ impl Escrow {
         }
         let n = milestone_amounts.len();
         if n == 0 || n > MAX_MILESTONES {
-            return Err(EscrowError::InvalidHilestones);
+            return Err(EscrowError::InvalidMilestones);
         }
         let mut milestones = Vec::new(&env);
         let mut total: i128 = 0;
@@ -311,7 +316,7 @@ impl Escrow {
         }
         save(&env, &c);
         env.events().publish((symbol_short!("deposit"), id), amount);
-        Ok(()
+        Ok(())
     }
 
     /// Client approves a milestone and the freelancer is paid.
@@ -348,7 +353,7 @@ impl Escrow {
         save(&env, &c);
         env.events()
             .publish((symbol_short!("release"), id), (index, m.amount));
-        Ok(()
+        Ok(())
     }
 
     /// Either party may raise a dispute, freezing releases until the admin resolves it.
@@ -376,262 +381,9 @@ impl Escrow {
             .disputes_opened
             .checked_add(1)
             .ok_or(EscrowError::ArithmeticOverflow)?;
-        env.storage()
-            .persistent()
-            .set(&outcome_key, &caller_outcomes);
-        env.storage().persistent().extend_ttl(
-            &outcome_key,
-            PERSISTENT_TTL_THRESHOLD,
-            PERSISTENT_TTL_EXTEND,
-        );
-
-        env.events().publish((symbol_short!("dispute"), id), caller);
-        Ok(()
-    }
-
-    /// Admin resolves a dispute, paying `freelancer_bps` (0..=10000) of the escrowed
-    /// balance to the freelancer and refunding the rest to the client.
-    ///
-    /// Outcomes:
-    /// If freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS (5_000 bps, or 50%),
-    /// freelancer gets a dispute win and client gets a dispute loss.
-    /// Otherwise, freelancer gets a loss and client gets a win.
-    pub fn resolve_dispute(env: Env, id: u64, freelancer_bps: u32) -> Result<(), EscrowError> {
-        require_admin(&env)?;
-        let mut c = load(&env, id)?;
-        if c.status != ContractStatus::Disputed {
-            return Err(EscrowError::InvalidStatus);
-        }
-        if freelancer_bps as i128 > BPS_DENOMINATOR {
-            return Err(EscrowError::InvalidSplit);
-        }
-        let held = c.funded_amount - c.released_amount;
-        let to_freelancer = held * freelancer_bps as i128 / BPS_DENOMINATOR;
-        let to_client = held - to_freelancer;
-        let this = env.current_contract_address();
-        transfer(&env, &c.token, &this, &c.freelancer, to_freelancer);
-        transfer(&env, &c.token, &this, &c.client, to_client);
-        c.released_amount += to_freelancer;
-        c.funded_amount = c.released_amount;
-        c.status = ContractStatus::Resolved;
-        save(&env, &c);
-
-        // Record dispute outcomes for both parties
-        let freelancer_key = DataKey::Outcomes(c.freelancer.clone());
-        let mut freelancer_outcomes: Outcomes = env
-            .storage()
-            .persistent()
-            .get(&freelancer_key)
-            .unwrap_or_default();
-
-        let client_key = DataKey::Outcomes(c.client.clone());
-        let mut client_outcomes: Outcomes = env
-            .storage()
-            .persistent()
-            .get(&client_key)
-            .unwrap_or_default();
-
-        if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS {
-            freelancer_outcomes.disputes_won = freelancer_outcomes
-                .disputes_won
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-            client_outcomes.disputes_lost = client_outcomes
-                .disputes_lost
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-        } else {
-            freelancer_outcomes.disputes_lost = freelancer_outcomes
-                .disputes_lost
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-            client_outcomes.disputes_won = client_outcomes
-                .disputes_won
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-        }
-
-        env.storage()
-            .persistent()
-            .set(&freelancer_key, &freelancer_outcomes);
-        env.storage().persistent().extend_ttl(
-            &freelancer_key,
-            PERSISTENT_TTL_THRESHOLD,
-            PERSISTENT_TTL_EXTEND,
-        );
-
-        env.storage()
-            .persistent()
-            .set(&client_key, &client_outcomes);
-        env.storage().persistent().extend_ttl(
-            &client_key,
-            PERSISTENT_TTL_THRESHOLD,
-            PERSISTENT_TTL_EXTEND,
-        );
-
+        env.storage().persistent().set(&outcome_key, &caller_outcomes);
         env.events()
-            .publish((symbol_short!("resolved"), id), (to_freelancer, to_client));
-        Ok(()
-    }
-
-    /// Client cancels the agreement and recovers any unreleased funds.
-    /// If any funds were held and refunded, cancellations is incremented for the client.
-    pub fn cancel_contract(env: Env, id: u64) -> Result<(), EscrowError> {
-        require_not_paused(&env)?;
-        let mut c = load(&env, id)?;
-        c.client.require_auth();
-        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
-            return Err(EscrowError::InvalidStatus);
-        }
-        let refund = c.funded_amount - c.released_amount;
-        transfer(
-            &env,
-            &c.token,
-            &env.current_contract_address(),
-            &c.client,
-            refund,
-        );
-        c.funded_amount = c.released_amount;
-        c.status = ContractStatus::Cancelled;
-        save(&env, &c);
-
-        // Increment cancellations for client only when funds were held
-        if refund > 0 {
-            let client_key = DataKey::Outcomes(c.client.clone());
-            let mut client_outcomes: Outcomes = env
-                .storage()
-                .persistent()
-                .get(&client_key)
-                .unwrap_or_default();
-            client_outcomes.cancellations = client_outcomes
-                .cancellations
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
-            env.storage()
-                .persistent()
-                .set(&client_key, &client_outcomes);
-            env.storage().persistent().extend_ttl(
-                &client_key,
-                PERSISTENT_TTL_THRESHOLD,
-                PERSISTENT_TTL_EXTEND,
-            );
-        }
-
-        env.events().publish((symbol_short!("cancel"), id), refund);
-        Ok(()
-    }
-
-    /// After completion or dispute resolution the client may rate the freelancer (1..=5) once per contract.
-    pub fn issue_reputation(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
-        let mut c = load(&env, id)?;
-        c.client.require_auth();
-        if !matches!(c.status, ContractStatus::Completed | ContractStatus::Resolved) {
-            return Err(EscrowError::InvalidStatus);
-        }
-        if c.reputation_issued {
-            return Err(EscrowError::ReputationAlreadyIssued);
-        }
-        if !(1..=5).contains(&rating) {
-            return Err(EscrowError::InvalidRating);
-        }
-        let key = DataKey::Reputation(c.freelancer.clone());
-        let mut rep = env
-            .storage()
-            .persistent()
-            .get::<_, Reputation>(&key)
-            .unwrap_or_default();
-        rep.completed_contracts += 1;
-        rep.total_rating += rating;
-        env.storage().persistent().set(&key, &rep);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-
-        let issued_at = env.ledger().timestamp();
-        let rating_record = RatingRecord {
-            freelancer: c.freelancer.clone(),
-            rating,
-            issued_at,
-            voided: false,
-        };
-        let rating_key = DataKey::Rating(id);
-        env.storage().persistent().set(&rating_key, &rating_record);
-        env.storage()
-            .persistent()
-            .extend_ttl(&rating_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-
-        c.reputation_issued = true;
-        save(&env, &c);
-        env.events()
-            .publish((symbol_short!("repute"), id), rating);
-        Ok(()
-    }
-
-    /// Governance can void fraudulent ratings, reversing their effect and recording an audit trail.
-    pub fn void_rating(env: Env, id: u64, reason: Symbol) -> Result<(), EscrowError> {
-        require_admin(&env)?;
-        require_not_paused(&env)?;
-
-        let rating_key = DataKey::Rating(id);
-        let mut record: RatingRecord = env
-            .storage()
-            .persistent()
-            .get(&rating_key)
-            .ok_or(EscrowError::RatingNotFound)?;
-
-        if record.voided {
-            return Err(EscrowError::RatingAlreadyVoided);
-        }
-
-        let rep_key = DataKey::Reputation(record.freelancer.clone());
-        let mut rep: Reputation = env.storage().persistent().get(&rep_key).unwrap_or_default();
-        rep.total_rating = rep.total_rating.saturating_sub(record.rating);
-        rep.completed_contracts = rep.completed_contracts.saturating_sub(1);
-        env.storage().persistent().set(&rep_key, &rep);
-        env.storage()
-            .persistent()
-            .extend_ttl(&rep_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-
-        record.voided = true;
-        env.storage().persistent().set(&rating_key, &record);
-        env.storage()
-            .persistent()
-            .extend_ttl(&rating_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-
-        env.events().publish(
-            (symbol_short!("rep_void"), id),
-            (record.freelancer, record.rating, reason),
-        );
+            .publish((symbol_short!("dispute"), id), caller);
         Ok(())
-    }
-
-    pub fn get_rating(env: Env, id: u64) -> Option<RatingRecord> {
-        env.storage().persistent().get(&DataKey::Rating(id))
-    }
-
-    pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
-        load(&env, id)
-    }
-
-    pub fn contract_count(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::NextId)
-            .unwrap_or(1)
-            - 1
-    }
-
-    pub fn get_reputation(env: Env, addr: Address) -> Reputation {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Reputation(addr))
-            .unwrap_or_default()
-    }
-
-    pub fn get_outcomes(env: Env, addr: Address) -> Outcomes {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Outcomes(addr))
-            .unwrap_or_default()
     }
 }
