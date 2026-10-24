@@ -33,6 +33,9 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
 | `void_rating(id, reason)` | admin | Void a fraudulent rating, reverse reputation and emit audit trail |
+| `propose_amendment(id, proposer, new_amounts)` | client or freelancer | Propose new amounts for unreleased milestones; released milestones must remain unchanged. Returns nonce. Event `("amend_p", id)` → `(proposer, nonce)`. |
+| `accept_amendment(id, acceptor, nonce)` | other party | Accept proposal (nonce must match). If new total < funded, excess refunded to client; if new total > funded, status becomes `Created`. Event `("amended", id)` → `(old_total, new_total, refunded)`. |
+| `get_amendment(id)` | anyone | Get pending amendment. |
 | `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
 | `get_contract(id)`, `get_rating(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
 
