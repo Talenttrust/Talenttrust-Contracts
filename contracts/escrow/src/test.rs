@@ -270,6 +270,95 @@ fn cancel_unfunded_escrow_does_not_count_cancellation() {
 }
 
 #[test]
+fn resign_in_created_refunds_partial_deposit() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128, 200i128],
+    );
+    // Partial deposit of 150 out of 300 required.
+    s.escrow.deposit_funds(&id, &150);
+    assert_eq!(s.token.balance(&s.client), 850);
+    assert_eq!(s.token.balance(&s.freelancer), 0);
+    assert_eq!(s.token.balance(&s.escrow.address), 150);
+
+    s.escrow.resign(&id);
+
+    assert_eq!(s.token.balance(&s.client), 1000);
+    assert_eq!(s.token.balance(&s.freelancer), 0);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Cancelled);
+    assert!(s.escrow.was_resigned(&id));
+}
+
+#[test]
+fn resign_in_funded_after_one_release_refunds_remaining() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128, 200i128],
+    );
+    s.escrow.deposit_funds(&id, &300);
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(s.token.balance(&s.freelancer), 100);
+    assert_eq!(s.token.balance(&s.client), 700);
+    assert_eq!(s.token.balance(&s.escrow.address), 200);
+
+    s.escrow.resign(&id);
+
+    // Released milestone stays paid; remaining 200 refunded to client.
+    assert_eq!(s.token.balance(&s.client), 900);
+    assert_eq!(s.token.balance(&s.freelancer), 100);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Cancelled);
+    assert!(s.escrow.was_resigned(&id));
+}
+
+#[test]
+fn resign_while_disputed_rejected() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.open_dispute(&id, &s.freelancer);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Disputed);
+    assert_eq!(
+        s.escrow.try_resign(&id),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(s.token.balance(&s.escrow.address), 100);
+    assert_eq!(s.escrow.was_resigned(&id), false);
+}
+
+#[test]
+fn client_calling_resign_rejected() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+
+    // Only the freelancer is authorized to resign.
+    s.env.mock_auths();
+    s.env.mock_auth(&s.client, &id, &symbol_short!("resign"));
+    assert!(s.escrow.try_resign(&id).is_err());
+    assert_eq!(s.token.balance(&s.escrow.address), 100);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+    assert_eq!(s.escrow.was_resigned(&id), false);
+}
+
+#[test]
 fn rate_then_void_restores_reputation_and_prevents_rerating() {
     let s = setup();
     let id = s.escrow.create_contract(

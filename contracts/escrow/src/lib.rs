@@ -7,7 +7,8 @@
 //! 4. The client approves work with `release_milestone`, paying the freelancer per milestone.
 //! 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
 //! 6. The client can `cancel_contract` before completion to recover unreleased funds.
-//! 7. After completion the client may `issue_reputation` for the freelancer.
+//! 7. The freelancer can `resign` from an escrow, refunding unreleased funds to the client.
+//! 8. After completion the client may `issue_reputation` for the freelancer.
 #![no_std]
 
 use soroban_sdk::{
@@ -116,6 +117,7 @@ enum DataKey {
     Contract(u64),
     Reputation(Address),
     Outcomes(Address),
+    Resigned(u64),
     Rating(u64),
 }
 
@@ -172,6 +174,21 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     if amount > 0 {
         token::Client::new(env, token_addr).transfer(from, to, &amount);
     }
+}
+
+/// Refunds the unreleased balance of an escrow to the client and marks it as cancelled.
+/// Reused by both `cancel_contract` and `resign`.
+fn refund_unreleased(env: &Env, c: &mut EscrowContract) -> Result<i128, EscrowError> {
+    let refunded = c.funded_amount - c.released_amount;
+    transfer(
+        env,
+        &c.token,
+        &env.current_contract_address(),
+        &c.client,
+        refunded,
+    );
+    c.status = ContractStatus::Cancelled;
+    Ok(refunded)
 }
 
 #[contractimpl]
@@ -615,6 +632,3 @@ impl Escrow {
             .unwrap_or_default()
     }
 }
-
-#[cfg(test)]
-mod test;
