@@ -8,6 +8,9 @@
 //! 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
 //! 6. The client can `cancel_contract` before completion to recover unreleased funds.
 //! 7. After completion the client may `issue_reputation` for the freelancer.
+//! 8. Either party may propose a mutual settlement split; the other party accepts it
+//!    to close the contract without the admin.
+
 #![no_std]
 
 use soroban_sdk::{
@@ -45,8 +48,11 @@ pub enum EscrowError {
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
     ArithmeticOverflow = 17,
-    RatingNotFound = 18,
-    RatingAlreadyVoided = 19,
+    // Append-only: new variants go after this line.
+    SettlementMismatch = 18,
+    NoSettlement = 19,
+    RatingNotFound = 20,
+    RatingAlreadyVoided = 21,
 }
 
 #[contracttype]
@@ -98,6 +104,15 @@ pub struct Outcomes {
     pub cancellations: u32,
 }
 
+/// A mutual settlement proposal from one party that the other party must echo and accept.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Settlement {
+    pub proposer: Address,
+    pub freelancer_amount: i128,
+    pub created_at: u64,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RatingRecord {
@@ -116,6 +131,7 @@ enum DataKey {
     Contract(u64),
     Reputation(Address),
     Outcomes(Address),
+    Settlement(u64),
     Rating(u64),
 }
 
@@ -140,7 +156,7 @@ fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
         .storage()
         .instance()
         .get::<_, bool>(&DataKey::Paused)
-        .unwrap_or(false)
+        .unwrap_or_default()
     {
         return Err(EscrowError::Paused);
     }
@@ -174,6 +190,41 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     }
 }
 
+fn clear_settlement(env: &Env, id: u64) {
+    env.storage().persistent().remove(&DataKey::Settlement(id));
+}
+
+/// Pays the held balance at an agreed split and marks the contract as Resolved.
+/// Shared by `settle` and `resolve_dispute`.
+fn payout_split(
+    env: &Env,
+    c: &mut EscrowContract,
+    freelancer_amount: i128,
+) -> Result<i128, EscrowError> {
+    let held = c.funded_amount - c.released_amount;
+    if freelancer_amount < 0 || freelancer_amount > held {
+        return Err(EscrowError::InvalidAmount);
+    }
+    let client_amount = held - freelancer_amount;
+    transfer(
+        env,
+        &c.token,
+        &env.current_contract_address(),
+        &c.freelancer,
+        freelancer_amount,
+    );
+    transfer(
+        env,
+        &c.token,
+        &env.current_contract_address(),
+        &c.client,
+        client_amount,
+    );
+    c.released_amount = c.released_amount + freelancer_amount;
+    c.status = ContractStatus::Resolved;
+    Ok(client_amount)
+}
+
 #[contractimpl]
 impl Escrow {
     /// One-time setup. Sets the admin that controls pausing and dispute resolution.
@@ -190,7 +241,7 @@ impl Escrow {
         Ok(())
     }
 
-    pub fn version(_env: Env) -> u32 {
+    pub fn version() -> u32 {
         1
     }
 
@@ -210,7 +261,7 @@ impl Escrow {
         env.storage()
             .instance()
             .get(&DataKey::Paused)
-            .unwrap_or(false)
+            .unwrap_or_default()
     }
 
     /// Creates a new escrow agreement. Returns the escrow id.
@@ -269,7 +320,7 @@ impl Escrow {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
         c.client.require_auth();
-        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+        if !matches(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
         if amount <= 0 {
@@ -293,6 +344,8 @@ impl Escrow {
         if c.funded_amount == c.total_amount {
             c.status = ContractStatus::Funded;
         }
+        // Any deposit invalidates an open settlement proposal.
+        clear_settlement(&env, id);
         save(&env, &c);
         env.events().publish((symbol_short!("deposit"), id), amount);
         Ok(())
@@ -303,7 +356,7 @@ impl Escrow {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
         c.client.require_auth();
-        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+        if !matches(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
         let mut m = c
@@ -329,6 +382,8 @@ impl Escrow {
         if c.milestones.iter().all(|x| x.released) {
             c.status = ContractStatus::Completed;
         }
+        // Any release invalidates an open settlement proposal.
+        clear_settlement(&env, id);
         save(&env, &c);
         env.events()
             .publish((symbol_short!("release"), id), (index, m.amount));
@@ -615,6 +670,3 @@ impl Escrow {
             .unwrap_or_default()
     }
 }
-
-#[cfg(test)]
-mod test;

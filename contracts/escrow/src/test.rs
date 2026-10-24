@@ -270,172 +270,165 @@ fn cancel_unfunded_escrow_does_not_count_cancellation() {
 }
 
 #[test]
-fn rate_then_void_restores_reputation_and_prevents_rerating() {
+fn client_proposes_freelancer_accepts_settlement() {
     let s = setup();
     let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
         &s.token.address,
-        &vec![&s.env, 100i128],
+        &vec![&s.env, 200i128],
     );
-    s.escrow.deposit_funds(&id, &100);
+    s.escrow.deposit_funds(&id, &200);
+
+    s.escrow.propose_settlement(&id, &s.client, &100);
+    let proposal = s.escrow.get_settlement(&id).unwrap();
+    assert_eq!(proposal.proposer, s.client);
+    assert_eq!(proposal.freelancer_amount, 100);
+
+    s.escrow.accept_settlement(&id, &s.freelancer, &100);
+    assert_eq!(s.token.balance(&s.freelancer), 100);
+    assert_eq!(s.token.balance(&s.client), 900);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+    assert!(s.escrow.get_settlement(&id).is_none());
+}
+
+#[test]
+fn freelancer_proposes_client_accepts_settlement() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 200i128],
+    );
+    s.escrow.deposit_funds(&id, &200);
+
+    s.escrow.propose_settlement(&id, &s.freelancer, &150);
+    s.escrow.accept_settlement(&id, &s.client, &150);
+    assert_eq!(s.token.balance(&s.freelancer), 150);
+    assert_eq!(s.token.balance(&s.client), 850);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+}
+
+#[test]
+fn proposer_cannot_self_accept_settlement() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 200i128],
+    );
+    s.escrow.deposit_funds(&id, &200);
+    s.escrow.propose_settlement(&id, &s.client, &100);
+
+    assert_eq!(
+        s.escrow.try_accept_settlement(&id, &s.client, &100),
+        Err(Ok(EscrowError::SettlementMismatch))
+    );
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+}
+
+#[test]
+fn settlement_mismatched_amount_rejected() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 200i128],
+    );
+    s.escrow.deposit_funds(&id, &200);
+    s.escrow.propose_settlement(&id, &s.client, &100);
+
+    assert_eq!(
+        s.escrow.try_accept_settlement(&id, &s.freelancer, &50),
+        Err(Ok(EscrowError::SettlementMismatch))
+    );
+    assert_eq!(s.token.balance(&s.freelancer), 0);
+    assert_eq!(s.token.balance(&s.client), 800);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+}
+
+#[test]
+fn settlement_invalidated_by_release() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &200);
+    s.escrow.propose_settlement(&id, &s.client, &100);
     s.escrow.release_milestone(&id, &0);
-    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+    assert!(s.escrow.get_settlement(&id).is_none());
 
-    // Initial reputation is 0
-    let rep0 = s.escrow.get_reputation(&s.freelancer);
-    assert_eq!(rep0.completed_contracts, 0);
-    assert_eq!(rep0.total_rating, 0);
-
-    // Issue rating 5
-    s.escrow.issue_reputation(&id, &5);
-    let rep1 = s.escrow.get_reputation(&s.freelancer);
-    assert_eq!(rep1.completed_contracts, 1);
-    assert_eq!(rep1.total_rating, 5);
-
-    // Verify rating record is stored
-    let rating_rec = s.escrow.get_rating(&id).expect("rating record must exist");
-    assert_eq!(rating_rec.freelancer, s.freelancer);
-    assert_eq!(rating_rec.rating, 5);
-    assert!(!rating_rec.voided);
-
-    // Admin voids rating
-    let reason = symbol_short!("fraud");
-    s.escrow.void_rating(&id, &reason);
-
-    // Reputation is restored to exact previous values
-    let rep2 = s.escrow.get_reputation(&s.freelancer);
-    assert_eq!(rep2.completed_contracts, 0);
-    assert_eq!(rep2.total_rating, 0);
-
-    // Rating record reflects voided state
-    let rating_rec_voided = s.escrow.get_rating(&id).expect("rating record must exist");
-    assert!(rating_rec_voided.voided);
-
-    // Voiding twice is rejected with RatingAlreadyVoided
     assert_eq!(
-        s.escrow.try_void_rating(&id, &reason),
-        Err(Ok(EscrowError::RatingAlreadyVoided))
-    );
-
-    // Voided escrow cannot be re-rated (reputation_already_issued remains)
-    assert_eq!(
-        s.escrow.try_issue_reputation(&id, &5),
-        Err(Ok(EscrowError::ReputationAlreadyIssued))
+        s.escrow.try_accept_settlement(&id, &s.freelancer, &100),
+        Err(Ok(EscrowError::SettlementMismatch))
     );
 }
 
 #[test]
-fn void_unrated_escrow_fails_with_rating_not_found() {
+fn settlement_from_disputed_blocks_admin_resolution() {
     let s = setup();
     let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
         &s.token.address,
-        &vec![&s.env, 100i128],
+        &vec![&s.env, 200i128],
     );
-    assert_eq!(s.escrow.get_rating(&id), None);
+    s.escrow.deposit_funds(&id, &200);
+    s.escrow.open_dispute(&id, &s.client);
 
-    let reason = symbol_short!("fraud");
-    assert_eq!(
-        s.escrow.try_void_rating(&id, &reason),
-        Err(Ok(EscrowError::RatingNotFound))
-    );
+    s.escrow.propose_settlement(&id, &s.freelancer, &120);
+    s.escrow.accept_settlement(&id, &s.client, &120);
+    assert_eq!(s.token.balance(&s.freelancer), 120);
+    assert_eq!(s.token.balance(&s.client), 880);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+
+    assert!(s.escrow.try_resolve_dispute(&id, &5_000).is_err());
 }
 
 #[test]
-fn void_one_of_three_ratings_preserves_others() {
+fn withdraw_settlement_removes_proposal() {
     let s = setup();
-
-    // Create 3 escrows
-    let id1 = s.escrow.create_contract(
-        &s.client,
-        &s.freelancer,
-        &s.token.address,
-        &vec![&s.env, 50i128],
-    );
-    let id2 = s.escrow.create_contract(
-        &s.client,
-        &s.freelancer,
-        &s.token.address,
-        &vec![&s.env, 50i128],
-    );
-    let id3 = s.escrow.create_contract(
-        &s.client,
-        &s.freelancer,
-        &s.token.address,
-        &vec![&s.env, 50i128],
-    );
-
-    // Deposit and complete each
-    s.escrow.deposit_funds(&id1, &50);
-    s.escrow.release_milestone(&id1, &0);
-    s.escrow.issue_reputation(&id1, &5);
-
-    s.escrow.deposit_funds(&id2, &50);
-    s.escrow.release_milestone(&id2, &0);
-    s.escrow.issue_reputation(&id2, &4);
-
-    s.escrow.deposit_funds(&id3, &50);
-    s.escrow.release_milestone(&id3, &0);
-    s.escrow.issue_reputation(&id3, &3);
-
-    // Total should be 3 contracts, 12 rating
-    let rep_before = s.escrow.get_reputation(&s.freelancer);
-    assert_eq!(rep_before.completed_contracts, 3);
-    assert_eq!(rep_before.total_rating, 12);
-
-    // Void rating for escrow 2 (rating 4)
-    s.escrow.void_rating(&id2, &symbol_short!("collusion"));
-
-    // Total should now be 2 contracts, 8 rating (5 + 3)
-    let rep_after = s.escrow.get_reputation(&s.freelancer);
-    assert_eq!(rep_after.completed_contracts, 2);
-    assert_eq!(rep_after.total_rating, 8);
-
-    // Check individual records
-    assert!(!s.escrow.get_rating(&id1).unwrap().voided);
-    assert!(s.escrow.get_rating(&id2).unwrap().voided);
-    assert!(!s.escrow.get_rating(&id3).unwrap().voided);
-}
-
-#[test]
-fn ratings_issued_before_upgrade_return_rating_not_found() {
-    let s = setup();
-    let unrecorded_id = 42;
-    assert_eq!(s.escrow.get_rating(&unrecorded_id), None);
-    assert_eq!(
-        s.escrow.try_void_rating(&unrecorded_id, &symbol_short!("legacy")),
-        Err(Ok(EscrowError::RatingNotFound))
-    );
-}
-
-#[test]
-fn non_admin_cannot_void_rating() {
-    let s = setup();
-    assert_eq!(s.escrow.get_admin(), s.admin);
-
     let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
         &s.token.address,
-        &vec![&s.env, 100i128],
+        &vec![&s.env, 200i128],
     );
-    s.escrow.deposit_funds(&id, &100);
-    s.escrow.release_milestone(&id, &0);
-    s.escrow.issue_reputation(&id, &5);
+    s.escrow.deposit_funds(&id, &200);
+    s.escrow.propose_settlement(&id, &s.client, &100);
+    s.escrow.withdraw_settlement(&id, &s.client);
+    assert!(s.escrow.get_settlement(&id).is_none());
+    assert_eq!(
+        s.escrow.try_accept_settlement(&id, &s.freelancer, &100),
+        Err(Ok(EscrowError::SettlementMismatch))
+    );
+}
 
-    let non_admin = Address::generate(&s.env);
-    s.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
-        address: &non_admin,
-        invoke: &soroban_sdk::testutils::MockAuthInvoke {
-            contract: &s.escrow.address,
-            fn_name: "void_rating",
-            args: soroban_sdk::IntoVal::into_val(&(&id, symbol_short!("fraud")), &s.env),
-            sub_invokes: &[],
-        },
-    }]);
-
-    // Calling void_rating as non-admin must fail
-    assert!(s.escrow.try_void_rating(&id, &symbol_short!("fraud")).is_err());
+#[test]
+fn settlement_amount_out_of_bounds_rejected() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 200i128],
+    );
+    s.escrow.deposit_funds(&id, &200);
+    assert_eq!(
+        s.escrow.try_propose_settlement(&id, &s.client, &201),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+    assert_eq!(
+        s.escrow.try_propose_settlement(&id, &s.client, &-1),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
 }

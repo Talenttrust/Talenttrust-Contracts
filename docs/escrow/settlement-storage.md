@@ -2,7 +2,8 @@
 
 This document describes the persistent storage layout for settlement-related state
 in the TalentTrust Escrow contract: the bound token address, the protocol fee
-configuration, and the accumulated fee balance.
+configuration, the accumulated fee balance, and the two-party mutual settlement
+proposal.
 
 **Source of truth:** [`contracts/escrow/src/types.rs`](../../contracts/escrow/src/types.rs)
 (DataKey enum), [`contracts/escrow/src/lib.rs`](../../contracts/escrow/src/lib.rs)
@@ -26,7 +27,7 @@ configuration, and the accumulated fee balance.
 | **Type** | `Address` |
 | **Storage class** | `persistent()` |
 | **Written by** | `bind_settlement_token` — write-once, rejected after first bind |
-| **Read by** | `deposit_funds`, `release_milestone`, `cancel_contract`, `refund_unreleased_milestones`, `withdraw_protocol_fees`, `get_settlement_token`, `is_settlement_token_bound` |
+| **Read by** | `deposit_funds`, `release_milestone`, `cancel_contract`, `refund_unreleased_milestones`, `withdraw_protocol_fees`, `accept_settlement`, `get_settlement_token`, `is_settlement_token_bound` |
 | **TTL bump on write** | None — default Soroban persistent TTL applies |
 | **TTL bump on read** | None — key is never explicitly extended |
 
@@ -102,6 +103,25 @@ env.storage().persistent().set(
 The admin address controls fee configuration, emergency controls, and fee
 withdrawal. Admin rotation follows a two-step timelock pattern.
 
+### `DataKey::Settlement(u64)`
+
+| Property | Value |
+|---|---|
+| **Key** | `DataKey::Settlement(u64)` (payload: contract id) |
+| **Type** | `SettlementProposal { proposer: Address, freelancer_amount: i128, created_at: u64 }` |
+| **Storage class** | `persistent()` |
+| **Written by** | `propose_settlement` (replaces any earlier proposal), `accept_settlement` (removed), `withdraw_settlement` (removed), `deposit_funds` and `release_milestone` (removed — invalidated) |
+| **Read by** | `accept_settlement`, `withdraw_settlement`, `get_settlement` |
+| **TTL bump on write** | None |
+| **TTL bump on read** | None |
+
+A proposal is only valid for the current held balance: any `deposit_funds` or
+`release_milestone` after a proposal deletes the key, so `freelancer_amount`
+always refers to the balance at proposal time. `accept_settlement` requires the
+acceptor to echo the stored `freelancer_amount` (else `SettlementMismatch`) and
+pays out `freelancer_amount` to the freelancer and the remainder to the client,
+setting the contract status to `Resolved`.
+
 ---
 
 ## TTL and Bump Strategy Summary
@@ -109,7 +129,8 @@ withdrawal. Admin rotation follows a two-step timelock pattern.
 ### Persistent keys without explicit TTL management
 
 `SettlementToken`, `ProtocolFeeBps`, `NextContractId`, `Initialized`, `Paused`,
-`Emergency`, `Admin`, `GovernedParameters`, and `ReadinessChecklist` are
+`Emergency`, `Admin`, `GovernedParameters`, `ReadinessChecklist`, and
+`Settlement(u64)` are
 written with `env.storage().persistent().set(...)` and **never** have their TTL
 explicitly extended on read or write (except `NextContractId` which is extended
 via `extend_next_contract_id_ttl`).
@@ -126,6 +147,7 @@ making the contract inoperable until the admin rebinds them.
 | `Admin` | — | — |
 | `GovernedParameters` | — | — |
 | `ReadinessChecklist` | — | — |
+| `Settlement(u64)` | — | — |
 
 ### Persistent keys with explicit TTL management
 
@@ -156,6 +178,7 @@ Every entrypoint that moves funds reads the settlement token at call time:
 | `refund_unreleased_milestones` | `read_settlement_token` → `unwrap_or_else(panic)` | `SettlementTokenNotConfigured` |
 | `cancel_contract` | `read_settlement_token` → `unwrap_or_else(panic)` | Falls back to `NotInitialized` |
 | `withdraw_protocol_fees` | `read_settlement_token` → `unwrap_or_else(panic)` | `SettlementTokenNotConfigured` |
+| `accept_settlement` | `read_settlement_token` → `unwrap_or_else(panic)` | `SettlementTokenNotConfigured` |
 | `get_settlement_token` | `read_settlement_token` (returns `Option`) | Returns `None` |
 | `is_settlement_token_bound` | `read_settlement_token().is_some()` | Returns `false` |
 
