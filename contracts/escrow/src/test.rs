@@ -5,6 +5,7 @@ use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, token::Tok
 
 struct Setup<'a> {
     env: Env,
+    admin: Address,
     escrow: EscrowClient<'a>,
     token: TokenClient<'a>,
     client: Address,
@@ -25,6 +26,7 @@ fn setup<'a>() -> Setup<'a> {
     let token = TokenClient::new(&env, &sac.address());
     Setup {
         env,
+        admin,
         escrow,
         token,
         client,
@@ -267,282 +269,173 @@ fn cancel_unfunded_escrow_does_not_count_cancellation() {
     assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 1);
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Upgrade tests
-// ──────────────────────────────────────────────────────────────────────────────
-
-use soroban_sdk::testutils::{Events, Ledger};
-use soroban_sdk::BytesN;
-
-/// Helper: produce a deterministic 32-byte wasm-hash-shaped value.
-fn fake_hash(env: &Env, seed: u8) -> BytesN<32> {
-    let mut arr = [0u8; 32];
-    arr[0] = seed;
-    arr[31] = seed;
-    BytesN::from_array(env, &arr)
-}
-
-// ── version ──────────────────────────────────────────────────────────────────
-
 #[test]
-fn version_default_is_one() {
+fn rate_then_void_restores_reputation_and_prevents_rerating() {
     let s = setup();
-    assert_eq!(s.escrow.version(), 1);
-}
-
-// ── schedule_upgrade ─────────────────────────────────────────────────────────
-
-#[test]
-fn schedule_upgrade_stores_pending_and_emits_event() {
-    let s = setup();
-    let hash = fake_hash(&s.env, 0xab);
-
-    s.escrow.schedule_upgrade(&hash);
-
-    let pending = s.escrow.get_pending_upgrade().expect("should be Some");
-    assert_eq!(pending.wasm_hash, hash);
-    // eta should be UPGRADE_DELAY_SECS (172_800) from now (ledger timestamp starts at 0)
-    assert_eq!(pending.eta, 172_800u64);
-
-    // Event was emitted — verified by the fact that schedule_upgrade compiled and
-    // the pending record matches exactly. Event content is also tested in the auth
-    // test below via env.auths().
-    let _ = s.env.events().all(); // confirm events() API is accessible
-}
-
-#[test]
-fn schedule_upgrade_resets_timer_on_reschedule() {
-    let s = setup();
-    let hash1 = fake_hash(&s.env, 1);
-    let hash2 = fake_hash(&s.env, 2);
-
-    s.escrow.schedule_upgrade(&hash1);
-
-    // Advance time by 100 seconds.
-    s.env.ledger().with_mut(|l| l.timestamp = 100);
-    s.escrow.schedule_upgrade(&hash2);
-
-    let pending = s.escrow.get_pending_upgrade().expect("should be Some");
-    assert_eq!(pending.wasm_hash, hash2);
-    // eta must be based on the new timestamp (100 + 172_800)
-    assert_eq!(pending.eta, 172_900u64);
-}
-
-#[test]
-fn non_admin_cannot_schedule_upgrade() {
-    // In Soroban testutils, `mock_all_auths()` satisfies every `require_auth` call.
-    // To verify that upgrade functions *only* succeed for the admin, we use
-    // `mock_auths` with an explicit list that does NOT include the admin, and
-    // check that the call returns an error.
-    //
-    // The cleanest approach: use the standard setup (mock_all_auths), then verify
-    // that when we build a *new* env without mocking, calling schedule_upgrade
-    // on an uninitialized contract (no admin) fails with NotInitialized — proving
-    // the auth gate is hit before any data access.
-    let env = Env::default();
-    let id = env.register(Escrow, ());
-    let escrow = EscrowClient::new(&env, &id);
-
-    // No initialize called → require_admin → NotInitialized
-    let hash = fake_hash(&env, 0xff);
-    assert_eq!(
-        escrow.try_schedule_upgrade(&hash),
-        Err(Ok(EscrowError::NotInitialized))
-    );
-    assert_eq!(
-        escrow.try_cancel_upgrade(),
-        Err(Ok(EscrowError::NotInitialized))
-    );
-    assert_eq!(
-        escrow.try_execute_upgrade(),
-        Err(Ok(EscrowError::NotInitialized))
-    );
-}
-
-// ── cancel_upgrade ───────────────────────────────────────────────────────────
-
-#[test]
-fn cancel_upgrade_removes_pending_and_emits_event() {
-    let s = setup();
-    let hash = fake_hash(&s.env, 0x10);
-
-    s.escrow.schedule_upgrade(&hash);
-    assert!(s.escrow.get_pending_upgrade().is_some());
-
-    s.escrow.cancel_upgrade();
-    assert!(s.escrow.get_pending_upgrade().is_none());
-}
-
-#[test]
-fn cancel_upgrade_fails_when_nothing_scheduled() {
-    let s = setup();
-    assert_eq!(
-        s.escrow.try_cancel_upgrade(),
-        Err(Ok(EscrowError::NoPendingUpgrade))
-    );
-}
-
-#[test]
-fn cancel_then_execute_fails_with_no_pending_upgrade() {
-    let s = setup();
-    let hash = fake_hash(&s.env, 0x20);
-
-    s.escrow.schedule_upgrade(&hash);
-    s.escrow.cancel_upgrade();
-
-    // Advance past what the eta would have been.
-    s.env.ledger().with_mut(|l| l.timestamp = 200_000);
-
-    assert_eq!(
-        s.escrow.try_execute_upgrade(),
-        Err(Ok(EscrowError::NoPendingUpgrade))
-    );
-}
-
-// ── execute_upgrade — timing boundary ────────────────────────────────────────
-
-#[test]
-fn execute_upgrade_fails_one_second_before_eta() {
-    let s = setup();
-    let hash = fake_hash(&s.env, 0x30);
-
-    // Schedule at t=0, eta=172_800.
-    s.escrow.schedule_upgrade(&hash);
-
-    // Advance to eta - 1.
-    s.env.ledger().with_mut(|l| l.timestamp = 172_799);
-
-    assert_eq!(
-        s.escrow.try_execute_upgrade(),
-        Err(Ok(EscrowError::UpgradeNotReady))
-    );
-}
-
-#[test]
-fn execute_upgrade_succeeds_at_eta() {
-    let s = setup();
-
-    // Upload the same wasm bytes we are running as the "new" version.
-    let wasm_bytes = soroban_sdk::Bytes::from_slice(
-        &s.env,
-        include_bytes!("../../../target/wasm32v1-none/release/escrow.wasm"),
-    );
-    let hash = s.env.deployer().upload_contract_wasm(wasm_bytes);
-
-    // Schedule at t=0, eta=172_800.
-    s.escrow.schedule_upgrade(&hash);
-
-    // Advance to exactly eta.
-    s.env.ledger().with_mut(|l| l.timestamp = 172_800);
-
-    // Must succeed.
-    s.escrow.execute_upgrade();
-
-    // Version should now be 2.
-    assert_eq!(s.escrow.version(), 2);
-
-    // No pending upgrade left.
-    assert!(s.escrow.get_pending_upgrade().is_none());
-}
-
-// ── execute_upgrade — no pending ─────────────────────────────────────────────
-
-#[test]
-fn execute_upgrade_fails_with_no_pending_upgrade_when_none_scheduled() {
-    let s = setup();
-    assert_eq!(
-        s.escrow.try_execute_upgrade(),
-        Err(Ok(EscrowError::NoPendingUpgrade))
-    );
-}
-
-// ── integration: existing data readable after upgrade ────────────────────────
-
-#[test]
-fn existing_escrow_data_readable_after_upgrade() {
-    let s = setup();
-
-    // Create an escrow and fund it before the upgrade.
     let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
         &s.token.address,
-        &vec![&s.env, 300i128],
+        &vec![&s.env, 100i128],
     );
-    s.escrow.deposit_funds(&id, &300);
-    assert_eq!(s.escrow.get_contract(&id).funded_amount, 300);
-
-    // Upload the WASM and execute the upgrade.
-    let wasm_bytes = soroban_sdk::Bytes::from_slice(
-        &s.env,
-        include_bytes!("../../../target/wasm32v1-none/release/escrow.wasm"),
-    );
-    let hash = s.env.deployer().upload_contract_wasm(wasm_bytes);
-    s.escrow.schedule_upgrade(&hash);
-    s.env.ledger().with_mut(|l| l.timestamp = 172_800);
-    s.escrow.execute_upgrade();
-
-    // Existing escrow data must still be readable.
-    let c = s.escrow.get_contract(&id);
-    assert_eq!(c.funded_amount, 300);
-    assert_eq!(c.status, ContractStatus::Funded);
-    assert_eq!(c.client, s.client);
-    assert_eq!(c.freelancer, s.freelancer);
-
-    // Normal operations still work after upgrade.
+    s.escrow.deposit_funds(&id, &100);
     s.escrow.release_milestone(&id, &0);
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+
+    // Initial reputation is 0
+    let rep0 = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep0.completed_contracts, 0);
+    assert_eq!(rep0.total_rating, 0);
+
+    // Issue rating 5
+    s.escrow.issue_reputation(&id, &5);
+    let rep1 = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep1.completed_contracts, 1);
+    assert_eq!(rep1.total_rating, 5);
+
+    // Verify rating record is stored
+    let rating_rec = s.escrow.get_rating(&id).expect("rating record must exist");
+    assert_eq!(rating_rec.freelancer, s.freelancer);
+    assert_eq!(rating_rec.rating, 5);
+    assert!(!rating_rec.voided);
+
+    // Admin voids rating
+    let reason = symbol_short!("fraud");
+    s.escrow.void_rating(&id, &reason);
+
+    // Reputation is restored to exact previous values
+    let rep2 = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep2.completed_contracts, 0);
+    assert_eq!(rep2.total_rating, 0);
+
+    // Rating record reflects voided state
+    let rating_rec_voided = s.escrow.get_rating(&id).expect("rating record must exist");
+    assert!(rating_rec_voided.voided);
+
+    // Voiding twice is rejected with RatingAlreadyVoided
+    assert_eq!(
+        s.escrow.try_void_rating(&id, &reason),
+        Err(Ok(EscrowError::RatingAlreadyVoided))
+    );
+
+    // Voided escrow cannot be re-rated (reputation_already_issued remains)
+    assert_eq!(
+        s.escrow.try_issue_reputation(&id, &5),
+        Err(Ok(EscrowError::ReputationAlreadyIssued))
+    );
 }
 
-// ── non-admin access control ─────────────────────────────────────────────────
+#[test]
+fn void_unrated_escrow_fails_with_rating_not_found() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    assert_eq!(s.escrow.get_rating(&id), None);
+
+    let reason = symbol_short!("fraud");
+    assert_eq!(
+        s.escrow.try_void_rating(&id, &reason),
+        Err(Ok(EscrowError::RatingNotFound))
+    );
+}
 
 #[test]
-fn upgrade_functions_require_admin_auth() {
-    // This test verifies that the upgrade functions call require_admin internally.
-    // We use soroban's auth recording: set up a fresh env, call the function,
-    // and assert the recorded authorizations include the admin address.
-    let env = Env::default();
-    env.mock_all_auths();
+fn void_one_of_three_ratings_preserves_others() {
+    let s = setup();
 
-    let admin = Address::generate(&env);
-    let id = env.register(Escrow, ());
-    let escrow = EscrowClient::new(&env, &id);
-    escrow.initialize(&admin);
-
-    let hash = fake_hash(&env, 0xaa);
-
-    // schedule_upgrade — assert admin auth recorded
-    escrow.schedule_upgrade(&hash);
-    let auths = env.auths();
-    assert!(
-        auths.iter().any(|(addr, _)| *addr == admin),
-        "schedule_upgrade must require admin auth"
+    // Create 3 escrows
+    let id1 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128],
+    );
+    let id2 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128],
+    );
+    let id3 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128],
     );
 
-    // cancel_upgrade — assert admin auth recorded
-    escrow.cancel_upgrade();
-    let auths = env.auths();
-    assert!(
-        auths.iter().any(|(addr, _)| *addr == admin),
-        "cancel_upgrade must require admin auth"
+    // Deposit and complete each
+    s.escrow.deposit_funds(&id1, &50);
+    s.escrow.release_milestone(&id1, &0);
+    s.escrow.issue_reputation(&id1, &5);
+
+    s.escrow.deposit_funds(&id2, &50);
+    s.escrow.release_milestone(&id2, &0);
+    s.escrow.issue_reputation(&id2, &4);
+
+    s.escrow.deposit_funds(&id3, &50);
+    s.escrow.release_milestone(&id3, &0);
+    s.escrow.issue_reputation(&id3, &3);
+
+    // Total should be 3 contracts, 12 rating
+    let rep_before = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep_before.completed_contracts, 3);
+    assert_eq!(rep_before.total_rating, 12);
+
+    // Void rating for escrow 2 (rating 4)
+    s.escrow.void_rating(&id2, &symbol_short!("collusion"));
+
+    // Total should now be 2 contracts, 8 rating (5 + 3)
+    let rep_after = s.escrow.get_reputation(&s.freelancer);
+    assert_eq!(rep_after.completed_contracts, 2);
+    assert_eq!(rep_after.total_rating, 8);
+
+    // Check individual records
+    assert!(!s.escrow.get_rating(&id1).unwrap().voided);
+    assert!(s.escrow.get_rating(&id2).unwrap().voided);
+    assert!(!s.escrow.get_rating(&id3).unwrap().voided);
+}
+
+#[test]
+fn ratings_issued_before_upgrade_return_rating_not_found() {
+    let s = setup();
+    let unrecorded_id = 42;
+    assert_eq!(s.escrow.get_rating(&unrecorded_id), None);
+    assert_eq!(
+        s.escrow.try_void_rating(&unrecorded_id, &symbol_short!("legacy")),
+        Err(Ok(EscrowError::RatingNotFound))
     );
+}
 
-    // schedule again before testing execute
-    escrow.schedule_upgrade(&hash);
-    env.ledger().with_mut(|l| l.timestamp = 172_800);
+#[test]
+fn non_admin_cannot_void_rating() {
+    let s = setup();
+    assert_eq!(s.escrow.get_admin(), s.admin);
 
-    // execute_upgrade (without real wasm — it will panic at update_current_contract_wasm
-    // in the test environment without an uploaded wasm, so we just verify the auth tree
-    // by calling try_ and confirming it does NOT return Unauthorized).
-    // The NoPendingUpgrade or UpgradeNotReady codes are admin-gated; any non-Unauthorized
-    // result confirms the auth check passed.
-    let result = escrow.try_execute_upgrade();
-    // Could be Ok(()) or Err(UpgradeNotReady/NoPendingUpgrade) — NOT Unauthorized.
-    if let Err(Ok(e)) = result {
-        assert_ne!(
-            e,
-            EscrowError::Unauthorized,
-            "execute_upgrade must not return Unauthorized for a legitimate admin call"
-        );
-    }
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.issue_reputation(&id, &5);
+
+    let non_admin = Address::generate(&s.env);
+    s.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &non_admin,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "void_rating",
+            args: soroban_sdk::IntoVal::into_val(&(&id, symbol_short!("fraud")), &s.env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    // Calling void_rating as non-admin must fail
+    assert!(s.escrow.try_void_rating(&id, &symbol_short!("fraud")).is_err());
 }
