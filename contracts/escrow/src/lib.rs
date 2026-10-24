@@ -21,6 +21,7 @@ pub const BPS_DENOMINATOR: i128 = 10_000;
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
 /// the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
 pub const DISPUTE_WIN_THRESHOLD_BPS: u32 = 5_000;
+pub const DEADLINE_GRACE_SECS: u64 = 3 * 86_400;
 const PERSISTENT_TTL_THRESHOLD: u32 = 17_280; // ~1 day
 const PERSISTENT_TTL_EXTEND: u32 = 518_400; // ~30 days
 
@@ -45,8 +46,11 @@ pub enum EscrowError {
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
     ArithmeticOverflow = 17,
-    RatingNotFound = 18,
-    RatingAlreadyVoided = 19,
+    // Append-only: new variants must be added at the end.
+    InvalidDeadline = 18,
+    NotOverdue = 19,
+    RatingNotFound = 20,
+    RatingAlreadyVoided = 21,
 }
 
 #[contracttype]
@@ -116,6 +120,8 @@ enum DataKey {
     Contract(u64),
     Reputation(Address),
     Outcomes(Address),
+    Deadlines(u64),
+    Reclaimed(u64),
     Rating(u64),
 }
 
@@ -174,6 +180,40 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     }
 }
 
+fn load_deadlines(env: &Env, id: u64) -> Vec<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Deadlines(id))
+        .unwrap_or(Vec::new(env))
+}
+
+fn save_deadlines(env: &Env, id: u64, deadlines: &Vec<u64>) {
+    let key = DataKey::Deadlines(id);
+    env.storage().persistent().set(&key, deadlines);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+}
+
+fn load_reclaimed(env: &Env, id: u64) -> Vec<u32> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Reclaimed(id))
+        .unwrap_or(Vec::new(env))
+}
+
+fn save_reclaimed(env: &Env, id: u64, reclaimed: &Vec<u32>) {
+    let key = DataKey::Reclaimed(id);
+    env.storage().persistent().set(&key, reclaimed);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+}
+
+fn is_reclaimed(reclaimed: &Vec<u32>, index: u32) -> bool {
+    reclaimed.iter().any(|x| x == index)
+}
+
 #[contractimpl]
 impl Escrow {
     /// One-time setup. Sets the admin that controls pausing and dispute resolution.
@@ -221,47 +261,35 @@ impl Escrow {
         token: Address,
         milestone_amounts: Vec<i128>,
     ) -> Result<u64, EscrowError> {
-        admin(&env)?;
-        require_not_paused(&env)?;
-        client.require_auth();
-        if client == freelancer {
-            return Err(EscrowError::InvalidParties);
-        }
-        let n = milestone_amounts.len();
-        if n == 0 || n > MAX_MILESTONES {
-            return Err(EscrowError::InvalidMilestones);
-        }
-        let mut milestones = Vec::new(&env);
-        let mut total: i128 = 0;
-        for amount in milestone_amounts.iter() {
-            if amount <= 0 {
-                return Err(EscrowError::InvalidAmount);
-            }
-            total = total.checked_add(amount).ok_or(EscrowError::InvalidAmount)?;
-            milestones.push_back(Milestone {
-                amount,
-                released: false,
-            });
-        }
-        let id: u64 = env.storage().instance().get(&DataKey::NextId).unwrap_or(1);
-        env.storage().instance().set(&DataKey::NextId, &(id + 1));
-        bump_instance(&env);
-        let c = EscrowContract {
-            id,
-            client: client.clone(),
-            freelancer: freelancer.clone(),
+        let deadlines = Vec::new(&env);
+        internal_create_contract(
+            env,
+            client,
+            freelancer,
             token,
-            milestones,
-            total_amount: total,
-            funded_amount: 0,
-            released_amount: 0,
-            status: ContractStatus::Created,
-            reputation_issued: false,
-        };
-        save(&env, &c);
-        env.events()
-            .publish((symbol_short!("created"), id), (client, freelancer, total));
-        Ok(id)
+            milestone_amounts,
+            deadlines,
+        )
+    }
+
+    /// Creates a new escrow agreement with a per-milestone deadline.
+    /// A deadline of 0 means "no deadline" for that milestone.
+    pub fn create_contract_with_deadlines(
+        env: Env,
+        client: Address,
+        freelancer: Address,
+        token: Address,
+        milestone_amounts: Vec<i128>,
+        deadlines: Vec<u64>,
+    ) -> Result<u64, EscrowError> {
+        internal_create_contract(
+            env,
+            client,
+            freelancer,
+            token,
+            milestone_amounts,
+            deadlines,
+        )
     }
 
     /// Client deposits `amount` of the escrow token into the contract.
@@ -306,6 +334,10 @@ impl Escrow {
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
+        let reclaimed = load_reclaimed(&env, id);
+        if is_reclaimed(&reclaimed, index) {
+            return Err(EscrowError::MilestoneAlreadyReleased);
+        }
         let mut m = c
             .milestones
             .get(index)
@@ -326,13 +358,75 @@ impl Escrow {
         m.released = true;
         c.released_amount += m.amount;
         c.milestones.set(index, m.clone());
-        if c.milestones.iter().all(|x| x.released) {
+        if all_settled(&c, &reclaimed) {
             c.status = ContractStatus::Completed;
         }
         save(&env, &c);
         env.events()
             .publish((symbol_short!("release"), id), (index, m.amount));
         Ok(())
+    }
+
+    /// Client reclaims the funds of an overdue milestone after the grace period.
+    /// Only the overdue milestone's funds are refunded; the rest of the contract stays intact.
+    pub fn reclaim_overdue(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let mut c = load(&env, id)?;
+        c.client.require_auth();
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let reclaimed = load_reclaimed(&env, id);
+        if is_reclaimed(&reclaimed, index) {
+            return Err(EscrowError::MilestoneAlreadyReleased);
+        }
+        let m = c
+            .milestones
+            .get(index)
+            .ok_or(EscrowError::MilestoneNotFound)?;
+        if m.released {
+            return Err(EscrowError::MilestoneAlreadyReleased);
+        }
+        let deadlines = load_deadlines(&env, id);
+        let deadline = deadlines.get(index).unwrap_or(0);
+        if deadline == 0 {
+            return Err(EscrowError::NotOverdue);
+        }
+        let overdue_at = deadline
+            .checked_add(DEADLINE_GRACE_SECS)
+            .ok_or(EscrowError::InvalidDeadline)?;
+        if env.ledger().timestamp() < overdue_at {
+            return Err(EscrowError::NotOverdue);
+        }
+        let held = c.funded_amount - c.released_amount;
+        let refund = if m.amount < held { m.amount } else { held };
+        transfer(
+            &env,
+            &c.token,
+            &env.current_contract_address(),
+            &c.client,
+            refund,
+        );
+        c.total_amount -= refund;
+        c.funded_amount -= refund;
+        let mut reclaimed = reclaimed;
+        reclaimed.push_back(index);
+        save_reclaimed(&env, id, &reclaimed);
+        if all_settled(&c, &reclaimed) {
+            c.status = ContractStatus::Completed;
+        } else if c.released_amount == 0 && all_closed(&c, &reclaimed) {
+            c.status = ContractStatus::Cancelled;
+        }
+        save(&env, &c);
+        env.events()
+            .publish((symbol_short!("overdue"), id), (index, refund));
+        Ok(())
+    }
+
+    /// Reads the per-milestone deadlines (0 = no deadline).
+    pub fn get_deadlines(env: Env, id: u64) -> Result<Vec<u64>, EscrowError> {
+        load(&env, id)?;
+        Ok(load_deadlines(&env, id))
     }
 
     /// Either party may raise a dispute, freezing releases until the admin resolves it.
@@ -614,6 +708,85 @@ impl Escrow {
             .get(&DataKey::Outcomes(addr))
             .unwrap_or_default()
     }
+}
+
+fn internal_create_contract(
+    env: Env,
+    client: Address,
+    freelancer: Address,
+    token: Address,
+    milestone_amounts: Vec<i128>,
+    deadlines: Vec<u64>,
+) -> Result<u64, EscrowError> {
+    admin(&env)?;
+    require_not_paused(&env)?;
+    client.require_auth();
+    if client == freelancer {
+        return Err(EscrowError::InvalidParties);
+    }
+    let n = milestone_amounts.len();
+    if n == 0 || n > MAX_MILESTONES {
+        return Err(EscrowError::InvalidMilestones);
+    }
+    if !deadlines.is_empty() && deadlines.len() != n {
+        return Err(EscrowError::InvalidDeadline);
+    }
+    let now = env.ledger().timestamp();
+    let mut prev: u64 = 0;
+    for i in 0..n {
+        let d = deadlines.get(i).unwrap_or(0);
+        if d != 0 {
+            if d <= now || d < prev {
+                return Err(EscrowError::InvalidDeadline);
+            }
+            prev = d;
+        }
+    }
+    let mut milestones = Vec::new(&env);
+    let mut total: i128 = 0;
+    for amount in milestone_amounts.iter() {
+        if amount <= 0 {
+            return Err(EscrowError::InvalidAmount);
+        }
+        total = total.checked_add(amount).ok_or(EscrowError::InvalidAmount)?;
+        milestones.push_back(Milestone {
+            amount,
+            released: false,
+        });
+    }
+    let id: u64 = env.storage().instance().get(&DataKey::NextId).unwrap_or(1);
+    env.storage().instance().set(&DataKey::NextId, &(id + 1));
+    bump_instance(&env);
+    let c = EscrowContract {
+        id,
+        client: client.clone(),
+        freelancer: freelancer.clone(),
+        token,
+        milestones,
+        total_amount: total,
+        funded_amount: 0,
+        released_amount: 0,
+        status: ContractStatus::Created,
+        reputation_issued: false,
+    };
+    save(&env, &c);
+    if !deadlines.is_empty() {
+        save_deadlines(&env, id, &deadlines);
+    }
+    env.events()
+        .publish((symbol_short!("created"), id), (client, freelancer, total));
+    Ok(id)
+}
+
+fn all_settled(c: &EscrowContract, reclaimed: &Vec<u32>) -> bool {
+    c.milestones
+        .iter()
+        .enumerate()
+        .all(|(i, m)| m.released || is_reclaimed(reclaimed, i as u32))
+}
+
+fn all_closed(c: &EscrowContract, reclaimed: &Vec<u32>) -> bool {
+    c.milestones.len() as u32 == reclaimed.len()
 }
 
 #[cfg(test)]
