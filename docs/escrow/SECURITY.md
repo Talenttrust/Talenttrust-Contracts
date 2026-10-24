@@ -16,13 +16,17 @@ This document reflects the escrow API currently implemented in `contracts/escrow
   prevent overflow. The total is validated against the governed `max_escrow_total_stroops`
   or `i128::MAX` if unset.
 - `deposit_funds` validates the deposit amount using centralized amount validation
-  (enforcing positivity and maximum single amount limits). Crucially, it safely
-  accumulates the total of all milestones using checked arithmetic (`accumulate_amounts`)
-  to prevent panic on overflow—a defense-in-depth measure against the scenario where
-  a contract with many large milestones could brick if the total calculation panicked
-  during funding. The deposit is then validated to ensure it does not exceed the
-  accumulated total, and rejects repeat exact-total deposits, exact-total mismatches,
-  and incremental overfunding.
+  (`validate_single_amount`) enforcing positivity and maximum single amount limits.
+  This is the same single-milestone ceiling applied in `create_contract`, preventing
+  any single deposit from exceeding `MAX_SINGLE_AMOUNT_STROOPS` (1M tokens). The
+  preflight in `deposit::validate_deposit` runs before the SAC transfer, ensuring an
+  invalid deposit cannot debit the client and then fail. Crucially, `deposit_funds`
+  also safely accumulates the total of all milestones using checked arithmetic
+  (`accumulate_amounts`) to prevent panic on overflow — a defense-in-depth measure
+  against the scenario where a contract with many large milestones could brick if the
+  total calculation panicked during funding. The deposit is then validated to ensure
+  it does not exceed the accumulated total, and rejects repeat exact-total deposits,
+  exact-total mismatches, and incremental overfunding.
 - `release_milestone` requires `caller.require_auth()`, enforces the contract's
   `ReleaseAuthorization` mode (ClientOnly, ArbiterOnly, ClientAndArbiter, or
   MultiSig), and checks valid non-expired approvals before releasing funds.

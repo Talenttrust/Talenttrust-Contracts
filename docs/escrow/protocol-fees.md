@@ -302,8 +302,9 @@ stored under `DataKey::Admin`. No other address — including the contract itsel
 client, or the freelancer — can drain the accumulated fees.
 
 Admin rotation follows the two-step timelock pattern
-(`propose_governance_admin` → `accept_governance_admin` after
-`ADMIN_ROTATION_MIN_DELAY_LEDGERS`). See
+(`propose_admin` → `accept_admin` after
+`ADMIN_ROTATION_MIN_DELAY_LEDGERS`, before it expires at
+`ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS`). See
 [`docs/escrow/governance-security.md`](./governance-security.md).
 
 ### Pause gate

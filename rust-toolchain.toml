@@ -1,0 +1,4 @@
+[toolchain]
+channel = "1.91.0"
+profile = "minimal"
+targets = ["wasm32v1-none"]

@@ -1,59 +1,38 @@
-name: Rust CI (Windows)
+name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main]
   pull_request:
-    branches: [ main, develop ]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    runs-on: windows-latest
-
+  malware-guard:
+    name: Malware guard (PolinRider)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
         with:
-          toolchain: 1.88.0
-          profile: minimal
-          default: true
+          persist-credentials: false
+      - name: Scan for supply-chain malware markers
+        run: bash .github/scripts/malware-scan.sh
 
-      - name: Verify MSVC linker
-        shell: pwsh
-        run: |
-          if (-not (Get-Command link.exe -ErrorAction SilentlyContinue)) {
-            Write-Error "MSVC linker (link.exe) not found."
-            exit 1
-          } else {
-            Write-Host "MSVC linker found."
-          }
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - name: Cache Cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-
-
-      - name: Build contract
-        run: cargo build --workspace --release
-
-      - name: Compile tests
-        run: cargo test --workspace --quiet --no-run
-
-      - name: Build Rust documentation
-        run: cargo doc --workspace --no-deps
+  build-test:
+    needs: malware-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Build wasm
+        run: cargo build --target wasm32v1-none --release
+      - name: Test
+        run: cargo test
