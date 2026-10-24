@@ -439,3 +439,82 @@ fn non_admin_cannot_void_rating() {
     // Calling void_rating as non-admin must fail
     assert!(s.escrow.try_void_rating(&id, &symbol_short!("fraud")).is_err());
 }
+
+
+#[test]
+fn amendment_decrease_refunds_excess() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128, 50i128],
+    );
+    s.escrow.deposit_funds(&id, &150);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+    let nonce = s.escrow.propose_amendment(&id, &s.client, &vec![&s.env, 50i128, 50i128]);
+    s.escrow.accept_amendment(&id, &s.freelancer, &nonce);
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.total_amount, 100);
+    assert_eq!(c.funded_amount, 100);
+}
+
+#[test]
+fn amendment_increase_flips_to_created_and_requires_deposit() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128],
+    );
+    s.escrow.deposit_funds(&id, &50);
+    let nonce = s.escrow.propose_amendment(&id, &s.client, &vec![&s.env, 100i128]);
+    s.escrow.accept_amendment(&id, &s.freelancer, &nonce);
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Created);
+    assert_eq!(c.total_amount, 100);
+    assert_eq!(c.funded_amount, 50);
+}
+
+#[test]
+fn amendment_released_milestone_amount_change_rejected() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128, 50i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(s.escrow.try_propose_amendment(&id, &s.client, &vec![&s.env, 40i128, 50i128]), Err(Ok(EscrowError::CannotAmendReleasedMilestone)));
+}
+
+#[test]
+fn amendment_self_accept_rejected() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128, 50i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    let nonce = s.escrow.propose_amendment(&id, &s.client, &vec![&s.env, 40i128, 60i128]);
+    assert_eq!(s.escrow.try_accept_amendment(&id, &s.client, &nonce), Err(Ok(EscrowError::Unauthorized)));
+}
+
+#[test]
+fn amendment_stale_nonce_rejected() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50i128, 50i128],
+    );
+    s.escrow.deposit_funds(&id, &100);
+    let nonce = s.escrow.propose_amendment(&id, &s.client, &vec![&s.env, 40i128, 60i128]);
+    assert_eq!(s.escrow.try_accept_amendment(&id, &s.freelancer, &(nonce + 1)), Err(Ok(EscrowError::AmendmentMismatch)));
+}

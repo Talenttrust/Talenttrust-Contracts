@@ -47,6 +47,10 @@ pub enum EscrowError {
     ArithmeticOverflow = 17,
     RatingNotFound = 18,
     RatingAlreadyVoided = 19,
+    AmendmentNotFound = 20,
+    AmendmentMismatch = 21,
+    InvalidAmendment = 22,
+    CannotAmendReleasedMilestone = 23,
 }
 
 #[contracttype]
@@ -108,6 +112,14 @@ pub struct RatingRecord {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Amendment {
+    pub proposer: Address,
+    pub new_amounts: Vec<i128>,
+    pub nonce: u32,
+}
+
+#[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
@@ -117,6 +129,7 @@ enum DataKey {
     Reputation(Address),
     Outcomes(Address),
     Rating(u64),
+    Amendment(u64),
 }
 
 #[contract]
@@ -505,6 +518,139 @@ impl Escrow {
         Ok(())
     }
 
+    pub fn propose_amendment(
+        env: Env,
+        id: u64,
+        proposer: Address,
+        new_amounts: Vec<i128>,
+    ) -> Result<u32, EscrowError> {
+        require_not_paused(&env)?;
+        let c = load(&env, id)?;
+        proposer.require_auth();
+        if proposer != c.client && proposer != c.freelancer {
+            return Err(EscrowError::Unauthorized);
+        }
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        if new_amounts.len() != c.milestones.len() {
+            return Err(EscrowError::InvalidMilestones);
+        }
+        let mut new_total: i128 = 0;
+        for i in 0..new_amounts.len() {
+            let new_amt = new_amounts.get(i).ok_or(EscrowError::InvalidAmount)?;
+            if new_amt <= 0 {
+                return Err(EscrowError::InvalidAmount);
+            }
+            let old_m = c.milestones.get(i).ok_or(EscrowError::MilestoneNotFound)?;
+            if old_m.released && old_m.amount != new_amt {
+                return Err(EscrowError::CannotAmendReleasedMilestone);
+            }
+            new_total = new_total.checked_add(new_amt).ok_or(EscrowError::ArithmeticOverflow)?;
+        }
+        let nonce = if let Some(amendment) = env
+            .storage()
+            .persistent()
+            .get::<_, Amendment>(&DataKey::Amendment(id))
+        {
+            amendment.nonce + 1
+        } else {
+            1
+        };
+        let amendment = Amendment {
+            proposer: proposer.clone(),
+            new_amounts: new_amounts.clone(),
+            nonce,
+        };
+        env.storage().persistent().set(&DataKey::Amendment(id), &amendment);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Amendment(id), PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        bump_instance(&env);
+        env.events().publish((symbol_short!("amend_p"), id), (proposer, nonce));
+        Ok(nonce)
+    }
+
+    pub fn accept_amendment(env: Env, id: u64, acceptor: Address, nonce: u32) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let mut c = load(&env, id)?;
+        acceptor.require_auth();
+        if acceptor != c.client && acceptor != c.freelancer {
+            return Err(EscrowError::Unauthorized);
+        }
+        if acceptor == c.client && c.client == c.freelancer {
+            return Err(EscrowError::InvalidParties);
+        }
+        // proposer is the other party or same? need to ensure other party
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let amendment: Amendment = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Amendment(id))
+            .ok_or(EscrowError::AmendmentNotFound)?;
+        if amendment.nonce != nonce {
+            return Err(EscrowError::AmendmentMismatch);
+        }
+        if amendment.proposer == acceptor {
+            return Err(EscrowError::Unauthorized);
+        }
+        // validate again
+        if amendment.new_amounts.len() != c.milestones.len() {
+            return Err(EscrowError::InvalidMilestones);
+        }
+        let mut new_total: i128 = 0;
+        for i in 0..amendment.new_amounts.len() {
+            let new_amt = amendment.new_amounts.get(i).ok_or(EscrowError::InvalidAmount)?;
+            if new_amt <= 0 {
+                return Err(EscrowError::InvalidAmount);
+            }
+            let old_m = c.milestones.get(i).ok_or(EscrowError::MilestoneNotFound)?;
+            if old_m.released && old_m.amount != new_amt {
+                return Err(EscrowError::CannotAmendReleasedMilestone);
+            }
+            new_total = new_total.checked_add(new_amt).ok_or(EscrowError::ArithmeticOverflow)?;
+        }
+        let old_total = c.total_amount;
+        let mut refunded: i128 = 0;
+        if new_total < c.funded_amount {
+            let excess = c.funded_amount - new_total;
+            // refund excess to client
+            transfer(&env, &c.token, &env.current_contract_address(), &c.client, excess);
+            c.funded_amount = new_total;
+            refunded = excess;
+        } else if new_total > c.funded_amount {
+            c.status = ContractStatus::Created;
+        } else if c.funded_amount == c.total_amount && new_total == c.funded_amount {
+            c.status = ContractStatus::Funded;
+        } else if c.funded_amount == c.total_amount {
+            c.status = ContractStatus::Funded;
+        }
+        // update milestones
+        let mut new_milestones = Vec::new(&env);
+        for i in 0..amendment.new_amounts.len() {
+            let new_amt = amendment.new_amounts.get(i).ok_or(EscrowError::InvalidAmount)?;
+            let old_m = c.milestones.get(i).ok_or(EscrowError::MilestoneNotFound)?;
+            new_milestones.push_back(Milestone {
+                amount: new_amt,
+                released: old_m.released,
+            });
+        }
+        c.milestones = new_milestones;
+        c.total_amount = new_total;
+        // completion check
+        if c.milestones.iter().all(|x| x.released) && c.released_amount == c.total_amount {
+            c.status = ContractStatus::Completed;
+        }
+        save(&env, &c);
+        env.storage().persistent().remove(&DataKey::Amendment(id));
+        bump_instance(&env);
+        env.events()
+            .publish((symbol_short!("amended"), id), (old_total, new_total, refunded));
+        Ok(())
+    }
+
     /// After completion or dispute resolution the client may rate the freelancer (1..=5) once per contract.
     pub fn issue_reputation(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
         let mut c = load(&env, id)?;
@@ -587,6 +733,10 @@ impl Escrow {
 
     pub fn get_rating(env: Env, id: u64) -> Option<RatingRecord> {
         env.storage().persistent().get(&DataKey::Rating(id))
+    }
+
+    pub fn get_amendment(env: Env, id: u64) -> Option<Amendment> {
+        env.storage().persistent().get(&DataKey::Amendment(id))
     }
 
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
