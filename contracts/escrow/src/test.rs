@@ -271,8 +271,8 @@ fn cancel_unfunded_escrow_does_not_count_cancellation() {
 // Upgrade tests
 // ──────────────────────────────────────────────────────────────────────────────
 
-use soroban_sdk::BytesN;
 use soroban_sdk::testutils::{Events, Ledger};
+use soroban_sdk::BytesN;
 
 /// Helper: produce a deterministic 32-byte wasm-hash-shaped value.
 fn fake_hash(env: &Env, seed: u8) -> BytesN<32> {
@@ -423,9 +423,10 @@ fn execute_upgrade_succeeds_at_eta() {
     let s = setup();
 
     // Upload the same wasm bytes we are running as the "new" version.
-    let wasm_bytes = soroban_sdk::Bytes::from_slice(&s.env, include_bytes!(
-        "../../../target/wasm32v1-none/release/escrow.wasm"
-    ));
+    let wasm_bytes = soroban_sdk::Bytes::from_slice(
+        &s.env,
+        include_bytes!("../../../target/wasm32v1-none/release/escrow.wasm"),
+    );
     let hash = s.env.deployer().upload_contract_wasm(wasm_bytes);
 
     // Schedule at t=0, eta=172_800.
@@ -472,9 +473,10 @@ fn existing_escrow_data_readable_after_upgrade() {
     assert_eq!(s.escrow.get_contract(&id).funded_amount, 300);
 
     // Upload the WASM and execute the upgrade.
-    let wasm_bytes = soroban_sdk::Bytes::from_slice(&s.env, include_bytes!(
-        "../../../target/wasm32v1-none/release/escrow.wasm"
-    ));
+    let wasm_bytes = soroban_sdk::Bytes::from_slice(
+        &s.env,
+        include_bytes!("../../../target/wasm32v1-none/release/escrow.wasm"),
+    );
     let hash = s.env.deployer().upload_contract_wasm(wasm_bytes);
     s.escrow.schedule_upgrade(&hash);
     s.env.ledger().with_mut(|l| l.timestamp = 172_800);
@@ -544,4 +546,3 @@ fn upgrade_functions_require_admin_auth() {
         );
     }
 }
-

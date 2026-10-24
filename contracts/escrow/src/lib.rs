@@ -11,8 +11,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN,
-    Env, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
+    Vec,
 };
 
 pub const MAX_MILESTONES: u32 = 20;
@@ -244,7 +244,9 @@ impl Escrow {
             if amount <= 0 {
                 return Err(EscrowError::InvalidAmount);
             }
-            total = total.checked_add(amount).ok_or(EscrowError::InvalidAmount)?;
+            total = total
+                .checked_add(amount)
+                .ok_or(EscrowError::InvalidAmount)?;
             milestones.push_back(Milestone {
                 amount,
                 released: false,
@@ -516,7 +518,10 @@ impl Escrow {
     pub fn issue_reputation(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
         let mut c = load(&env, id)?;
         c.client.require_auth();
-        if !matches!(c.status, ContractStatus::Completed | ContractStatus::Resolved) {
+        if !matches!(
+            c.status,
+            ContractStatus::Completed | ContractStatus::Resolved
+        ) {
             return Err(EscrowError::InvalidStatus);
         }
         if c.reputation_issued {
@@ -530,9 +535,11 @@ impl Escrow {
         rep.completed_contracts += 1;
         rep.total_rating += rating;
         env.storage().persistent().set(&key, &rep);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
         c.reputation_issued = true;
         save(&env, &c);
         env.events()
@@ -608,9 +615,7 @@ impl Escrow {
             .instance()
             .get(&DataKey::PendingUpgrade)
             .ok_or(EscrowError::NoPendingUpgrade)?;
-        env.storage()
-            .instance()
-            .remove(&DataKey::PendingUpgrade);
+        env.storage().instance().remove(&DataKey::PendingUpgrade);
         bump_instance(&env);
         env.events()
             .publish((symbol_short!("upg_cncl"),), pending.wasm_hash);
@@ -654,15 +659,15 @@ impl Escrow {
             .instance()
             .set(&DataKey::Version, &new_version);
         // Clear the pending record before deploying (re-entrancy safety).
-        env.storage()
-            .instance()
-            .remove(&DataKey::PendingUpgrade);
+        env.storage().instance().remove(&DataKey::PendingUpgrade);
         bump_instance(&env);
         // Install the new WASM — this replaces the executing contract's code.
         env.deployer()
             .update_current_contract_wasm(pending.wasm_hash.clone());
-        env.events()
-            .publish((symbol_short!("upgraded"),), (pending.wasm_hash, new_version));
+        env.events().publish(
+            (symbol_short!("upgraded"),),
+            (pending.wasm_hash, new_version),
+        );
         Ok(())
     }
 
