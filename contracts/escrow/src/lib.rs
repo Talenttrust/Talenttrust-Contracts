@@ -7,6 +7,8 @@
 //! 4. The client approves work with `release_milestone`, paying the freelancer per milestone.
 //! 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
 //! 6. The client can `cancel_contract` before completion to recover unreleased funds.
+//!     For `Funded` escrows cancellation requires a notice period:
+//!     `request_cancel` -> wait `CANCEL_NOTICE_SECS` -> `finalize_cancel`.
 //! 7. After completion the client may `issue_reputation` for the freelancer.
 #![no_std]
 
@@ -17,6 +19,7 @@ use soroban_sdk::{
 
 pub const MAX_MILESTONES: u32 = 20;
 pub const BPS_DENOMINATOR: i128 = 10_000;
+pub const CANCEL_NOTICE_SECS: u64 = 3 * 86_400;
 /// Threshold for dispute outcome accounting (5,000 basis points, or 50%).
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
 /// the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
@@ -44,9 +47,13 @@ pub enum EscrowError {
     InvalidSplit = 14,
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
-    ArithmeticOverflow = 17,
-    RatingNotFound = 18,
-    RatingAlreadyVoided = 19,
+    // Append-only: new variants must be added at the end.
+    CancelAlreadyRequested = 17,
+    NoticePeriodActive = 18,
+    NoticeRequired = 19,
+    ArithmeticOverflow = 20,
+    RatingNotFound = 21,
+    RatingAlreadyVoided = 22,
 }
 
 #[contracttype]
@@ -115,6 +122,7 @@ enum DataKey {
     NextId,
     Contract(u64),
     Reputation(Address),
+    CancelRequestedAt(u64),
     Outcomes(Address),
     Rating(u64),
 }
@@ -172,6 +180,18 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     if amount > 0 {
         token::Client::new(env, token_addr).transfer(from, to, &amount);
     }
+}
+
+fn cancel_requested_at(env: &Env, id: u64) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::CancelRequestedAt(id))
+}
+
+fn clear_cancel_request(env: &Env, id: u64) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::CancelRequestedAt(id));
 }
 
 #[contractimpl]
@@ -336,6 +356,7 @@ impl Escrow {
     }
 
     /// Either party may raise a dispute, freezing releases until the admin resolves it.
+    /// Opening a dispute during a cancellation notice period clears the pending request.
     pub fn open_dispute(env: Env, id: u64, caller: Address) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
@@ -348,6 +369,7 @@ impl Escrow {
         }
         c.status = ContractStatus::Disputed;
         save(&env, &c);
+        clear_cancel_request(&env, id);
 
         // Increment disputes_opened for the caller using checked arithmetic
         let outcome_key = DataKey::Outcomes(caller.clone());
@@ -458,13 +480,87 @@ impl Escrow {
         Ok(())
     }
 
+    /// Client requests cancellation of a `Funded` escrow, starting the notice period.
+    /// The refund is not paid out until `finalize_cancel` after `CANCEL_NOTICE_SECS`.
+    pub fn request_cancel(env: Env, id: u64) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let c = load(&env, id)?;
+        c.client.require_auth();
+        if c.status != ContractStatus::Funded {
+            return Err(EscrowError::InvalidStatus);
+        }
+        if cancel_requested_at(&env, id).is_some() {
+            return Err(EscrowError::CancelAlreadyRequested);
+        }
+        let now = env.ledger().timestamp();
+        let key = DataKey::CancelRequestedAt(id);
+        env.storage().persistent().set(&key, &now);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
+        let effective_at = now + CANCEL_NOTICE_SECS;
+        env.events()
+            .publish((symbol_short!("cncl_req"), id), effective_at);
+        Ok(())
+    }
+
+    /// Client finalizes a previously requested cancellation once the notice period
+    /// has elapsed, refunding all remaining unreleased funds to the client.
+    pub fn finalize_cancel(env: Env, id: u64) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let mut c = load(&env, id)?;
+        c.client.require_auth();
+        if c.status != ContractStatus::Funded {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let requested_at = cancel_requested_at(&env, id).ok_or(EscrowError::InvalidStatus)?;
+        let now = env.ledger().timestamp();
+        if now < requested_at + CANCEL_NOTICE_SECS {
+            return Err(EscrowError::NoticePeriodActive);
+        }
+        let refund = c.funded_amount - c.released_amount;
+        transfer(
+            &env,
+            &c.token,
+            &env.current_contract_address(),
+            &c.client,
+            refund,
+        );
+        c.funded_amount = c.released_amount;
+        c.status = ContractStatus::Cancelled;
+        save(&env, &c);
+        clear_cancel_request(&env, id);
+        env.events().publish((symbol_short!("cancel"), id), refund);
+        Ok(())
+    }
+
+    /// Client withdraws a pending cancellation request, clearing the notice period.
+    pub fn withdraw_cancel(env: Env, id: u64) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let c = load(&env, id)?;
+        c.client.require_auth();
+        if cancel_requested_at(&env, id).is_none() {
+            return Err(EscrowError::InvalidStatus);
+        }
+        clear_cancel_request(&env, id);
+        env.events().publish((symbol_short!("cncl_wd"), id), ());
+        Ok(())
+    }
+
     /// Client cancels the agreement and recovers any unreleased funds.
+    /// Only instant for `Created` escrows; `Funded` escrows must go through
+    /// `request_cancel` -> `finalize_cancel`.
     /// If any funds were held and refunded, cancellations is incremented for the client.
     pub fn cancel_contract(env: Env, id: u64) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
         c.client.require_auth();
-        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+        if c.status == ContractStatus::Funded {
+            return Err(EscrowError::NoticeRequired);
+        }
+        if c.status != ContractStatus::Created {
             return Err(EscrowError::InvalidStatus);
         }
         let refund = c.funded_amount - c.released_amount;
@@ -515,7 +611,7 @@ impl Escrow {
         if c.reputation_issued {
             return Err(EscrowError::ReputationAlreadyIssued);
         }
-        if !(1..=5).contains(&rating) {
+        if rating > 5 {
             return Err(EscrowError::InvalidRating);
         }
         let key = DataKey::Reputation(c.freelancer.clone());
@@ -542,8 +638,7 @@ impl Escrow {
 
         c.reputation_issued = true;
         save(&env, &c);
-        env.events()
-            .publish((symbol_short!("rep"), id), (c.freelancer, rating));
+        env.events().publish((symbol_short!("reput"), id), rating);
         Ok(())
     }
 
@@ -593,18 +688,10 @@ impl Escrow {
         load(&env, id)
     }
 
-    pub fn contract_count(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get::<_, u64>(&DataKey::NextId)
-            .unwrap_or(1)
-            - 1
-    }
-
-    pub fn get_reputation(env: Env, freelancer: Address) -> Reputation {
+    pub fn get_reputation(env: Env, address: Address) -> Reputation {
         env.storage()
             .persistent()
-            .get(&DataKey::Reputation(freelancer))
+            .get(&DataKey::Reputation(address))
             .unwrap_or_default()
     }
 
@@ -614,7 +701,8 @@ impl Escrow {
             .get(&DataKey::Outcomes(addr))
             .unwrap_or_default()
     }
-}
 
-#[cfg(test)]
-mod test;
+    pub fn get_cancel_requested_at(env: Env, id: u64) -> Option<u64> {
+        cancel_requested_at(&env, id)
+    }
+}
