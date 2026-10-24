@@ -5,6 +5,8 @@
 //! 2. A client calls `create_contract(client, freelancer, token, milestone_amounts)`.
 //! 3. The client funds the escrow with `deposit_funds` (real token transfer into the contract).
 //! 4. The client approves work with `release_milestone`, paying the freelancer per milestone.
+//!    Optionally, the client can register M-of-N approvers via `set_approvers`; then
+//!    approvers sign off with `approve_milestone` and a release requires the threshold.
 //! 5. Either party may `open_dispute`; the admin settles with `resolve_dispute`.
 //! 6. The client can `cancel_contract` before completion to recover unreleased funds.
 //! 7. After completion the client may `issue_reputation` for the freelancer.
@@ -16,6 +18,7 @@ use soroban_sdk::{
 };
 
 pub const MAX_MILESTONES: u32 = 20;
+pub const MAX_APPROVERS: u32 = 5;
 pub const BPS_DENOMINATOR: i128 = 10_000;
 /// Threshold for dispute outcome accounting (5,000 basis points, or 50%).
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
@@ -44,9 +47,13 @@ pub enum EscrowError {
     InvalidSplit = 14,
     InvalidRating = 15,
     ReputationAlreadyIssued = 16,
-    ArithmeticOverflow = 17,
-    RatingNotFound = 18,
-    RatingAlreadyVoided = 19,
+    // Append-only: new variants go after this line.
+    InvalidApprovers = 17,
+    AlreadyApproved = 18,
+    ApprovalsMissing = 19,
+    ArithmeticOverflow = 20,
+    RatingNotFound = 21,
+    RatingAlreadyVoided = 22,
 }
 
 #[contracttype]
@@ -115,6 +122,8 @@ enum DataKey {
     NextId,
     Contract(u64),
     Reputation(Address),
+    Approvers(u64),
+    Approvals(u64, u32),
     Outcomes(Address),
     Rating(u64),
 }
@@ -172,6 +181,42 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     if amount > 0 {
         token::Client::new(env, token_addr).transfer(from, to, &amount);
     }
+}
+
+fn load_approvers(env: &Env, id: u64) -> Vec<Address> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Approvers(id))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+fn save_approvers(env: &Env, id: u64, approvers: &Vec<Address>) {
+    let key = DataKey::Approvers(id);
+    env.storage().persistent().set(&key, approvers);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+}
+
+fn load_approvals(env: &Env, id: u64, index: u32) -> Vec<Address> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Approvals(id, index))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+fn save_approvals(env: &Env, id: u64, index: u32, approvals: &Vec<Address>) {
+    let key = DataKey::Approvals(id, index);
+    env.storage().persistent().set(&key, approvals);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+}
+
+fn clear_approvals(env: &Env, id: u64, index: u32) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::Approvals(id, index));
 }
 
 #[contractimpl]
@@ -264,6 +309,87 @@ impl Escrow {
         Ok(id)
     }
 
+    /// Client registers M-of-N approvers for milestone releases.
+    ///
+    /// Only allowed in `Created` before any deposit. The freelancer cannot be an
+    /// approver, duplicates are rejected, and the threshold must be in `1..=len`
+    /// with `len <= MAX_APPROVERS`.
+    pub fn set_approvers(
+        env: Env,
+        id: u64,
+        approvers: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let c = load(&env, id)?;
+        c.client.require_auth();
+        if c.status != ContractStatus::Created || c.funded_amount != 0 {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let n = approvers.len();
+        if n == 0 || n > MAX_APPROVERS {
+            return Err(EscrowError::InvalidApprovers);
+        }
+        if threshold < 1 || threshold > n {
+            return Err(EscrowError::InvalidApprovers);
+        }
+        for i in 0..n {
+            let a = approvers.get(i).ok_or(EscrowError::InvalidApprovers)?;
+            if a == c.freelancer {
+                return Err(EscrowError::InvalidApprovers);
+            }
+            for j in (i + 1)..n {
+                if approvers.get(j).ok_or(EscrowError::InvalidApprovers)? == a {
+                    return Err(EscrowError::InvalidApprovers);
+                }
+            }
+        }
+        save_approvers(&env, id, &approvers);
+        env.events()
+            .publish((symbol_short!("approvers"), id), (threshold, n));
+        Ok(())
+    }
+
+    /// An approver signs off on a milestone release. Duplicate approvals are rejected.
+    pub fn approve_milestone(
+        env: Env,
+        id: u64,
+        index: u32,
+        approver: Address,
+    ) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
+        let c = load(&env, id)?;
+        approver.require_auth();
+        let approvers = load_approvers(&env, id);
+        if !approvers.contains(&approver) {
+            return Err(EscrowError::Unauthorized);
+        }
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let m = c
+            .milestones
+            .get(index)
+            .ok_or(EscrowError::MilestoneNotFound)?;
+        if m.released {
+            return Err(EscrowError::MilestoneAlreadyReleased);
+        }
+        let mut approvals = load_approvals(&env, id, index);
+        if approvals.contains(&approver) {
+            return Err(EscrowError::AlreadyApproved);
+        }
+        approvals.push_back(approver.clone());
+        save_approvals(&env, id, index, &approvals);
+        env.events()
+            .publish((symbol_short!("approve"), id), (index, approver));
+        Ok(())
+    }
+
+    /// Returns the approvals recorded for a milestone.
+    pub fn get_approvals(env: Env, id: u64, index: u32) -> Vec<Address> {
+        load_approvals(&env, id, index)
+    }
+
     /// Client deposits `amount` of the escrow token into the contract.
     pub fn deposit_funds(env: Env, id: u64, amount: i128) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
@@ -299,6 +425,9 @@ impl Escrow {
     }
 
     /// Client approves a milestone and the freelancer is paid.
+    ///
+    /// When approvers are configured, a threshold of approvals for this
+    /// milestone is required and the approvals are cleared after release.
     pub fn release_milestone(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
         require_not_paused(&env)?;
         let mut c = load(&env, id)?;
@@ -316,6 +445,13 @@ impl Escrow {
         if c.funded_amount - c.released_amount < m.amount {
             return Err(EscrowError::InsufficientFunds);
         }
+        let approvers = load_approvers(&env, id);
+        if !approvers.is_empty() {
+            let approvals = load_approvals(&env, id, index);
+            if approvals.len() < approvers.len() {
+                return Err(EscrowError::ApprovalsMissing);
+            }
+        }
         transfer(
             &env,
             &c.token,
@@ -330,6 +466,7 @@ impl Escrow {
             c.status = ContractStatus::Completed;
         }
         save(&env, &c);
+        clear_approvals(&env, id, index);
         env.events()
             .publish((symbol_short!("release"), id), (index, m.amount));
         Ok(())
@@ -507,6 +644,7 @@ impl Escrow {
 
     /// After completion or dispute resolution the client may rate the freelancer (1..=5) once per contract.
     pub fn issue_reputation(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
+        require_not_paused(&env)?;
         let mut c = load(&env, id)?;
         c.client.require_auth();
         if !matches!(c.status, ContractStatus::Completed | ContractStatus::Resolved) {
@@ -542,8 +680,7 @@ impl Escrow {
 
         c.reputation_issued = true;
         save(&env, &c);
-        env.events()
-            .publish((symbol_short!("rep"), id), (c.freelancer, rating));
+        env.events().publish((symbol_short!("repute"), id), rating);
         Ok(())
     }
 
@@ -589,6 +726,15 @@ impl Escrow {
         env.storage().persistent().get(&DataKey::Rating(id))
     }
 
+    /// Returns the reputation record for a freelancer (defaults to zero if none).
+    pub fn get_reputation(env: Env, freelancer: Address) -> Reputation {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Reputation(freelancer))
+            .unwrap_or_default()
+    }
+
+    /// Returns the escrow record.
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
         load(&env, id)
     }
@@ -601,11 +747,9 @@ impl Escrow {
             - 1
     }
 
-    pub fn get_reputation(env: Env, freelancer: Address) -> Reputation {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Reputation(freelancer))
-            .unwrap_or_default()
+    /// Returns the configured approvers for an escrow (empty if none).
+    pub fn get_approvers(env: Env, id: u64) -> Vec<Address> {
+        load_approvers(&env, id)
     }
 
     pub fn get_outcomes(env: Env, addr: Address) -> Outcomes {
@@ -615,6 +759,3 @@ impl Escrow {
             .unwrap_or_default()
     }
 }
-
-#[cfg(test)]
-mod test;

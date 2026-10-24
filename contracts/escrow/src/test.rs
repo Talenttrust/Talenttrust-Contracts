@@ -131,6 +131,115 @@ fn pause_blocks_mutations() {
 }
 
 #[test]
+fn two_of_three_approvers_release_flow() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    let a1 = Address::generate(&s.env);
+    let a2 = Address::generate(&s.env);
+    let a3 = Address::generate(&s.env);
+    s.escrow.set_approvers(
+        &id,
+        &vec![&s.env, a1.clone(), a2.clone(), a3.clone()],
+        &2,
+    );
+    s.escrow.deposit_funds(&id, &100);
+
+    assert_eq!(
+        s.escrow.try_release_milestone(&id, &0),
+        Err(Ok(EscrowError::ApprovalsMissing))
+    );
+    s.escrow.approve_milestone(&id, &0, &a1);
+    assert_eq!(
+        s.escrow.try_release_milestone(&id, &0),
+        Err(Ok(EscrowError::ApprovalsMissing))
+    );
+    s.escrow.approve_milestone(&id, &0, &a2);
+    assert_eq!(s.escrow.get_approvals(&id, &0).len(), 2);
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(s.token.balance(&s.freelancer), 100);
+    assert_eq!(s.escrow.get_approvals(&id, &0).len(), 0);
+}
+
+#[test]
+fn approvers_reject_invalid_duplicate_and_post_deposit() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    let a1 = Address::generate(&s.env);
+    let a2 = Address::generate(&s.env);
+    let non_approver = Address::generate(&s.env);
+    s.escrow.set_approvers(&id, &vec![&s.env, a1.clone(), a2.clone()], &1);
+    s.escrow.deposit_funds(&id, &100);
+
+    assert_eq!(
+        s.escrow.try_approve_milestone(&id, &0, &non_approver),
+        Err(Ok(EscrowError::InvalidApprovers))
+    );
+    s.escrow.approve_milestone(&id, &0, &a1);
+    assert_eq!(
+        s.escrow.try_approve_milestone(&id, &0, &a1),
+        Err(Ok(EscrowError::AlreadyApproved))
+    );
+
+    let id2 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    s.escrow.deposit_funds(&id2, &100);
+    assert_eq!(
+        s.escrow.try_set_approvers(&id2, &vec![&s.env, a1.clone()], &1),
+        Err(Ok(EscrowError::InvalidApprovers))
+    );
+}
+
+#[test]
+fn set_approvers_rejects_freelancer_and_duplicates() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100i128],
+    );
+    let a1 = Address::generate(&s.env);
+    assert_eq!(
+        s.escrow.try_set_approvers(
+            &id,
+            &vec![&s.env, a1.clone(), s.freelancer.clone()],
+            &1,
+        ),
+        Err(Ok(EscrowError::InvalidApprovers))
+    );
+    assert_eq!(
+        s.escrow.try_set_approvers(
+            &id,
+            &vec![&s.env, a1.clone(), a1.clone()],
+            &1,
+        ),
+        Err(Ok(EscrowError::InvalidApprovers))
+    );
+    assert_eq!(
+        s.escrow.try_set_approvers(&id, &vec![&s.env, a1.clone()], &2),
+        Err(Ok(EscrowError::InvalidApprovers))
+    );
+    assert_eq!(
+        s.escrow.try_set_approvers(&id, &vec![&s.env], &1),
+        Err(Ok(EscrowError::InvalidApprovers))
+    );
+}
+
+#[test]
 fn dispute_outcomes_freelancer_client_and_exact_threshold() {
     let s = setup();
 
