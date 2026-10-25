@@ -2,7 +2,7 @@
 
 **Contract**: `contracts/escrow` (Soroban)  
 **Enum source of truth**: `contracts/escrow/src/types.rs` → `pub enum Error`  
-**Acceptance (this repo snapshot)**: Catalog matches numbering **1..=23** exactly, plus append-only additions (e.g. `SettlementMismatch`).
+**Acceptance (this repo snapshot)**: Catalog matches numbering **1..=23** exactly.
 
 This document is a single reference mapping each error **code** to:
 - The **variant name**
@@ -391,23 +391,6 @@ This document is a single reference mapping each error **code** to:
 
 **Precise condition (intended)**:
 - `if contract.reputation_issued { panic_with_error(ReputationAlreadyIssued) }`
-
----
-
-## Code 24: `SettlementMismatch` ✅ Live
-
-**Entrypoint(s)**:
-- `accept_settlement`
-
-**Trigger condition**:
-- The acceptor is not the counterparty of the settlement proposer, or the echoed `freelancer_amount` does not match the stored proposal.
-
-**Precise condition (as implemented)**:
-- `if acceptor == settlement.proposer || acceptor != other_party { panic_with_error(SettlementMismatch) }`
-- `if freelancer_amount != settlement.freelancer_amount { panic_with_error(SettlementMismatch) }`
-
-**Security note**:
-- Echoing the amount prevents a proposer from swapping the split between the counterparty's signing and execution.
 
 ---
 
