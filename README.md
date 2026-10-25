@@ -4,8 +4,8 @@
 
 - Website: https://talenttrust-frontend.vercel.app
 - Docs: https://talenttrust-frontend.vercel.app/docs
-- API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
-- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W`](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W)
+-  API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
+- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHIIFJBZGBKTXKX5F`](https://stellarexpert.com/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHIIFJBBGBKXXKX5F)
 
 Soroban smart contract for the TalentTrust freelancer escrow protocol on Stellar.
 Clients lock payment for a job into escrow, release it milestone by milestone as
@@ -17,7 +17,7 @@ recorded for reputation and analytics.
 
 | Network | Contract | ID | Explorer |
 | --- | --- | --- | --- |
-| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W) |
+| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHIIFJBBGBKXXKX5F` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHIIFJBZGBKTXKX5F) |
 
 The contract is initialized with admin `GA7TXEBMEPQCLHIYCWDN7RKAO5IMRD2UV7O7TZXMEW6VZUMEXNR4XBB5`.
 Machine-readable details are in [deployments/testnet.json](deployments/testnet.json).
@@ -60,6 +60,9 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `deliver(id, index, delivery_hash)` | freelancer | Record/overwrite a milestone's delivery hash until it is released; emits `("deliver", id) -> (index, delivery_hash)` |
 | `expire_unfunded(id)` | anyone | After the 14-day funding window (`FUNDING_WINDOW_SECS`), cancel an escrow still `Created` with nothing released and refund any partial deposit to its funders; emits `("expired", id) -> refund`. `NotExpired` (`36`) before the deadline |
 | `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held); funds backing submitted milestones stay in escrow for the freelancer to claim |
+| `request_cancel(id)` | client | Start a 3-day cancellation notice on a `Funded` escrow |
+| `finalize_cancel(id)` | client | Refund unreleased funds after the notice period elapses |
+| `withdraw_cancel(id)` | client | Withdraw a pending cancellation request |
 | `propose_settlement(id, proposer, freelancer_amount)` / `withdraw_settlement(id, proposer)` | client or freelancer | Propose (or withdraw) a split of the held balance (`0..=funded-released`, else `InvalidAmount`) on a `Created`/`Funded`/`Disputed` escrow; any later deposit or release invalidates it. Emits `("settle_p", id) -> (proposer, freelancer_amount)` |
 | `accept_settlement(id, acceptor, freelancer_amount)` | the other party | Accept by echoing the amount (`SettlementMismatch` (`48`) on self-accept, missing proposal or a different amount); pays both sides, returns any dispute bond and closes the escrow as `Resolved` without the admin. Emits `("settled", id) -> (to_freelancer, to_client)` |
 | `get_settlement(id)` | - | Pending `SettlementProposal { proposer, freelancer_amount, created_at }` |
@@ -105,6 +108,9 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `get_receipt(id) -> Option<EscrowReceipt>` | - | Receipt of a compacted escrow; `get_contract` on a compacted id returns `EscrowCompacted` (`26`) |
 | `get_payout_address(id)` | - | Payout address for an escrow (falls back to the freelancer) |
 | `get_liability(token)` | - | Aggregate amount held for live escrows in `token` |
+
+Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits.
+Cancellation of a `Funded` escrow goes through `request_cancel` -> 3-day notice -> `finalize_cancel`; the freelancer may dispute during the notice period (which clears the request), and the client may still release milestones or `withdraw_cancel`. Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
 
 ### Status flow
 
@@ -175,6 +181,16 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 - Protocol admin can void fraudulent or collusive ratings via `void_rating(id, reason)`, which subtracts the rating and 1 contract from the freelancer's reputation and emits `("rep_void", id) -> (freelancer, rating, reason)`.
 - Voided escrows remain flagged so they cannot be re-rated (`ReputationAlreadyIssued`). Attempting to void twice returns `EscrowError::RatingAlreadyVoided (19)`.
 - Ratings issued before this audit trail upgrade have no `RatingRecord` and return `EscrowError::RatingNotFound (18)`.
+
+## Errors
+
+Error codes are append-only; new variants are added at the end and existing codes are never renumbered.
+
+| Code | Name | Meaning |
+| --- | --- | --- |
+| 17 | `CancelAlreadyRequested` | A cancellation request is already pending for this escrow |
+| 18 | `NoticePeriodActive` | `_finalize_cancel` called before the notice period elapsed |
+| 19 | `NoticeRequired` | `cancel_contract` called on a `Funded` escrow; use `request_cancel` instead |
 
 ## Error catalog
 

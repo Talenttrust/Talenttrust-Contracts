@@ -10,6 +10,7 @@ contracts/**/.soroban/
 
 # Coverage output
 coverage_summary.txt
+temp_auto_push.bat
 lcov.info
 
 # Soroban CLI wasm / identity artifacts
@@ -23,3 +24,5 @@ PULL_REQUEST.md
 
 
 
+.gitignore
+branch_structure.json
