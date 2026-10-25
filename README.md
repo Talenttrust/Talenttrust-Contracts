@@ -5,7 +5,7 @@
 - Website: https://talenttrust-frontend.vercel.app
 - Docs: https://talenttrust-frontend.vercel.app/docs
 - API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
-- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W`](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W)
+- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHHIFJBZGBKTXK5Wo`](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHHIFJBZGBKTXKWo`)
 
 Soroban smart contract for the TalentTrust freelancer escrow protocol on Stellar.
 Clients lock payment for a job into escrow, release it milestone by milestone as
@@ -17,7 +17,7 @@ recorded for reputation and analytics.
 
 | Network | Contract | ID | Explorer |
 | --- | --- | --- | --- |
-| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W) |
+| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHHIFJBZGBKTXKWo` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHHIFJBZGBKTXKWo`) |
 
 The contract is initialized with admin `GA7TXEBMEPQCLHIYCWDN7RKAO5IMRD2UV7O7TZXMEW6VZUMEXNR4XBB5`.
 Machine-readable details are in [deployments/testnet.json](deployments/testnet.json).
@@ -46,6 +46,9 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `release_partial(id, index, amount)` | client | Pay part of a milestone (`InvalidAmount` if `amount <= 0` or above the remaining amount, `InsufficientFunds` if not enough is held); when fully paid the milestone is released. `release_milestone` / `release_milestones` pay only the remaining amount. Emits `("rel_part", id) -> (index, amount, remaining)` |
 | `release_milestones(id, indices) -> i128` | client | Release several milestones in one call (all-or-nothing, one payout, one save); emits a `release` event per milestone plus `("rel_batch", id) -> (count, total)`; `DuplicateIndex` (`29`) on repeated indices |
 | `pay_bonus(id, amount)` | client | Transfer a tip/bonus directly client → freelancer (Funded or Completed escrows) |
+| `set_approvers(id, approvers, threshold)` | client | Register 1 to 5 approvers and an M-of-N threshold before any deposit |
+| `approve_milestone(id, index, approver)` | approver | Record an approval for a milestone release |
+| `release_milestone(id, index)` | client (+ threshold approvals if configured) | Pay the freelancer for a milestone |
 | `open_dispute(id, caller)` | client or freelancer | Post a refundable bond of `max(DISPUTE_BOND_MIN, total * DISPUTE_BOND_BPS / 10_000)` (`DISPUTE_BOND_BPS = 200`, `DISPUTE_BOND_MIN = 0`) and freeze the escrow pending resolution (increments `disputes_opened`) |
 | `resolve_dispute(caller, id, freelancer_bps, bond_to_opener)` | admin or Resolver | Split the held balance; the freelancer share follows the team split (records dispute win/loss outcomes based on 5,000 bps threshold); the resolver cannot be the escrow's client or freelancer; the dispute bond is never part of the split — it returns to the opener when `bond_to_opener`, otherwise goes to the counterparty (panel settlements return it to the opener only if the split favours them) |
 | `set_panel(members, threshold)` | admin | Replace the arbiter panel (1 <= threshold <= len <= 7, unique members, else `InvalidPanel` (`31`)); emits `("panel",) -> (len, threshold)` |
@@ -105,6 +108,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `get_receipt(id) -> Option<EscrowReceipt>` | - | Receipt of a compacted escrow; `get_contract` on a compacted id returns `EscrowCompacted` (`26`) |
 | `get_payout_address(id)` | - | Payout address for an escrow (falls back to the freelancer) |
 | `get_liability(token)` | - | Aggregate amount held for live escrows in `token` |
+| `get_approvals(id, index)` | - | Approvals recorded for a milestone |
 
 ### Status flow
 
@@ -119,6 +123,7 @@ Status transitions are centrally validated by a guarded state machine:
 
 Any other status transition returns `EscrowError::InvalidTransition` (`20`). Attempting to `deposit_funds` on an already `Funded` contract returns `EscrowError::InvalidStatus` (`1`) up front.
 
+When approvers are configured, a milestone release requires at least `threshold` approvals before it can move from `Funded` to `Completed`.
 Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
 
 Bonuses are allowed while an escrow is `Funded` or `Completed`; they do not change the escrow status or accounting.
@@ -158,6 +163,7 @@ Core lifecycle events are versioned and structured: escrow events use topics
 | resolved | `(1, "resolved", id)` | `ResolvedEvent { to_freelancer, to_client, status, bond_recipient, bond }` | `resolve_dispute`, panel settlement |
 | cancel | `(1, "cancel", id)` | `CancelEvent { refund, to, status }` (`to` is the client; refunds go pro-rata to funders) | `cancel_contract` |
 | rep | `(1, "rep", id)` | `ReputationEvent { freelancer, rating, completed_contracts, total_rating, weight }` | `issue_reputation` |
+| approve | `(1, "approve", id)` | `(index, approver)` | `approve_milestone` |
 
 Feature-specific events keep their `(symbol, id)` topics, e.g.:
 
@@ -175,6 +181,16 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 - Protocol admin can void fraudulent or collusive ratings via `void_rating(id, reason)`, which subtracts the rating and 1 contract from the freelancer's reputation and emits `("rep_void", id) -> (freelancer, rating, reason)`.
 - Voided escrows remain flagged so they cannot be re-rated (`ReputationAlreadyIssued`). Attempting to void twice returns `EscrowError::RatingAlreadyVoided (19)`.
 - Ratings issued before this audit trail upgrade have no `RatingRecord` and return `EscrowError::RatingNotFound (18)`.
+
+## Errors
+
+Error codes are append-only; new variants are added at the end of `EscrowError` and existing codes are never renumbered.
+
+| Code | Name | Description |
+| --- | --- | --- |
+| 17 | `InvalidApprovers` | Approvers invalid: threshold out of range, duplicates, freelancer included, or set after deposit |
+| 18 | `AlreadyApproved` | Approver has already signed off on this milestone |
+| 19 | `ApprovalsMissing` | Milestone release attempted with fewer approvals than the configured threshold |
 
 ## Error catalog
 
@@ -251,7 +267,7 @@ The wasm is written to `target/wasm32v1-none/release/escrow.wasm`.
 stellar contract deploy --wasm target/wasm32v1-none/release/escrow.wasm \
   --source <key> --network testnet
 stellar contract invoke --id <CONTRACT_ID> --source <key> --network testnet \
-  -- initialize --admin <ADMIN_ADDRESS>
+  - initialize --admin <ADMIN_ADDRESS>
 ```
 
 ## License
