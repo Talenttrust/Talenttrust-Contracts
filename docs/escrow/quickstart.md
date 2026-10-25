@@ -709,8 +709,9 @@ below maps the most common user-facing failures to actionable remediation.
 11. **Admin rotation is possible; re-initialization is not.** `initialize`
     is single-use (a second call returns `AlreadyInitialized`), but the
     operational admin address itself can be rotated through the two-step
-    `propose_governance_admin(proposed)` + `accept_governance_admin` flow
-    guarded by `ADMIN_ROTATION_MIN_DELAY_LEDGERS` timelock. Plan signing
+    `propose_admin(proposed)` + `accept_admin` flow, guarded by an
+    `ADMIN_ROTATION_MIN_DELAY_LEDGERS` timelock and an
+    `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` expiry window. Plan signing
     infrastructure to survive an admin rotation rather than baking a
     single admin key into a long-lived CI service.
 
@@ -743,8 +744,8 @@ event topic) see [`abi-reference.md`](abi-reference.md).
 ## Where to go next
 
 - **Production deployment checklist:** [`release-readiness-checklist.md`](release-readiness-checklist.md)
-- **Two-step governance admin transfer (propose / accept + timelock):**
-  see the `propose_governance_admin` and `accept_governance_admin` rows in
+- **Two-step admin transfer (propose / accept / cancel + timelock + expiry):**
+  see the `propose_admin`, `accept_admin`, and `cancel_admin` rows in
   [`abi-reference.md`](abi-reference.md) and
   [`docs/escrow/governance-security.md`](governance-security.md).
 - **Authorization deep-dive:** [`authorization.md`](authorization.md)

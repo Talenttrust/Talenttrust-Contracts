@@ -22,6 +22,11 @@ The live escrow contract is implemented in `contracts/escrow/src/lib.rs`.
 5. `issue_reputation` records one client-issued freelancer rating.
 6. `cancel_contract` cancels non-completed contracts by client/freelancer auth.
 
+## Storage reference
+
+A fuller storage reference, including the canonical data keys, invariants, and
+entrypoints that read or write them, is available in [docs/storage.md](../storage.md).
+
 ## Not Implemented
 
 Approval modes, dispute resolution, refunds, finalization, protocol fees,

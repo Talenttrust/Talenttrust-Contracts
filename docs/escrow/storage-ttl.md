@@ -1,13 +1,17 @@
 # Escrow Storage TTL
 
-This document defines the deterministic, auditable TTL (time-to-live) policy for
-**transient** storage entries in the escrow contract. It exists to prevent
+
+This document defines the deterministic, auditable TTL (time-to-live)
+policy for transient storage entries in the escrow contract. It exists to prevent
 unbounded state growth from orphaned pending approvals and pending migrations
 that are never resolved by counterparties.
 
 See also: [state-persistence.md](./state-persistence.md) for the persistent
 storage model; [upgradeable-storage.md](./upgradeable-storage.md) for upgrade
 semantics.
+
+See also: [storage-validation.md](./storage-validation.md) for the invariant
+validation that guards the state model described below.
 
 ## Scope
 
@@ -20,11 +24,11 @@ Applies to keys stored in `env.storage().temporary()`. Persistent keys (e.g.
 All TTL values are denominated in **ledgers**, the Soroban-native unit. One
 ledger is ~5 seconds on Stellar mainnet. This avoids any coupling to
 wall-clock timestamps and keeps expiry deterministic as a function of
-`env.ledger().sequence()`.
+env.ledger().sequence().
 
 | Named constant | Ledgers | Rough duration |
-|---|---:|---|
-| `LEDGERS_PER_DAY` | 17 280 | 1 day |
+|---|--:|---|
+| `LEFGERS_PER_DAY` | 17 280 | 1 day |
 | `PENDING_APPROVAL_TTL_LEDGERS` | 120 960 | 7 days |
 | `PENDING_APPROVAL_BUMP_THRESHOLD` | 17 280 | 1 day |
 | `PENDING_MIGRATION_TTL_LEDGERS` | 362 880 | 21 days |
@@ -36,7 +40,7 @@ Constants live in
 ## Transient Keys
 
 | Key | TTL | Bump threshold | Rationale |
-|---|---:|---:|---|
+|---|--:|--:|---|
 | `PendingApproval(contract_id)` | 7 days | 1 day | Counterparties are expected to respond within one business week; short enough to reclaim state on abandonment. |
 | `PendingMigration` | 21 days | 3 days | Migrations are rarer and more consequential; reviewers need more lead time. |
 
@@ -51,7 +55,7 @@ All transient reads and writes go through the helpers in `contracts/escrow/src/t
 |---|---|
 | `compute_expiry(env, ttl)` | Returns `sequence + ttl` (saturating). |
 | `store_with_ttl(env, key, value, ttl)` | Writes to temporary storage and sets TTL. |
-| `read_if_live(env, key)` | Returns `Some(v)` if live, `None` if absent or evicted. |
+| `read_if_live(env, key)` | Returns `Some(v)if live, `None` if absent or evicted. |
 | `extend_if_below_threshold(env, key, threshold, extend_to)` | Bumps TTL only below the threshold; returns `false` if key is absent or evicted. |
 | `remove_transient(env, key)` | Explicit removal before auto-eviction. |
 | `has_transient(env, key)` | Returns `true` if the key is currently live. |
@@ -69,8 +73,7 @@ All transient reads and writes go through the helpers in `contracts/escrow/src/t
 
 Expiry is computed at write time as:
 
-```
-expires_at_ledger = env.ledger().sequence() + TTL_LEDGERS
+```expires_at_ledger = env.ledger().sequence() + TTL_LEDGERS
 ```
 
 Given the same starting sequence and the same TTL constant, two independent
@@ -88,7 +91,7 @@ environments produce identical expiry values. This is verified by
   threshold, the call is a no-op (Soroban only extends, never shrinks).
 - The helper's boolean reports whether the key was live. Soroban does not expose
   the resulting TTL to production contracts, so the test suite uses the
-  test-only `get_ttl` API to verify whether an extension occurred.
+  test-only `get_ttl`API to verify whether an extension occurred.
 - If the entry is absent or already evicted, the helper returns `false` and
   performs no write.
 

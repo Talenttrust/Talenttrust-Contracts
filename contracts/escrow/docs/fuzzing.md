@@ -2,24 +2,24 @@
 
 ## Overview
 
-Fuzz testing (property‑based testing) is used to automatically generate a wide range of inputs for the **Escrow** contract and verify that the implementation maintains its invariants under all possible edge‑cases.  
+Fuzz testing (property‑b¡ased testing) is used to automatically generate a wide range of inputs for the **Escrow** contract and verify that the implementation maintains its invariants under all possible edge‑cases.  
 
 The escrow module includes a dedicated fuzz suite in `src/fuzz_test.rs`. The suite exercises:
 
 | Property | Description |
-|----------|-------------|
+|----------|------------|
 | **Milestone total** | The sum of all milestone amounts must never exceed `MAX_TOTAL_ESCROW_STROOPS`. |
 | **Milestone count** | The number of milestones must stay ≤ `MAX_MILESTONES`. |
 | **Deposit limits** | Deposits cannot over‑fund the contract and must respect the total cap. |
 | **Unauthorized actions** | Only authorized roles (client, freelancer, arbiter) can call privileged functions. |
 | **State transitions** | Contract moves through the correct states (`Created → Funded → Completed/Refunded`). |
-| **Overflow safety** | All arithmetic uses `checked_*` helpers to prevent i128 overflow. |
+| **Overflow safety** | All arithmetic uses `checked_*` (except for the explicit boundary assertions) to prevent i128 overflow. |
 | **Boundary handling** | Values at, just below and just above limits are explicitly tested. |
 
 ## How the Fuzz Suite Works
 
-1. **Input Generation** – The `proptest` crate generates random vectors of `i128` milestone amounts, random deposit amounts, and random role combinations.
-2. **Invariant Checks** – After each operation the suite calls the contract’s public methods and asserts that:
+1. **Input Generation* – The `proptest` crate generates random vectors of `i128` milestone amounts, random deposit amounts, and random role combinations.
+2. **Invariant Checks* – After each operation the suite calls the contract’s public methods and asserts that:
    * No panic occurs unless an expected error is triggered.
    * The contract’s internal balances (`funded_amount`, `released_amount`, `refunded_amount`) stay within the legal range.
    * The contract’s status matches the expected lifecycle phase.
@@ -48,6 +48,14 @@ When adding new functionality (e.g., dispute resolution or fee logic) follow the
    * Asserts the expected error or state transition.
 3. **Update `docs/fuzzing.md`** with a short description of the new scenario and the property it checks.
 
+## Compatibility Contracts
+
+The fuzz suite is part of the public compatibility contract of the escrow contract. To keep the contract reviewable and deterministic:
+
+- **Public entry points** (`initialize`, `deposit_funds`, `approve_milestone`, `release_funds`, `refund`, `get_state`) must remain callable with the same signatures and error codes. The fuzz suite asserts this by exercising them through the public API only.
+- **Error codes** are part of the compatibility surface. Tests assert the exact `EscrowError` variant for invalid, duplicate, and boundary inputs.
+- **Invariants** (total funded ≤ total escrow, no double release, no release after refund) are documented in code and checked after every operation.
+
 ### Example: New Fee Validation
 
 ```rust
@@ -62,7 +70,7 @@ proptest! {
         // Deposit the full amount
         contract.deposit_funds(total).unwrap();
         // Verify that the fee stored equals total * fee_bps / 10_000
-        assert_eq!(contract.protocol_fee(), total * fee_bps as i128 / 10_000);
+        assert_eq(contract.protocol_fee(), total * fee_bps as i128 / 10_000);
     }
 }
 ```
@@ -78,7 +86,7 @@ The fuzz suite doubles as an executable specification. Each test’s name and co
 **Next Steps**
 
 * Review `src/fuzz_test.rs` for any missing edge‑cases.
-* Add the new fee‑validation test (or any other feature you plan).
+* Add the new fee‑validation test (or any other feature you plan to).
 * Regenerate the documentation with `cargo doc` and verify that the updated `fuzzing.md` reflects the new tests.
 
 Feel free to ask if you need help writing a specific fuzz scenario or updating the documentation.
