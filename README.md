@@ -4,12 +4,15 @@
 
 - Website: https://talenttrust-frontend.vercel.app
 - Docs: https://talenttrust-frontend.vercel.app/docs
-- API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
-- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W`](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W)
+-  API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
+- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXM5W`](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXM5W)
 
 Soroban smart contract for the TalentTrust freelancer escrow protocol on Stellar.
 Clients lock payment for a job into escrow, release it milestone by milestone as
 work is approved, and either party can raise a dispute that the protocol admin settles.
+Milestones may optionally carry a due date; once a due date plus a three-day grace
+period has passed, the client can reclaim that milestone's funds without cancelling the
+rest of the contract.
 Clients can also pay a tip or bonus that is transferred directly to the freelancer and
 recorded for reputation and analytics.
 
@@ -17,7 +20,7 @@ recorded for reputation and analytics.
 
 | Network | Contract | ID | Explorer |
 | --- | --- | --- | --- |
-| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W) |
+| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXM5W` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXM5W) |
 
 The contract is initialized with admin `GA7TXEBMEPQCLHIYCWDN7RKAO5IMRD2UV7O7TZXMEW6VZUMEXNR4XBB5`.
 Machine-readable details are in [deployments/testnet.json](deployments/testnet.json).
@@ -28,6 +31,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | --- | --- | --- |
 | `initialize(admin)` | admin | One-time setup |
 | `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones. Rejects self-referential parties (client, freelancer or token equal to the contract address), the admin as client or freelancer, milestones below `MIN_MILESTONE_AMOUNT` (1 000 000), and totals above `MAX_ESCROW_TOTAL` (10¹⁸). Validation order: parties → milestones → amounts. |
+| `create_contract_with_deadlines(client, freelancer, token, milestone_amounts, deadlines) -> u64` | client | Create an escrow with per-milestone due dates (0 means no deadline) |
 | `create_and_fund(client, freelancer, token, milestone_amounts) -> u64` | client | Validate, create and fully fund an escrow atomically (one signature, one escrow write; same validation as `create_contract`); emits `created` then `deposit` with the two-step payloads |
 | `create_contract_sequential(client, freelancer, token, milestone_amounts) -> u64` | client | Same as `create_contract`, but milestones must be released strictly in order (`OutOfOrder` (`28`) otherwise); emits `("seq", id) -> true` |
 | `create_stream(client, freelancer, token, amount, start, end) -> u64` | client | One-milestone escrow vesting linearly from `start` to `end` (`end - start >= 1 hour`, else `InvalidSchedule` (`50`)); funded with `deposit_funds`; milestone releases and `cancel_contract` return `InvalidStatus` |
@@ -65,6 +69,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `get_settlement(id)` | - | Pending `SettlementProposal { proposer, freelancer_amount, created_at }` |
 | `resign(id)` | freelancer | Resign from a `Created`/`Funded` escrow: unreleased funds return to the client (released milestones stay paid), escrow `Cancelled`; emits `("resign", id) -> refunded` |
 | `was_resigned(id)` | - | Whether the escrow ended by freelancer resignation (vs client cancellation) |
+| `reclaim_overdue(id, index)` | client | Refund an overdue milestone after the grace period without cancelling the contract |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
 | `rate_client(id, rating)` | freelancer | Rate the client of a completed or resolved job (1-5), once; emits `("rep_cli", id) -> (client, rating)` |
 | `void_rating(id, reason)` | admin | Void a fraudulent rating, reverse reputation and emit audit trail |
@@ -83,7 +88,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `set_pause_flags(caller, flags)` / `get_pause_flags()` | admin or Pauser / - | Granular pause bitmask: `PAUSE_CREATE = 1` (create/configure), `PAUSE_DEPOSIT = 2`, `PAUSE_RELEASE = 4` (releases, claims, bonuses, deliveries), `PAUSE_DISPUTE = 8`, `PAUSE_CANCEL = 16` (cancel, resign, settlement, expiry), `PAUSE_REPUTATION = 32` (ratings), `PAUSE_ALL = 63`; other bits return `InvalidAmount`. `set_paused(true)` sets `PAUSE_ALL`, `false` clears; `is_paused()` is true iff any flag is set. Emits `("pause",) -> flags` |
 | `grant_role(role, account)` / `revoke_role(role, account)` | admin | Grant or revoke a `Pauser` or `Resolver` role (`RoleUnchanged` (`33`) if no change); emits `("role_set", role) -> (account, true\|false)` |
 | `has_role(role, account)` | - | Role membership; the admin implicitly holds every role |
-| `get_contract(id)`, `get_rating(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
+| `get_contract(id)`, `get_rating(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_deadlines(id)`, `get_admin()`, `version()` | - | Reads |
 | `get_bonus(id)`, `get_bonus_total(freelancer)` | - | Reads for cumulative bonus amounts |
 | `get_milestone_paid(id, index) -> i128` | - | Amount paid so far on a milestone (its full amount once released) |
 | `next_releasable(id) -> Option<u32>` | - | Lowest unreleased milestone index (`None` when all released) |
@@ -118,6 +123,9 @@ Status transitions are centrally validated by a guarded state machine:
 - `Funded | Completed -> Created` only through `accept_change_order` (a dedicated, separately guarded reopen), and `Funded -> Created` through `accept_amendment` when the new total exceeds the funding
 
 Any other status transition returns `EscrowError::InvalidTransition` (`20`). Attempting to `deposit_funds` on an already `Funded` contract returns `EscrowError::InvalidStatus` (`1`) up front.
+
+A contract whose milestones are all reclaimed as overdue (and none were ever released) ends
+in `Cancelled`; if some were released and the rest reclaimed, it ends in `Completed`.
 
 Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
 
@@ -158,6 +166,7 @@ Core lifecycle events are versioned and structured: escrow events use topics
 | resolved | `(1, "resolved", id)` | `ResolvedEvent { to_freelancer, to_client, status, bond_recipient, bond }` | `resolve_dispute`, panel settlement |
 | cancel | `(1, "cancel", id)` | `CancelEvent { refund, to, status }` (`to` is the client; refunds go pro-rata to funders) | `cancel_contract` |
 | rep | `(1, "rep", id)` | `ReputationEvent { freelancer, rating, completed_contracts, total_rating, weight }` | `issue_reputation` |
+| overdue | `("overdue", id)` | `(index, refunded)` | `reclaim_overdue` |
 
 Feature-specific events keep their `(symbol, id)` topics, e.g.:
 
@@ -175,6 +184,16 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 - Protocol admin can void fraudulent or collusive ratings via `void_rating(id, reason)`, which subtracts the rating and 1 contract from the freelancer's reputation and emits `("rep_void", id) -> (freelancer, rating, reason)`.
 - Voided escrows remain flagged so they cannot be re-rated (`ReputationAlreadyIssued`). Attempting to void twice returns `EscrowError::RatingAlreadyVoided (19)`.
 - Ratings issued before this audit trail upgrade have no `RatingRecord` and return `EscrowError::RatingNotFound (18)`.
+
+## Errors
+
+Error codes are append-only; new variants are added at the end and existing codes are
+never renumbered. The new codes for deadlines are:
+
+| Code | Name | Meaning |
+| --- | --- | --- |
+| 17 | `InvalidDeadline` | Deadline vector length mismatch, past timestamp, or decreasing deadlines |
+| 18 | `NotOverdue` | Milestone has no deadline or the grace period has not elapsed |
 
 ## Error catalog
 
@@ -251,7 +270,7 @@ The wasm is written to `target/wasm32v1-none/release/escrow.wasm`.
 stellar contract deploy --wasm target/wasm32v1-none/release/escrow.wasm \
   --source <key> --network testnet
 stellar contract invoke --id <CONTRACT_ID> --source <key> --network testnet \
-  -- initialize --admin <ADMIN_ADDRESS>
+  --initialize --admin <ADMIN_ADDRESS>
 ```
 
 ## License
