@@ -1,3 +1,8 @@
+> **Validation boundaries:** This document defines the accepted, rejected,
+> duplicate, and boundary-case inputs for `approve_milestone_release` and
+> `release_milestone`. Behavior is deterministic and fail-closed; see the
+> tables below for the exact contract.
+
 # Milestone Approval and Release Flow
 
 Releasing a milestone is a two-step process. First, authorized parties call
@@ -46,6 +51,58 @@ approvals, marks the milestone released, and clears the approval record.
 
 ---
 
+## Validation boundaries
+
+Every entry point validates input before mutating state. The tables below
+enumerate the accepted, rejected, duplicate, and boundary cases. Rejections
+panic with the listed error and leave all state unchanged.
+
+### `approve_milestone_release(contract_id, milestone_index)`
+
+| Case                | Input condition                                              | Result                                   |
+|---------------------|--------------------------------------------------------------|------------------------------------------|
+| Accepted            | caller role matches mode; no prior approval from caller      | writes `MilestoneApprovals`, bumps TTL   |
+| Accepted (boundary) | `milestone_index == 0` or `== milestone_count - 1`           | same as accepted                         |
+| Rejected            | caller role not permitted by mode                            | `UnauthorizedRole`                       |
+| Rejected            | `milestone_index >= milestone_count`                         | `InvalidMilestone`                       |
+| Rejected            | contract not `Funded` or already finalized                   | `InvalidState`                           |
+| Rejected            | milestone already `released`                                 | `InvalidState`                           |
+| Duplicate           | caller already approved this milestone                       | `AlreadyApproved`                        |
+| Duplicate (boundary)| second caller in `MultiSig` after first approval             | accepted; quorum now satisfied           |
+
+### `release_milestone(contract_id, milestone_index)`
+
+| Case                | Input condition                                              | Result                                   |
+|---------------------|--------------------------------------------------------------|------------------------------------------|
+| Accepted            | caller role matches mode; quorum satisfied; not released     | marks released, clears approvals         |
+| Accepted (boundary) | quorum exactly meets mode threshold                          | same as accepted                         |
+| Rejected            | caller role not permitted by mode                            | `UnauthorizedRole`                       |
+| Rejected            | `milestone_index >= milestone_count`                         | `InvalidMilestone`                       |
+| Rejected            | contract not `Funded` or already finalized                   | `InvalidState`                           |
+| Rejected            | milestone already `released`                                 | `InvalidState`                           |
+| Rejected            | no approval record (never set)                               | `InsufficientApprovals`                  |
+| Rejected            | approval record expired (TTL elapsed)                        | `InsufficientApprovals`                  |
+| Rejected            | record present but quorum not met                            | `InsufficientApprovals`                  |
+| Duplicate           | second `release_milestone` for same milestone                | `InvalidState` (already released)        |
+
+### Invariants
+
+- **Determinism:** identical inputs and ledger state always produce the same
+  outcome; no branch depends on wall-clock time or caller ordering beyond the
+  recorded approvals.
+- **Fail-closed:** any missing, expired, or insufficient approval record maps
+  to `InsufficientApprovals` and panics before mutating state.
+- **No reuse:** `clear_approvals` removes the record on successful release, so
+  a subsequent `release_milestone` cannot rely on stale approvals.
+- **Atomicity:** a rejected call performs no storage writes; a successful call
+  writes the milestone flag, released amount, fee accrual, and approval
+  removal in a single invocation.
+- **Concurrency:** Soroban executes contract invocations serially per ledger;
+  duplicate submissions within the same ledger observe the state written by
+  the earlier call and are rejected as duplicates.
+
+---
+
 ## ReleaseAuthorization modes
 
 | Mode               | Who may call `approve_milestone_release` | Approval quorum                           | Who may call `release_milestone` |
@@ -86,6 +143,12 @@ approval cannot silently authorize a release.
 After a successful release, `clear_approvals` explicitly removes the entry
 rather than waiting for natural TTL expiry, preventing approval reuse.
 
+An expired or absent record is indistinguishable by design: both surface as
+`InsufficientApprovals`. Callers must not treat a missing record as an
+implicit approval, and must re-approve after expiry before retrying release.
+Retrying `release_milestone` after a rejection is safe — no partial state is
+written, so the retry observes the same preconditions.
+
 ---
 
 ## Querying live approvals
@@ -97,3 +160,8 @@ get_milestone_approvals(contract_id, milestone_index) -> Option<MilestoneApprova
 Returns `None` when no record exists or the TTL has elapsed. A `Some` value
 with all fields `false` and `None` are both insufficient — neither unblocks
 `release_milestone`.
+
+Failures are diagnosable through the panic error codes above; no sensitive
+data (amounts, addresses beyond the caller, or approval contents) is included
+in error output. Off-chain indexers should treat `InsufficientApprovals` as a
+retryable precondition failure and `UnauthorizedRole` as a terminal rejection.

@@ -50,6 +50,17 @@ Operational controls:
 - `is_emergency() -> bool`
 - `get_mainnet_readiness_info() -> MainnetReadinessInfo`
 
+Admin and client migration:
+
+- `propose_admin(proposed) -> bool`
+- `accept_admin() -> bool`
+- `cancel_admin() -> bool`
+- `get_pending_admin() -> Option<Address>`
+- `simulate_dispute_resolution(contract_id, resolution) -> SimulateDisputeOutcome`
+- `propose_client_migration(contract_id, current_client, new_client) -> bool`
+- `accept_client_migration(contract_id, new_client) -> bool`
+- `cancel_client_migration(contract_id, current_client) -> bool`
+
 ## Function Semantics
 
 ### `initialize(admin) -> bool`

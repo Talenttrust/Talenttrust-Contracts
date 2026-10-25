@@ -394,7 +394,67 @@ This document is a single reference mapping each error **code** to:
 
 ---
 
+## Code 46: `RoleOverlap` ✅ Live
+
+**Entrypoint(s)**:
+- `propose_client_migration`
+- `accept_client_migration`
+
+**Trigger condition**:
+- The proposed client address overlaps with the current client, the freelancer, the arbiter (if configured), or the escrow contract's own address.
+
+**Precise condition**:
+- `if candidate == contract.client || candidate == contract.freelancer || contract.arbiter.as_ref() == Some(candidate) || candidate == env.current_contract_address() { panic_with_error(RoleOverlap) }`
+
+---
+
+## Code 44: `AccountingInvariantViolated` ✅ Live
+
+**Entrypoint(s)**:
+- `release_milestone`, `release_milestones_batch`, `resolve_dispute`, dispute payout helpers
+- `finalize_contract` (added by #1434)
+
+**Trigger condition**:
+- At a money-movement path: `released_amount + refunded_amount + accumulated_protocol_fees > funded_amount`.
+- At `finalize_contract`: the persisted accounting and the milestone vector cannot
+  be reconciled, so sealing an immutable close record is refused. Covers negative
+  ledger totals, payments exceeding funding, funding above the milestone total, a
+  milestone flagged as both released and refunded, and a summary that does not
+  match the contract it was derived from.
+
+**Precise condition**:
+- `if contract.funded_amount < 0 || contract.released_amount < 0 || contract.refunded_amount < 0 || released_amount + refunded_amount > funded_amount || funded_amount > summary.total_amount || summary.total_amount < 0 || summary.status != contract.status || summary.funded_amount != contract.funded_amount || summary.released_amount != contract.released_amount || summary.refundable_balance != contract.funded_amount - paid { panic_with_error(AccountingInvariantViolated) }`
+
+**Recovery**: the close record is immutable, so a contract that fails these checks is
+left unfinalized and fully mutable. Nothing is written, and the same check runs on
+every retry, so the outcome is deterministic.
+
+---
+
+## Code 84: `FinalizationStateIncomplete` ✅ Live
+
+**Entrypoint(s)**:
+- `finalize_contract`
+
+**Trigger condition**:
+- The contract record exists and its status is `Completed` or `Disputed`, but the
+  milestone vector under `(Contract(id), "milestones")` is absent, so a complete
+  and accurate close summary cannot be built.
+
+**Precise condition**:
+- `match env.storage().persistent().get(&milestone_key) { Some(m) => m, None => panic_with_error(FinalizationStateIncomplete) }`
+
+**Why a dedicated code**: `ContractNotFound` would be misleading here - the contract
+record is present, only the summary inputs are missing. Silently sealing an empty
+milestone list would freeze a `total_amount` of `0` and a release count of `0` into
+a permanent record that contradicts the contract it describes.
+
+**Recovery**: nothing is written and the contract stays mutable. Once the milestone
+entry is restored (e.g. from a state archive), the identical call succeeds.
+
+---
+
 ## Cross-links
 
 - Public entrypoint security notes and assumptions: [`SECURITY.md`](./SECURITY.md)
-- Enum definitions: `contracts/escrow/src/types.rs` (`Error` is `#[repr(u32)]`)
+- Enum definitions: `contracts/escrow/src/lib.rs` (`EscrowError` is `#[repr(u32)]`)

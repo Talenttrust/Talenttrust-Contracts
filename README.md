@@ -1,248 +1,200 @@
 # TalentTrust Contracts
 
-Soroban smart contracts for the TalentTrust freelancer escrow protocol on Stellar.
+## Live
 
-## Repository Scope
+- Website: https://talenttrust-frontend.vercel.app
+- Docs: https://talenttrust-frontend.vercel.app/docs
+- API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
+- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W`](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W)
 
-- **Escrow contract** (`contracts/escrow`): Holds funds in escrow, supports milestone-based payments and reputation credential issuance. **Token custody is on-chain** via a Stellar Asset Contract (SAC) bound at admin setup; `deposit_funds` and `release_milestone` perform real `token::Client::transfer` calls.
-- **Planned escrow fee model**: Configurable protocol fee is now wired into `release_milestone` (`set_protocol_fee_bps`); fee retention into `AccumulatedProtocolFees` is implemented. A separate `withdraw_protocol_fees` entrypoint remains tracked in [#314](https://github.com/Talenttrust/Talenttrust-Contracts/issues/314).
+Soroban smart contract for the TalentTrust freelancer escrow protocol on Stellar.
+Clients lock payment for a job into escrow, release it milestone by milestone as
+work is approved, and either party can raise a dispute that the protocol admin settles.
+Clients can also pay a tip or bonus that is transferred directly to the freelancer and
+recorded for reputation and analytics.
 
-Reviewer-oriented notes live in [docs/escrow/README.md](docs/escrow/README.md), with the crate-level rustdoc module map in [contracts/escrow/src/lib.rs](contracts/escrow/src/lib.rs), storage-key details in [docs/escrow/state-persistence.md](docs/escrow/state-persistence.md), threat analysis in [docs/escrow/SECURITY.md](docs/escrow/SECURITY.md), and release authorization modes in [docs/escrow/authorization.md](docs/escrow/authorization.md).
+## Deployments
 
-To generate the escrow module map locally, run:
+| Network | Contract | ID | Explorer |
+| --- | --- | --- | --- |
+| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W) |
 
-```bash
-cargo doc -p escrow --no-deps
-```
+The contract is initialized with admin `GA7TXEBMEPQCLHIYCWDN7RKAO5IMRD2UV7O7TZXMEW6VZUMEXNR4XBB5`.
+Machine-readable details are in [deployments/testnet.json](deployments/testnet.json).
 
-Then open `target/doc/escrow/index.html`.
+## Contract interface (`contracts/escrow`)
 
-The supported deployed interface is documented in the [Escrow ABI reference](docs/escrow/abi-reference.md). It intentionally excludes template scaffolding endpoints; consumers should integrate only with the listed contract methods.
+| Function | Auth | Description |
+| --- | --- | --- |
+| `initialize(admin)` | admin | One-time setup |
+| `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones. Rejects self-referential parties (client, freelancer or token equal to the contract address), the admin as client or freelancer, milestones below `MIN_MILESTONE_AMOUNT` (1 000 000), and totals above `MAX_ESCROW_TOTAL` (10¹⁸). Validation order: parties → milestones → amounts. |
+| `create_and_fund(client, freelancer, token, milestone_amounts) -> u64` | client | Validate, create and fully fund an escrow atomically (one signature, one escrow write; same validation as `create_contract`); emits `created` then `deposit` with the two-step payloads |
+| `create_contract_sequential(client, freelancer, token, milestone_amounts) -> u64` | client | Same as `create_contract`, but milestones must be released strictly in order (`OutOfOrder` (`28`) otherwise); emits `("seq", id) -> true` |
+| `deposit_funds(id, amount)` | client | Transfer tokens into escrow (status must be `Created`, cannot exceed total) |
+| `deposit_from(id, funder, amount)` | funder | Any address funds the escrow (same checks as `deposit_funds`); contributions are tracked per funder (max 10, else `TooManyFunders` (`34`)) and refunds from `cancel_contract` / the client share of a dispute are split pro-rata among funders, rounding remainder to the largest funder. `deposit` event payload is `(funder, amount)` |
+| `set_team_split(id, payees)` | freelancer | Configure 1-5 fixed-bps payee shares (sum 10,000) while `Created` and before any deposit (`InvalidSplitConfig` (`27`) otherwise); emits `("team", id) -> len` |
+| `release_milestone(id, index)` | client | Pay the milestone to the team split if set, otherwise the freelancer (or their payout address) |
+| `set_payout_address(id, payout)` | freelancer | Route payouts to a separate address; `Created`/`Funded` only, not during dispute |
+| `release_partial(id, index, amount)` | client | Pay part of a milestone (`InvalidAmount` if `amount <= 0` or above the remaining amount, `InsufficientFunds` if not enough is held); when fully paid the milestone is released. `release_milestone` / `release_milestones` pay only the remaining amount. Emits `("rel_part", id) -> (index, amount, remaining)` |
+| `release_milestones(id, indices) -> i128` | client | Release several milestones in one call (all-or-nothing, one payout, one save); emits a `release` event per milestone plus `("rel_batch", id) -> (count, total)`; `DuplicateIndex` (`29`) on repeated indices |
+| `pay_bonus(id, amount)` | client | Transfer a tip/bonus directly client → freelancer (Funded or Completed escrows) |
+| `open_dispute(id, caller)` | client or freelancer | Freeze the escrow pending resolution (increments `disputes_opened`) |
+| `resolve_dispute(caller, id, freelancer_bps)` | admin or Resolver | Split the held balance; the freelancer share follows the team split (records dispute win/loss outcomes based on 5,000 bps threshold); the resolver cannot be the escrow's client or freelancer |
+| `set_panel(members, threshold)` | admin | Replace the arbiter panel (1 <= threshold <= len <= 7, unique members, else `InvalidPanel` (`31`)); emits `("panel",) -> (len, threshold)` |
+| `vote_resolution(member, id, freelancer_bps)` | panel member | Vote a split on a disputed escrow; re-votes replace earlier ones, parties cannot vote, only current members are tallied. When `threshold` members agree the escrow settles like `resolve_dispute` and one `("vote", id) -> (member, bps)` event per counted vote is emitted |
+| `propose_change_order(id, amounts)` | client | Propose extra milestones for a `Created`/`Funded`/`Completed` escrow (`existing + new <= 20`, else `InvalidMilestones`) |
+| `accept_change_order(id) -> (u32, i128)` | freelancer | Append the proposed milestones, grow `total_amount` and reopen the escrow as `Created` (needs funding; a fresh funding window starts); emits `("chg_ord", id) -> (added_count, added_total)`. A rating already issued stays issued, so `issue_reputation` remains blocked for that escrow |
+| `reject_change_order(id)` / `get_change_order(id)` | freelancer / - | Drop / read the pending proposal (`ChangeOrderNotFound` (`37`) if none) |
+| `set_terms(id, terms_hash, milestone_hashes)` | client | Commit a 32-byte terms hash and 0 or one spec hash per milestone (`InvalidMetadata` (`38`) otherwise); only while `Created` with nothing deposited (frozen afterwards, `InvalidStatus`); emits `("terms", id) -> terms_hash` |
+| `deliver(id, index, delivery_hash)` | freelancer | Record/overwrite a milestone's delivery hash until it is released; emits `("deliver", id) -> (index, delivery_hash)` |
+| `expire_unfunded(id)` | anyone | After the 14-day funding window (`FUNDING_WINDOW_SECS`), cancel an escrow still `Created` with nothing released and refund any partial deposit to its funders; emits `("expired", id) -> refund`. `NotExpired` (`36`) before the deadline |
+| `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
+| `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
+| `rate_client(id, rating)` | freelancer | Rate the client of a completed or resolved job (1-5), once; emits `("rep_cli", id) -> (client, rating)` |
+| `void_rating(id, reason)` | admin | Void a fraudulent rating, reverse reputation and emit audit trail |
+| `sweep_surplus(token, to) -> i128` | admin | Sweep untracked token surplus above aggregate escrow liabilities (`NoSurplus` (`21`) if none) |
+| `freeze_escrow(id, reason)` / `unfreeze_escrow(id)` / `is_frozen(id)` | admin / admin / - | Freeze a single escrow: party mutations return `EscrowFrozen` (`22`); `resolve_dispute` still works |
+| `compact_escrow(id)` | anyone | Replace a terminal escrow with a compact `EscrowReceipt` (emits `("compact", id)`). `Cancelled` any time; `Completed`/`Resolved` only after the rating or `THIRTY_DAYS_IN_LEDGERS` after closing, otherwise `NotCompactable` (`25`) |
+| `set_paused(caller, paused)` / `is_paused()` | admin or Pauser / - | Circuit breaker for all mutations |
+| `grant_role(role, account)` / `revoke_role(role, account)` | admin | Grant or revoke a `Pauser` or `Resolver` role (`RoleUnchanged` (`33`) if no change); emits `("role_set", role) -> (account, true\|false)` |
+| `has_role(role, account)` | - | Role membership; the admin implicitly holds every role |
+| `get_contract(id)`, `get_rating(id)`, `contract_count()`, `get_reputation(addr)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
+| `get_bonus(id)`, `get_bonus_total(freelancer)` | - | Reads for cumulative bonus amounts |
+| `get_milestone_paid(id, index) -> i128` | - | Amount paid so far on a milestone (its full amount once released) |
+| `next_releasable(id) -> Option<u32>` | - | Lowest unreleased milestone index (`None` when all released) |
+| `get_milestone(id, index)` | - | Single milestone; `MilestoneNotFound` when out of range |
+| `get_escrow_summary(id)` | - | Status and derived balances (`held`, `remaining_to_fund`, milestone counts, next unreleased index, whether the held balance covers it) |
+| `get_escrow_summaries(ids)` | - | Up to 25 summaries; unknown ids skipped, larger batches return `InvalidAmount` |
+| `get_team_split(id)` | - | Configured team split (empty if unset) |
+| `get_reputation_score(addr) -> Option<u32>` | - | Value-weighted average rating ×100 (e.g. `437` = 4.37), rounded half up; `None` without eligible ratings |
+| `get_weighted_reputation(addr)` | - | `WeightedReputation { weighted_rating_sum, weight_total, rated_contracts }` (weight = released amount) |
+| `get_client_reputation(addr)` | - | Client reputation accumulated from freelancer ratings |
+| `get_terms(id)`, `get_delivery(id, index)` | - | Committed terms/spec hashes and recorded delivery hashes |
+| `get_fund_by(id) -> u64` | - | Funding deadline (ledger timestamp; `0` if none) |
+| `get_funders(id)` | - | Map of funder -> contribution |
+| `get_panel()`, `get_votes(id)` | - | Current arbiter panel and the votes on a disputed escrow (cleared after settlement) |
+| `get_receipt(id) -> Option<EscrowReceipt>` | - | Receipt of a compacted escrow; `get_contract` on a compacted id returns `EscrowCompacted` (`26`) |
+| `get_payout_address(id)` | - | Payout address for an escrow (falls back to the freelancer) |
+| `get_liability(token)` | - | Aggregate amount held for live escrows in `token` |
 
----
+### Status flow
 
-## Feature Status Matrix
+Status transitions are centrally validated by a guarded state machine:
+- `Created -> Funded`
+- `Created -> Completed` (when milestones are released directly from Created)
+- `Funded -> Completed`
+- `Created | Funded -> Disputed`
+- `Disputed -> Resolved`
+- `Created | Funded -> Cancelled`
+- `Funded | Completed -> Created` only through `accept_change_order` (a dedicated, separately guarded reopen)
 
-| Feature / Entrypoint       | Status          | Context / Tracking Reference                                                                      |
-| -------------------------- | --------------- | ------------------------------------------------------------------------------------------------- |
-| `create_contract`          | **Implemented** | Core initialization and state persistence                                                         |
-| `create_and_fund`          | **Implemented** | Atomic create + full fund in one transaction ([#1705](https://github.com/Talenttrust/Talenttrust-Contracts/issues/1705)) |
-| `set_terms`                | **Implemented** | Anchor job terms and per-milestone deliverable hashes before funding ([#1707](https://github.com/Talenttrust/Talenttrust-Contracts/issues/1707)) |
-| `deliver`                  | **Implemented** | Freelancer records per-milestone delivery hashes, overwritable until release ([#1707](https://github.com/Talenttrust/Talenttrust-Contracts/issues/1707)) |
-| `get_terms` / `get_delivery` | **Implemented** | Read-only retrieval of stored terms and per-milestone delivery hashes ([#1707](https://github.com/Talenttrust/Talenttrust-Contracts/issues/1707)) |
-| `deposit_funds`            | **Implemented** | Escrow fund collection tracking                                                                   |
-| `release_milestone`        | **Implemented** | Authenticated milestone payouts via `caller.require_auth()`                                       |
-| `finalize_contract`        | **Implemented** | Freezes contract mutable updates                                                                  |
-| `cancel_contract`          | **Implemented** | Early termination contract transitions                                                            |
-| `issue_reputation`         | **Implemented** | Milestone rating metrics for completed contracts                                                  |
-| `get_bounds`               | **Implemented** | Read protocol compile-time limits (max milestones, amounts, fee bps) via `ContractBounds` type   |
-| Emergency Circuit Breakers | **Implemented** | Public administrative pause and emergency flags                                                   |
-| Protocol Fee Accumulation  | **Implemented** | Logic built directly into milestone releases                                                      |
-| Protocol Fee Withdrawal    | **Planned**     | Entrypoints tracked in [#314](https://github.com/Talenttrust/Talenttrust-Contracts/issues/314)    |
-| Two-step Admin Transfer    | **Planned**     | Infrastructure tracked in [#318](https://github.com/Talenttrust/Talenttrust-Contracts/issues/318) |
+Any other status transition returns `EscrowError::InvalidTransition` (`20`). Attempting to `deposit_funds` on an already `Funded` contract returns `EscrowError::InvalidStatus` (`1`) up front.
 
----
+Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
 
-## Security Model
+Bonuses are allowed while an escrow is `Funded` or `Completed`; they do not change the escrow status or accounting.
 
-The escrow implementation follows a fail-closed state machine:
+### Events
 
-- contract creation requires client authorization and rejects invalid participant or milestone metadata before persisting state
-- a Stellar Asset Contract (SAC) settlement token is admin-bound exactly once via `bind_settlement_token`; each subsequent `deposit_funds` and `release_milestone` calls `token::Client::transfer` and updates accounting atomically
-- deposits pull SAC tokens from the client BEFORE `funded_amount` is updated, so a failed transfer leaves accounting untouched
-- deposits cannot exceed the required escrow total
-- cancellation returns the full refundable SAC balance to the client while preserving funds held for other active contracts
-- releases pay the freelancer (less protocol fee) via SAC transfer BEFORE milestone state is updated, so a failed payout leaves state untouched
-- releases require a valid unreleased milestone, caller authorization via `caller.require_auth()`, and valid non-expired approvals matching the contract's `ReleaseAuthorization` mode
-- reputation is gated behind contract completion and is issued once per contract; each completed escrow accrues one pending credit for its freelancer, while fully refunded escrows accrue none. Issuing reputation consumes one credit and updates the freelancer's completed-contract count
-- finalization records immutable close metadata for completed or disputed contracts and blocks later contract-specific mutations
-- one-time admin initialization protects pause and emergency controls; two-step admin transfer is planned in [#318](https://github.com/Talenttrust/Talenttrust-Contracts/issues/318)
-- pause and emergency controls block all state-changing escrow operations while active
+Core lifecycle events are versioned and structured: escrow events use topics
+`(EVENT_SCHEMA_V = 1, symbol, id)` and global events `(1, symbol)`, with one
+`#[contracttype]` payload struct per event so indexers need not call `get_contract`.
 
-Planned governance-transfer and migration features are explicitly labeled in the escrow docs until their entrypoints land.
+| Event | Topic | Payload | Emitted when |
+| --- | --- | --- | --- |
+| init | `(1, "init")` | `admin: Address` | `initialize` |
+| paused | `(1, "paused")` | `bool` | `set_paused` |
+| created | `(1, "created", id)` | `CreatedEvent { client, freelancer, token, total, milestone_count }` | `create_contract`, `create_contract_sequential`, `create_and_fund` |
+| deposit | `(1, "deposit", id)` | `DepositEvent { from, amount, funded_amount, status }` | `deposit_funds`, `deposit_from`, `create_and_fund` |
+| release | `(1, "release", id)` | `ReleaseEvent { index, amount, to, released_amount, status }` | `release_milestone`, `release_milestones` (one per milestone) |
+| complete | `(1, "complete", id)` | `CompletedEvent { released_amount }` | exactly once, when the last milestone is released (single, batch or partial release) |
+| dispute | `(1, "dispute", id)` | `DisputeEvent { by, status }` | `open_dispute` |
+| resolved | `(1, "resolved", id)` | `ResolvedEvent { to_freelancer, to_client, status }` | `resolve_dispute`, panel settlement |
+| cancel | `(1, "cancel", id)` | `CancelEvent { refund, to, status }` (`to` is the client; refunds go pro-rata to funders) | `cancel_contract` |
+| rep | `(1, "rep", id)` | `ReputationEvent { freelancer, rating, completed_contracts, total_rating, weight }` | `issue_reputation` |
 
-```bash
-# Run tests (includes 95%+ coverage negative path testing for escrow)
-cargo test
+Feature-specific events keep their `(symbol, id)` topics, e.g.:
 
-# Run escrow performance/gas baseline tests only
-cargo test test::performance
+| Event | Topic | Data |
+| --- | --- | --- |
+| Bonus paid | `("bonus", id)` | `(amount, cumulative)` |
+| Partial release | `("rel_part", id)` | `(index, amount, remaining)` |
+| Batch release | `("rel_batch", id)` | `(count, total)` |
+| Panel vote recorded | `("voted", id)` | `(member, freelancer_bps)` |
 
-# Check formatting
-cargo fmt --all -- --check
+Bonus payments reuse the escrow's existing validation errors: a missing escrow `id`, an escrow in a disallowed state (`Disputed`, `Cancelled`, `Resolved`), a non-positive `amount`, an unauthorized caller (client auth required), and the pause gate all return the corresponding contract error.
 
-# Run escrow-specific tests
-cargo test -p escrow
+### Reputation Governance & Audit Trail
+- Ratings are recorded per escrow as `RatingRecord { freelancer, rating, issued_at, voided }`.
+- Protocol admin can void fraudulent or collusive ratings via `void_rating(id, reason)`, which subtracts the rating and 1 contract from the freelancer's reputation and emits `("rep_void", id) -> (freelancer, rating, reason)`.
+- Voided escrows remain flagged so they cannot be re-rated (`ReputationAlreadyIssued`). Attempting to void twice returns `EscrowError::RatingAlreadyVoided (19)`.
+- Ratings issued before this audit trail upgrade have no `RatingRecord` and return `EscrowError::RatingNotFound (18)`.
 
-# Run escrow performance tests only
-cargo test test::performance -p escrow
-```
+## Error catalog
 
----
+| Code | Variant | Raised by |
+| ---: | --- | --- |
+| 1 | `AlreadyInitialized` | `initialize` |
+| 2 | `NotInitialized` | any call before `initialize` |
+| 3 | `Unauthorized` | `open_dispute` when caller is neither party |
+| 4 | `Paused` | any mutating function while paused |
+| 5 | `ContractNotFound` | any function with an unknown escrow id |
+| 6 | `InvalidParties` | `create_contract` — client, freelancer or token equals the contract address, or client == freelancer; `set_payout_address` |
+| 7 | `InvalidMilestones` | `create_contract` — zero milestones or more than 20 |
+| 8 | `InvalidAmount` | non-positive amounts; `create_contract` total > `MAX_ESCROW_TOTAL` |
+| 9 | `OverFunded` | `deposit_funds` — would exceed the escrow total |
+| 10 | `InvalidStatus` | operation not allowed in the current status |
+| 11 | `MilestoneNotFound` | `release_milestone` |
+| 12 | `MilestoneAlreadyReleased` | `release_milestone` |
+| 13 | `InsufficientFunds` | `release_milestone` — not enough deposited yet |
+| 14 | `InvalidSplit` | `resolve_dispute` — basis points > 10 000 |
+| 15 | `InvalidRating` | `issue_reputation` — rating outside 1–5 |
+| 16 | `ReputationAlreadyIssued` | `issue_reputation` — already rated this contract |
+| 17 | `ArithmeticOverflow` | checked counter / ledger arithmetic |
+| 18 | `RatingNotFound` | `void_rating` |
+| 19 | `RatingAlreadyVoided` | `void_rating` |
+| 20 | `InvalidTransition` | guarded status machine |
+| 21 | `NoSurplus` | `sweep_surplus` |
+| 22 | `EscrowFrozen` | party mutations on a frozen escrow; `freeze_escrow` twice |
+| 23 | `AdminCannotBeParty` | `create_contract` — client or freelancer is the admin address |
+| 24 | `MilestoneTooSmall` | `create_contract` — milestone amount < `MIN_MILESTONE_AMOUNT` (1 000 000) |
+| 25 | `NotCompactable` | `compact_escrow` — escrow live, already compacted, or unrated within the grace period |
+| 26 | `EscrowCompacted` | `get_contract` / `issue_reputation` on a compacted escrow |
+| 27 | `InvalidSplitConfig` | `set_team_split` — bad length, zero/duplicate share, client/contract payee, or sum != 10 000 |
+| 28 | `OutOfOrder` | `release_milestone` / `release_milestones` on a sequential escrow before all earlier milestones are released |
+| 29 | `DuplicateIndex` | `release_milestones` with a repeated index |
+| 30 | `BelowReputationThreshold` | `issue_reputation` when `released_amount < MIN_REPUTATION_VALUE` |
+| 31 | `InvalidPanel` | `set_panel` — bad threshold/size or duplicate members |
+| 32 | `PanelRequired` | `resolve_dispute` on an escrow with `total_amount >= PANEL_THRESHOLD_AMOUNT` (10^12) — settle via `vote_resolution` |
+| 33 | `RoleUnchanged` | `grant_role` on an existing member / `revoke_role` on a non-member |
+| 34 | `TooManyFunders` | `deposit_funds` / `deposit_from` by an 11th distinct funder |
+| 35 | `FundingExpired` | deposit into a `Created` escrow after its funding deadline |
+| 36 | `NotExpired` | `expire_unfunded` at or before the funding deadline |
+| 37 | `ChangeOrderNotFound` | `accept_change_order` / `reject_change_order` without a pending proposal |
+| 38 | `InvalidMetadata` | `set_terms` — milestone hash count is neither 0 nor the milestone count |
 
-## Escrow Terms and Delivery Hashes
+Constants: `MIN_MILESTONE_AMOUNT = 1_000_000` (0.1 token at 7 decimals), `MIN_REPUTATION_VALUE = 10_000_000` (1 token at 7 decimals; ratings are weighted by the released amount and dust jobs cannot be rated — sybil resistance comes from this value threshold, not counterparty graph analysis, so clients who are also freelancers of the same counterparty are not blocked), `MAX_ESCROW_TOTAL = 10^18` stroops, `MAX_MILESTONES = 20`.
 
-`set_terms(env, contract_id, caller, terms_hash, milestone_hashes)` commits a 32-byte terms hash and optional per-milestone deliverable hashes before the escrow is funded.
+Error codes are **append-only** and never renumbered — the frontend and backend map directly on them.
 
-- Client-only authorization; only callable while the contract is in `Created` status with `funded_amount == 0`.
-- `milestone_hashes.len()` must be 0 or equal the milestone count, otherwise `InvalidMetadata`.
-- Once any deposit is made, terms are frozen — `set_terms` returns `InvalidState`.
-- Emits `("terms", contract_id) → terms_hash`.
-
-`deliver(env, contract_id, caller, index, delivery_hash)` records a 32-byte delivery hash for a single milestone.
-
-- Freelancer-only authorization; overwriting is allowed until the milestone is released.
-- Emits `("deliver", contract_id) → (index, delivery_hash)`.
-
-Read-only entrypoints `get_terms` and `get_delivery` retrieve the stored hashes.
-
----
-
-## Escrow Event Catalogue (#1712)
-
-All escrow events carry a schema-version sentinel as the first topic so indexers can evolve without re-deploying.
-
-**Topic shapes**
-
-| Class | Topics | Data struct |
-|---|---|---|
-| Escrow-scoped | `(1u32, symbol, contract_id: u32)` | event struct (see below) |
-| Global | `(1u32, symbol)` | event struct (see below) |
-
-**`EVENT_SCHEMA_V = 1`** — bump this constant when any payload struct layout changes.
-
-| Symbol | When emitted | Payload struct | Key fields |
-|---|---|---|---|
-| `init` | `initialize` succeeds | `InitEvent` | `admin` |
-| `token_bound` | `bind_settlement_token` succeeds | `SettlementTokenBoundEvent` | `admin`, `token` |
-| `created` | `create_contract` / `create_and_fund` | `CreatedEvent` | `client`, `freelancer`, `token`, `total`, `milestone_count` |
-| `deposit` | `deposit_funds` / `create_and_fund` | `DepositEvent` | `from`, `amount`, `funded_amount`, `status` |
-| `mlstn_rls` | `release_milestone` (each release) | `ReleaseEvent` | `index`, `amount`, `fee`, `to`, `released_amount`, `status` |
-| `complete` | `release_milestone` when last milestone completes | `CompletedEvent` | `released_amount` |
-| `cancelled` | `cancel_contract` | `CancelEvent` | `refund`, `to`, `status` |
-| `refunded` | `refund_unreleased_milestones` | `RefundedEvent` | `amount`, `status` |
-| `dispute_opened` | `raise_dispute` | `DisputeEvent` | `by`, `status` |
-| `dispute_resolved` | `resolve_dispute` | `ResolvedEvent` | `to_freelancer`, `to_client`, `status` |
-| `reputation` | `issue_reputation` | `ReputationEvent` | `freelancer`, `rating`, `completed_contracts`, `total_rating` |
-| `evidence` | `submit_work_evidence` | `EvidenceEvent` | `milestone_index`, `freelancer` |
-| `paused` | `pause` | `PausedEvent` | `admin` |
-| `unpaused` | `unpause` | `UnpausedEvent` | `admin` |
-| `emergency_on` | `activate_emergency_pause` | `EmergencyActivatedEvent` | `admin` |
-| `emergency_off` | `resolve_emergency` | `EmergencyResolvedEvent` | `admin` |
-
----
-
-## Escrow Emergency Controls
-
-The escrow contract supports critical-incident response with admin-managed controls:
-
-- `initialize(admin)` _(one-time setup)_
-- `pause()` and `unpause()`
-- `activate_emergency_pause()` and `resolve_emergency()`
-- `is_paused()` and `is_emergency()`
-
-When paused, all mutating escrow operations (`create_contract`, `deposit_funds`, `release_milestone`, `issue_reputation`, `cancel_contract`) are blocked with `ContractPaused`.
-
-Read-only queries are never blocked.
-
-See `docs/escrow/emergency-controls.md` for the full flag semantics, event model, and security properties.
-
----
-
-## Escrow Closure Finalization
-
-`finalize_contract(contract_id, finalizer)` records immutable close metadata for contracts in `Completed` or `Disputed` status.
-
-The finalizer must be the stored client, freelancer, or assigned arbiter and must authorize the call.
-
-After finalization, subsequent contract-specific mutating calls fail with `AlreadyFinalized`.
-
----
-
-## Prerequisites
-
-- Rust 1.75+
-- rustfmt
-- Stellar CLI _(optional for deployment workflows)_
-
----
-
-## Contributing
-
-1. Fork the repository and create a branch from `main`.
-2. Make changes while keeping tests, linting, and formatting checks passing:
-
-```bash
-cargo fmt --all
-
-cargo clippy --workspace --all-targets -- -D warnings
-
-cargo test
-
-cargo build
-```
-
-3. Open a pull request.
-
-CI runs verification checks automatically.
-
----
-
-## CI/CD
-
-On every push and pull request to `main`, GitHub Actions:
-
-- Checks formatting:
+## Build and test
 
 ```bash
-cargo fmt --all -- --check
-```
-
-- Lints with warnings denied:
-
-```bash
-cargo clippy --workspace --all-targets -- -D warnings
-```
-
-- Builds the workspace:
-
-```bash
-cargo build
-```
-
-- Runs tests:
-
-```bash
+rustup target add wasm32v1-none      # toolchain pinned in rust-toolchain.toml
+cargo build --target wasm32v1-none --release
 cargo test
 ```
 
-Ensure these pass locally before pushing.
+The wasm is written to `target/wasm32v1-none/release/escrow.wasm`.
 
----
+## Deploy
 
-## Escrow Performance and Security
-
-Performance/gas baseline tests for key flows are located at:
-
-```text
-contracts/escrow/src/test/performance.rs
+```bash
+stellar contract deploy --wasm target/wasm32v1-none/release/escrow.wasm \
+  --source <key> --network testnet
+stellar contract invoke --id <CONTRACT_ID> --source <key> --network testnet \
+  -- initialize --admin <ADMIN_ADDRESS>
 ```
-
-Functional and failure-path coverage is split by module:
-
-```text
-contracts/escrow/src/test/flows.rs
-contracts/escrow/src/test/security.rs
-```
-
-Contract-specific reviewer documentation:
-
-```text
-docs/escrow/performance-baselines.md
-docs/escrow/SECURITY.md
-```
-
----
 
 ## License
 
