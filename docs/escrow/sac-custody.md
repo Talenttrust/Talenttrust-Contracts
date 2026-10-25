@@ -13,7 +13,8 @@ Cross-check source: [`contracts/escrow/src/lib.rs`](../../contracts/escrow/src/l
 
 Each deployed escrow instance custodies **exactly one** Stellar Asset Contract (SAC)
 token.  The token address is stored under `DataKey::SettlementToken` and must be bound
-before any fund-moving entrypoint can execute.  There is no support for multi-token
+before `create_contract` or any fund-moving entrypoint can execute. The bound token address
+is persisted on each contract record at creation. There is no support for multi-token
 escrow; all milestone amounts are denominated in stroops of this single token.
 
 ---
