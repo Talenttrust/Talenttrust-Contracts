@@ -30,6 +30,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones. Rejects self-referential parties (client, freelancer or token equal to the contract address), the admin as client or freelancer, milestones below `MIN_MILESTONE_AMOUNT` (1 000 000), and totals above `MAX_ESCROW_TOTAL` (10¹⁸). Validation order: parties → milestones → amounts. |
 | `create_contract_sequential(client, freelancer, token, milestone_amounts) -> u64` | client | Same as `create_contract`, but milestones must be released strictly in order (`OutOfOrder` (`28`) otherwise); emits `("seq", id) -> true` |
 | `deposit_funds(id, amount)` | client | Transfer tokens into escrow (status must be `Created`, cannot exceed total) |
+| `deposit_from(id, funder, amount)` | funder | Any address funds the escrow (same checks as `deposit_funds`); contributions are tracked per funder (max 10, else `TooManyFunders` (`34`)) and refunds from `cancel_contract` / the client share of a dispute are split pro-rata among funders, rounding remainder to the largest funder. `deposit` event payload is `(funder, amount)` |
 | `set_team_split(id, payees)` | freelancer | Configure 1-5 fixed-bps payee shares (sum 10,000) while `Created` and before any deposit (`InvalidSplitConfig` (`27`) otherwise); emits `("team", id) -> len` |
 | `release_milestone(id, index)` | client | Pay the milestone to the team split if set, otherwise the freelancer (or their payout address) |
 | `set_payout_address(id, payout)` | freelancer | Route payouts to a separate address; `Created`/`Funded` only, not during dispute |
@@ -39,29 +40,9 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `resolve_dispute(caller, id, freelancer_bps)` | admin or Resolver | Split the held balance; the freelancer share follows the team split (records dispute win/loss outcomes based on 5,000 bps threshold); the resolver cannot be the escrow's client or freelancer |
 | `set_panel(members, threshold)` | admin | Replace the arbiter panel (1 <= threshold <= len <= 7, unique members, else `InvalidPanel` (`31`)); emits `("panel",) -> (len, threshold)` |
 | `vote_resolution(member, id, freelancer_bps)` | panel member | Vote a split on a disputed escrow; re-votes replace earlier ones, parties cannot vote, only current members are tallied. When `threshold` members agree the escrow settles like `resolve_dispute` and one `("vote", id) -> (member, bps)` event per counted vote is emitted |
+| `expire_unfunded(id)` | anyone | After the 14-day funding window (`FUNDING_WINDOW_SECS`), cancel an escrow still `Created` with nothing released and refund any partial deposit to its funders; emits `("expired", id) -> refund`. `NotExpired` (`36`) before the deadline |
 | `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held) |
-| `expire_unfunded(id)` | - | Permissionlessly cancel expired unfunded escrow and refund client |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
-| `rate_client(id, rating)` | freelancer | Rate a completed or resolved job (1-5), once |
-| `void_rating(id, reason)` | admin | Void a fraudulent rating, reverse reputation and emit audit trail |
-| `set_paused(bool)` / `is_paused()` | admin / - | Circuit breaker for all mutations |
-| `get_contract(id)`, `get_rating(id)`, `contract_count()`, `get_reputation(addr)`, `get_client_reputation(addr)`, `get_fund_by(id)`, `get_outcomes(addr)`, `get_admin()`, `version()` | - | Reads |
-
-Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `Cancelled` side exits (an eligible `Created` escrow can transition to `Cancelled` after its funding deadline via `expire_unfunded`). Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
-
-### Funding Deadlines & Expiration
-
-- **Funding deadline**: Escrows are created with a 14-day funding window (`FUNDING_WINDOW_SECS = 14 * 86_400`). The stored deadline is readable via `get_fund_by(id)`.
-- **Deposit restriction**: When an escrow is in `Created` status, deposits are rejected with `FundingExpired` if `now > fund_by`.
-- **Permissionless expiration**: Any caller may invoke `expire_unfunded(id)` once `now > fund_by` if the escrow is in `Created` status with `released_amount == 0`. The entire `funded_amount` is refunded exclusively to the original client, and the escrow transitions to `Cancelled`.
-- **Event**: Emits event topics `("expired", id)` with the refunded amount as the event data.
-- **Errors**: `FundingExpired` when depositing past the deadline for a `Created` escrow; `NotExpired` when calling `expire_unfunded` before `now > fund_by`; `InvalidStatus` if the escrow is not in `Created` status or has `released_amount > 0`.
-
-### Reputation & Ratings
-
-- **Freelancer reputation**: Clients rate freelancers via `issue_reputation(id, rating)` after `Completed` or `Resolved`. Emits event topics `("rep", id)` with data `(freelancer, rating)`.
-- **Client reputation**: Freelancers rate clients via `rate_client(id, rating)` after `Completed` or `Resolved`. Emits event topics `("rep_cli", id)` with data `(client, rating)`.
-- **Errors**: Ratings must be in the `1..=5` range (`InvalidRating`), can only be submitted once per escrow (`ReputationAlreadyIssued`), require appropriate status (`InvalidStatus`), and respect the circuit breaker (`Paused`).
 | `rate_client(id, rating)` | freelancer | Rate the client of a completed or resolved job (1-5), once; emits `("rep_cli", id) -> (client, rating)` |
 | `void_rating(id, reason)` | admin | Void a fraudulent rating, reverse reputation and emit audit trail |
 | `sweep_surplus(token, to) -> i128` | admin | Sweep untracked token surplus above aggregate escrow liabilities (`NoSurplus` (`21`) if none) |
@@ -80,6 +61,8 @@ Status flow: `Created -> Funded -> Completed`, with `Disputed -> Resolved` and `
 | `get_reputation_score(addr) -> Option<u32>` | - | Value-weighted average rating ×100 (e.g. `437` = 4.37), rounded half up; `None` without eligible ratings |
 | `get_weighted_reputation(addr)` | - | `WeightedReputation { weighted_rating_sum, weight_total, rated_contracts }` (weight = released amount) |
 | `get_client_reputation(addr)` | - | Client reputation accumulated from freelancer ratings |
+| `get_fund_by(id) -> u64` | - | Funding deadline (ledger timestamp; `0` if none) |
+| `get_funders(id)` | - | Map of funder -> contribution |
 | `get_panel()`, `get_votes(id)` | - | Current arbiter panel and the votes on a disputed escrow (cleared after settlement) |
 | `get_receipt(id) -> Option<EscrowReceipt>` | - | Receipt of a compacted escrow; `get_contract` on a compacted id returns `EscrowCompacted` (`26`) |
 | `get_payout_address(id)` | - | Payout address for an escrow (falls back to the freelancer) |
@@ -152,6 +135,9 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 | 31 | `InvalidPanel` | `set_panel` — bad threshold/size or duplicate members |
 | 32 | `PanelRequired` | `resolve_dispute` on an escrow with `total_amount >= PANEL_THRESHOLD_AMOUNT` (10^12) — settle via `vote_resolution` |
 | 33 | `RoleUnchanged` | `grant_role` on an existing member / `revoke_role` on a non-member |
+| 34 | `TooManyFunders` | `deposit_funds` / `deposit_from` by an 11th distinct funder |
+| 35 | `FundingExpired` | deposit into a `Created` escrow after its funding deadline |
+| 36 | `NotExpired` | `expire_unfunded` at or before the funding deadline |
 
 Constants: `MIN_MILESTONE_AMOUNT = 1_000_000` (0.1 token at 7 decimals), `MIN_REPUTATION_VALUE = 10_000_000` (1 token at 7 decimals; ratings are weighted by the released amount and dust jobs cannot be rated — sybil resistance comes from this value threshold, not counterparty graph analysis, so clients who are also freelancers of the same counterparty are not blocked), `MAX_ESCROW_TOTAL = 10^18` stroops, `MAX_MILESTONES = 20`.
 
