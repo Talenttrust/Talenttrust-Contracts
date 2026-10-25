@@ -633,3 +633,135 @@ Participants can approve milestone items prior to fund distribution payouts. If 
 - **Authorization Required:** `caller.require_auth()`
 - **Behavior:** Explicitly removes the caller's own approval flag (`client_approved` | `freelancer_approved` | `arbiter_approved`). Other parties' flags are left intact. When all three flags become `false`, the temporary record is removed entirely to maximize gas savings.
 - **Errors raised:** `Error::ContractNotFound`, `Error::IndexOutOfBounds`, `Error::MilestoneAlreadyReleased`, `Error::UnauthorizedRole`, `Error::InsufficientApprovals` (when no approval record exists or the caller has not approved).
+
+
+---
+
+## Platform Fee (issue #1682)
+
+> **Implemented in:** `contracts/escrow/src/lib.rs`
+
+### Overview
+
+The protocol now supports a capped platform fee charged on each milestone
+release, with the rate **snapshotted per escrow at creation time**. This
+guarantees that a client and freelancer who agree on a rate at contract
+creation are never exposed to an admin raising that rate later.
+
+### New Contract Interface
+
+#### `set_fee(fee_bps: u32, treasury: Address) → Result<(), EscrowError>`
+
+Admin-only. Sets the global fee rate (in basis points) and the treasury
+address atomically. Both values are updated in the same call so it is never
+possible for a non-zero fee to exist without a valid treasury.
+
+- `fee_bps` must be `<= MAX_FEE_BPS` (500, i.e. 5 %). Exceeding this limit
+  returns `EscrowError::FeeTooHigh`.
+- Non-admin callers are rejected by `require_auth`.
+- Emits event: `("fee_set",) → (fee_bps, treasury)`.
+
+#### `get_fee_config(env) → (u32, Option<Address>)`
+
+Returns `(fee_bps, Some(treasury))` when a fee is configured, or `(0, None)`
+when no fee has been set (the default).
+
+#### `get_escrow_fee(env, id: u64) → u32`
+
+Returns the fee snapshot (in bps) stored when escrow `id` was created.
+Returns `0` for escrows created before `set_fee` was ever called (backward
+compatible).
+
+### Updated Functions
+
+#### `release_milestone`
+
+Fee is now deducted from each milestone payout:
+
+```
+fee        = m.amount * escrow_fee_bps / 10_000   (integer division, rounds down)
+freelancer = m.amount - fee
+treasury   = fee
+```
+
+The event payload changes from `(index, m.amount)` to `(index, m.amount, fee)`.
+
+If `fee == 0` (default or integer round-down to zero), the treasury transfer
+is skipped and behaviour is identical to the pre-fee implementation.
+
+#### `resolve_dispute`
+
+The platform fee is applied **only to the freelancer's gross share**:
+
+```
+gross_freelancer = held * freelancer_bps / 10_000
+fee              = gross_freelancer * escrow_fee_bps / 10_000
+to_freelancer    = gross_freelancer - fee
+to_client        = held - gross_freelancer          ← no fee
+```
+
+The event payload changes from `(to_freelancer, to_client)` to
+`(to_freelancer, to_client, fee)`.
+
+#### `cancel_contract`
+
+**No fee is charged.** The client's refund is always the full unreleased
+balance. This is unchanged behaviour.
+
+### New Error Variant
+
+| Code | Variant | Trigger |
+|------|---------|---------|
+| 20 | `FeeTooHigh` | `set_fee` called with `fee_bps > MAX_FEE_BPS` (500) |
+
+Error codes are append-only. Codes 1–19 are unchanged.
+
+### New Events
+
+| Topic | Data | Emitter |
+|-------|------|---------|
+| `("fee_set",)` | `(fee_bps, treasury)` | `set_fee` |
+
+### Existing Events — Changed Payloads
+
+| Topic | Old Payload | New Payload |
+|-------|-------------|-------------|
+| `("release", id)` | `(index, m.amount)` | `(index, m.amount, fee)` |
+| `("resolved", id)` | `(to_freelancer, to_client)` | `(to_freelancer, to_client, fee)` |
+
+### Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `MAX_FEE_BPS` | `500` | Hard cap on fee rate (5 %). |
+| `BPS_DENOMINATOR` | `10_000` | Denominator for all basis-point math. |
+
+### Security Properties
+
+| Question | Answer |
+|----------|--------|
+| Can the admin change the fee of an already-created escrow? | **No.** The fee is snapshotted into `DataKey::EscrowFee(id)` at `create_contract` time. Subsequent `set_fee` calls do not touch existing snapshots. |
+| Can the fee exceed `MAX_FEE_BPS` or the release amount? | **No.** `set_fee` enforces `fee_bps <= MAX_FEE_BPS`. The fee is computed as `m.amount * fee_bps / 10_000`; since `fee_bps <= 500 < 10_000`, the fee is always strictly less than `m.amount`. |
+| What happens if no treasury is set but fee > 0? | **Impossible by construction.** `set_fee` requires both `fee_bps` and `treasury` and updates them atomically. A non-zero fee snapshot can only exist if `set_fee` was called, which always sets a treasury at the same time. |
+
+### Balance Conservation Invariant
+
+For every `release_milestone` call:
+
+```
+freelancer_received + treasury_received == m.amount
+```
+
+For every `resolve_dispute` call:
+
+```
+to_freelancer + fee + to_client == held
+```
+
+For every `cancel_contract` call:
+
+```
+client_refund == held   (fee == 0)
+```
+
+These are asserted by the fee tests in `contracts/escrow/src/test.rs`.
