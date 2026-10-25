@@ -5,7 +5,7 @@
 - Website: https://talenttrust-frontend.vercel.app
 - Docs: https://talenttrust-frontend.vercel.app/docs
 - API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
-- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W`](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W)
+- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHHIFJBZGBKTXK5W`](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHHIFJBZGBKTXK5W)
 
 Soroban smart contract for the TalentTrust freelancer escrow protocol on Stellar.
 Clients lock payment for a job into escrow, release it milestone by milestone as
@@ -17,7 +17,7 @@ recorded for reputation and analytics.
 
 | Network | Contract | ID | Explorer |
 | --- | --- | --- | --- |
-| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W) |
+| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHHIFJBZGBKXXK5W` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCHHIFJBZGBKXXK5W) |
 
 The contract is initialized with admin `GA7TXEBMEPQCLHIYCWDN7RKAO5IMRD2UV7O7TZXMEW6VZUMEXNR4XBB5`.
 Machine-readable details are in [deployments/testnet.json](deployments/testnet.json).
@@ -46,8 +46,9 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `release_partial(id, index, amount)` | client | Pay part of a milestone (`InvalidAmount` if `amount <= 0` or above the remaining amount, `InsufficientFunds` if not enough is held); when fully paid the milestone is released. `release_milestone` / `release_milestones` pay only the remaining amount. Emits `("rel_part", id) -> (index, amount, remaining)` |
 | `release_milestones(id, indices) -> i128` | client | Release several milestones in one call (all-or-nothing, one payout, one save); emits a `release` event per milestone plus `("rel_batch", id) -> (count, total)`; `DuplicateIndex` (`29`) on repeated indices |
 | `pay_bonus(id, amount)` | client | Transfer a tip/bonus directly client → freelancer (Funded or Completed escrows) |
-| `open_dispute(id, caller)` | client or freelancer | Post a refundable bond of `max(DISPUTE_BOND_MIN, total * DISPUTE_BOND_BPS / 10_000)` (`DISPUTE_BOND_BPS = 200`, `DISPUTE_BOND_MIN = 0`) and freeze the escrow pending resolution (increments `disputes_opened`) |
-| `resolve_dispute(caller, id, freelancer_bps, bond_to_opener)` | admin or Resolver | Split the held balance; the freelancer share follows the team split (records dispute win/loss outcomes based on 5,000 bps threshold); the resolver cannot be the escrow's client or freelancer; the dispute bond is never part of the split — it returns to the opener when `bond_to_opener`, otherwise goes to the counterparty (panel settlements return it to the opener only if the split favours them) |
+| `open_dispute(id, caller, reason, evidence)` | client or freelancer | Freeze the escrow and record the dispute reason code and opening evidence hash; posts a refundable bond of `max(DISPUTE_BOND_MIN, total * DISPUTE_BOND_BPS / 10_000)` (`DISPUTE_BOND_BPS = 200`, `DISPUTE_BOND_MIN = 0`) and increments `disputes_opened` |
+| `submit_evidence(id, caller, hash)` | client or freelancer | Anchor an evidence hash while the dispute is open (max 10 per party, else `EvidenceLimit` (`17`) — append-only) |
+| `resolve_dispute(caller, id, freelancer_bps, bond_to_opener)` | admin or Resolver | Split the held balance; the freelancer share follows the team split (records dispute win/loss outcomes based on 5,000 bps threshold); the resolver cannot be the escrow's client or freelancer; the dispute bond is never part of the split — it returns to the opener when `bond_to_opener`, otherwise goes to the counterparty (panel settlements return it to the opener only if the split favours them). Records the resolution rationale hash |
 | `set_panel(members, threshold)` | admin | Replace the arbiter panel (1 <= threshold <= len <= 7, unique members, else `InvalidPanel` (`31`)); emits `("panel",) -> (len, threshold)` |
 | `vote_resolution(member, id, freelancer_bps)` | panel member | Vote a split on a disputed escrow; re-votes replace earlier ones, parties cannot vote, only current members are tallied. When `threshold` members agree the escrow settles like `resolve_dispute` and one `("vote", id) -> (member, bps)` event per counted vote is emitted |
 | `propose_amendment(id, proposer, new_amounts) -> u32` | client or freelancer | Propose new amounts for the existing milestones (same count, released milestones unchanged else `MilestoneAlreadyReleased` (`12`)); returns the nonce. Emits `("amend_p", id) -> (proposer, nonce)` |
@@ -105,6 +106,24 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `get_receipt(id) -> Option<EscrowReceipt>` | - | Receipt of a compacted escrow; `get_contract` on a compacted id returns `EscrowCompacted` (`26`) |
 | `get_payout_address(id)` | - | Payout address for an escrow (falls back to the freelancer) |
 | `get_liability(token)` | - | Aggregate amount held for live escrows in `token` |
+| `get_dispute(id)` | - | Dispute record including reason code and evidence entries (retained after resolution as an audit trail) |
+
+## Dispute reasons and evidence
+
+Disputes carry a `contracttype` enum `reason` code:
+
+| Variant | Meaning |
+| --- | --- |
+| `NotDelivered` | Work was never delivered |
+| `QualityIssue` | Delivered work does not meet the agreed quality |
+| `PaymentWithheld` | Client withholds payment after delivery |
+| `ScopeChange` | Dispute over a change in scope |
+| `Other` | Any other reason |
+
+Evidence hashes (e.g. IPFS CIDs or SHA-256 digests) are anchored on-chain as
+`BytesN<32>`. Each party may submit at most 10 entries per dispute; the content
+itself is never stored on-chain. Entries are append-only, so neither party can
+delete or overwrite the other's evidence.
 
 ### Status flow
 
@@ -167,6 +186,9 @@ Feature-specific events keep their `(symbol, id)` topics, e.g.:
 | Partial release | `("rel_part", id)` | `(index, amount, remaining)` |
 | Batch release | `("rel_batch", id)` | `(count, total)` |
 | Panel vote recorded | `("voted", id)` | `(member, freelancer_bps)` |
+| Dispute opened | `("dispute", id)` | `(opener, reason, evidence)` |
+| Evidence submitted | `("evidence", id)` | `(caller, hash)` |
+| Dispute resolved | `("resolved", id)` | `(freelancer_bps, rationale)` |
 
 Bonus payments reuse the escrow's existing validation errors: a missing escrow `id`, an escrow in a disallowed state (`Disputed`, `Cancelled`, `Resolved`), a non-positive `amount`, an unauthorized caller (client auth required), and the pause gate all return the corresponding contract error.
 
@@ -196,7 +218,7 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 | 14 | `InvalidSplit` | `resolve_dispute` — basis points > 10 000 |
 | 15 | `InvalidRating` | `issue_reputation` — rating outside 1–5 |
 | 16 | `ReputationAlreadyIssued` | `issue_reputation` — already rated this contract |
-| 17 | `ArithmeticOverflow` | checked counter / ledger arithmetic |
+| 17 | `ArithmeticOverflow` | checked counter / ledger arithmetic; `EvidenceLimit` on the 11th evidence entry per party |
 | 18 | `RatingNotFound` | `void_rating` |
 | 19 | `RatingAlreadyVoided` | `void_rating` |
 | 20 | `InvalidTransition` | guarded status machine |
@@ -251,7 +273,7 @@ The wasm is written to `target/wasm32v1-none/release/escrow.wasm`.
 stellar contract deploy --wasm target/wasm32v1-none/release/escrow.wasm \
   --source <key> --network testnet
 stellar contract invoke --id <CONTRACT_ID> --source <key> --network testnet \
-  -- initialize --admin <ADMIN_ADDRESS>
+  - initialize --admin <ADMIN_ADDRESS>
 ```
 
 ## License
