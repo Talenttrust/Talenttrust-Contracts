@@ -6755,7 +6755,7 @@ fn invalid_pause_bits_rejected_and_only_pausers_set_flags() {
     let pauser = Address::generate(&s.env);
     s.escrow.grant_role(&Role::Pauser, &pauser);
     s.escrow.set_pause_flags(&pauser, &PAUSE_RELEASE);
-    assert_eq!(s.escrow.get_pause_flags(), PAUSE_RELEASE);
+    // Events are per invocation: inspect them before the next call.
     let ev = s
         .env
         .events()
@@ -6769,6 +6769,7 @@ fn invalid_pause_bits_rejected_and_only_pausers_set_flags() {
         symbol_short!("pause")
     );
     assert_eq!(u32::try_from_val(&s.env, &ev.2).unwrap(), PAUSE_RELEASE);
+    assert_eq!(s.escrow.get_pause_flags(), PAUSE_RELEASE);
 }
 
 #[test]
