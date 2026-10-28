@@ -27,6 +27,10 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | Function | Auth | Description |
 | --- | --- | --- |
 | `initialize(admin)` | admin | One-time setup |
+| `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones. Rejects self-referential parties (client, freelancer or token equal to the contract address), the admin as client or freelancer, tokens that are not on the admin allowlist (`TokenNotAllowed` (`34`)), milestones below `MIN_MILESTONE_AMOUNT` (1 000 000), and totals above `MAX_ESCROW_TOTAL` (10¹⁸). Validation order: parties → milestones → token allowlist → amounts. |
+| `create_contract_sequential(client, freelancer, token, milestone_amounts) -> u64` | client | Same as `create_contract` (including the token allowlist check), but milestones must be released strictly in order (`OutOfOrder` (`28`) otherwise); emits `("seq", id) -> true` |
+| `allow_token(token)` / `disallow_token(token)` | admin | Manage the escrow currency allowlist: only allowlisted tokens may be used to create escrows. `disallow_token` affects **new** escrows only — existing escrows in that token keep depositing, releasing, refunding and disputing, so funds are never trapped. Idempotent; emits `("tok_allow",) -> token` / `("tok_deny",) -> token` |
+| `is_token_allowed(token) -> bool` | - | Whether `token` may currently be used to create an escrow |
 | `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones. Rejects self-referential parties (client, freelancer or token equal to the contract address), the admin as client or freelancer, milestones below `MIN_MILESTONE_AMOUNT` (1 000 000), and totals above `MAX_ESCROW_TOTAL` (10¹⁸). Validation order: parties → milestones → amounts. |
 | `create_and_fund(client, freelancer, token, milestone_amounts) -> u64` | client | Validate, create and fully fund an escrow atomically (one signature, one escrow write; same validation as `create_contract`); emits `created` then `deposit` with the two-step payloads |
 | `create_contract_sequential(client, freelancer, token, milestone_amounts) -> u64` | client | Same as `create_contract`, but milestones must be released strictly in order (`OutOfOrder` (`28`) otherwise); emits `("seq", id) -> true` |
@@ -164,6 +168,8 @@ Feature-specific events keep their `(symbol, id)` topics, e.g.:
 | Event | Topic | Data |
 | --- | --- | --- |
 | Bonus paid | `("bonus", id)` | `(amount, cumulative)` |
+| Token allowlisted | `("tok_allow",)` | `token` |
+| Token removed from the allowlist | `("tok_deny",)` | `token` |
 | Partial release | `("rel_part", id)` | `(index, amount, remaining)` |
 | Batch release | `("rel_batch", id)` | `(count, total)` |
 | Panel vote recorded | `("voted", id)` | `(member, freelancer_bps)` |
@@ -213,6 +219,7 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 | 31 | `InvalidPanel` | `set_panel` — bad threshold/size or duplicate members |
 | 32 | `PanelRequired` | `resolve_dispute` on an escrow with `total_amount >= PANEL_THRESHOLD_AMOUNT` (10^12) — settle via `vote_resolution` |
 | 33 | `RoleUnchanged` | `grant_role` on an existing member / `revoke_role` on a non-member |
+| 34 | `TokenNotAllowed` | `create_contract` / `create_contract_sequential` — `token` is not on the admin allowlist |
 | 34 | `TooManyFunders` | `deposit_funds` / `deposit_from` by an 11th distinct funder |
 | 35 | `FundingExpired` | deposit into a `Created` escrow after its funding deadline |
 | 36 | `NotExpired` | `expire_unfunded` at or before the funding deadline |

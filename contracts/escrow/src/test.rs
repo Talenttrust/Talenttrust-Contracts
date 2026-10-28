@@ -32,6 +32,9 @@ fn setup<'a>() -> Setup<'a> {
     let id = env.register(Escrow, ());
     let escrow = EscrowClient::new(&env, &id);
     escrow.initialize(&admin);
+    // Allowlist this test SAC so every test below sees the same behaviour as
+    // before the token allowlist existed.
+    escrow.allow_token(&sac.address());
     let token = TokenClient::new(&env, &sac.address());
     Setup {
         env,
@@ -914,6 +917,8 @@ fn test_sweep_surplus_and_direct_deposit() {
     // Initialize contract
     let escrow_client = EscrowClient::new(&env, &contract_id);
     escrow_client.initialize(&admin);
+    // This test uses its own SAC, so allowlist it explicitly.
+    escrow_client.allow_token(&token_id);
 
     // Mint tokens to client using admin client
     token_admin_client.mint(&client, &(1000 * U));
@@ -981,6 +986,8 @@ fn liability_randomized_lifecycle() {
 
     let escrow_client = EscrowClient::new(&env, &contract_id);
     escrow_client.initialize(&admin);
+    // This test uses its own SAC, so allowlist it explicitly.
+    escrow_client.allow_token(&token_id);
 
     token_admin_client.mint(&client, &(100_000 * U));
 
@@ -3420,6 +3427,79 @@ fn grant_and_revoke_role_unchanged_and_admin_only() {
 }
 
 // ---------------------------------------------------------------------------
+// Admin-managed token allowlist
+// ---------------------------------------------------------------------------
+
+#[test]
+fn create_contract_requires_allowlisted_token() {
+    let s = setup();
+    let rogue = s
+        .env
+        .register_stellar_asset_contract_v2(s.admin.clone())
+        .address();
+    assert!(!s.escrow.is_token_allowed(&rogue));
+
+    // Not allowlisted yet: both create variants fail with TokenNotAllowed.
+    assert_eq!(
+        s.escrow
+            .try_create_contract(&s.client, &s.freelancer, &rogue, &vec![&s.env, 100 * U]),
+        Err(Ok(EscrowError::TokenNotAllowed))
+    );
+    assert_eq!(
+        s.escrow.try_create_contract_sequential(
+            &s.client,
+            &s.freelancer,
+            &rogue,
+            &vec![&s.env, 100 * U]
+        ),
+        Err(Ok(EscrowError::TokenNotAllowed))
+    );
+
+    // allow_token opens the gate and emits ("tok_allow",) -> token.
+    s.escrow.allow_token(&rogue);
+    let last = s.env.events().all().last().unwrap();
+    assert_eq!(last.0, s.escrow.address);
+    assert_eq!(
+        Symbol::try_from_val(&s.env, &last.1.get(0).unwrap()).unwrap(),
+        symbol_short!("tok_allow")
+    );
+    assert_eq!(Address::try_from_val(&s.env, &last.2).unwrap(), rogue);
+    assert!(s.escrow.is_token_allowed(&rogue));
+
+    let id = s
+        .escrow
+        .create_contract(&s.client, &s.freelancer, &rogue, &vec![&s.env, 100 * U]);
+    assert_eq!(id, 1);
+
+    // disallow_token closes it again for *new* escrows, emitting ("tok_deny",).
+    s.escrow.disallow_token(&rogue);
+    let last = s.env.events().all().last().unwrap();
+    assert_eq!(
+        Symbol::try_from_val(&s.env, &last.1.get(0).unwrap()).unwrap(),
+        symbol_short!("tok_deny")
+    );
+    assert_eq!(Address::try_from_val(&s.env, &last.2).unwrap(), rogue);
+    assert!(!s.escrow.is_token_allowed(&rogue));
+    assert_eq!(
+        s.escrow
+            .try_create_contract(&s.client, &s.freelancer, &rogue, &vec![&s.env, 100 * U]),
+        Err(Ok(EscrowError::TokenNotAllowed))
+    );
+}
+
+#[test]
+fn disallow_token_does_not_affect_existing_escrows() {
+    let s = setup();
+
+    // Two escrows created and fully funded while the token is allowlisted.
+    let release_id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U, 200 * U],
+    );
+    s.escrow.deposit_funds(&release_id, &(300 * U));
+    let dispute_id = s.escrow.create_contract(
 // Sponsor deposits with pro-rata refunds
 // ---------------------------------------------------------------------------
 
@@ -7043,6 +7123,47 @@ fn extend_reputation_ttl_keeps_reputation_alive() {
         &s.token.address,
         &vec![&s.env, 100 * U],
     );
+    s.escrow.deposit_funds(&dispute_id, &(100 * U));
+    assert_eq!(s.token.balance(&s.client), 600 * U);
+    assert_eq!(s.escrow.get_liability(&s.token.address), 400 * U);
+
+    // The admin removes the token from the allowlist.
+    s.escrow.disallow_token(&s.token.address);
+    assert!(!s.escrow.is_token_allowed(&s.token.address));
+    assert_eq!(
+        s.escrow.try_create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 100 * U]
+        ),
+        Err(Ok(EscrowError::TokenNotAllowed))
+    );
+
+    // Existing escrow #1 keeps working: release still pays the freelancer ...
+    s.escrow.release_milestone(&release_id, &0);
+    assert_eq!(s.token.balance(&s.freelancer), 100 * U);
+    // ... and cancellation refunds the remainder to the client.
+    s.escrow.cancel_contract(&release_id);
+    assert_eq!(
+        s.escrow.get_contract(&release_id).status,
+        ContractStatus::Cancelled
+    );
+    assert_eq!(s.token.balance(&s.client), 800 * U);
+    assert_eq!(s.token.balance(&s.freelancer), 100 * U);
+
+    // Existing escrow #2 keeps working: the dispute still settles.
+    s.escrow.open_dispute(&dispute_id, &s.freelancer);
+    s.escrow.resolve_dispute(&s.admin, &dispute_id, &5_000);
+    assert_eq!(
+        s.escrow.get_contract(&dispute_id).status,
+        ContractStatus::Resolved
+    );
+    assert_eq!(s.token.balance(&s.freelancer), 150 * U);
+    assert_eq!(s.token.balance(&s.client), 850 * U);
+
+    // Everything was released or refunded: nothing is trapped.
+    assert_eq!(s.escrow.get_liability(&s.token.address), 0);
     s.escrow.deposit_funds(&id, &(100 * U));
     s.escrow.release_milestone(&id, &0);
     s.escrow.issue_reputation(&id, &5);
@@ -7290,6 +7411,41 @@ fn stream_withdrawals_sum_to_amount() {
 }
 
 #[test]
+fn allow_and_disallow_token_are_admin_only() {
+    let s = setup();
+    let outsider = Address::generate(&s.env);
+    let pending = s
+        .env
+        .register_stellar_asset_contract_v2(s.admin.clone())
+        .address();
+
+    // A non-admin cannot allowlist a token.
+    s.env.mock_auths(&[MockAuth {
+        address: &outsider,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "allow_token",
+            args: (&pending,).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_allow_token(&pending).is_err());
+    assert!(!s.escrow.is_token_allowed(&pending));
+    s.env.mock_all_auths();
+
+    // A non-admin cannot disallow a token the admin already allowlisted.
+    s.env.mock_auths(&[MockAuth {
+        address: &outsider,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "disallow_token",
+            args: (&s.token.address,).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_disallow_token(&s.token.address).is_err());
+    assert!(s.escrow.is_token_allowed(&s.token.address));
+    s.env.mock_all_auths();
 fn stop_stream_at_40_percent_pays_40_60() {
     let s = setup();
     let id = s.escrow.create_stream(

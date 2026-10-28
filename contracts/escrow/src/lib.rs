@@ -10,6 +10,10 @@
 //! 7. After completion the client may `issue_reputation` for the freelancer.
 //! 8. The client may `pay_bonus` directly to the freelancer (tip/bonus).
 //! 9. After completion or resolution the freelancer may `rate_client` to rate the client.
+//!
+//! The escrow currency must be on the admin-managed allowlist (`allow_token` /
+//! `disallow_token`) at creation time; `disallow_token` never affects escrows
+//! that already exist in that token.
 //! 10. Anyone may `expire_unfunded` an escrow still unfunded past its funding deadline,
 //!     refunding any partial deposit to its funders.
 //!
@@ -126,6 +130,7 @@ pub enum EscrowError {
     InvalidPanel = 31,
     PanelRequired = 32,
     RoleUnchanged = 33,
+    TokenNotAllowed = 34,
     TooManyFunders = 34,
     FundingExpired = 35,
     NotExpired = 36,
@@ -450,6 +455,7 @@ enum DataKey {
     Panel,
     Votes(u64),
     RoleMember(Role, Address),
+    AllowedToken(Address),
     Funders(u64),
     FundBy(u64),
     ChangeOrder(u64),
@@ -539,6 +545,23 @@ fn set_role(env: &Env, role: Role, account: Address, member: bool) -> Result<(),
     Ok(())
 }
 
+/// Admin allowlist gate: only escrows denominated in an approved token may be
+/// created. Checked once, at creation time, so later lifecycle calls never
+/// consult it and funds in an escrow whose token is later disallowed remain
+/// fully movable (deposit, release, refund, dispute).
+fn require_token_allowed(env: &Env, token: &Address) -> Result<(), EscrowError> {
+    let allowed = env
+        .storage()
+        .persistent()
+        .get::<_, bool>(&DataKey::AllowedToken(token.clone()))
+        .unwrap_or(false);
+    if !allowed {
+        return Err(EscrowError::TokenNotAllowed);
+    }
+    Ok(())
+}
+
+fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
 /// Current pause bitmask. Backwards compatible: with no stored flags, a
 /// legacy `Paused == true` means `PAUSE_ALL`.
 fn pause_flags(env: &Env) -> u32 {
@@ -909,7 +932,7 @@ fn build_escrow(
     require_not_paused(&env, PAUSE_CREATE)?;
     client.require_auth();
 
-    // Validation order: parties -> milestones -> amounts.
+    // Validation order: parties -> milestones -> token allowlist -> amounts.
     // ---- Parties ----
     let contract_addr = env.current_contract_address();
     if client == contract_addr
@@ -928,6 +951,9 @@ fn build_escrow(
     if n == 0 || n > MAX_MILESTONES {
         return Err(EscrowError::InvalidMilestones);
     }
+
+    // ---- Token allowlist (admin-approved currencies only) ----
+    require_token_allowed(&env, &token)?;
 
     // ---- Amounts ----
     let total = checked_milestone_total(&milestone_amounts)?;
@@ -1982,6 +2008,8 @@ impl Escrow {
     }
 
     /// Creates a new escrow agreement. Returns the escrow id.
+    ///
+    /// `token` must be on the admin allowlist, otherwise `TokenNotAllowed`.
     pub fn create_contract(
         env: Env,
         client: Address,
@@ -2055,6 +2083,42 @@ impl Escrow {
             .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
         env.events().publish((symbol_short!("seq"), id), true);
         Ok(id)
+    }
+
+    /// Admin-only: allowlists a token as an escrow currency. Idempotent;
+    /// emits `("tok_allow",) -> token`.
+    pub fn allow_token(env: Env, token: Address) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        let key = DataKey::AllowedToken(token.clone());
+        env.storage().persistent().set(&key, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        env.events().publish((symbol_short!("tok_allow"),), token);
+        Ok(())
+    }
+
+    /// Admin-only: removes a token from the escrow currency allowlist.
+    /// Only affects *new* escrows: existing escrows in this token keep
+    /// depositing, releasing, refunding and disputing normally, so funds are
+    /// never trapped. Idempotent; emits `("tok_deny",) -> token`.
+    pub fn disallow_token(env: Env, token: Address) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        let key = DataKey::AllowedToken(token.clone());
+        env.storage().persistent().set(&key, &false);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        env.events().publish((symbol_short!("tok_deny"),), token);
+        Ok(())
+    }
+
+    /// Whether `token` may currently be used to create an escrow.
+    pub fn is_token_allowed(env: Env, token: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::AllowedToken(token))
+            .unwrap_or(false)
     }
 
     /// Lowest unreleased milestone index, or `None` once every milestone is
