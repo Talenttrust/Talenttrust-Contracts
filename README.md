@@ -4,8 +4,8 @@
 
 - Website: https://talenttrust-frontend.vercel.app
 - Docs: https://talenttrust-frontend.vercel.app/docs
-- API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
-- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W`](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W)
+-  API: https://talenttrust-backend.vercel.app (docs at [/docs](https://talenttrust-backend.vercel.app/docs))
+- Contract (testnet): [`CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXKX5I`](https://stellarexpert.com/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBJGBKXXK5Y)
 
 Soroban smart contract for the TalentTrust freelancer escrow protocol on Stellar.
 Clients lock payment for a job into escrow, release it milestone by milestone as
@@ -17,16 +17,20 @@ recorded for reputation and analytics.
 
 | Network | Contract | ID | Explorer |
 | --- | --- | --- | --- |
-| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W` | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXK5W) |
+| Stellar testnet | escrow | `CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXKX5I` | [stellarexpert](https://stellarexpert.com/explorer/testnet/contract/CCZMIVUBMG5SBC47SDTC32RWLBJ2HW2DCFVWJEOKCH2IFJBZGBKTXKX5I) |
 
 The contract is initialized with admin `GA7TXEBMEPQCLHIYCWDN7RKAO5IMRD2UV7O7TZXMEW6VZUMEXNR4XBB5`.
 Machine-readable details are in [deployments/testnet.json](deployments/testnet.json).
+
+The admin is now set atomically at deploy time via the contract constructor, so there is no
+separate initialization step and no front-running window.
 
 ## Contract interface (`contracts/escrow`)
 
 | Function | Auth | Description |
 | --- | --- | --- |
-| `initialize(admin)` | admin | One-time setup |
+| `__constructor(admin)` | deployer | Atomic deploy-time setup; sets the admin and initial state |
+| `initialize(admin)` | - | Deprecated; always returns `AlreadyInitialized` on new deployments |
 | `create_contract(client, freelancer, token, milestone_amounts) -> u64` | client | Create an escrow with up to 20 milestones. Rejects self-referential parties (client, freelancer or token equal to the contract address), the admin as client or freelancer, milestones below `MIN_MILESTONE_AMOUNT` (1 000 000), and totals above `MAX_ESCROW_TOTAL` (10¹⁸). Validation order: parties → milestones → amounts. |
 | `create_and_fund(client, freelancer, token, milestone_amounts) -> u64` | client | Validate, create and fully fund an escrow atomically (one signature, one escrow write; same validation as `create_contract`); emits `created` then `deposit` with the two-step payloads |
 | `create_contract_sequential(client, freelancer, token, milestone_amounts) -> u64` | client | Same as `create_contract`, but milestones must be released strictly in order (`OutOfOrder` (`28`) otherwise); emits `("seq", id) -> true` |
@@ -170,6 +174,41 @@ Feature-specific events keep their `(symbol, id)` topics, e.g.:
 
 Bonus payments reuse the escrow's existing validation errors: a missing escrow `id`, an escrow in a disallowed state (`Disputed`, `Cancelled`, `Resolved`), a non-positive `amount`, an unauthorized caller (client auth required), and the pause gate all return the corresponding contract error.
 
+Events (legacy summary):
+
+| Event | Topic | Payload |
+| --- | --- | --- |
+| `init` | `init` | `admin: Address` |
+| `paused` | `paused` | `paused: bool` |
+| `created` | `created`, id | `(client, freelancer, total)` |
+| `deposit` | `deposit`, id | `amount` |
+| `release` | `release`, id | `(index, amount)` |
+| `dispute` | `dispute`, id | `caller` |
+| `resolved` | `resolved`, id | `(to_freelancer, to_client)` |
+| `cancel` | `cancel`, id | `refund` |
+| `repute` | `repute`, id | `rating` |
+
+Errors:
+
+| Code | Name | Description |
+| --- | --- | --- |
+| 1 | `AlreadyInitialized` | Constructor already ran; `initialize` cannot be used |
+| 2 | `NotInitialized` | Admin not set (legacy instances) |
+| 3 | `Unauthorized` | Caller is not a party to the escrow |
+| 4 | `Paused` | Contract is paused |
+| 5 | `ContractNotFound` | Unknown escrow id |
+| 6 | `InvalidParties` | Client and freelancer are the same address |
+| 7 | `InvalidMilestones` | Zero or too many milestones |
+| 8 | `InvalidAmount` | Non-positive or overflowing amount |
+| 9 | `OverFunded` | Deposit exceeds total amount |
+| 10 | `InvalidStatus` | Operation not allowed in current status |
+| 11 | `MilestoneNotFound` | Index out of range |
+| 12 | `MilestoneAlreadyReleased` | Milestone already paid |
+| 13 | `InsufficientFunds` | Not enough funded to release |
+| 14 | `InvalidSplit` | Dispute split exceeds 10000 bps |
+| 15 | `InvalidRating` | Rating outside 1-5 |
+| 16 | `ReputationAlreadyIssued` | Rating already recorded |
+
 ### Reputation Governance & Audit Trail
 - Ratings are recorded per escrow as `RatingRecord { freelancer, rating, issued_at, voided }`.
 - Protocol admin can void fraudulent or collusive ratings via `void_rating(id, reason)`, which subtracts the rating and 1 contract from the freelancer's reputation and emits `("rep_void", id) -> (freelancer, rating, reason)`.
@@ -247,11 +286,12 @@ The wasm is written to `target/wasm32v1-none/release/escrow.wasm`.
 
 ## Deploy
 
+The admin is passed to the constructor in the same transaction as the deploy, so there is
+no window for a third party to set themselves as admin.
+
 ```bash
 stellar contract deploy --wasm target/wasm32v1-none/release/escrow.wasm \
-  --source <key> --network testnet
-stellar contract invoke --id <CONTRACT_ID> --source <key> --network testnet \
-  -- initialize --admin <ADMIN_ADDRESS>
+  --source <key> --network testnet -- --admin <ADMIN_ADDRESS>
 ```
 
 ## License
