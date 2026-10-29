@@ -10,14 +10,8 @@
 /// 7. After completion the client may `issue_reputation` for the freelancer.
 #![no_std]
 
-use core::clone::Clone;
-use core::convert::{From, Into, TryFrom};
-use core::default::Default;
-use core::matches;
-use core::result::Result::{Err, Ok};
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Result,
-    Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Vec,
 };
 
 pub const MAX_MILESTONES: u32 = 20;
@@ -177,6 +171,21 @@ fn transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amoun
     if amount > 0 {
         token::Client::new(env, token_addr).transfer(from, to, &amount);
     }
+}
+
+fn load_outcomes(env: &Env, who: &Address) -> Outcomes {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Outcomes(who.clone()))
+        .unwrap_or_default()
+}
+
+fn save_outcomes(env: &Env, who: &Address, o: &Outcomes) {
+    let key = DataKey::Outcomes(who.clone());
+    env.storage().persistent().set(&key, o);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
 }
 
 /// Shared setup path for the constructor and any future migration path.
@@ -369,21 +378,6 @@ impl Escrow {
         }
         c.status = ContractStatus::Disputed;
         save(&env, &c);
-
-        // Increment disputes_opened for the caller using checked arithmetic
-        let outcome_key = DataKey::Outcomes(caller.clone());
-        let mut caller_outcomes: Outcomes = env
-            .storage()
-            .persistent()
-            .get(&outcome_key)
-            .unwrap_or_default();
-        caller_outcomes.disputes_opened = caller_outcomes
-            .disputes_opened
-            .checked_add(1)
-            .ok_or(EscrowError::ArithmeticOverflow)?;
-        env.storage().persistent().set(&outcome_key, &caller_outcomes);
-        env.events()
-            .publish((symbol_short!("dispute"), id), caller);
         Ok(())
     }
 }
