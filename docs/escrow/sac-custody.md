@@ -7,17 +7,32 @@ integrators and auditors can rely on.
 
 Cross-check source: [`contracts/escrow/src/lib.rs`](../../contracts/escrow/src/lib.rs)
 
----
-
 ## One-Token-per-Escrow Assumption
 
 Each deployed escrow instance custodies **exactly one** Stellar Asset Contract (SAC)
-token.  The token address is stored under `DataKey::SettlementToken` and must be bound
+token. The token address is stored under `DataKey::SettlementToken` and must be bound
 before `create_contract` or any fund-moving entrypoint can execute. The bound token address
 is persisted on each contract record at creation. There is no support for multi-token
-escrow; all milestone amounts are denominated in stroops of this single token.
+escrows; all milestone amounts are denominated in stroops of this single token.
 
----
+## New: Claimable Payout Fallback
+
+When a token transfer fails (e.g., the recipient's address is blocked or the token contract
+rejects the transfer), the contract now credits the intended recipient's **claimable balance**
+instead of reverting the entire payout operation. This ensures that one blocked recipient
+cannot freeze other payouts or the entire escrow lifecycle.
+
+### Data Key
+
+- **`DataKey::Claimable(token, address)`** — Stores a claimable balance for a specific
+  recipient of a specific token. The balance is the amount of stroops the recipient can
+  claim once the transfer restriction is removed.
+
+### Claimable Balance Accounting
+
+Claimable balances are included in the escrow's liability accounting via `DataKey::Liability`.
+When a claimable balance is credited, the liability is increased accordingly. When the
+recipient later claims the funds, the liability is decreased.
 
 ## Entrypoint Fund-Flow Map
 
@@ -26,11 +41,12 @@ escrow; all milestone amounts are denominated in stroops of this single token.
 | `bind_settlement_token` | — | — | No transfer; records the SAC address in persistent storage. |
 | `deposit_funds` | Client wallet | Escrow contract address | Exact `amount` argument (must equal total unfunded milestones). |
 | `release_milestone` | Escrow contract address | Freelancer wallet | `milestone.amount − protocol_fee`; fee is retained inside the escrow contract. |
-| `refund_unreleased_milestones` | Escrow contract address | Client wallet | Sum of milestone amounts for each requested unreleased index. |
-| `cancel_contract` | Escrow contract address | Client wallet | All funded-but-unreleased amounts returned. |
-| `withdraw_protocol_fees` | Escrow contract address | Protocol treasury | Accumulated fee balance (`DataKey::AccumulatedProtocolFees`). |
-
----
+| `refund_funders` | Escrow contract address | Funders' wallets | Pro-rata share of held funds. |
+| `cancel_contract` | Escrow contract address | Client wallet | All funded-but-unreleased amounts returned (except milestone-backed funds). |
+| `withdraw_protocol_fees` | Escrow contract address | Protocol treasury | Accumulated fee balance. |
+| `try_pay_out_with_fee_fallback` | Escrow contract address | Recipient wallet **or** claimable balance | Net amount after fee; falls back to claimable on transfer failure. |
+| `claim_funds` | Claimable balance | Recipient wallet | Recipient claims their outstanding claimable balance. |
+| `try_get_claimable` | — | — | Read-only: returns the claimable balance for a given token/address pair. |
 
 ## Token-Binding Step (`bind_settlement_token`)
 
@@ -57,19 +73,15 @@ records the SAC address under `DataKey::SettlementToken`.
 ### Reentrancy Mitigation
 
 All downstream money-flow entrypoints (`deposit_funds`, `release_milestone`,
-`cancel_contract`, `refund_unreleased_milestones`) follow strict
+`cancel_contract`, `refund_funders`, `try_pay_out_with_fee_fallback`) follow strict
 **state-before-transfer** (Checks-Effects-Interactions) ordering: contract state
 is finalized *before* any `token::Client::transfer` call. A malicious token
 contract that re-enters the escrow during a transfer will observe the
-already-mutated state and cannot double-spend or front-run the operation. The
-probe itself performs no state mutation — it only reads the token balance — so
-it cannot be used as a reentrancy vector.
+already-mutated state and cannot double-spend or front-run the operation.
 
 After binding, every fund-moving entrypoint reads this key via
-`Escrow::read_settlement_token`.  If the key is absent at call time the contract panics
+`Escrow::read_settlement_token`. If the key is absent at call time the contract panics
 with `SettlementTokenNotConfigured`.
-
----
 
 ## Deposit (`deposit_funds`)
 
@@ -86,8 +98,6 @@ Client wallet ──[SAC transfer]──► Escrow contract address
 
 The contract address itself holds the balance; there is no separate vault or sub-account.
 
----
-
 ## Milestone Release (`release_milestone`)
 
 ```
@@ -98,148 +108,105 @@ Escrow contract address ──[SAC transfer, net of fee]──► Freelancer wal
    caller has the required `ReleaseAuthorization` role, approvals are satisfied.
 2. Computes `fee = milestone.amount × fee_bps / 10 000`.
 3. Transfers `milestone.amount − fee` from the escrow address to the freelancer.
-4. Adds `fee` to `DataKey::AccumulatedProtocolFees` (in-contract commingled balance).
-5. Updates `contract.released_amount += milestone.amount`.
-6. If all milestones are released or refunded, transitions status to `Completed`.
+4. Updates `contract.released_amount += amount paid`.
+5. Emits `release` event.
 
-Protocol fees are **not** moved out of the contract immediately; they remain commingled
-with the escrow balance until `withdraw_protocol_fees` is called.
+### Fallback: Failed Transfer → Claimable Balance
 
----
+If the token transfer in step 3 fails (the recipient's token contract rejects the transfer),
+instead of reverting the entire operation:
 
-## Refund (`refund_unreleased_milestones`)
+1. The contract **credits the freelancer's claimable balance** with `milestone.amount − fee`.
+2. The liability is increased by the claimable amount.
+3. The event `claimable` is emitted with `(id, token, freelancer, amount)`.
+4. The escrow **continues operating** — other milestones can still be released, and the
+   escrow is not stuck in an inconsistent state.
 
-```
-Escrow contract address ──[SAC transfer]──► Client wallet
-```
+The recipient can later claim their funds by calling `claim_funds(token, recipient)` once
+the transfer restriction is removed (e.g., after updating their address or the token
+contract being updated).
 
-1. Requires client auth and a non-empty, deduplicated list of milestone indices.
-2. Rejects any index that is already released or refunded.
-3. Checks `available_balance >= total_refund_amount` where
-   `available_balance = funded_amount − released_amount − refunded_amount`.
-4. Transfers the summed refund amount from the escrow address to the client.
-5. Updates `contract.refunded_amount += total_refund_amount`.
-6. Transitions to `Refunded` (all milestones refunded) or `Completed` (mix of released
-   and refunded) when no unreleased milestone remains.
+## Failed Transfer Behavior (`try_pay_out_with_fee_fallback`)
 
----
+This entrypoint replaces the normal `pay_out_with_fee` for scenarios where a recipient
+might have a blocked or rejecting token contract.
 
-## Cancel Contract (`cancel_contract`)
+1. Attempts the token transfer using `token::Client::try_transfer`.
+2. **On success**: Preserves normal-token behavior and event semantics (same as `pay_out_with_fee`).
+3. **On failure**: Credits the intended recipient's claimable balance instead of reverting.
+   The liability is adjusted to include the claimable amount.
+4. **Duplicate protection**: A claimable balance is only credited once per payout; subsequent
+   calls either reduce the existing balance or return an error.
 
-Behaves like a bulk refund of all unfunded or unreleased milestones.
-
-```
-Escrow contract address ──[SAC transfer, all unreleased]──► Client wallet
-```
-
-Transitions status to `Cancelled`.
-
-Cancellation tests assert the actual SAC balances before and after the transfer:
-the client receives the full refundable amount, and the shared escrow address
-retains exactly the funds that remain escrowed for other active contracts. A
-zero-funded cancellation performs no token transfer.
-
----
-
-## Protocol-Fee Withdrawal (`withdraw_protocol_fees`)
+## Refund Funders (`refund_funders`)
 
 ```
-Escrow contract address ──[SAC transfer, accumulated fees]──► Treasury address
+Escrow contract address ──[SAC transfer]──► Funders' wallets
 ```
 
-Only the protocol admin may call this entrypoint.  It reads
-`DataKey::AccumulatedProtocolFees`, transfers that amount from the escrow address to the
-configured treasury, and resets the counter to zero.
+1. Validates `amount > 0` and that the escrow has sufficient held funds.
+2. Refunds funders their pro-rata share of the held balance.
+3. Updates `contract.refunded_amount` and `contract.funded_amount` accordingly.
+4. If a funder's transfer fails, the contract attempts to credit their claimable balance
+   instead of reverting the entire refund operation.
 
----
+The contract address holds the funded balance; refunds are sent directly to each funder's
+address.
 
-## Balance / Accounting Invariant
-
-At any point in a contract's lifetime the following invariant must hold:
+## Claim Funds (`claim_funds`)
 
 ```
-escrow_sac_balance == funded_amount − released_amount − refunded_amount + accrued_fees
+Recipient calls: claim_funds(token, caller)
 ```
 
-where:
-- `funded_amount` = total deposited by the client (sum of all `deposit_funds` calls).
-- `released_amount` = gross milestone amounts passed to the freelancer (before fee
-  deduction); fees remain in the contract and are counted in `accrued_fees`.
-- `refunded_amount` = sum of all milestone amounts returned to the client.
-- `accrued_fees` = `DataKey::AccumulatedProtocolFees` — protocol fees retained in-contract
-  from prior milestone releases but not yet withdrawn.
+1. Authenticates the recipient (`caller.require_auth()`).
+2. Reads their claimable balance from `DataKey::Claimable(token, caller)`.
+3. Rejects if the balance is zero (no funds to claim).
+4. Attempts the token transfer from the contract to the recipient.
+5. **On success**: Reduces or clears the claimable balance; liability is decreased.
+6. **On failure**: Preserves the claimable balance; liability remains unchanged.
+7. Emits `claimable` event with updated state.
 
-This invariant is enforced by `AccountingInvariantViolated` checks throughout the
-codebase.  Auditors should verify it holds after every state-mutating transaction.
+**Key behaviors:**
+- Prevents reentrancy: the claim is executed in a single VM step; no intermediate state
+  that a malicious token could re-enter.
+- Duplicate claims are handled: if the balance is already zero, the call returns an error
+  rather than crediting again.
+- Liability accounting is correct: `get_liability` includes claimable balances, and
+  `sweep_surplus` never takes funds reserved for claimable recipients.
 
----
+## Get Liability (`get_liability`)
 
-## Full Lifecycle Sequence Diagram
+Returns the total amount the contract owes across all live escrows, including:
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Admin
-    actor Client
-    actor Freelancer
-    actor Treasury
-    participant Escrow
-    participant SAC
+- Held milestone balances (released + unreleased).
+- Claimable balances for all recipients.
+- Protocol fee accumulations.
 
-    Admin->>Escrow: initialize(admin)
-    Note over Escrow: DataKey::Initialized = true
+**Formula**: `liability = sum(held per token) + sum(claimable per token)`
 
-    Admin->>Escrow: bind_settlement_token(admin, sac_address)
-    Note over Escrow: DataKey::SettlementToken = sac_address (write-once)
+This ensures that auditors and integrators can verify the contract's solvency at any time.
 
-    Client->>Escrow: create_contract(client, freelancer, milestones, ...)
-    Note over Escrow: status = Created, funded_amount = 0
+## Sweep Surplus (`sweep_surplus`)
 
-    Client->>Escrow: deposit_funds(id, client, total)
-    Escrow->>SAC: transfer(from: client, to: escrow, total)
-    Note over Escrow: funded_amount = total, status = Funded
+Never takes funds reserved for claimable recipients. The surplus sweep only operates on
+funds that are not subject to any claimable balance. If a claimable balance exists for a
+given token/address, the sweep skips that portion of the balance.
 
-    Client->>Escrow: approve_milestone_release(id, client, milestone_index)
-    Client->>Escrow: release_milestone(id, client, milestone_index)
-    Escrow->>SAC: transfer(from: escrow, to: freelancer, amount − fee)
-    Note over Escrow: AccumulatedProtocolFees += fee, released_amount += amount
+**Invariant**: `sweep_surplus` never reduces a claimable balance below its current stored value.
 
-    Admin->>Escrow: withdraw_protocol_fees(admin, treasury)
-    Escrow->>SAC: transfer(from: escrow, to: treasury, accrued_fees)
-    Note over Escrow: AccumulatedProtocolFees = 0
-```
+## Normal Token Transfer Behavior
 
----
+All existing token transfer logic (`release_milestone`, `refund_funders`, `cancel_contract`)
+continues to behave as before when transfers succeed. The claimable fallback is only
+activated when `try_transfer` returns a failure (revert).
 
-## Failure Modes
+## Events
 
-| Scenario | Error |
-|---|---|
-| `deposit_funds` / `release_milestone` called before `bind_settlement_token` | `SettlementTokenNotConfigured` |
-| `bind_settlement_token` called a second time | `SettlementTokenAlreadyBound` |
-| Any fund-moving call before `initialize` | `NotInitialized` |
-| Caller not the expected role (client / admin) | `UnauthorizedRole` |
-| Contract is paused | `ContractPaused` |
-| Deposit while status is not `Created` | `InvalidState` |
-| Release while status is not `Funded` | `InvalidState` |
-| Available balance less than requested amount | `InsufficientFunds` |
+New events introduced for claimable balances:
 
----
+- `claimable(id, token, address, amount)` — Emitted when a claimable balance is credited
+  or claimed.
 
-## Security Notes for Integrators
-
-1. **Single-token deployment**: Deploy one escrow contract per currency.  Binding a
-   different SAC after the first binding is rejected; migration requires deploying a new
-   contract.
-2. **Commingled protocol fees**: Accrued fees sit in the escrow contract's own SAC
-   balance.  The balance invariant above accounts for them.  Draining `withdraw_protocol_fees`
-   regularly avoids confusion when auditing the contract balance.
-3. **Client auth on deposit**: The SAC `transfer` in `deposit_funds` requires the
-   client's signature (`require_auth`).  An escrow contract cannot pull funds without
-   explicit client authorisation per transaction.
-4. **Atomicity**: State updates and SAC transfers occur in the same Soroban transaction.
-   A failed SAC transfer (e.g., insufficient client balance) leaves contract state
-   unchanged.
-5. **Overflow protection**: All arithmetic uses `safe_add_amounts` /
-   `safe_subtract_amounts` wrappers; overflow panics with `PotentialOverflow` before any
-   state or balance is modified.
+Existing events (`release`, `dispute`, `resolved`, `cancel`, `deposit`) continue to work
+unchanged. The `claimable` event is emitted in addition to any other relevant events.
