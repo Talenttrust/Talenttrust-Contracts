@@ -415,6 +415,62 @@ pub struct CompletedEvent {
     pub released_amount: i128,
 }
 
+/// `(1, "submit", id)` — the freelancer submitted a milestone for review.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubmitEvent {
+    pub index: u32,
+    pub submitted_at: u64,
+}
+
+/// `(1, "claim", id)` — the freelancer claimed a submitted milestone after the review window.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimEvent {
+    pub index: u32,
+    pub amount: i128,
+}
+
+/// `(1, "rel_part", id)` — the client released a partial amount of a milestone.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PartialReleaseEvent {
+    pub index: u32,
+    pub amount: i128,
+    pub remaining: i128,
+}
+
+/// `(1, "rel_batch", id)` — the client released multiple milestones in one batch.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchReleaseEvent {
+    pub count: u32,
+    pub total: i128,
+}
+
+/// `(1, "deliver", id)` — the freelancer recorded a delivery hash for a milestone.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeliverEvent {
+    pub index: u32,
+    pub delivery_hash: BytesN<32>,
+}
+
+/// `(1, "bonus", id)` — the client paid a direct bonus/tip to the freelancer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BonusEvent {
+    pub amount: i128,
+    pub cumulative: i128,
+}
+
+/// `(1, "terms", id)` — the client committed the job terms hash.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TermsEvent {
+    pub terms_hash: BytesN<32>,
+}
+
 /// A pending two-party mutual settlement proposal.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2403,7 +2459,7 @@ impl Escrow {
     /// Freelancer marks a milestone as delivered, starting the review clock.
     /// The escrow must be `Funded`, the milestone `Pending`, and its unpaid
     /// amount covered by `funded - released - (already submitted backing)`.
-    /// Emits `("submit", id) -> (index, submitted_at)`.
+    /// Emits `(1, "submit", id) -> SubmitEvent { index, submitted_at }`.
     pub fn submit_milestone(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
         require_not_paused(&env, PAUSE_RELEASE)?;
         let c = load(&env, id)?;
@@ -2438,15 +2494,14 @@ impl Escrow {
         env.storage()
             .persistent()
             .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-        env.events()
-            .publish((symbol_short!("submit"), id), (index, now));
+        events::submit(&env, id, index, now);
         Ok(())
     }
 
     /// Freelancer claims a submitted milestone once its review window has
     /// elapsed (`now >= submitted_at + review_window`). Not available while the
     /// escrow is `Disputed`; still available after the client cancelled, since
-    /// submitted funds are kept in escrow. Emits `("claim", id) -> (index, amount)`.
+    /// submitted funds are kept in escrow. Emits `(1, "claim", id) -> ClaimEvent { index, amount }`.
     pub fn claim_milestone(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
         require_not_paused(&env, PAUSE_RELEASE)?;
         let mut c = load(&env, id)?;
@@ -2500,8 +2555,7 @@ impl Escrow {
         #[cfg(any(test, debug_assertions))]
         assert_solvent(&env, &c.token);
         save(&env, &c);
-        env.events()
-            .publish((symbol_short!("claim"), id), (index, remaining));
+        events::claim(&env, id, index, remaining);
         events::release(&env, &c, index, remaining, &payee(&env, &c), c.released_amount, fee);
         if completed {
             events::completed(&env, &c);
@@ -2597,7 +2651,7 @@ impl Escrow {
     /// Client releases any portion of a milestone (e.g. 50% on draft, 50% on
     /// final). The paid amount is tracked per milestone; once it reaches the
     /// milestone amount the milestone is released and completion is checked.
-    /// Emits `("rel_part", id) -> (index, amount, remaining)`.
+    /// Emits `(1, "rel_part", id) -> PartialReleaseEvent { index, amount, remaining }`.
     pub fn release_partial(env: Env, id: u64, index: u32, amount: i128) -> Result<(), EscrowError> {
         require_not_paused(&env, PAUSE_RELEASE)?;
         let mut c = load(&env, id)?;
@@ -2654,10 +2708,7 @@ impl Escrow {
         #[cfg(any(test, debug_assertions))]
         assert_solvent(&env, &c.token);
         save(&env, &c);
-        env.events().publish(
-            (symbol_short!("rel_part"), id),
-            (index, amount, remaining_after),
-        );
+        events::partial_release(&env, id, index, amount, remaining_after);
         if completed {
             events::completed(&env, &c);
         }
@@ -2785,8 +2836,7 @@ impl Escrow {
                 .ok_or(EscrowError::ArithmeticOverflow)?;
             events::release(&env, &c, index, amount, &to, running, fees.get(pos as u32).unwrap());
         }
-        env.events()
-            .publish((symbol_short!("rel_batch"), id), (count, total));
+        events::batch_release(&env, id, count, total);
         if completed {
             events::completed(&env, &c);
         }
@@ -2839,8 +2889,7 @@ impl Escrow {
             PERSISTENT_TTL_EXTEND,
         );
 
-        env.events()
-            .publish((symbol_short!("bonus"), id), (amount, cumulative));
+        events::bonus(&env, id, amount, cumulative);
         Ok(())
     }
 
@@ -3179,7 +3228,7 @@ impl Escrow {
     /// Client commits a hash of the agreed job terms plus optional per-milestone
     /// deliverable spec hashes (0 or one per milestone, else `InvalidMetadata`).
     /// Only while `Created` with nothing deposited; frozen afterwards
-    /// (`InvalidStatus`). Emits `("terms", id) -> terms_hash`.
+    /// (`InvalidStatus`). Emits `(1, "terms", id) -> TermsEvent { terms_hash }`.
     pub fn set_terms(
         env: Env,
         id: u64,
@@ -3207,13 +3256,12 @@ impl Escrow {
         env.storage()
             .persistent()
             .extend_ttl(&specs_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-        env.events()
-            .publish((symbol_short!("terms"), id), terms_hash);
+        events::terms(&env, id, terms_hash);
         Ok(())
     }
 
     /// Freelancer records a delivery hash for a milestone; it may be overwritten
-    /// until the milestone is released. Emits `("deliver", id) -> (index, hash)`.
+    /// until the milestone is released. Emits `(1, "deliver", id) -> DeliverEvent { index, delivery_hash }`.
     pub fn deliver(
         env: Env,
         id: u64,
@@ -3242,8 +3290,7 @@ impl Escrow {
         env.storage()
             .persistent()
             .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-        env.events()
-            .publish((symbol_short!("deliver"), id), (index, delivery_hash));
+        events::deliver(&env, id, index, delivery_hash);
         Ok(())
     }
 
@@ -4651,6 +4698,65 @@ mod events {
                 total_rating: rep.total_rating,
                 weight,
             },
+        );
+    }
+
+    pub fn submit(env: &Env, id: u64, index: u32, submitted_at: u64) {
+        env.events().publish(
+            escrow_topic(symbol_short!("submit"), id),
+            SubmitEvent {
+                index,
+                submitted_at,
+            },
+        );
+    }
+
+    pub fn claim(env: &Env, id: u64, index: u32, amount: i128) {
+        env.events().publish(
+            escrow_topic(symbol_short!("claim"), id),
+            ClaimEvent { index, amount },
+        );
+    }
+
+    pub fn partial_release(env: &Env, id: u64, index: u32, amount: i128, remaining: i128) {
+        env.events().publish(
+            escrow_topic(symbol_short!("rel_part"), id),
+            PartialReleaseEvent {
+                index,
+                amount,
+                remaining,
+            },
+        );
+    }
+
+    pub fn batch_release(env: &Env, id: u64, count: u32, total: i128) {
+        env.events().publish(
+            escrow_topic(symbol_short!("rel_batch"), id),
+            BatchReleaseEvent { count, total },
+        );
+    }
+
+    pub fn deliver(env: &Env, id: u64, index: u32, delivery_hash: BytesN<32>) {
+        env.events().publish(
+            escrow_topic(symbol_short!("deliver"), id),
+            DeliverEvent {
+                index,
+                delivery_hash,
+            },
+        );
+    }
+
+    pub fn bonus(env: &Env, id: u64, amount: i128, cumulative: i128) {
+        env.events().publish(
+            escrow_topic(symbol_short!("bonus"), id),
+            BonusEvent { amount, cumulative },
+        );
+    }
+
+    pub fn terms(env: &Env, id: u64, terms_hash: BytesN<32>) {
+        env.events().publish(
+            escrow_topic(symbol_short!("terms"), id),
+            TermsEvent { terms_hash },
         );
     }
 }

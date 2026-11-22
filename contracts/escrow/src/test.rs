@@ -4947,6 +4947,149 @@ fn dispute_resolved_cancel_and_rep_events() {
     );
 }
 
+#[test]
+fn milestone_flow_events_are_typed_and_versioned() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U, 200 * U, 300 * U],
+    );
+
+    // set_terms -> (1, "terms", id)
+    let terms_hash = BytesN::from_array(&s.env, &[7u8; 32]);
+    s.escrow
+        .set_terms(&id, &terms_hash, &Vec::<BytesN<32>>::new(&s.env));
+    let terms: TermsEvent = last_escrow_event(&s, "terms", id).unwrap();
+    assert_eq!(
+        terms,
+        TermsEvent {
+            terms_hash: terms_hash.clone(),
+        }
+    );
+    assert_eq!(count_escrow_events(&s, "terms"), 1);
+    assert_eq!(
+        *escrow_event_names(&s).last().unwrap(),
+        symbol_short!("terms")
+    );
+
+    s.escrow.deposit_funds(&id, &(600 * U));
+
+    // deliver -> (1, "deliver", id)
+    let delivery_hash = BytesN::from_array(&s.env, &[9u8; 32]);
+    s.escrow.deliver(&id, &0, &delivery_hash);
+    let del: DeliverEvent = last_escrow_event(&s, "deliver", id).unwrap();
+    assert_eq!(
+        del,
+        DeliverEvent {
+            index: 0,
+            delivery_hash: delivery_hash.clone(),
+        }
+    );
+    assert_eq!(count_escrow_events(&s, "deliver"), 1);
+    assert_eq!(
+        *escrow_event_names(&s).last().unwrap(),
+        symbol_short!("deliver")
+    );
+
+    // submit_milestone -> (1, "submit", id)
+    let submitted_at = 1_000u64;
+    s.env.ledger().with_mut(|l| l.timestamp = submitted_at);
+    s.escrow.submit_milestone(&id, &0);
+    let sub: SubmitEvent = last_escrow_event(&s, "submit", id).unwrap();
+    assert_eq!(
+        sub,
+        SubmitEvent {
+            index: 0,
+            submitted_at,
+        }
+    );
+    assert_eq!(count_escrow_events(&s, "submit"), 1);
+    assert_eq!(
+        *escrow_event_names(&s).last().unwrap(),
+        symbol_short!("submit")
+    );
+
+    // claim_milestone -> (1, "claim", id) + release
+    let window = s.escrow.get_review_window(&id);
+    s.env
+        .ledger()
+        .with_mut(|l| l.timestamp = submitted_at + window);
+    s.escrow.claim_milestone(&id, &0);
+    let clm: ClaimEvent = last_escrow_event(&s, "claim", id).unwrap();
+    assert_eq!(
+        clm,
+        ClaimEvent {
+            index: 0,
+            amount: 100 * U,
+        }
+    );
+    assert_eq!(count_escrow_events(&s, "claim"), 1);
+    let names = escrow_event_names(&s);
+    assert!(names.contains(&symbol_short!("claim")));
+    assert!(names.contains(&symbol_short!("release")));
+
+    // release_partial -> (1, "rel_part", id)
+    s.escrow.release_partial(&id, &1, &(80 * U));
+    let part: PartialReleaseEvent = last_escrow_event(&s, "rel_part", id).unwrap();
+    assert_eq!(
+        part,
+        PartialReleaseEvent {
+            index: 1,
+            amount: 80 * U,
+            remaining: 120 * U,
+        }
+    );
+    assert_eq!(count_escrow_events(&s, "rel_part"), 1);
+    assert_eq!(
+        *escrow_event_names(&s).last().unwrap(),
+        symbol_short!("rel_part")
+    );
+
+    // release_milestones -> (1, "rel_batch", id)
+    s.escrow.release_milestones(&id, &vec![&s.env, 1u32, 2u32]);
+    let batch: BatchReleaseEvent = last_escrow_event(&s, "rel_batch", id).unwrap();
+    assert_eq!(
+        batch,
+        BatchReleaseEvent {
+            count: 2,
+            total: 420 * U,
+        }
+    );
+    assert_eq!(count_escrow_events(&s, "rel_batch"), 1);
+    let names = escrow_event_names(&s);
+    assert!(names.contains(&symbol_short!("rel_batch")));
+    assert_eq!(*names.last().unwrap(), symbol_short!("complete"));
+
+    // pay_bonus -> (1, "bonus", id)
+    s.escrow.pay_bonus(&id, &(25 * U));
+    let b1: BonusEvent = last_escrow_event(&s, "bonus", id).unwrap();
+    assert_eq!(
+        b1,
+        BonusEvent {
+            amount: 25 * U,
+            cumulative: 25 * U,
+        }
+    );
+    assert_eq!(count_escrow_events(&s, "bonus"), 1);
+    assert_eq!(
+        *escrow_event_names(&s).last().unwrap(),
+        symbol_short!("bonus")
+    );
+
+    s.escrow.pay_bonus(&id, &(15 * U));
+    let b2: BonusEvent = last_escrow_event(&s, "bonus", id).unwrap();
+    assert_eq!(
+        b2,
+        BonusEvent {
+            amount: 15 * U,
+            cumulative: 40 * U,
+        }
+    );
+    assert_eq!(count_escrow_events(&s, "bonus"), 1);
+}
+
 // ---------------------------------------------------------------------------
 // Refundable dispute bond
 // ---------------------------------------------------------------------------
