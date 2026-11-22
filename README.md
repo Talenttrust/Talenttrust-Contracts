@@ -60,9 +60,9 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `deliver(id, index, delivery_hash)` | freelancer | Record/overwrite a milestone's delivery hash until it is released; emits `("deliver", id) -> (index, delivery_hash)` |
 | `expire_unfunded(id)` | anyone | After the 14-day funding window (`FUNDING_WINDOW_SECS`), cancel an escrow still `Created` with nothing released and refund any partial deposit to its funders; emits `("expired", id) -> refund`. `NotExpired` (`36`) before the deadline |
 | `cancel_contract(id)` | client | Refund unreleased funds and close (increments `cancellations` if funds held); funds backing submitted milestones stay in escrow for the freelancer to claim |
-| `propose_settlement(id, proposer, freelancer_amount)` / `withdraw_settlement(id, proposer)` | client or freelancer | Propose (or withdraw) a split of the held balance (`0..=funded-released`, else `InvalidAmount`) on a `Created`/`Funded`/`Disputed` escrow; any later deposit or release invalidates it. Emits `("settle_p", id) -> (proposer, freelancer_amount)` |
-| `accept_settlement(id, acceptor, freelancer_amount)` | the other party | Accept by echoing the amount (`SettlementMismatch` (`48`) on self-accept, missing proposal or a different amount); pays both sides, returns any dispute bond and closes the escrow as `Resolved` without the admin. Emits `("settled", id) -> (to_freelancer, to_client)` |
-| `get_settlement(id)` | - | Pending `SettlementProposal { proposer, freelancer_amount, created_at }` |
+| `propose_settlement(id, proposer, freelancer_amount)` / `withdraw_settlement(id, proposer)` | client or freelancer | Propose (or withdraw, including after expiry) a split of the held balance (`0..=funded-released`, else `InvalidAmount`) on a `Created`/`Funded`/`Disputed` escrow; proposals expire after `SETTLEMENT_VALID_SECS` (7 days), any later deposit or release invalidates them, and re-proposing replaces any earlier (including expired) proposal. Emits `("settle_p", id) -> (proposer, freelancer_amount)` |
+| `accept_settlement(id, acceptor, freelancer_amount)` | the other party | Accept by echoing the amount (`SettlementMismatch` (`48`) on self-accept, missing proposal, different amount, or after `created_at + SETTLEMENT_VALID_SECS`); pays both sides, returns any dispute bond and closes the escrow as `Resolved` without the admin. Emits `("settled", id) -> (to_freelancer, to_client)` |
+| `get_settlement(id)` | - | Pending `SettlementProposal { proposer, freelancer_amount, created_at }` (still returns expired records; check `now <= created_at + SETTLEMENT_VALID_SECS`) |
 | `resign(id)` | freelancer | Resign from a `Created`/`Funded` escrow: unreleased funds return to the client (released milestones stay paid), escrow `Cancelled`; emits `("resign", id) -> refunded` |
 | `was_resigned(id)` | - | Whether the escrow ended by freelancer resignation (vs client cancellation) |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
@@ -227,7 +227,7 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 | 45 | `InvalidAdmin` | `propose_admin` with the current admin |
 | 46 | `NoPendingAdmin` | `accept_admin` / `cancel_admin_proposal` without a nomination |
 | 47 | `EmergencyExitNotAvailable` | `emergency_withdraw` while unpaused or before the pause delay elapsed |
-| 48 | `SettlementMismatch` | `accept_settlement` self-accept, without a proposal, or with a different amount; `accept_amendment` without a pending amendment or with a stale nonce |
+| 48 | `SettlementMismatch` | `accept_settlement` self-accept, without a proposal, with a different amount, or after `SETTLEMENT_VALID_SECS`; `accept_amendment` without a pending amendment or with a stale nonce |
 | 49 | `FeeTooHigh` | `set_fee` above `MAX_FEE_BPS` |
 | 50 | `InvalidSchedule` | `create_stream` with `start >= end` or a duration under 1 hour |
 
