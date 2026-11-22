@@ -7,7 +7,10 @@ version = "0.1.0"
 edition = "2021"
 authors = ["TalentTrust"]
 license = "MIT"
-rust-version = "1.75"
+rust-version = "1.91"
+
+[workspace.dependencies]
+soroban-sdk = "22.0"
 
 [profile.release]
 opt-level = "z"
