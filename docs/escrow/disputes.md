@@ -450,13 +450,40 @@ cargo test --package escrow --lib dispute::client_can_raise_dispute_on_funded_co
 cargo test --package escrow --lib dispute -- --nocapture
 ```
 
+## Dispute Timeout & Permissionless Auto-Resolution
+
+A `Disputed` escrow otherwise waits indefinitely for `resolve_dispute` or `vote_resolution`, and the only other exit (`emergency_withdraw`) needs the whole contract paused for 30 days. The contract now records when a dispute started and exposes a permissionless timeout exit.
+
+### `resolve_expired_dispute(id)`
+
+```rust
+pub fn resolve_expired_dispute(env: Env, id: u64) -> Result<(), EscrowError>
+```
+
+- `open_dispute` stores the ledger timestamp under `DataKey::DisputeOpenedAt(id)` (TTL-extended, and refreshed by `extend_escrow_ttl`).
+- Anyone may call `resolve_expired_dispute` once `now >= opened_at + DISPUTE_TIMEOUT_SECS` (`2_592_000` seconds, 30 days).
+- Before the deadline it fails with `NotExpired` (`36`). On an escrow that is not `Disputed` — including one already settled — it fails with `InvalidStatus` (`10`).
+- The held balance is split 50/50 through the same `settle` helper as `resolve_dispute`: 5,000 bps (`DISPUTE_TIMEOUT_SPLIT_BPS`) to the freelancer, the rest — including the rounding remainder — refunded to the client/funders.
+- The dispute bond is not part of the split: it returns to its opener.
+- Emits the normal `("resolved", id)` event (`ResolvedEvent`), so indexers need no new handling.
+- No resolver adjudicated this split, so the `Outcomes` win/loss counters (`disputes_won` / `disputes_lost`) are **not** changed. Only `disputes_opened` from `open_dispute` moves.
+- Escrows at or above `PANEL_THRESHOLD_AMOUNT` are covered too: if the panel never reaches `threshold`, the timeout still settles the escrow.
+
+### Frozen and paused escrows
+
+The timeout exit deliberately ignores both `require_not_frozen` and the pause gate, mirroring `resolve_dispute` (which also works on frozen escrows). A freeze or a pause must not be able to strand funds forever, so a frozen, paused, `Disputed` escrow still settles after the timeout.
+
+### Accounting
+
+The split goes through `settle`, so afterwards `released_amount == funded_amount`, the token liability counter drops by the held balance and the bond, the contract's balance for that escrow returns to zero, and `check_invariants` holds.
+
 ## FAQ
 
 ### Q: Can a contract be disputed after completion?
 **A:** No. Disputes can only be raised on contracts in `Funded` or `PartiallyFunded` state. Once a contract reaches `Completed`, `Refunded`, or `Cancelled` status, it cannot be disputed.
 
 ### Q: What happens if no arbiter is assigned?
-**A:** The `raise_dispute` call will fail with `ArbiterRequired` error. Contracts without arbiters cannot use the dispute mechanism.
+**A:** Nobody needs an arbiter to unblock the funds. If no `Resolver`/admin and no panel settles the escrow, anyone can call `resolve_expired_dispute` after `DISPUTE_TIMEOUT_SECS` (30 days) and the held balance is split 50/50 with the bond returning to its opener.
 
 ### Q: Can the client or freelancer resolve their own dispute?
 **A:** No. Only the assigned arbiter can call `resolve_dispute`. This ensures neutral third-party resolution.
@@ -493,6 +520,7 @@ cargo test --package escrow --lib dispute -- --nocapture
 - ✅ Pause and emergency control integration
 - ✅ Comprehensive test coverage (20+ tests)
 - ✅ Event emission for indexing
+- ✅ `resolve_expired_dispute`: permissionless 50/50 settlement of a `Disputed` escrow after `DISPUTE_TIMEOUT_SECS` (30 days)
 
 ### Planned Enhancements
 - 🔄 Dispute evidence attachment mechanism

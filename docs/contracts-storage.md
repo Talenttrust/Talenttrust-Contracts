@@ -1,503 +1,280 @@
 # Contracts Storage Layout & TTL Policy
 
-This document defines the validation boundaries for the on-chain storage layout used by the TalentTrust
-escrow contract on Soroban: every storage key, its value shape, which Soroban
-storage type it lives in (`persistent` vs `temporary`), and the deterministic
-TTL / bump strategy that governs its lifetime.
-
-All values are Soroban `#[contracttype]` types or primitives defined in
-[`contracts/escrow/src/types.rs`](../contracts/escrow/src/types.rs).  TTL
-constants and helpers live in
-[`contracts/escrow/src/ttl.rs`](../contracts/escrow/src/ttl.rs).  The
-canonical `DataKey` enum is defined in
-[`types.rs#L59-L93`](../contracts/escrow/src/types.rs#L59-L93).
-
-## 0. Validation Boundaries
-
-This section defines the accepted, rejected, duplicate, and boundary-case
-input handling for every storage key described below.  All validation is
-deterministic and fail-closed: an invalid, missing, or evicted entry is
-treated as absent and never as a permissive default.
-
-| Boundary | Accepted | Rejected | Duplicate | Boundary case |
-|---|---|---|---|---|
-| `DataKey::Initialized` | `false` → `true` exactly once via `initialize` | Second `initialize` panics `AlreadyInitialized` | N/A (single-shot) | Absent key is treated as `false` |
-| `DataKey::Admin` | Any `Address` set during `initialize` | Zero-address / unset admin blocks admin-gated calls | Rotation via `PendingAdmin` only | `PendingAdmin` younger than `ADMIN_ROTATION_MIN_DELAY_LEDGERS` rejected |
-| `DataKey::Paused` / `DataKey::Emergency` | `true`/`false` toggles by authorized admin | Mutating calls while paused → `ContractPaused`; while emergency → `EmergencyActive` | Idempotent set is a no-op | `unpause` blocked while `Emergency` is `true` |
-| `DataKey::NextContractId` | Monotonic `u32` starting at 1 | Overflow / non-monotonic write rejected | Increment only after successful `create_contract` | First id is `1`; `0` is never allocated |
-| `DataKey::Contract(id)` | Existing `Contract` struct | Missing key → `ContractNotFound` | Re-creation of same id rejected | `id == 0` and `id > NextContractId` rejected |
-| Milestone vector `(Contract(id), "milestones")` | `Vec<Milestone>` matching `Contract.total_deposited` | Missing vector → `ContractNotFound` | Re-store replaces atomically | Empty vector rejected; index `>= len` rejected |
-| `DataKey::MilestoneApprovals(id, idx)` | `MilestoneApprovals` for live contract/milestone | Missing / evicted → `InsufficientApprovals` | Same-role re-approval → `AlreadyApproved` | `idx >= milestones.len()` rejected; TTL expiry treated as absent |
-| `DataKey::PendingClientMigration(id)` | One live proposal per contract | Second proposal → `InvalidState`; on `Completed`/`Cancelled`/`Refunded`/`Disputed` → `InvalidState` | Re-propose rejected | Evicted proposal → `InvalidState` on accept |
-| `DataKey::ProtocolFeeBps` | `0..=10_000` | `> 10_000` rejected | Overwrite via `set_governed_params` is atomic | `0` and `10_000` are valid boundaries |
-| `DataKey::GovernedParameters` | `protocol_fee_bps <= 10_000`, `max_escrow_total_stroops >= 0` | Out-of-range values rejected | Re-set replaces atomically | `0` fee and `0` cap are valid |
-| `DataKey::AccumulatedProtocolFees` | `i128 >= 0` | Negative accrual rejected | Increment per release only | Withdraw `> accumulated` rejected |
-| `DataKey::SettlementToken` | Any SAC `Address` bound once | Re-bind rejected; unset blocks transfers → `SettlementTokenNotConfigured` | Second bind rejected | Absent binding is fail-closed |
-| `DataKey::Finalization(id)` | Immutable record for `Completed`/`Disputed` | Second finalize → `AlreadyFinalized` | N/A (write-once) | Finalize on other statuses rejected |
-| `DataKey::ReadinessChecklist` | Boolean flags flipped by their owning entrypoint | N/A (monotonic) | Idempotent flip is a no-op | `emergency_controls_enabled` is sticky once `true` |
-| `DataKey::ReputationIssued(id)` | `true` once per contract | Second issue → rejected | Guarded by `Contract.reputation_issued` | Absent key treated as `false` |
-| `DataKey::PendingReputationCredits(addr)` | `i128 >= 0`, decremented by exactly 1 per issue | Negative counter rejected | N/A | Decrement below `0` rejected |
-| `DataKey::Reputation(addr)` | Aggregate counters `>= 0` | Negative counters rejected | N/A | `completed_contracts == 0` → `get_average_rating` returns `None` |
-| `DataKey::ReputationComment(id)` | UTF-8 `String` of `1..=200` bytes | Empty → `EmptyComment`; `> 200` bytes → `CommentTooLong` | Overwrite rejected after issue | Exactly `200` bytes accepted; `201` rejected |
+This document defines the on-chain storage architecture, layout, and time-to-live (TTL) policy for the TalentTrust escrow contract on Soroban. It provides a comprehensive specification and reference for every storage key declared in the contract's private `DataKey` enum ([`contracts/escrow/src/lib.rs`](../contracts/escrow/src/lib.rs)), including stored value types, storage tiers (`instance` vs `persistent`), writer entrypoints, TTL maintenance, and coverage under permissionless keep-alive helpers.
 
 ---
 
-## 1. Storage Types at a Glance
+## 1. Storage Architecture & Tiers
 
-| Soroban storage kind | Used for | Eviction model |
-|---|---|---|
-| `env.storage().persistent()` | Contract state, accounting records, governance config, reputation, finalization, settlement-token binding | Manual TTL extension; evicted by the host after `PERSISTENT_TTL_LEDGERS` without a renewing access |
-| `env.storage().temporary()` | Pending milestone approvals, pending client migrations | Auto-evicted by the host as soon as their TTL elapses; no on-chain eviction event |
-| `env.storage().instance()` | (not used directly by the escrow; reserved for contract-level metadata) | — |
+Soroban provides three storage tiers with distinct persistence, capacity, and cost profiles. The TalentTrust escrow contract strictly partitions state between `instance` and `persistent` storage:
 
-The contract never writes to `instance()` storage for its own records.
-
-Validation boundary: every read of a `persistent()` or `temporary()` key
-must be treated as potentially absent.  Callers MUST NOT assume a key
-exists because it was written earlier; the host may have evicted it.  The
-helpers in §6.3 encode this contract.
-
----
-
-## 2. Unit Conversions
-
-All TTL constants are denominated in **ledgers** (the native Soroban expiry
-unit).  On Stellar mainnet one ledger closes roughly every 5 seconds.  The
-conversion factor used everywhere is `LEDGERS_PER_DAY = 17 280`.
-
-| Name | Ledgers | Approximate wall-clock |
-|---|---:|---|
-| `LEDGERS_PER_DAY` | 17 280 | 1 day |
-| `PENDING_APPROVAL_TTL_LEDGERS` | 120 960 | 7 days |
-| `PENDING_APPROVAL_BUMP_THRESHOLD` | 17 280 | 1 day |
-| `PENDING_MIGRATION_TTL_LEDGERS` | 362 880 | 21 days |
-| `PENDING_MIGRATION_BUMP_THRESHOLD` | 51 840 | 3 days |
-| `PERSISTENT_TTL_LEDGERS` | 518 400 | 30 days |
-| `PERSISTENT_BUMP_THRESHOLD` | 120 960 | 7 days |
-| `ADMIN_ROTATION_MIN_DELAY_LEDGERS` | 34 560 | 2 days (timelock, **not** a storage TTL) |
-
-Reference:
-[`ttl.rs#L45-L61`](../contracts/escrow/src/ttl.rs#L45-L61).
-
-Boundary rule: `compute_expiry` uses `saturating_add`, so `sequence + ttl`
-that would overflow `u32` saturates at `u32::MAX` rather than wrapping.
-Callers MUST treat a saturated expiry as "effectively never" and MUST NOT
-rely on it as a hard deadline.
-
----
-
-## 3. Persistent Storage Keys
-
-Each entry below lists: the key expression, the Rust value type, a short
-description, the TTL renew strategy, and a code pointer that performs the
-write or the canonical read.
-
-### 3.1 Initialization & Admin
-
-| Key | Value type | Description | TTL bump? | Write site |
-|---|---|---|---|---|
-| `DataKey::Initialized` | `bool` | Flipped to `true` exactly once by `initialize`.  Absent means the contract is not yet initialized. | Never bumped (effectively immortal because it is only read in guards and never written after init). | [`lib.rs#L367-L378`](../contracts/escrow/src/lib.rs#L367-L378) |
-| `DataKey::Admin` | `Address` | Operational admin address.  Authorizes pause/emergency, protocol fees, governed parameters, settlement-token binding, admin rotation, and fee withdrawal.  Set during `initialize` and rotated via the two-step `PendingAdmin` proposal. | Never bumped explicitly; read on every admin-gated call, so in practice it is always hot. | [`lib.rs#L376-L378`](../contracts/escrow/src/lib.rs#L376-L378), [`governance.rs#L124-L133`](../contracts/escrow/src/governance.rs#L124-L133) |
-| `DataKey::PendingAdmin` | `PendingAdminProposal { proposed: Address, proposed_at_ledger: u32 }` | Two-step admin-rotation proposal.  Cleared on accept or cancel.  A proposal must age at least `ADMIN_ROTATION_MIN_DELAY_LEDGERS` before it can be accepted (timelock enforced at accept time, not via storage TTL). | Never bumped; acceptance gate reads `proposed_at_ledger` and compares with the current sequence. | [`governance.rs#L85-L91`](../contracts/escrow/src/governance.rs#L85-L91), [`governance.rs#L107-L133`](../contracts/escrow/src/governance.rs#L107-L133) |
-
-Validation boundaries for §3.1:
-
-- `initialize` MUST reject a second call with `AlreadyInitialized`; the
-  `Initialized` flag is the single source of truth.
-- `PendingAdmin.proposed_at_ledger` MUST be `<=` the current ledger
-  sequence; a future timestamp is rejected.
-- Accepting a `PendingAdmin` proposal younger than
-  `ADMIN_ROTATION_MIN_DELAY_LEDGERS` MUST be rejected.
-- Cancelling a non-existent proposal MUST be rejected (no silent no-op).
-
-### 3.2 Pause & Emergency
-
-| Key | Value type | Description | TTL bump? | Write site |
-|---|---|---|---|---|
-| `DataKey::Paused` | `bool` | Normal operational pause.  When `true` every *mutating* entrypoint panics with `ContractPaused`; read-only queries still succeed.  `unpause` clears it; `activate_emergency_pause` *also* sets it. | Never bumped. | [`lib.rs#L1428-L1465`](../contracts/escrow/src/lib.rs#L1428-L1465) |
-| `DataKey::Emergency` | `bool` | Emergency freeze.  When `true` the same mutation gate fires `EmergencyActive` and `unpause` itself is blocked; only `resolve_emergency` clears both `Emergency` and `Paused`.  Flipping `Emergency` on once also sets `ReadinessChecklist::emergency_controls_enabled = true` permanently so deployers can prove they tested the emergency circuit. | Never bumped. | [`lib.rs#L1486-L1566`](../contracts/escrow/src/lib.rs#L1486-L1566) |
-
-Validation boundaries for §3.2:
-
-- Setting `Paused = true` while already `true` is an idempotent no-op.
-- `unpause` MUST be rejected while `Emergency == true`.
-- `resolve_emergency` MUST clear both `Emergency` and `Paused` atomically.
-- `ReadinessChecklist::emergency_controls_enabled` MUST remain `true` once
-  set, even after `resolve_emergency`.
-
-### 3.3 Contracts & Milestones
-
-| Key | Value type | Description | TTL bump? | Write / load site |
-|---|---|---|---|---|
-| `DataKey::NextContractId` | `u32` | Monotonic allocator.  Starts at 1 after `initialize`; incremented after every successful `create_contract`.  Reads are cheap and do **not** extend TTL on `get_next_contract_id`; only the creation path calls `extend_next_contract_id_ttl` before touching it. | `PERSISTENT_BUMP_THRESHOLD` → `PERSISTENT_TTL_LEDGERS`, only from `create_contract`. | [`ttl.rs#L160-L168`](../contracts/escrow/src/ttl.rs#L160-L168), [`create_contract.rs#L115-L166`](../contracts/escrow/src/create_contract.rs#L115-L166) |
-| `DataKey::Contract(contract_id: u32)` | [`Contract`](../contracts/escrow/src/types.rs#L213-L226) struct (`client`, `freelancer`, `arbiter: Option<Address>`, `status: ContractStatus`, `total_deposited`, `funded_amount`, `released_amount`, `refunded_amount`, `release_authorization: ReleaseAuthorization`, `reputation_issued: bool`) | Core accounting + lifecycle record for escrow `contract_id`.  All money-moving entrypoints read-then-write this key. | Bumped to `PERSISTENT_TTL_LEDGERS` (threshold = `PERSISTENT_BUMP_THRESHOLD`) on every read or write via `extend_contract_ttl`.  Exceptions: `contract_exists` is a pure existence probe and deliberately does **not** bump TTL, to prevent keep-alive abuse. | [`create_contract.rs#L136-L138`](../contracts/escrow/src/create_contract.rs#L136-L138), [`lib.rs#L1202-L1212`](../contracts/escrow/src/lib.rs#L1202-L1212), [`ttl.rs#L171-L177`](../contracts/escrow/src/ttl.rs#L171-L177) |
-| `(DataKey::Contract(contract_id), Symbol::new(env, "milestones"))` | `Vec<`[`Milestone`](../contracts/escrow/src/types.rs#L228-L241)`>` (each: `amount`, `funded_amount`, `released: bool`, `refunded: bool`, `work_evidence: Option<String>`, `refunded_amount`, `deadline: Option<u64>`) | **Compound tuple key**, *not* a `DataKey` variant.  Stores the ordered milestone vector.  `Milestone.released` / `Milestone.refunded` flags are the single source of truth; the declared `DataKey::MilestoneReleased(u32, u32)` variant is **never written** (see §5). | Bumped whenever the vector is loaded or stored via `load_milestones` / `store_milestones` / `extend_milestone_ttl`.  The same `PERSISTENT_BUMP_THRESHOLD → PERSISTENT_TTL_LEDGERS` policy applies. | [`ttl.rs#L134-L186`](../contracts/escrow/src/ttl.rs#L134-L186), [`create_contract.rs#L140-L156`](../contracts/escrow/src/create_contract.rs#L140-L156) |
-
-Validation boundaries for §3.3:
-
-- `NextContractId` MUST start at `1`; `0` is never a valid contract id.
-- `create_contract` MUST reject if `NextContractId` would overflow `u32`.
-- `Contract(id)` reads MUST panic `ContractNotFound` when absent; no
-  default struct is ever synthesized.
-- Milestone vector length MUST be `>= 1`; an empty vector is rejected.
-- Milestone index arguments MUST satisfy `idx < milestones.len()`;
-  out-of-range indices are rejected.
-- `total_deposited` MUST equal the sum of milestone `amount`s at creation.
-- Duplicate `create_contract` for the same id is impossible because ids are
-  allocated monotonically; any observed duplicate is a corruption and MUST
-  be rejected.
-
-#### `ContractStatus` enum (written inside `Contract.status`)
-
-```
-Created = 0 → Accepted = 1 → Funded / PartiallyFunded = 2 / 7 → Completed = 3
-                                                     ↘ Disputed = 4  ↗
-                                            Cancelled = 5 / Refunded = 6 (terminal)
-```
-
-Defined at [`types.rs#L199-L210`](../contracts/escrow/src/types.rs#L199-L210).
-
-### 3.4 Governance & Protocol Fees
-
-| Key | Value type | Description | TTL bump? | Write site |
-|---|---|---|---|---|
-| `DataKey::ProtocolFeeBps` | `u32` | Release fee in basis points.  Defaults to `0` (no fee).  Max `10 000` (= 100 %).  Overridden atomically by `set_governed_params` which writes `GovernedParameters` instead; both keys are consulted. | Never bumped explicitly. | [`governance.rs#L32-L55`](../contracts/escrow/src/governance.rs#L32-L55) |
-| `DataKey::GovernedParameters` | [`GovernedParameters { protocol_fee_bps: u32, max_escrow_total_stroops: i128 }`](../contracts/escrow/src/types.rs#L299-L304) | Canonical combined governance record.  Setting it via `set_governed_params` also flips `ReadinessChecklist::governed_params_set = true` to mark the deploy step complete. | Never bumped explicitly. | [`governance.rs#L200-L249`](../contracts/escrow/src/governance.rs#L200-L249) |
-| `DataKey::AccumulatedProtocolFees` | `i128` | Running total of protocol fees retained inside the SAC balance, accrued on each `release_milestone`.  Drained by `withdraw_protocol_fees`.  Because fees are commingled with the escrow balance in the SAC token, this counter is the authoritative record of how much is owed to the protocol vs owed to counterparties. | Bumped on write in `withdraw_protocol_fees` using the persistent policy. | [`lib.rs#L849-L854`](../contracts/escrow/src/lib.rs#L849-L854), [`lib.rs#L2036-L2060`](../contracts/escrow/src/lib.rs#L2036-L2060) |
-
-Validation boundaries for §3.4:
-
-- `ProtocolFeeBps` MUST satisfy `0 <= bps <= 10_000`; `0` and `10_000` are
-  valid boundaries, `10_001` is rejected.
-- `GovernedParameters.protocol_fee_bps` MUST satisfy the same range.
-- `GovernedParameters.max_escrow_total_stroops` MUST be `>= 0`.
-- `AccumulatedProtocolFees` MUST be `>= 0`; a negative value is corruption
-  and MUST be rejected.
-- `withdraw_protocol_fees(amount)` MUST reject `amount > accumulated` and
-  `amount <= 0`.
-
-### 3.5 Settlement-Token Custody
-
-| Key | Value type | Description | TTL bump? | Write site |
-|---|---|---|---|---|
-| `DataKey::SettlementToken` | `Address` | Write-once SAC token address bound by `bind_settlement_token`.  All `deposit_funds`, `release_milestone`, `refund_*`, `cancel_contract`, and `withdraw_protocol_fees` paths perform `token::Client::transfer` against this address; absence of the binding panics with `SettlementTokenNotConfigured`. | Never bumped; read-only getters (`get_settlement_token`, `is_settlement_token_bound`) also do not extend TTL. | [`lib.rs#L182-L187`](../contracts/escrow/src/lib.rs#L182-L187), [`lib.rs#L256-L313`](../contracts/escrow/src/lib.rs#L256-L313) |
-
-Validation boundaries for §3.5:
-
-- `bind_settlement_token` MUST be write-once; a second bind is rejected.
-- Any money-moving path MUST reject when the binding is absent with
-  `SettlementTokenNotConfigured`.
-- `is_settlement_token_bound` MUST NOT extend TTL (keep-alive abuse guard).
-
-### 3.6 Finalization (Immutable Close Records)
-
-| Key | Value type | Description | TTL bump? | Write site |
-|---|---|---|---|---|
-| `DataKey::Finalization(contract_id: u32)` | [`FinalizationRecord { finalizer: Address, timestamp: u64, summary: ContractSummary }`](../contracts/escrow/src/finalize.rs#L13-L22) | Immutable snapshot written when a participant closes a `Completed` or `Disputed` contract.  Once written, every contract-specific mutating entrypoint fails `require_not_finalized` with `AlreadyFinalized`. | Not bumped explicitly; written once and typically read shortly thereafter. | [`finalize.rs#L140-L168`](../contracts/escrow/src/finalize.rs#L140-L168) |
-
-Validation boundaries for §3.6:
-
-- `finalize` MUST reject when the contract status is not `Completed` or
-  `Disputed`.
-- A second `finalize` for the same `contract_id` MUST be rejected with
-  `AlreadyFinalized`.
-- The record is write-once; no update path exists.
-
-### 3.7 Readiness Checklist
-
-| Key | Value type | Description | TTL bump? | Write site |
-|---|---|---|---|---|
-| `DataKey::ReadinessChecklist` | [`ReadinessChecklist { initialized: bool, governed_params_set: bool, emergency_controls_enabled: bool }`](../contracts/escrow/src/types.rs#L277-L297) | Three-bit progress tracker for mainnet-deploy QA.  Each flag is flipped by the entrypoint that performs the corresponding step: `initialize`, `set_governed_params`, and `activate_emergency_pause` (the latter is sticky once flipped). | Never bumped. | [`lib.rs#L383-L391`](../contracts/escrow/src/lib.rs#L383-L391), [`governance.rs#L238-L246`](../contracts/escrow/src/governance.rs#L238-L246), [`lib.rs#L1504-L1512`](../contracts/escrow/src/lib.rs#L1504-L1512) |
-
-Validation boundaries for §3.7:
-
-- Each flag is monotonic: once `true`, it MUST NOT be reset to `false`.
-- Flipping an already-`true` flag is an idempotent no-op.
-- The checklist is informational; it MUST NOT gate money-moving paths.
-
-### 3.8 Reputation
-
-| Key | Value type | Description | TTL bump? | Write site |
-|---|---|---|---|---|
-| `DataKey::ReputationIssued(contract_id: u32)` | `bool` | Per-contract "already issued" guard.  Redundantly tracks `Contract.reputation_issued`; both are consulted in the summary path.  Written together with the reputation counters in `issue_reputation`. | Bumped at write-time in `issue_reputation` using the persistent policy. | [`lib.rs#L1724-L1735`](../contracts/escrow/src/lib.rs#L1724-L1735) |
-| `DataKey::PendingReputationCredits(freelancer: Address)` | `i128` | Counter of completed contracts awaiting a client rating.  Incremented by `grant_pending_reputation_credit` (on final milestone release or dispute completion); decremented by exactly `1` per `issue_reputation` call.  Refunded contracts never grant a credit. | Not bumped explicitly; read/written without TTL extension. | [`lib.rs#L625-L629`](../contracts/escrow/src/lib.rs#L625-L629), [`lib.rs#L1737-L1742`](../contracts/escrow/src/lib.rs#L1737-L1742) |
-| `DataKey::Reputation(freelancer: Address)` | [`Reputation { completed_contracts: i128, total_rating: i128, last_rating: i128 }`](../contracts/escrow/src/types.rs#L318-L324) | Aggregate counters per freelancer.  `get_average_rating` returns `(total_rating * 10_000 / completed_contracts)` when `completed_contracts > 0`; `None` otherwise. | Not bumped explicitly. | [`lib.rs#L1744-L1750`](../contracts/escrow/src/lib.rs#L1744-L1750), [`lib.rs#L1778-L1811`](../contracts/escrow/src/lib.rs#L1778-L1811) |
-| `DataKey::ReputationComment(contract_id: u32)` | `String` (max 200 UTF-8 bytes) | Client-supplied free-form feedback written by `issue_reputation`.  Capped at 200 bytes to cap storage growth; validated at write time by `EmptyComment` / `CommentTooLong`. | Bumped at write-time in `issue_reputation` and on read in `get_reputation_comment` using the persistent policy. | [`lib.rs#L1752-L1758`](../contracts/escrow/src/lib.rs#L1752-L1758), [`lib.rs#L1765-L1776`](../contracts/escrow/src/lib.rs#L1765-L1776) |
-
-Validation boundaries for §3.8:
-
-- `issue_reputation` MUST reject when `ReputationIssued(contract_id)` is
-  already `true` (duplicate submission).
-- `PendingReputationCredits` MUST be `>= 0`; a decrement below `0` is
-  rejected.
-- `Reputation.completed_contracts`, `total_rating`, and `last_rating` MUST
-  be `>= 0`.
-- `ReputationComment` MUST be non-empty and `<= 200` UTF-8 bytes; exactly
-  `200` bytes is accepted, `201` is rejected.
-- `get_average_rating` MUST return `None` when `completed_contracts == 0`
-  (no division by zero).
-
----
-
-## 4. Temporary Storage Keys (TTL-governed, auto-evicting)
-
-Everything in this section lives in `env.storage().temporary()` and is
-subject to Soroban host auto-eviction.  The contract consistently treats a
-missing / evicted entry as "not approved / not migrated" (fail-closed).
-
-### 4.1 Pending Milestone Approvals
-
-| Key | Value type | Description | TTL | Bump threshold |
-|---|---|---|---|---|
-| `DataKey::MilestoneApprovals(contract_id: u32, milestone_index: u32)` | [`MilestoneApprovals { client_approved: bool, freelancer_approved: bool, arbiter_approved: bool }`](../contracts/escrow/src/types.rs#L259-L266) | Bitmask of which parties have pre-approved a given milestone for release.  Required approvers depend on `Contract.release_authorization`: `ClientOnly`, `ClientAndArbiter`, `ArbiterOnly`, or `MultiSig` (client **and** freelancer).  Cleared explicitly by `clear_approvals` after a successful release. | 7 d = `PENDING_APPROVAL_TTL_LEDGERS` | 1 d = `PENDING_APPROVAL_BUMP_THRESHOLD` |
-
-Validation boundaries for §4.1:
-
-- Duplicate approval from the same role MUST be rejected with
-  `AlreadyApproved`.
-- Approval for a milestone index `>= milestones.len()` MUST be rejected.
-- An evicted approval record MUST be treated as "not approved"; the
-  release path MUST fail with `InsufficientApprovals`.
-- `clear_approvals` MUST be idempotent (removing an absent record is a
-  no-op).
-
-- **Write path:** `approve_milestone` in
-  [`approvals.rs#L46-L159`](../contracts/escrow/src/approvals.rs#L46-L159)
-  calls `.temporary().set` then `.temporary().extend_ttl(threshold, ttl)`.
-  Duplicate approvals from the same role return `AlreadyApproved`.
-- **Bump-on-read:** `get_milestone_approvals` renews TTL when the entry is
-  live; missing entries return `None` without writing.  See
-  [`lib.rs#L1388-L1403`](../contracts/escrow/src/lib.rs#L1388-L1403).
-- **Check path:** `check_approvals` in
-  [`approvals.rs#L180-L212`](../contracts/escrow/src/approvals.rs#L180-L212)
-  performs a plain `.get`; any `None` → `InsufficientApprovals` fail-closed.
-- **Explicit removal:** `clear_approvals` after successful release
-  ([`approvals.rs#L222-L225`](../contracts/escrow/src/approvals.rs#L222-L225)).
-
-### 4.2 Pending Client Migrations
-
-| Key | Value type | Description | TTL | Bump threshold |
-|---|---|---|---|---|
-| `DataKey::PendingClientMigration(contract_id: u32)` | [`PendingClientMigration { current_client: Address, proposed_client: Address, requested_at_ledger: u32, expires_at_ledger: u32 }`](../contracts/escrow/src/migration.rs#L5-L12) | Single-slot proposal to transfer the `client` role on a contract to a new address.  At most one proposal may be pending per contract; re-proposing panics with `InvalidState`.  Migrations are disallowed on `Completed`, `Cancelled`, `Refunded`, or `Disputed` contracts. | 21 d = `PENDING_MIGRATION_TTL_LEDGERS` | 3 d = `PENDING_MIGRATION_BUMP_THRESHOLD` |
-
-Validation boundaries for §4.2:
-
-- At most one pending proposal per `contract_id`; a second proposal MUST
-  be rejected with `InvalidState`.
-- Proposals on `Completed`, `Cancelled`, `Refunded`, or `Disputed`
-  contracts MUST be rejected.
-- Accepting or reading an evicted proposal MUST panic `InvalidState`
-  (fail-closed).
-- `cancel_client_migration` on an absent proposal MUST be rejected (no
-  silent no-op).
-- `requested_at_ledger` MUST be `<=` the current ledger sequence.
-
-- **Write path:** `propose_client_migration_impl` in
-  [`migration.rs#L48-L90`](../contracts/escrow/src/migration.rs#L48-L90)
-  writes via `ttl::store_with_ttl`.  `expires_at_ledger` in the struct is
-  informational (for indexers); the authoritative TTL is the host-level one
-  set by `store_with_ttl`.
-- **Read path:** `read_if_live` wraps `.temporary().get`; `None` is treated
-  as "no pending migration" whether due to eviction or to never being set.
-  See [`migration.rs#L105-L125`](../contracts/escrow/src/migration.rs#L105-L125)
-  and
-  [`migration.rs#L156-L168`](../contracts/escrow/src/migration.rs#L156-L168).
-- **Explicit removal:** `cancel_client_migration` via
-  `ttl::remove_transient`
-  ([`migration.rs#L131-L155`](../contracts/escrow/src/migration.rs#L131-L155)).
-
----
-
-## 5. DataKey Variants Declared but **Not** Written
-
-The `DataKey` enum declares the following variants that, as of this writing,
-have no storage write site in the contract.  They are listed here so an
-indexer does not expect them on-chain.
-
-| Variant | Declared at | Status | Single source of truth instead |
+| Storage Tier | Scope & Capacity | Eviction & Rent Model | Contract Usage |
 |---|---|---|---|
-| `DataKey::MilestoneReleased(u32, u32)` | [`types.rs#L70`](../contracts/escrow/src/types.rs#L70) | Never persisted.  Verified by the storage test comment in [`test/storage.rs#L272-L273`](../contracts/escrow/src/test/storage.rs#L272-L273) and again in [`test/summary.rs#L179`](../contracts/escrow/src/test/summary.rs#L179). | Each `Milestone.released` / `refunded` boolean inside the milestone vector compound key (§3.3). |
-| `DataKey::GovernanceAdmin` | [`types.rs#L80`](../contracts/escrow/src/types.rs#L80) | Never used; superseded by `DataKey::Admin` during the initial implementation. | `DataKey::Admin`. |
-| `DataKey::PendingGovernanceAdmin` | [`types.rs#L81`](../contracts/escrow/src/types.rs#L81) | Never used; superseded by `DataKey::PendingAdmin`. | `DataKey::PendingAdmin`. |
-| `DataKey::ProtocolParameters` | [`types.rs#L82`](../contracts/escrow/src/types.rs#L82) | Never used; the combined-parameters struct lives under `GovernedParameters` and the legacy BPS value under `ProtocolFeeBps`. | `DataKey::GovernedParameters` + `DataKey::ProtocolFeeBps`. |
+| `env.storage().instance()` | Contract-level singleton state; shared across all contract calls. Co-located with the contract executable instance. | Extended as a single unit via `bump_instance(env)`. Stays hot as long as admin or mutating entrypoints execute. | Global settings, operational admin address, protocol fee rate and treasury destination, granular pause bitmask, dispute panel configuration, and scheduled upgrade proposals. |
+| `env.storage().persistent()` | Key-value records allocated independently. Scalable to arbitrary numbers of escrow contracts, milestones, and participants. | Evicted by the host if remaining TTL drops to 0 without access or renewal. Renewed via `extend_ttl` to `PERSISTENT_TTL_EXTEND` when remaining TTL falls below `PERSISTENT_TTL_THRESHOLD`. | Escrow contracts (`ContractV`), historical receipts (`Receipt`), milestones, delivery hashes, dispute records, settlement proposals, amendments, reputation ledgers, and paginated participant indexes. |
+| `env.storage().temporary()` | Ephemeral storage auto-evicted by the host upon TTL expiry. | Host auto-eviction without archival. | **Not used.** The escrow contract deliberately avoids temporary storage to prevent unexpected state drop on unfinalized counterparties. |
 
-Validation boundary: because these variants are never written, any read
-that observes them on-chain is a corruption signal and MUST be treated as
-`ContractNotFound` / `InvalidState` rather than trusted.  Indexers MUST
-NOT expect these keys.
+> **Key Takeaway:** The escrow contract **does not** use `env.storage().temporary()`. All state is strictly modeled across `instance()` or `persistent()` storage to guarantee persistence and auditability across business workflows.
 
 ---
 
-## 6. TTL / Bump Strategy Summary
+## 2. Invariants: Append-Only Enum & Storage Versioning
 
-### 6.1 Persistent entries: 30-day renew on access
+### 2.1 The Append-Only `DataKey` Enum Requirement
 
-Every frequently-accessed persistent key is extended using the same two
-constants via `extend_ttl(key, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_TTL_LEDGERS)`:
+In Soroban (`soroban-sdk`), `#[contracttype]` enums are serialized by their variant discriminant (their 0-based index in the declaration order).
 
-- If remaining TTL < 7 days (120 960 ledgers): extend to 30 days.
-- Otherwise: no-op (Soroban `extend_ttl` never shortens).
+- Reordering existing variants alters their assigned numeric discriminants.
+- Inserting a new variant before or between existing variants alters the discriminants of all subsequent variants.
+- Removing an existing variant shifts all subsequent discriminants.
 
-Keys that receive this treatment from the dedicated helpers in
-[`ttl.rs#L171-L199`](../contracts/escrow/src/ttl.rs#L171-L199):
+If the order of variants in `enum DataKey` is changed, existing on-chain data written with the original discriminants will fail deserialization or deserialize into incorrect variants, resulting in permanent contract corruption.
 
-| Helper | Target key |
-|---|---|
-| `extend_contract_ttl(contract_id)` | `DataKey::Contract(contract_id)` |
-| `extend_milestone_ttl(contract_id)` | `(DataKey::Contract(contract_id), "milestones")` — via `milestone_storage_key` |
-| `extend_contract_and_milestones_ttl(contract_id)` | Both above in one call |
-| `extend_next_contract_id_ttl()` | `DataKey::NextContractId` |
-| `extend_participant_contract_index_ttl(&key)` | Any participant contract-index `DataKey` (currently wired through the helper but the concrete index keys are reserved for a future list API) |
+> [!CRITICAL]
+> **Append-Only Requirement:** The `DataKey` enum in [`contracts/escrow/src/lib.rs`](../contracts/escrow/src/lib.rs) **MUST be strictly append-only**. Any newly added key variants must be appended exclusively at the very end of the enum definition.
 
-Call-site TTL extensions:
+### 2.2 Legacy Keys and Versioning Migrations
 
-Boundary rule: `extend_ttl` never shortens a TTL.  A call with a remaining
-TTL above the threshold is a no-op and MUST NOT be treated as a failure.
-The `extend_if_below_threshold` helper returns `false` only when the key is
-absent or evicted; that boolean reports liveness, not whether the host
-performed an extension.
+To maintain compatibility with earlier deployments and on-chain records, two variants are marked as legacy keys:
 
-- `ReputationIssued(contract_id)` — bumped inline in `issue_reputation`.
-- `ReputationComment(contract_id)` — bumped inline in `issue_reputation` and `get_reputation_comment`.
-- `AccumulatedProtocolFees` — bumped inline in `withdraw_protocol_fees`.
+1. **`DataKey::Contract(u64)` (Index 3):**
+   - **Legacy Format:** Pre-versioning unadorned escrow contract record (`EscrowContract`).
+   - **Current Versioned Format:** `DataKey::ContractV(u64)` (Index 33), which wraps contract state in a versioned envelope `StoredEscrow::V1(EscrowContract)`.
+   - **Migration Strategy:**
+     - *Lazy Migration:* The internal `save(env, c)` function writes the updated record to `DataKey::ContractV(c.id)` and drops `DataKey::Contract(c.id)` if present. Read operations via `load(env, id)` check `ContractV` first and fall back to `Contract(id)` transparently without performing writes.
+     - *Eager Migration:* The permissionless public function `migrate_escrows(env, ids)` allows batch migration of legacy entries to `ContractV` in batches of up to `MAX_MIGRATE_BATCH = 50`.
+     - *Compaction:* When an escrow is finalized, `compact_escrow(env, id)` purges both `ContractV(id)` and `Contract(id)` from persistent storage and writes an immutable `Receipt(id)`.
+2. **`DataKey::Paused` (Index 1):**
+   - **Legacy Format:** Simple `bool` indicating whether the entire contract is paused.
+   - **Current Format:** `DataKey::PauseFlags` (Index 40), a 32-bit bitmask governing granular operational categories (`PAUSE_CREATE`, `PAUSE_DEPOSIT`, `PAUSE_RELEASE`, `PAUSE_DISPUTE`, `PAUSE_CANCEL`, `PAUSE_REPUTATION`, or `PAUSE_ALL = 63`).
+   - **Synchronization:** Whenever pause flags are modified via `write_pause_flags`, the contract updates `PauseFlags` and simultaneously sets `Paused` to `flags != 0`. This ensures legacy tools and queries inspecting `DataKey::Paused` receive accurate status.
 
-**Eviction risk:** Any single persistent entry that goes untouched for more
-than `PERSISTENT_TTL_LEDGERS` (≈ 30 days) will be evicted by the Soroban
-host.  Because the contract reads `Contract(id)` / milestones together,
-active contracts stay hot; the deliberate design choice is that *inactive*
-contracts and their associated records are archived automatically by the
-network rather than persisting forever.  If the milestone vector is evicted
-but the `Contract(id)` record is not, `load_milestones` still panics with
-`ContractNotFound`, so callers observe a consistent "contract gone" state.
+---
 
-### 6.2 Temporary entries: bump on access within threshold
+## 3. TTL Constants & Maintenance Policy
 
-| Entry family | Full TTL | Bump threshold | Behavior below threshold |
+All storage TTL durations and thresholds in Soroban are denominated in **ledgers** (~5 seconds per ledger on Stellar mainnet).
+
+### 3.1 TTL Constants
+
+Defined in [`contracts/escrow/src/lib.rs`](../contracts/escrow/src/lib.rs):
+
+| Constant | Value | Approximate Wall-Clock | Description |
 |---|---:|---:|---|
-| Milestone approvals (`MilestoneApprovals`) | 7 d | 1 d | On `approve_milestone` write, `get_milestone_approvals` read, and — via the host `extend_ttl(threshold, ttl)` semantics — whenever a read/write occurs inside the last day.  Outside the threshold, reads still succeed but do not extend. |
-| Client migrations (`PendingClientMigration`) | 21 d | 3 d | Same semantics via `store_with_ttl` and `extend_if_below_threshold`.  Reads use `read_if_live`, which itself does **not** bump; explicit bump calls are placed in the acceptance / cancellation paths where needed. |
+| `PERSISTENT_TTL_THRESHOLD` | 17 280 ledgers | ~1 day | Rent renewal threshold. If an accessed entry's remaining TTL is below this threshold, Soroban extends it to `PERSISTENT_TTL_EXTEND`. |
+| `PERSISTENT_TTL_EXTEND` | 518 400 ledgers | ~30 days | Standard extension target. Persistent entries are renewed to approximately 30 days of lifetime. |
+| `THIRTY_DAYS_IN_LEDGERS` | 518 400 ledgers | ~30 days | Canonical 30-day duration constant in ledgers. |
 
-### 6.3 Helper API (from `ttl.rs`)
+### 3.2 Timelock Constants (Wall-Clock Seconds)
 
-| Helper | Storage kind | Description |
-|---|---|---|
-| `compute_expiry(env, ttl_ledgers)` | pure | `sequence.saturating_add(ttl_ledgers)` — used by off-chain-facing deadline getters. |
-| `store_with_ttl(env, key, value, ttl)` | temporary | `.set` + `.extend_ttl(ttl, ttl)` in one call. |
-| `read_if_live::<V>(env, key) -> Option<V>` | temporary | Thin wrapper around `.get`.  `None` covers both "absent" and "evicted". |
-| `extend_if_below_threshold(env, key, threshold, extend_to) -> bool` | temporary | Returns `false` when the key is absent / evicted; otherwise performs the thresholded extend.  The boolean reports **liveness**, not whether the host actually performed an extension. |
-| `remove_transient(env, key)` | temporary | Idempotent `.remove`. |
-| `has_transient(env, key) -> bool` | temporary | `.has` proxy; returns `false` after eviction just as it does for a never-set key. |
-| `load_milestones(env, id) -> Vec<Milestone>` | persistent | `.get` (panics with `ContractNotFound` on absent) then `extend_milestone_ttl`. |
-| `store_milestones(env, id, milestones)` | persistent | `.set` then `extend_milestone_ttl`. |
-| `milestone_storage_key(env, id)` | pure | Returns the compound `(DataKey::Contract(id), Symbol("milestones"))` tuple. |
-| `extend_*_ttl(...)` helpers listed in §6.1 | persistent | Consistent persistent-policy wrappers. |
+The contract enforces several time-based business rules using ledger timestamp seconds. These are protocol timelocks, distinct from Soroban storage TTL:
 
-Validation boundaries for the helper API:
+| Constant | Value | Approximate Wall-Clock | Purpose |
+|---|---:|---:|---|
+| `UPGRADE_DELAY_SECS` | 172 800 s | 2 days | Minimum timelock delay between scheduling a WASM code upgrade and executing it. |
+| `EMERGENCY_EXIT_DELAY_SECS` | 2 592 000 s | 30 days | Minimum continuous pause duration required before counterparties can execute unilateral emergency withdrawals. |
+| `FUNDING_WINDOW_SECS` | 1 209 600 s | 14 days | Time allowed for counterparties to fully fund an escrow before unfunded deposits become refundable. |
+| `MIN_REVIEW_WINDOW_SECS` | 3 600 s | 1 hour | Minimum permissible review window for milestone submissions. |
+| `DEFAULT_REVIEW_WINDOW_SECS` | 604 800 s | 7 days | Default review window duration before freelancer may trigger milestone auto-approval. |
+| `MAX_REVIEW_WINDOW_SECS` | 2 592 000 s | 30 days | Maximum permissible review window duration. |
+| `MIN_STREAM_SECS` | 3 600 s | 1 hour | Minimum allowed duration for streaming escrow vesting schedules. |
 
-- `store_with_ttl` MUST reject a `ttl` of `0` (a zero-TTL write would be
-  immediately evictable and is treated as a programming error).
-- `read_if_live` MUST return `None` for both "absent" and "evicted"; it
-  MUST NOT distinguish the two to callers.
-- `extend_if_below_threshold` MUST return `false` for absent keys and MUST
-  NOT panic.
-- `remove_transient` MUST be idempotent.
-- `load_milestones` MUST panic `ContractNotFound` on absent vectors.
+### 3.3 Storage Extension Helpers
 
-Reference:
-[`ttl.rs#L64-L199`](../contracts/escrow/src/ttl.rs#L64-L199).
+The contract manages TTL extensions through dedicated internal helpers and public entrypoints:
 
----
+1. **`bump_instance(env: &Env)`**
+   ```rust
+   fn bump_instance(env: &Env) {
+       env.storage()
+           .instance()
+           .extend_ttl(PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+   }
+   ```
+   Invoked by `require_admin`, `initialize`, `build_escrow`, `save`, and keep-alive entrypoints to ensure contract instance metadata remains live.
 
-## 7. Fail-Closed Semantics
+2. **`extend_if_present(env: &Env, key: &DataKey) -> bool`**
+   ```rust
+   fn extend_if_present(env: &Env, key: &DataKey) -> bool {
+       if env.storage().persistent().has(key) {
+           env.storage()
+               .persistent()
+               .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+           true
+       } else {
+           false
+       }
+   }
+   ```
+   Probes whether a key exists without mutating its data; if present, extends its TTL to 30 days.
 
-The following security-relevant guarantees arise directly from the storage
-layout:
+3. **`extend_escrow_ttl(env: Env, id: u64) -> Result<(), EscrowError>`**
+   Permissionless public entrypoint. Anyone can pay the gas/rent to keep an escrow alive.
+   - Verifies the escrow exists by extending `ContractV(id)`, `Contract(id)`, or `Receipt(id)`. Returns `ContractNotFound` if none exist.
+   - Refreshes all 23 associated per-escrow persistent keys (if present).
+   - Iterates through `0..milestones.len()` and extends `Submitted`, `Delivery`, and `MilestonePaid` keys for each milestone.
+   - Executes `bump_instance(&env)` to renew instance storage.
 
-1. **Missing or evicted approval ≠ not approved.** `release_milestone`
-   calls `approvals::check_approvals`, which `.get`s the temporary record;
-   `None` maps to `InsufficientApprovals` (see
-   [`approvals.rs#L186-L211`](../contracts/escrow/src/approvals.rs#L186-L211)).
-   An approval whose TTL expires between the `approve_*` and
-   `release_milestone` calls therefore cannot be reused — the caller must
-   re-approve.
-
-2. **Missing or evicted migration ≠ no migration.**
-   `accept_client_migration_impl` and `get_pending_client_migration_impl`
-   use `read_if_live`; `None` panics with `InvalidState`, preventing a
-   stale (evicted) proposal from being accepted and preventing a caller
-   from reading a phantom record.
-
-3. **Contract absence ≠ present data.** Every mutating entrypoint loads
-   `Contract(id)` via `.get().unwrap_or_else(|| panic_with_error(ContractNotFound))`.
-   The single exception is `contract_exists`, which is a pure `has()` probe
-   that deliberately avoids bumping TTL so it cannot be abused as a
-   keep-alive mechanism.
-
-5. **Duplicate submissions are rejected, not merged.** Re-approving the
-   same role, re-proposing a migration, re-binding the settlement token,
-   re-finalizing a contract, and re-issuing reputation all fail closed
-   with a distinct error rather than silently overwriting state.
-
-6. **Boundary values are inclusive at the documented edges.** Fee BPS
-   `0` and `10_000`, comment length `200`, and milestone index
-   `len - 1` are accepted; `10_001`, `201`, and `len` are rejected.
-
-4. **`require_not_finalized` + `require_not_paused` gate state mutation
-   before any storage touch.** See
-   [`finalize.rs#L36-L65`](../contracts/escrow/src/finalize.rs#L36-L65) for
-   both guards — they run before auth in every lifecycle path.
+4. **`extend_reputation_ttl(env: Env, freelancer: Address)`**
+   Permissionless public entrypoint for an address's reputation records.
+   - Refreshes `Reputation(freelancer)`, `WeightedRep(freelancer)`, `ClientReputation(freelancer)`, `Outcomes(freelancer)`, and `BonusTotal(freelancer)`.
+   - Executes `bump_instance(&env)` to renew instance storage.
 
 ---
 
-## 8. Storage Access & TTL Tests
+## 4. Complete DataKey Reference Table
 
-| Test module | What it covers |
-|---|---|
-| [`test/storage.rs`](../contracts/escrow/src/test/storage.rs) | Per-key existence / correctness for `Initialized`, `Admin`, `Paused`, `Emergency`, `Contract(id)`, `NextContractId`, milestone vectors (and the `MilestoneReleased` no-write assertion), `ReputationIssued`, `PendingReputationCredits`, `Reputation`, `ReadinessChecklist`, released-amount accounting, and single-index milestone getters. |
-| [`test/ttl_tests.rs`](../contracts/escrow/src/test/ttl_tests.rs) | TTL constants, `compute_expiry` (including saturating), `store_with_ttl`, `read_if_live`, eviction at +1 ledger, `extend_if_below_threshold` liveness boolean, exact-threshold no-op, `remove_transient` idempotency, `has_transient` tracking, determinism across independent envs, and integration of approval TTL with `approve_milestone` / `check_approvals`. |
-| [`test/approval_expiry.rs`](../contracts/escrow/src/test/approval_expiry.rs) | Approval-expiry invariants for each `ReleaseAuthorization` mode. |
-| [`test/persistence.rs`](../contracts/escrow/src/test/persistence.rs) | Absent-state read behavior across multiple lifecycle readers. |
-| [`test/participant_index_pagination.rs`](../contracts/escrow/src/test/participant_index_pagination.rs) | Pagination behavior for the future `list_contracts_by_participant` indexer API (uses the `extend_participant_contract_index_ttl` helper wired in `ttl.rs`). |
+The table below enumerates all 51 variants in the private `DataKey` enum ([`contracts/escrow/src/lib.rs`](../contracts/escrow/src/lib.rs)), preserving their exact definition order (indices 0 through 50):
+
+| Index | Variant Signature | Value Type | Storage Tier | Writer Function(s) | TTL Handling | Covered by `extend_escrow_ttl`? | Description & Invariants |
+|---|---|---|---|---|---|:---:|---|
+| 0 | `Admin` | `Address` | Instance | `initialize`, `accept_admin` | Bumped via `bump_instance` on admin calls and init | No (instance bumped at end) | Operational admin address. Gated access for pause, fee config, panel settings, role assignments, and upgrade proposals. |
+| 1 | `Paused` | `bool` | Instance | `initialize`, `write_pause_flags` | Bumped via `bump_instance` | No (instance bumped at end) | **Legacy Key**. Kept synchronized with `PauseFlags != 0` for backwards compatibility with legacy readers. |
+| 2 | `NextId` | `u64` | Instance | `initialize`, `build_escrow` | Bumped via `bump_instance` on escrow creation | No (instance bumped at end) | Monotonic counter for allocating unique escrow IDs. Starts at 1; 0 is never allocated. |
+| 3 | `Contract(u64)` | `EscrowContract` | Persistent | Legacy writer; removed by `save` (lazy migration to `ContractV`) and `compact_escrow` | Explicitly extended by `extend_escrow_ttl` via `extend_if_present` | **Yes** | **Legacy Key**. Unversioned escrow record. Preserved so pre-versioning entries remain addressable until migrated lazily or eagerly. |
+| 4 | `Reputation(Address)` | `Reputation` | Persistent | `issue_reputation`, `void_rating` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_reputation_ttl` | No | Cumulative reputation score (`total_score: i128, count: i128`) for a freelancer address. |
+| 5 | `Outcomes(Address)` | `Outcomes` | Persistent | `settle`, `open_dispute`, `cancel_contract` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_reputation_ttl` | No | Historical dispute and resolution statistics (`completed`, `disputed_resolved`, `disputed_lost`, `cancelled`) for an address. |
+| 6 | `Rating(u64)` | `RatingRecord` | Persistent | `issue_reputation`, `void_rating` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Client rating record for an escrow (`freelancer`, `rating: u32`, `issued_at: u64`, `voided: bool`). |
+| 7 | `Bonus(u64)` | `i128` | Persistent | `pay_bonus` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Discretionary bonus amount paid by client to freelancer for an escrow. |
+| 8 | `BonusTotal(Address)` | `i128` | Persistent | `pay_bonus` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_reputation_ttl` | No | Total lifetime discretionary bonus received by a freelancer across all escrows. |
+| 9 | `Liability(Address)` | `i128` | Persistent | `set_liability` | Extended with `PERSISTENT_TTL_EXTEND` on write | No | Aggregate locked token balance held by the contract per token address to ensure solvency. |
+| 10 | `Payout(u64)` | `Address` | Persistent | `set_payout_address` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Optional alternative payee address specified by the freelancer for milestone releases. |
+| 11 | `Frozen(u64)` | `bool` | Persistent | `freeze_escrow`, `unfreeze_escrow` (sets `false`) | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Freeze flag preventing mutations during ongoing administrative or dispute investigations. |
+| 12 | `ClosedAt(u64)` | `u64` | Persistent | `record_closed_at`; removed by `accept_change_order` (reopen), `compact_escrow` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Ledger timestamp recording when an escrow reached a terminal state (`Completed`, `Refunded`, etc.). |
+| 13 | `Receipt(u64)` | `EscrowReceipt` | Persistent | `compact_escrow` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Compacted immutable archival receipt of a finalized escrow, replacing full contract state. |
+| 14 | `Team(u64)` | `Vec<(Address, u32)>` | Persistent | `set_team_split` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Multi-party split recipients and basis point shares for freelancer team milestone distribution. |
+| 15 | `ClientReputation(Address)` | `Reputation` | Persistent | `rate_client` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_reputation_ttl` | No | Cumulative counter-party reputation score for clients, rated by freelancers upon contract completion. |
+| 16 | `ClientRated(u64)` | `bool` | Persistent | `rate_client` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Boolean guard preventing duplicate ratings submitted by a freelancer for the client on an escrow. |
+| 17 | `Sequential(u64)` | `bool` | Persistent | `create_contract_sequential` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Mode flag requiring milestones to be completed and released in strict sequential order. |
+| 18 | `WeightedRep(Address)` | `WeightedReputation` | Persistent | `issue_reputation`, `void_rating` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_reputation_ttl` | No | Volume-weighted reputation record (`weighted_rating_sum: i128, total_weight: i128`) scaled by escrow value. |
+| 19 | `RatingWeight(u64)` | `i128` | Persistent | `issue_reputation` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Snapshot of the weight attributed to an escrow's rating, retained for potential voiding adjustments. |
+| 20 | `Panel` | `Panel` | Instance | `set_panel` | Bumped via `bump_instance` on write and vote | No (instance bumped at end) | Multi-member dispute arbitration panel configuration (`members: Vec<Address>, threshold: u32`). |
+| 21 | `Votes(u64)` | `Map<Address, u32>` | Persistent | `vote_resolution`; removed upon reaching consensus threshold | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Panel member votes for split resolution on a disputed escrow (`member -> freelancer_bps`). |
+| 22 | `RoleMember(Role, Address)` | `bool` | Persistent | `set_role` | Extended with `PERSISTENT_TTL_EXTEND` on write | No | Access control list mapping role (`Role::EmergencyAdmin`, etc.) and account to membership boolean. |
+| 23 | `Funders(u64)` | `Map<Address, i128>` | Persistent | `build_escrow`, `deposit_funds` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Per-funder deposited amounts supporting multi-party funding and pro-rata unfunded refunds. |
+| 24 | `FundBy(u64)` | `u64` | Persistent | `build_escrow`, `accept_change_order`, `extend_funding_deadline`, `accept_amendment` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Ledger timestamp deadline by which the escrow must be fully funded before deposit refunds open. |
+| 25 | `ChangeOrder(u64)` | `Vec<i128>` | Persistent | `propose_change_order`; removed by `accept_change_order`, `cancel_change_order` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Proposed additional milestone amounts awaiting acceptance by counterparty. |
+| 26 | `MilestonePaid(u64, u32)` | `bool` | Persistent | `mark_milestone_paid`; removed by `reset_milestone_paid` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Tracks off-chain or manual payment confirmation status for a specific milestone. |
+| 27 | `Terms(u64)` | `BytesN<32>` | Persistent | `set_terms` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | SHA-256 hash digest of the off-chain contractual terms and agreement. |
+| 28 | `MilestoneSpecs(u64)` | `Vec<BytesN<32>>` | Persistent | `set_terms` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | SHA-256 hash digests of detailed specifications for each milestone in the escrow. |
+| 29 | `Delivery(u64, u32)` | `BytesN<32>` | Persistent | `submit_delivery` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | SHA-256 hash digest of the deliverable submitted for a milestone review. |
+| 30 | `DisputeBond(u64)` | `(Address, i128)` | Persistent | `open_dispute`; removed in `settle` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Record of the dispute opener address and collateral bond amount posted to initiate dispute. |
+| 31 | `Version` | `u32` | Instance | `execute_upgrade` | Bumped via `bump_instance` | No (instance bumped at end) | Contract logic version number, incremented on contract WASM upgrades. |
+| 32 | `PendingUpgrade` | `PendingUpgrade` | Instance | `schedule_upgrade`; removed by `cancel_upgrade`, `execute_upgrade` | Bumped via `bump_instance` | No (instance bumped at end) | Scheduled contract upgrade proposal (`new_wasm_hash: BytesN<32>, executable_after: u64`). |
+| 33 | `ContractV(u64)` | `StoredEscrow` | Persistent | `save`; removed by `compact_escrow` | Extended with `PERSISTENT_TTL_EXTEND` on `save`; explicitly checked and extended in `extend_escrow_ttl` | **Yes** | Canonical versioned escrow envelope (`StoredEscrow::V1(EscrowContract)`). |
+| 34 | `Submitted(u64, u32)` | `u64` | Persistent | `submit_milestone`; removed by `clear_submitted` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Ledger timestamp when freelancer submitted a milestone, initiating review window. |
+| 35 | `ReviewWindow(u64)` | `u64` | Persistent | `build_escrow` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Configured review period duration in seconds before auto-approval becomes eligible. |
+| 36 | `PendingAdmin` | `Address` | Instance | `propose_admin`; removed by `accept_admin`, `cancel_admin_proposal` | Bumped via `bump_instance` | No (instance bumped at end) | Candidate new admin address during 2-step administrative rotation. |
+| 37 | `PausedAt` | `u64` | Instance | `write_pause_flags` (set on pause; removed on unpause) | Bumped via `bump_instance` | No (instance bumped at end) | Ledger timestamp marking the start of the current pause period, used for emergency timelock. |
+| 38 | `Resigned(u64)` | `bool` | Persistent | `resign` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Flag indicating the freelancer voluntarily resigned from the contract. |
+| 39 | `Settlement(u64)` | `SettlementProposal` | Persistent | `propose_settlement`; removed by `clear_settlement` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Pending mutual settlement proposal (`proposer: Address, freelancer_amount: i128`). |
+| 40 | `PauseFlags` | `u32` | Instance | `write_pause_flags` | Bumped via `bump_instance` | No (instance bumped at end) | Fine-grained pause category bitmask (`PAUSE_CREATE`, `PAUSE_DEPOSIT`, etc.). |
+| 41 | `FeeBps` | `u32` | Instance | `set_fee` | Bumped via `bump_instance` | No (instance bumped at end) | Global protocol release fee rate in basis points (max 500 bps = 5%). |
+| 42 | `Treasury` | `Address` | Instance | `set_fee` | Bumped via `bump_instance` | No (instance bumped at end) | Recipient address for collected protocol fees. |
+| 43 | `EscrowFee(u64)` | `u32` | Persistent | `build_escrow` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Protocol fee rate (basis points) snapshotted and locked for a specific escrow at creation. |
+| 44 | `ClientEscrows(Address)` | `u32` | Persistent | `append_party_index` | Extended with `PERSISTENT_TTL_EXTEND` on write | No | Counter of escrows created by client address, indexing into paginated ID lists. |
+| 45 | `FreelancerEscrows(Address)` | `u32` | Persistent | `append_party_index` | Extended with `PERSISTENT_TTL_EXTEND` on write | No | Counter of escrows created for freelancer address, indexing into paginated ID lists. |
+| 46 | `ClientPage(Address, u32)` | `Vec<u64>` | Persistent | `append_party_index` | Extended with `PERSISTENT_TTL_EXTEND` on write | No | Paginated list of escrow IDs (page size 50) created by client address. |
+| 47 | `FreelancerPage(Address, u32)` | `Vec<u64>` | Persistent | `append_party_index` | Extended with `PERSISTENT_TTL_EXTEND` on write | No | Paginated list of escrow IDs (page size 50) created for freelancer address. |
+| 48 | `Stream(u64)` | `Stream` | Persistent | `save_stream` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Linear vesting schedule details (`start: u64, duration: u64, total_amount: i128, claimed_amount: i128`). |
+| 49 | `Amendment(u64)` | `Amendment` | Persistent | `propose_amendment`; removed by `accept_amendment` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Proposed milestone amount realignment awaiting counterparty acceptance (`proposer, new_amounts, nonce`). |
+| 50 | `AmendNonce(u64)` | `u32` | Persistent | `propose_amendment` | Extended with `PERSISTENT_TTL_EXTEND` on write; refreshed via `extend_escrow_ttl` | **Yes** | Monotonically incrementing replay-protection nonce for contract amendments. |
 
 ---
 
-## 8.1 Validation Boundary Tests
+## 5. Functional Key Domain Specifications
 
-| Test module | What it covers |
-|---|---|
-| `test/storage.rs` | Accepted input for each key, rejected input (missing / out-of-range), duplicate submissions (re-approve, re-finalize, re-issue), and boundary values (`0`, `10_000`, `200`, `len - 1`). |
-| `test/ttl_tests.rs` | Boundary behavior of `compute_expiry` (saturating), `store_with_ttl` (zero-TTL rejection), `extend_if_below_threshold` (absent-key `false`), and `remove_transient` idempotency. |
-| `test/approval_expiry.rs` | Evicted approval treated as absent; release fails `InsufficientApprovals`. |
-| `test/persistence.rs` | Absent-state reads return `None` / panic as documented, never a permissive default. |
+### 5.1 Global Instance Storage (Singleton Config)
 
-## 9. Reviewer Checklist for Storage Changes
+These keys reside in `env.storage().instance()` and are bumped together whenever `bump_instance(env)` is called:
 
-When introducing a new storage key, make sure all of the following are
-addressed before landing:
+- **`Admin`**: Initialized once via `initialize(env, admin)`. Rotation is protected by a two-step handshake: `propose_admin` stores candidate in `PendingAdmin`; `accept_admin` verifies caller equals `PendingAdmin`, overwrites `Admin`, and clears `PendingAdmin`.
+- **`Paused`** *(Legacy)*: Legacy global pause toggle. Maintained alongside `PauseFlags` so legacy clients reading `Paused` see `true` if any pause flag is active.
+- **`NextId`**: Monotonic `u64` counter allocating escrow IDs starting at 1. Read and incremented inside `build_escrow`.
+- **`Panel`**: Stores the dispute arbitration panel (`members: Vec<Address>, threshold: u32`). Configured by admin through `set_panel`. Members cannot exceed `PANEL_MAX_MEMBERS = 7`, and threshold must be `>= 1` and `<= members.len()`.
+- **`Version`**: Current contract implementation version `u32`, updated when executing code upgrades.
+- **`PendingUpgrade`**: Holds `PendingUpgrade` struct (`new_wasm_hash: BytesN<32>, executable_after: u64`). Enforces a 2-day timelock (`UPGRADE_DELAY_SECS`) before `execute_upgrade` can apply the migration.
+- **`PendingAdmin`**: Stores the proposed new administrator address awaiting acceptance.
+- **`PausedAt`**: Stores the ledger timestamp when the contract transitioned from unpaused to paused. Used to compute eligibility for emergency exits after `EMERGENCY_EXIT_DELAY_SECS`.
+- **`PauseFlags`**: 32-bit bitmask governing fine-grained operational pause states:
+  - `PAUSE_CREATE = 1`
+  - `PAUSE_DEPOSIT = 2`
+  - `PAUSE_RELEASE = 4`
+  - `PAUSE_DISPUTE = 8`
+  - `PAUSE_CANCEL = 16`
+  - `PAUSE_REPUTATION = 32`
+  - `PAUSE_ALL = 63`
+- **`FeeBps`**: Protocol release fee in basis points (0..=500, representing 0% to 5%).
+- **`Treasury`**: Destination `Address` where protocol fees are transferred upon milestone release.
 
-1. Add the variant to `DataKey` in `types.rs`, or use a compound tuple key
-   if the key depends on a sub-identifier (e.g. the milestone vector's
-   `(Contract(id), Symbol("milestones"))` pattern).
-2. Decide between `persistent()` and `temporary()`.  Use temporary for
-   anything that must auto-expire without an explicit cleanup call
-   (approvals, proposals, short-lived permissions).  Use persistent for
-   accounting / governance / immutable records.
-3. For temporary entries: pick a TTL, bump threshold, add a row to §4
-   above, and use `store_with_ttl` + `read_if_live` uniformly (no direct
-   `.set` bypass).
-4. For persistent entries: decide if / when TTL is extended and use one of
-   the `extend_*_ttl` helpers consistently.  Document any "deliberately not
-   bumped" exceptions (e.g. `contract_exists`, `is_settlement_token_bound`).
-5. Add a storage test that writes then reads back, and — for
-   temporary entries — a TTL eviction test that advances ledger sequence
-   past TTL + 1 and asserts `None`.
-6. Re-read this document and update the affected tables so they stay in
-   sync with the code.
+### 5.2 Core Escrow State & Archival Lifecycle
 
-7. Add a validation-boundary test for each new key covering: accepted
-   input, rejected input, duplicate submission, and the inclusive boundary
-   values.  A key without such tests MUST NOT be merged.
-8. Confirm the new key's failure mode is fail-closed: absent or evicted
-   MUST map to a rejection, never to a permissive default.
-9. Confirm no new key weakens an existing invariant (authorization,
-   state-transition, or accounting).
+- **`Contract(u64)`** *(Legacy)*: Legacy unversioned storage key storing `EscrowContract`. Replaced lazily upon mutation or eagerly via `migrate_escrows`.
+- **`ContractV(u64)`**: Canonical versioned envelope storing `StoredEscrow::V1(EscrowContract)`. Encapsulates counterparties (`client`, `freelancer`), token address, milestone vector, total/funded/released/refunded balances, and lifecycle status (`Created`, `Funded`, `Completed`, `Disputed`, `Cancelled`, `Refunded`).
+- **`ClosedAt(u64)`**: Ledger sequence number recording when an escrow entered a terminal state.
+- **`Receipt(u64)`**: Written by `compact_escrow` after terminal state. Removes `ContractV`, `Contract`, and `ClosedAt` from storage to reclaim space, leaving a lightweight immutable `EscrowReceipt` (`id`, `client`, `freelancer`, `token`, `status`, `total_amount`, `released_amount`, `refunded_amount`, `closed_at`).
+- **`EscrowFee(u64)`**: Snapshots the protocol fee rate (bps) at escrow creation time. Ensures future changes to the global `FeeBps` never affect active escrows.
+- **`Sequential(u64)`**: Stored boolean flag enforcing strict sequential completion of milestones.
+- **`Stream(u64)`**: Stores linear streaming schedule details (`start`, `duration`, `total_amount`, `claimed_amount`) for continuous release escrows.
+- **`Payout(u64)`**: Freelancer-specified redirected payout address for milestone disbursements.
+- **`Frozen(u64)`**: Administrative lock preventing any mutations during investigation.
+- **`Resigned(u64)`**: Flag indicating freelancer voluntary withdrawal from the contract.
+
+### 5.3 Milestone & Deliverable Lifecycle
+
+- **`Submitted(u64, u32)`**: Ledger timestamp recording when the freelancer submitted milestone deliverables for review.
+- **`Delivery(u64, u32)`**: SHA-256 hash digest `BytesN<32>` of the deliverable submitted for review.
+- **`MilestonePaid(u64, u32)`**: Tracks milestone settlement status.
+- **`ReviewWindow(u64)`**: Custom duration (seconds) after milestone submission during which the client can review work before auto-approval becomes eligible.
+- **`Terms(u64)`**: SHA-256 hash digest `BytesN<32>` of the agreed contract terms.
+- **`MilestoneSpecs(u64)`**: Vector of SHA-256 hash digests `Vec<BytesN<32>>` specifying technical requirements for each milestone.
+
+### 5.4 Financial Accounting & Multi-Funder Solvency
+
+- **`Funders(u64)`**: `Map<Address, i128>` tracking deposits made by individual funding addresses. Allows up to `MAX_FUNDERS = 10` participants to contribute to an escrow and guarantees pro-rata refunds if the contract is cancelled or unfunded.
+- **`FundBy(u64)`**: Ledger timestamp deadline by which total deposits must reach the contract amount. Once expired, any participant can trigger `refund_unfunded`.
+- **`Liability(Address)`**: Global accumulator tracking the total active token balance owed by the contract for a given token address. Checked on every financial mutation via `assert_solvent` to guarantee reserves match liabilities.
+- **`Bonus(u64)`**: Discretionary bonus amount `i128` paid by client to freelancer for an escrow.
+- **`BonusTotal(Address)`**: Cumulative bonuses `i128` paid to a freelancer address.
+
+### 5.5 Dispute Arbitration & Mutual Settlement
+
+- **`DisputeBond(u64)`**: Stores `(Address, i128)` recording the dispute opener and posted collateral bond (calculated as `DISPUTE_BOND_BPS = 200` bps = 2%). Returned if the dispute is resolved in the opener's favor; forfeited otherwise.
+- **`Settlement(u64)`**: Stores active `SettlementProposal` (`proposer: Address, freelancer_amount: i128`). Either counterparty can propose a settlement split; acceptance by the other counterparty settles the escrow immediately.
+- **`Votes(u64)`**: `Map<Address, u32>` recording panel member votes on resolution splits. Once `threshold` matching votes are recorded, the contract settles the dispute and removes `Votes(id)`.
+
+### 5.6 Contract Negotiation & Governance
+
+- **`ChangeOrder(u64)`**: `Vec<i128>` proposed additional milestone amounts submitted by the client. Must be accepted by the freelancer to become active.
+- **`Amendment(u64)`**: `Amendment` proposal (`proposer: Address, new_amounts: Vec<i128>, nonce: u32`) allowing reallocation of remaining milestone amounts.
+- **`AmendNonce(u64)`**: Monotonic counter `u32` for amendment replay protection.
+- **`RoleMember(Role, Address)`**: Access control mapping role enum to account membership boolean.
+
+### 5.7 Reputation & Rating System
+
+- **`Reputation(Address)`**: `Reputation` struct (`total_score: i128, count: i128`) for freelancers.
+- **`Outcomes(Address)`**: `Outcomes` tracking historical contract completions, dispute resolutions, and cancellations.
+- **`Rating(u64)`**: `RatingRecord` storing client rating (1..=5) and void status.
+- **`WeightedRep(Address)`**: Escrow value-weighted reputation record.
+- **`RatingWeight(u64)`**: Snapshot of the weight attributed to an escrow rating.
+- **`ClientReputation(Address)`**: Counter-party rating for client addresses.
+- **`ClientRated(u64)`**: Boolean guard preventing duplicate ratings submitted by a freelancer for the client on an escrow.
+
+### 5.8 Paginated Participant Indexes
+
+- **`ClientEscrows(Address)`**: Total count `u32` of escrows created by a client.
+- **`FreelancerEscrows(Address)`**: Total count `u32` of escrows created for a freelancer.
+- **`ClientPage(Address, u32)`**: Paginated array of up to 50 escrow IDs (`Vec<u64>`) created by a client.
+- **`FreelancerPage(Address, u32)`**: Paginated array of up to 50 escrow IDs (`Vec<u64>`) created for a freelancer.
+
+---
+
+## 6. Storage Verification & Test Coverage
+
+All storage behaviors, serialization guarantees, and TTL maintenance are verified in the test suite ([`contracts/escrow/src/test.rs`](../contracts/escrow/src/test.rs)):
+
+- **`extend_escrow_ttl_keeps_quiet_escrow_and_side_keys_alive`**: Asserts that calling `extend_escrow_ttl` on a quiet escrow bumps `ContractV`, `FundBy`, `Funders`, and instance storage to `>= PERSISTENT_TTL_THRESHOLD`, keeping the escrow reachable past its initial TTL window.
+- **`extend_reputation_ttl_keeps_reputation_alive`**: Verifies that calling `extend_reputation_ttl` extends `Reputation` and `WeightedRep` beyond `PERSISTENT_TTL_THRESHOLD`.
+- **`party_indices_paginate_in_creation_order`**: Verifies that creating 120 escrows allocates `ClientPage` and `FreelancerPage` across 3 distinct pages (pages of 50) in strictly deterministic creation order.
+- **`metadata_writes_bump_ttl`**: Asserts that updating metadata (`Terms`, `MilestoneSpecs`, `Delivery`) bumps persistent TTL.
+- **`reads_on_legacy_entry_do_not_mutate_storage`**: Verifies that read operations on legacy `Contract` entries do not trigger writes, while mutations cleanly migrate them to `ContractV`.

@@ -1,7 +1,7 @@
 # Reputation Authorization Rules
 
 This document describes who may call each reputation entrypoint, under what
-conditions, and which rejections apply. All rules are derived from the
+conditions, and which errors apply. All rules are derived from the
 implementation in `contracts/escrow/src/lib.rs`.
 
 ---
@@ -10,10 +10,10 @@ implementation in `contracts/escrow/src/lib.rs`.
 
 | Role | Description | Reputation permissions |
 |---|---|---|
-| **client** | The party that commissioned the work | May call `issue_reputation` on their own contracts |
-| **freelancer** | The party that performed the work | Read-only (`get_reputation`, etc.) |
-| **arbiter** | Dispute resolver | None |
-| **admin** | Protocol administrator | None |
+| **client** | The party that commissioned the work | May call `issue_reputation` on their own escrows |
+| **freelancer** | The party that performed the work | May call `rate_client` on their own escrows |
+| **admin** | Protocol administrator | May call `void_rating` to reverse fraudulent freelancer ratings |
+| **anyone** | Public / permissionless | Read-only getters and `extend_reputation_ttl` |
 
 ---
 
@@ -23,116 +23,93 @@ implementation in `contracts/escrow/src/lib.rs`.
 
 | Entrypoint | Caller restriction | Auth required |
 |---|---|---|
-| `issue_reputation(contract_id, caller, rating, comment)` | `caller == contract.client` | `caller.require_auth()` |
+| `issue_reputation(id, rating)` | `contract.client` | `c.client.require_auth()` |
+| `rate_client(id, rating)` | `contract.freelancer` | `c.freelancer.require_auth()` |
+| `void_rating(id, reason)` | Contract admin | `require_admin(&env)` |
+| `extend_reputation_ttl(freelancer)` | Permissionless | None |
 
 ### Read-only (public)
 
 | Entrypoint | Returns |
 |---|---|
-| `get_reputation(address) -> Option<Reputation>` | Freelancer aggregate record |
-| `get_average_rating(address) -> Option<i128>` | Average rating (×10 000 basis points) |
-| `get_reputation_comment(contract_id) -> Option<String>` | Client comment for a contract |
-| `get_pending_reputation_credits(address) -> i128` | Number of completed contracts awaiting rating |
+| `get_reputation(freelancer) -> Reputation` | Freelancer unweighted aggregate (`completed_contracts`, `total_rating`) |
+| `get_weighted_reputation(freelancer) -> WeightedReputation` | Freelancer value-weighted aggregate (`weighted_rating_sum`, `weight_total`, `rated_contracts`) |
+| `get_reputation_score(freelancer) -> Option<u32>` | Value-weighted score in hundredths (`reputation_score`, half-up rounded) |
+| `get_rating(id) -> Option<RatingRecord>` | Per-contract freelancer rating record (`freelancer`, `rating`, `issued_at`, `voided`) |
+| `get_client_reputation(client) -> Reputation` | Client unweighted aggregate (`completed_contracts`, `total_rating`) |
 
 ---
 
-## `issue_reputation` Guard Chain
+## Guard Chains
 
-Guards are evaluated in source order (`lib.rs:1494-1529`). The first failing
-guard panics with the corresponding error.
+Guards are evaluated in source order in `contracts/escrow/src/lib.rs`. The first
+failing guard returns the corresponding `EscrowError` (or fails Soroban auth).
+
+### `issue_reputation(id, rating)`
 
 | # | Guard | Error | Code |
 |---|---|---|---|
-| 1 | Contract is not paused | `ContractPaused` | 16 |
-| 2 | Emergency pause is not active | `EmergencyActive` | 17 |
-| 3 | Contract exists in storage | `ContractNotFound` | 6 |
-| 4 | `caller == contract.client` | `UnauthorizedRole` | 15 |
-| 5 | `rating >= 1 && rating <= 5` | `InvalidRating` | 19 |
-| 6 | `comment.len() > 0` | `EmptyComment` | 42 |
-| 7 | `comment.len() <= 200` | `CommentTooLong` | 43 |
-| 8 | `contract.status == Completed` | `NotCompleted` | 22 |
-| 9 | `contract.reputation_issued == false` | `ReputationAlreadyIssued` | 21 |
-| 10 | `contract.client != contract.freelancer` | `SelfRating` | 20 |
-| 11 | `caller.require_auth()` succeeds | Soroban auth failure | — |
-| 12 | `PendingReputationCredits(freelancer) > 0` | `InvalidState` | 18 |
+| 1 | `PAUSE_REPUTATION` is not active | `Paused` | 4 |
+| 2 | Escrow is not compacted | `EscrowCompacted` | 26 |
+| 3 | Escrow exists in storage | `ContractNotFound` | 5 |
+| 4 | Escrow is not frozen | `EscrowFrozen` | 22 |
+| 5 | `c.client.require_auth()` succeeds | Soroban auth failure | — |
+| 6 | `c.status` is `Completed` or `Resolved` | `InvalidStatus` | 10 |
+| 7 | `c.reputation_issued == false` | `ReputationAlreadyIssued` | 16 |
+| 8 | `rating` in `1..=5` | `InvalidRating` | 15 |
+| 9 | `c.released_amount >= MIN_REPUTATION_VALUE` (`10_000_000`) | `BelowReputationThreshold` | 30 |
+| 10 | Checked arithmetic on `Reputation` & `WeightedReputation` | `ArithmeticOverflow` | 17 |
+
+### `rate_client(id, rating)`
+
+| # | Guard | Error | Code |
+|---|---|---|---|
+| 1 | `PAUSE_REPUTATION` is not active | `Paused` | 4 |
+| 2 | Escrow exists in storage | `ContractNotFound` | 5 |
+| 3 | Escrow is not frozen | `EscrowFrozen` | 22 |
+| 4 | `c.freelancer.require_auth()` succeeds | Soroban auth failure | — |
+| 5 | `c.status` is `Completed` or `Resolved` | `InvalidStatus` | 10 |
+| 6 | `DataKey::ClientRated(id)` is `false` / absent | `ReputationAlreadyIssued` | 16 |
+| 7 | `rating` in `1..=5` | `InvalidRating` | 15 |
+| 8 | Checked arithmetic on `ClientReputation` | `ArithmeticOverflow` | 17 |
+
+### `void_rating(id, reason)`
+
+| # | Guard | Error | Code |
+|---|---|---|---|
+| 1 | `require_admin(&env)` succeeds | `NotInitialized` / `Unauthorized` / Soroban auth failure | 2 / 3 |
+| 2 | `PAUSE_REPUTATION` is not active | `Paused` | 4 |
+| 3 | `DataKey::Rating(id)` exists | `RatingNotFound` | 18 |
+| 4 | `record.voided == false` | `RatingAlreadyVoided` | 19 |
 
 ---
 
 ## State Transitions
 
-### Pending credit granted (increment)
+### Freelancer rating (`issue_reputation`)
 
-A pending reputation credit is added for the freelancer when a contract
-transitions to `Completed`:
+- `c.reputation_issued`: `false -> true` (one-way)
+- `DataKey::Reputation(freelancer)`: `completed_contracts += 1`, `total_rating += rating`
+- `DataKey::WeightedRep(freelancer)`:
+  - `weighted_rating_sum += c.released_amount * rating`
+  - `weight_total += c.released_amount`
+  - `rated_contracts += 1`
+- `DataKey::RatingWeight(id)`: set to `c.released_amount`
+- `DataKey::Rating(id)`: set to `RatingRecord { freelancer, rating, issued_at, voided: false }`
 
-| Code path | File:line |
-|---|---|
-| `release_milestone` — all milestones released/refunded | `lib.rs:654-658` |
-| `release_milestone_impl` — internal release helper | `release.rs:122-128` |
-| `refund_unreleased_milestones` — partial release + refund | `lib.rs:914-922` |
-| `resolve_dispute` — dispute resolved with freelancer payout | `lib.rs:2124-2126` |
+### Client rating (`rate_client`)
 
-Fully refunded contracts (`Refunded` status) do **not** grant a credit.
+- `DataKey::ClientRated(id)`: `false -> true` (one-way)
+- `DataKey::ClientReputation(client)`: `completed_contracts += 1`, `total_rating += rating`
 
-### Pending credit consumed (decrement)
+### Voiding a freelancer rating (`void_rating`)
 
-| Code path | File:line | Condition |
-|---|---|---|
-| `issue_reputation` | `lib.rs:1543-1548` | `pending > 0` (panics `InvalidState` otherwise) |
-
-### `reputation_issued` flag
-
-| From | To | Trigger |
-|---|---|---|
-| `false` | `true` | `issue_reputation` succeeds (`lib.rs:1530`) |
-
-This is a one-way transition. Once set, `issue_reputation` for that contract is
-permanently blocked.
-
-### Reputation aggregation
-
-On successful `issue_reputation` (`lib.rs:1550-1556`):
-
-- `completed_contracts += 1`
-- `total_rating += rating`
-- `last_rating = rating`
-
----
-
-## Worked Example
-
-```
-1. Client creates contract #42 with freelancer Alice.
-   → Contract.status = Created, reputation_issued = false
-
-2. Client funds the contract.
-   → Contract.status = Funded
-
-3. Client releases all milestones.
-   → Contract.status = Completed
-   → PendingReputationCredits(Alice) += 1   // credit granted
-
-4. Client calls issue_reputation(42, client, 5, "Great work!")
-   Guard checks (all pass):
-     ✓ Not paused
-     ✓ Contract exists
-     ✓ caller == client
-     ✓ rating in [1,5]
-     ✓ comment non-empty, ≤200 bytes
-     ✓ status == Completed
-     ✓ reputation_issued == false
-     ✓ client != Alice
-     ✓ Soroban auth succeeds
-     ✓ PendingReputationCredits(Alice) > 0
-
-   State changes:
-     → contract.reputation_issued = true
-     → PendingReputationCredits(Alice) -= 1   // credit consumed
-     → Reputation(Alice): completed_contracts=1, total_rating=5, last_rating=5
-
-5. Client tries issue_reputation(42, client, 3, "Actually, mediocre")
-   → Panics: ReputationAlreadyIssued (code 21)
-```
+- `DataKey::Rating(id).voided`: `false -> true` (one-way)
+- `DataKey::Reputation(freelancer)`: saturating subtraction of `record.rating` and `1`
+- `DataKey::WeightedRep(freelancer)` (when `DataKey::RatingWeight(id)` is present):
+  - `weighted_rating_sum = saturating_sub(weight * rating).max(0)`
+  - `weight_total = saturating_sub(weight).max(0)`
+  - `rated_contracts = saturating_sub(1)`
 
 ---
 
@@ -140,15 +117,17 @@ On successful `issue_reputation` (`lib.rs:1550-1556`):
 
 | Error | Code | Meaning |
 |---|---|---|
-| `ContractNotFound` | 6 | No contract with the given ID |
-| `UnauthorizedRole` | 15 | Caller is not the contract client |
-| `ContractPaused` | 16 | Contract is paused (non-emergency) |
-| `EmergencyActive` | 17 | Emergency mode is active |
-| `InvalidState` | 18 | No pending credit to consume |
-| `InvalidRating` | 19 | Rating outside [1, 5] |
-| `SelfRating` | 20 | Client and freelancer are the same address |
-| `ReputationAlreadyIssued` | 21 | Reputation already issued for this contract |
-| `NotCompleted` | 22 | Contract not in Completed status |
-| `EmptyComment` | 42 | Comment is empty |
-| `CommentTooLong` | 43 | Comment exceeds 200 bytes |
-| Soroban auth failure | — | Cryptographic signature not provided |
+| `NotInitialized` | 2 | Contract admin is not initialized |
+| `Unauthorized` | 3 | Caller is not authorized |
+| `Paused` | 4 | `PAUSE_REPUTATION` flag is active |
+| `ContractNotFound` | 5 | No escrow with the given ID |
+| `InvalidStatus` | 10 | Escrow is not `Completed` or `Resolved` |
+| `InvalidRating` | 15 | Rating outside `1..=5` |
+| `ReputationAlreadyIssued` | 16 | Rating already issued for this escrow |
+| `ArithmeticOverflow` | 17 | Checked arithmetic overflowed |
+| `RatingNotFound` | 18 | No `RatingRecord` exists for the given escrow ID |
+| `RatingAlreadyVoided` | 19 | Rating was already voided |
+| `EscrowFrozen` | 22 | Escrow is currently frozen |
+| `EscrowCompacted` | 26 | Escrow has been compacted to a receipt |
+| `BelowReputationThreshold` | 30 | `released_amount < MIN_REPUTATION_VALUE` (`10_000_000`) |
+| Soroban auth failure | — | Required signature not provided |
