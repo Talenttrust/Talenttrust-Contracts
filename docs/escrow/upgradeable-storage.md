@@ -65,3 +65,24 @@ test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 - `cargo llvm-cov --workspace --all-features --summary-only`
 - `contracts/escrow/src/lib.rs` line coverage: `95.18%`
 - workspace total line coverage: `97.76%`
+
+
+## Golden XDR Serialization Vectors Policy
+
+All persisted storage keys (`DataKey`) and stored contract types (`StoredEscrow::V1(EscrowContract)`, `EscrowReceipt`, `Panel`, `Stream`, `Amendment`, `SettlementProposal`, `PendingUpgrade`, `Reputation`, `WeightedReputation`, `Outcomes`, `RatingRecord`, `ContractStatus`, `Role`) are pinned to golden base64 XDR vectors in `contracts/escrow/src/test.rs`:
+
+- `golden_datakey_xdr_vectors` — pins every `DataKey` variant and enforces exhaustiveness via `assert_datakey_exhaustive`.
+- `golden_storage_types_xdr_vectors` — pins every persisted struct and enum using fixed addresses and deterministic values.
+
+### Rules for Contributors
+
+1. **Never edit an existing golden vector in place** to make a failing test pass. A mismatch means a **storage-breaking change** that will corrupt or orphan live on-ledger state after an upgrade.
+2. **Adding new storage**:
+   - Adding a new `DataKey` variant is backwards-compatible; append the new variant and add a corresponding golden vector entry in `golden_datakey_xdr_vectors` (and `assert_datakey_exhaustive`).
+   - Evolving an existing persisted struct (such as `EscrowContract`) requires adding a new versioned envelope variant (for example `StoredEscrow::V2(...)`), updating `upgrade_to_latest` / `migrate_escrows`, and pinning the new variant alongside the unchanged `V1` vector.
+3. **Never rename, remove, or change field types** on existing `DataKey` variants or persisted structs/enums without a documented migration plan.
+4. **Verification**: Run the golden vector suite before opening a PR:
+
+```bash
+cargo test -p escrow golden
+```
