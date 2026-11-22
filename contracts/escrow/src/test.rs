@@ -7551,3 +7551,162 @@ fn amendment_stale_nonce_rejected() {
     );
     assert_amendment_invariants(&s, id);
 }
+
+#[test]
+fn withdraw_deposit_partial_and_full_while_created() {
+    let s = setup();
+    let sponsor = Address::generate(&s.env);
+    StellarAssetClient::new(&s.env, &s.token.address).mint(&sponsor, &(200 * U));
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(60 * U));
+    s.escrow.deposit_from(&id, &sponsor, &(80 * U));
+
+    // Pending settlement proposal should be cleared on withdrawal.
+    s.escrow.propose_settlement(&id, &s.client, &(10 * U));
+    assert!(s.escrow.get_settlement(&id).is_some());
+
+    // Partial withdrawal by sponsor.
+    s.escrow.withdraw_deposit(&id, &sponsor, &(30 * U));
+    assert_eq!(s.token.balance(&sponsor), 150 * U);
+    assert_eq!(s.escrow.get_contract(&id).funded_amount, 110 * U);
+    assert_eq!(s.escrow.get_liability(&s.token.address), 110 * U);
+    assert_eq!(s.escrow.get_funders(&id).get(sponsor.clone()), Some(50 * U));
+    assert!(s.escrow.get_settlement(&id).is_none());
+
+    // Full withdrawal of remaining sponsor deposit removes sponsor from map.
+    s.escrow.withdraw_deposit(&id, &sponsor, &(50 * U));
+    assert_eq!(s.token.balance(&sponsor), 200 * U);
+    assert_eq!(s.escrow.get_contract(&id).funded_amount, 60 * U);
+    assert_eq!(s.escrow.get_liability(&s.token.address), 60 * U);
+    assert_eq!(s.escrow.get_funders(&id).get(sponsor.clone()), None);
+    assert_eq!(
+        s.escrow.get_funders(&id).get(s.client.clone()),
+        Some(60 * U)
+    );
+
+    // Client withdraws all their deposit too; map becomes empty.
+    s.escrow.withdraw_deposit(&id, &s.client, &(60 * U));
+    assert_eq!(s.escrow.get_contract(&id).funded_amount, 0);
+    assert_eq!(s.escrow.get_liability(&s.token.address), 0);
+    assert!(s.escrow.get_funders(&id).is_empty());
+}
+
+#[test]
+fn withdraw_deposit_rejects_invalid_amounts_and_non_funder() {
+    let s = setup();
+    let sponsor = Address::generate(&s.env);
+    let stranger = Address::generate(&s.env);
+    StellarAssetClient::new(&s.env, &s.token.address).mint(&sponsor, &(100 * U));
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_from(&id, &sponsor, &(40 * U));
+
+    assert_eq!(
+        s.escrow.try_withdraw_deposit(&id, &sponsor, &0),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+    assert_eq!(
+        s.escrow.try_withdraw_deposit(&id, &sponsor, &(-1)),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+    assert_eq!(
+        s.escrow.try_withdraw_deposit(&id, &sponsor, &(41 * U)),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+    assert_eq!(
+        s.escrow.try_withdraw_deposit(&id, &stranger, &(1 * U)),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+}
+
+#[test]
+fn withdraw_deposit_blocked_in_non_created_frozen_and_paused_states() {
+    let s = setup();
+
+    // Paused (PAUSE_DEPOSIT) and Frozen block withdrawal.
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(50 * U));
+
+    s.escrow.set_pause_flags(&s.admin, &PAUSE_DEPOSIT);
+    assert_eq!(
+        s.escrow.try_withdraw_deposit(&id, &s.client, &(10 * U)),
+        Err(Ok(EscrowError::Paused))
+    );
+    s.escrow.set_pause_flags(&s.admin, &0);
+
+    s.escrow
+        .freeze_escrow(&id, &soroban_sdk::String::from_str(&s.env, "review"));
+    assert_eq!(
+        s.escrow.try_withdraw_deposit(&id, &s.client, &(10 * U)),
+        Err(Ok(EscrowError::EscrowFrozen))
+    );
+    s.escrow.unfreeze_escrow(&id);
+
+    // Funded blocks withdrawal.
+    s.escrow.deposit_funds(&id, &(50 * U));
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+    assert_eq!(
+        s.escrow.try_withdraw_deposit(&id, &s.client, &(10 * U)),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+
+    // Disputed blocks withdrawal.
+    open_dispute_bonded(&s, &id, &s.client);
+    assert_eq!(
+        s.escrow.try_withdraw_deposit(&id, &s.client, &(10 * U)),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+
+    // Resolved blocks withdrawal.
+    resolve_refunding_bond(&s, &id, &5_000);
+    assert_eq!(
+        s.escrow.try_withdraw_deposit(&id, &s.client, &(10 * U)),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+
+    // Completed blocks withdrawal.
+    let id2 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50 * U],
+    );
+    s.escrow.deposit_funds(&id2, &(50 * U));
+    s.escrow.release_milestone(&id2, &0);
+    assert_eq!(
+        s.escrow.try_withdraw_deposit(&id2, &s.client, &(10 * U)),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+
+    // Expired-and-cancelled blocks withdrawal.
+    let id3 = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id3, &(20 * U));
+    let fund_by = s.escrow.get_fund_by(&id3);
+    s.env.ledger().set_timestamp(fund_by + 1);
+    s.escrow.expire_unfunded(&id3);
+    assert_eq!(
+        s.escrow.try_withdraw_deposit(&id3, &s.client, &(10 * U)),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+}
