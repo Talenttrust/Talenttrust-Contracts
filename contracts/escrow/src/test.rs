@@ -7196,6 +7196,59 @@ fn extend_escrow_ttl_keeps_quiet_escrow_and_side_keys_alive() {
 }
 
 #[test]
+fn extend_escrow_ttl_keeps_remaining_side_entries_alive() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U, 50 * U],
+    );
+    s.escrow.deposit_funds(&id, &(150 * U));
+    s.escrow.submit_milestone(&id, &0);
+    s.escrow.deliver(&id, &0, &hash32(&s.env, 1));
+    s.escrow.deliver(&id, &1, &hash32(&s.env, 2));
+    s.escrow
+        .propose_amendment(&id, &s.client, &vec![&s.env, 80 * U, 50 * U]);
+    s.escrow.propose_settlement(&id, &s.client, &(75 * U));
+    s.escrow.propose_change_order(&id, &vec![&s.env, 25 * U]);
+
+    let stream_id = s.escrow.create_stream(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &(100 * U),
+        &1_000,
+        &10_000,
+    );
+
+    s.env.ledger().set_sequence_number(QUIET);
+
+    let escrow_keys = [
+        DataKey::Amendment(id),
+        DataKey::AmendNonce(id),
+        DataKey::Settlement(id),
+        DataKey::ChangeOrder(id),
+        DataKey::Submitted(id, 0),
+        DataKey::Delivery(id, 0),
+        DataKey::Delivery(id, 1),
+    ];
+    for key in &escrow_keys {
+        assert!(persistent_ttl(&s, key) < PERSISTENT_TTL_THRESHOLD);
+    }
+    let stream_key = DataKey::Stream(stream_id);
+    assert!(persistent_ttl(&s, &stream_key) < PERSISTENT_TTL_THRESHOLD);
+
+    s.escrow.extend_escrow_ttl(&id);
+    s.escrow.extend_escrow_ttl(&stream_id);
+
+    for key in &escrow_keys {
+        assert_eq!(persistent_ttl(&s, key), PERSISTENT_TTL_EXTEND);
+    }
+    assert_eq!(persistent_ttl(&s, &stream_key), PERSISTENT_TTL_EXTEND);
+}
+
+#[test]
 fn extend_reputation_ttl_keeps_reputation_alive() {
     let s = setup();
     let id = s.escrow.create_contract(

@@ -96,57 +96,106 @@ pub const THIRTY_DAYS_IN_LEDGERS: u32 = 518_400;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum EscrowError {
+    /// Contract has already been initialized.
     AlreadyInitialized = 1,
+    /// Contract has not been initialized yet.
     NotInitialized = 2,
+    /// Caller is not authorized to perform this action.
     Unauthorized = 3,
+    /// The requested operation category is currently paused.
     Paused = 4,
+    /// No escrow exists for the given id.
     ContractNotFound = 5,
+    /// Client and freelancer addresses are invalid (e.g. identical).
     InvalidParties = 6,
+    /// Milestone list is empty or exceeds `MAX_MILESTONES`.
     InvalidMilestones = 7,
+    /// Supplied amount or batch size is invalid (e.g. non-positive or out of bounds).
     InvalidAmount = 8,
+    /// Deposit would exceed the escrow's total amount.
     OverFunded = 9,
+    /// Escrow is not in a status that permits this operation.
     InvalidStatus = 10,
+    /// Milestone index is out of range for this escrow.
     MilestoneNotFound = 11,
+    /// Milestone has already been released.
     MilestoneAlreadyReleased = 12,
+    /// Escrow does not hold enough funded balance to cover the payout.
     InsufficientFunds = 13,
+    /// Dispute split basis points are invalid (must be `<= BPS_DENOMINATOR`).
     InvalidSplit = 14,
+    /// Rating value is outside the allowed range (`1..=5`).
     InvalidRating = 15,
+    /// Reputation has already been issued for this escrow.
     ReputationAlreadyIssued = 16,
+    /// Checked arithmetic overflowed or underflowed.
     ArithmeticOverflow = 17,
+    /// No rating record exists for the given escrow id.
     RatingNotFound = 18,
+    /// Rating record has already been voided.
     RatingAlreadyVoided = 19,
+    /// Requested state transition is not permitted.
     InvalidTransition = 20,
+    /// Contract holds no surplus balance above liabilities for the token.
     NoSurplus = 21,
+    /// Escrow is frozen by an administrator and cannot be mutated.
     EscrowFrozen = 22,
+    /// Contract admin cannot be a party (client or freelancer) to an escrow.
     AdminCannotBeParty = 23,
+    /// Milestone amount is below `MIN_MILESTONE_AMOUNT`.
     MilestoneTooSmall = 24,
+    /// Escrow is not yet eligible for compaction into a receipt.
     NotCompactable = 25,
+    /// Escrow has been compacted into a receipt; use `get_receipt` instead.
     EscrowCompacted = 26,
+    /// Team payout split configuration is invalid (e.g. shares do not sum to `BPS_DENOMINATOR`).
     InvalidSplitConfig = 27,
+    /// Sequential milestone cannot be released before all prior milestones.
     OutOfOrder = 28,
+    /// Duplicate milestone index or member address supplied.
     DuplicateIndex = 29,
+    /// Released value is below `MIN_REPUTATION_VALUE` required to issue reputation.
     BelowReputationThreshold = 30,
+    /// Arbiter panel configuration (members or threshold) is invalid.
     InvalidPanel = 31,
+    /// Escrow value meets or exceeds `PANEL_THRESHOLD_AMOUNT` and requires arbiter panel voting.
     PanelRequired = 32,
+    /// Account already has (or already lacks) the specified role.
     RoleUnchanged = 33,
+    /// Number of distinct funders would exceed `MAX_FUNDERS`.
     TooManyFunders = 34,
+    /// Escrow funding window has elapsed and it can no longer be funded.
     FundingExpired = 35,
+    /// Escrow funding window has not yet elapsed.
     NotExpired = 36,
+    /// No pending change order or proposal exists for this escrow.
     ChangeOrderNotFound = 37,
+    /// Metadata hash or payload is invalid.
     InvalidMetadata = 38,
+    /// No WASM upgrade is currently scheduled.
     NoPendingUpgrade = 39,
+    /// Scheduled WASM upgrade time-lock has not yet elapsed.
     UpgradeNotReady = 40,
+    /// Review window duration is outside `[MIN_REVIEW_WINDOW_SECS, MAX_REVIEW_WINDOW_SECS]`.
     InvalidReviewWindow = 41,
+    /// Milestone has not been submitted by the freelancer yet.
     MilestoneNotSubmitted = 42,
+    /// Milestone review window has not yet elapsed.
     ReviewWindowActive = 43,
     /// The token moved a different amount than requested (fee-on-transfer,
     /// rebasing or misreporting token); see `transfer_checked`.
     TransferAmountMismatch = 44,
+    /// Proposed admin address is invalid (e.g. same as current admin).
     InvalidAdmin = 45,
+    /// No pending admin nomination exists to accept.
     NoPendingAdmin = 46,
+    /// Emergency exit is not available (contract not paused long enough or invalid state).
     EmergencyExitNotAvailable = 47,
+    /// Settlement proposal parameters do not match the pending proposal.
     SettlementMismatch = 48,
+    /// Protocol fee exceeds `MAX_FEE_BPS`.
     FeeTooHigh = 49,
+    /// Stream vesting schedule is invalid (e.g. duration below `MIN_STREAM_SECS`).
     InvalidSchedule = 50,
     // NOTE: the Soroban contract spec caps an error enum at 50 cases, so new
     // failure modes reuse the closest existing code (append-only numbering).
@@ -1657,6 +1706,10 @@ impl Escrow {
             .unwrap_or(1)
     }
 
+    /// Returns the contract administrator's address.
+    ///
+    /// - **Storage reads:** `DataKey::Admin` (instance storage).
+    /// - **Errors:** `EscrowError::NotInitialized` if `initialize` has not been called.
     pub fn get_admin(env: Env) -> Result<Address, EscrowError> {
         admin(&env)
     }
@@ -3681,10 +3734,21 @@ impl Escrow {
         Ok(())
     }
 
+    /// Returns the rating record issued for escrow `id`, or `None` if no rating has been issued.
+    ///
+    /// - **Storage reads:** `DataKey::Rating(id)` (persistent storage).
+    /// - **Errors:** None.
     pub fn get_rating(env: Env, id: u64) -> Option<RatingRecord> {
         env.storage().persistent().get(&DataKey::Rating(id))
     }
 
+    /// Returns the full `EscrowContract` for `id`.
+    ///
+    /// - **Storage reads:** `DataKey::Receipt(id)` (compaction check), then
+    ///   `DataKey::ContractV(id)` falling back to legacy `DataKey::Contract(id)`
+    ///   (persistent storage). Read-only; never mutates or migrates storage.
+    /// - **Errors:** `EscrowError::EscrowCompacted` if the escrow has been compacted
+    ///   into a receipt; `EscrowError::ContractNotFound` if no escrow exists for `id`.
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
         if is_compacted(&env, id) {
             return Err(EscrowError::EscrowCompacted);
@@ -4207,6 +4271,10 @@ impl Escrow {
         env.storage().persistent().get(&DataKey::Receipt(id))
     }
 
+    /// Returns the total number of escrows created so far (`0` before any escrow is created).
+    ///
+    /// - **Storage reads:** `DataKey::NextId` (instance storage).
+    /// - **Errors:** None.
     pub fn contract_count(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -4215,6 +4283,11 @@ impl Escrow {
             - 1
     }
 
+    /// Returns the aggregate `Reputation` (completed contracts and total rating) for
+    /// `freelancer`, defaulting to zeroed fields if none is recorded.
+    ///
+    /// - **Storage reads:** `DataKey::Reputation(freelancer)` (persistent storage).
+    /// - **Errors:** None.
     pub fn get_reputation(env: Env, freelancer: Address) -> Reputation {
         env.storage()
             .persistent()
@@ -4222,6 +4295,11 @@ impl Escrow {
             .unwrap_or_default()
     }
 
+    /// Returns the value-weighted `WeightedReputation` for `freelancer`, defaulting
+    /// to zeroed fields if no weighted ratings are recorded.
+    ///
+    /// - **Storage reads:** `DataKey::WeightedRep(freelancer)` (persistent storage).
+    /// - **Errors:** None.
     pub fn get_weighted_reputation(env: Env, freelancer: Address) -> WeightedReputation {
         env.storage()
             .persistent()
@@ -4376,6 +4454,11 @@ impl Escrow {
         env.storage().persistent().get(&DataKey::DisputeBond(id))
     }
 
+    /// Returns the aggregate `Reputation` accrued by `client` from freelancer ratings,
+    /// defaulting to zeroed fields if none is recorded.
+    ///
+    /// - **Storage reads:** `DataKey::ClientReputation(client)` (persistent storage).
+    /// - **Errors:** None.
     pub fn get_client_reputation(env: Env, client: Address) -> Reputation {
         env.storage()
             .persistent()
@@ -4383,6 +4466,11 @@ impl Escrow {
             .unwrap_or_default()
     }
 
+    /// Returns the dispute and cancellation `Outcomes` counters for `addr`, defaulting
+    /// to zeroed fields if none are recorded.
+    ///
+    /// - **Storage reads:** `DataKey::Outcomes(addr)` (persistent storage).
+    /// - **Errors:** None.
     pub fn get_outcomes(env: Env, addr: Address) -> Outcomes {
         env.storage()
             .persistent()
@@ -4399,16 +4487,25 @@ mod events {
         (EVENT_SCHEMA_V, name, id)
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "init")` with the initialized `admin` address.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn init(env: &Env, admin: &Address) {
         env.events()
             .publish((EVENT_SCHEMA_V, symbol_short!("init")), admin.clone());
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "paused")` with the new `paused` boolean state.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn paused(env: &Env, paused: bool) {
         env.events()
             .publish((EVENT_SCHEMA_V, symbol_short!("paused")), paused);
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "created", c.id)` with a [`CreatedEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn created(env: &Env, c: &EscrowContract) {
         env.events().publish(
             escrow_topic(symbol_short!("created"), c.id),
@@ -4422,6 +4519,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "deposit", c.id)` with a [`DepositEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn deposit(env: &Env, c: &EscrowContract, from: &Address, amount: i128) {
         env.events().publish(
             escrow_topic(symbol_short!("deposit"), c.id),
@@ -4434,6 +4534,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "release", c.id)` with a [`ReleaseEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn release(
         env: &Env,
         c: &EscrowContract,
@@ -4456,6 +4559,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "complete", c.id)` with a [`CompletedEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn completed(env: &Env, c: &EscrowContract) {
         env.events().publish(
             escrow_topic(symbol_short!("complete"), c.id),
@@ -4465,6 +4571,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "dispute", c.id)` with a [`DisputeEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn dispute(env: &Env, c: &EscrowContract, by: &Address, bond: i128) {
         env.events().publish(
             escrow_topic(symbol_short!("dispute"), c.id),
@@ -4476,6 +4585,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "resolved", c.id)` with a [`ResolvedEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn resolved(
         env: &Env,
         c: &EscrowContract,
@@ -4496,6 +4608,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "cancel", c.id)` with a [`CancelEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn cancel(env: &Env, c: &EscrowContract, refund: i128) {
         env.events().publish(
             escrow_topic(symbol_short!("cancel"), c.id),
@@ -4507,6 +4622,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "rep", c.id)` with a [`ReputationEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn reputation(env: &Env, c: &EscrowContract, rating: u32, rep: &Reputation, weight: i128) {
         env.events().publish(
             escrow_topic(symbol_short!("rep"), c.id),
