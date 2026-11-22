@@ -35,6 +35,9 @@ pub const ESCROW_INDEX_PAGE_SIZE: u32 = 50;
 pub const BPS_DENOMINATOR: i128 = 10_000;
 /// 48-hour time-lock delay before a scheduled WASM upgrade can be executed.
 pub const UPGRADE_DELAY_SECS: u64 = 172_800;
+/// 48-hour time-lock delay before a scheduled governance parameter change
+/// (e.g. protocol fee increase) can be executed.
+pub const PARAM_DELAY_SECS: u64 = 172_800;
 /// Pause categories (bitmask) for `set_pause_flags`.
 pub const PAUSE_CREATE: u32 = 1;
 pub const PAUSE_DEPOSIT: u32 = 2;
@@ -264,6 +267,16 @@ pub struct PendingUpgrade {
     pub eta: u64,
 }
 
+/// An in-flight protocol fee / treasury change scheduled by the admin.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingFeeChange {
+    pub fee_bps: u32,
+    pub treasury: Address,
+    /// The earliest ledger timestamp at which `execute_fee_change` may succeed.
+    pub eta: u64,
+}
+
 /// Schema version carried as the first topic of every structured event.
 pub const EVENT_SCHEMA_V: u32 = 1;
 
@@ -487,6 +500,7 @@ enum DataKey {
     Stream(u64),
     Amendment(u64),
     AmendNonce(u64),
+    PendingFeeChange,
 }
 
 #[contract]
@@ -1742,8 +1756,12 @@ impl Escrow {
     }
 
     /// Admin sets the protocol fee (`fee_bps <= MAX_FEE_BPS`, else `FeeTooHigh`)
-    /// and its treasury. New escrows snapshot the rate at creation; existing
-    /// escrows keep theirs. Emits `("fee_set",) -> (fee_bps, treasury)`.
+    /// and its treasury immediately **only** when the fee is not increasing
+    /// (`fee_bps <= current_fee_bps`). Fee increases must go through the
+    /// timelocked `schedule_fee_change` -> `execute_fee_change` flow; attempting
+    /// to increase the fee directly returns `UpgradeNotReady`.
+    /// New escrows snapshot the rate at creation; existing escrows keep theirs.
+    /// Emits `("fee_set",) -> (fee_bps, treasury)`.
     pub fn set_fee(env: Env, fee_bps: u32, treasury: Address) -> Result<(), EscrowError> {
         require_admin(&env)?;
         if fee_bps > MAX_FEE_BPS {
@@ -1752,12 +1770,115 @@ impl Escrow {
         if treasury == env.current_contract_address() {
             return Err(EscrowError::InvalidParties);
         }
+        let current_fee: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
+        if fee_bps > current_fee {
+            return Err(EscrowError::UpgradeNotReady);
+        }
         env.storage().instance().set(&DataKey::FeeBps, &fee_bps);
         env.storage().instance().set(&DataKey::Treasury, &treasury);
         bump_instance(&env);
         env.events()
             .publish((symbol_short!("fee_set"),), (fee_bps, treasury));
         Ok(())
+    }
+
+    /// Admin schedules a protocol fee and treasury change. The scheduled change
+    /// can only be executed after `PARAM_DELAY_SECS` (48 h) have elapsed, giving
+    /// users time to react before a fee increase takes effect.
+    ///
+    /// Calling `schedule_fee_change` again while one is pending resets the timer.
+    ///
+    /// Event: `("fee_sched",) -> (fee_bps, treasury, eta)`
+    pub fn schedule_fee_change(
+        env: Env,
+        fee_bps: u32,
+        treasury: Address,
+    ) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        if fee_bps > MAX_FEE_BPS {
+            return Err(EscrowError::FeeTooHigh);
+        }
+        if treasury == env.current_contract_address() {
+            return Err(EscrowError::InvalidParties);
+        }
+        let now = env.ledger().timestamp();
+        let eta = now
+            .checked_add(PARAM_DELAY_SECS)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        let pending = PendingFeeChange {
+            fee_bps,
+            treasury: treasury.clone(),
+            eta,
+        };
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingFeeChange, &pending);
+        bump_instance(&env);
+        env.events()
+            .publish((symbol_short!("fee_sched"),), (fee_bps, treasury, eta));
+        Ok(())
+    }
+
+    /// Admin cancels a scheduled protocol fee change before it executes.
+    ///
+    /// Fails with `NoPendingUpgrade` if no fee change is pending.
+    ///
+    /// Event: `("fee_cncl",) -> (fee_bps, treasury)`
+    pub fn cancel_fee_change(env: Env) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        let pending: PendingFeeChange = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingFeeChange)
+            .ok_or(EscrowError::NoPendingUpgrade)?;
+        env.storage().instance().remove(&DataKey::PendingFeeChange);
+        bump_instance(&env);
+        env.events().publish(
+            (symbol_short!("fee_cncl"),),
+            (pending.fee_bps, pending.treasury),
+        );
+        Ok(())
+    }
+
+    /// Admin executes a previously scheduled protocol fee change after
+    /// `PARAM_DELAY_SECS` have elapsed.
+    ///
+    /// Fails with:
+    /// - `NoPendingUpgrade` — no fee change is pending.
+    /// - `UpgradeNotReady`  — `PARAM_DELAY_SECS` have not yet elapsed.
+    ///
+    /// Existing escrows keep their snapshotted fee; new escrows use the new rate.
+    ///
+    /// Event: `("fee_exec",) -> (fee_bps, treasury)`
+    pub fn execute_fee_change(env: Env) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        let pending: PendingFeeChange = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingFeeChange)
+            .ok_or(EscrowError::NoPendingUpgrade)?;
+        let now = env.ledger().timestamp();
+        if now < pending.eta {
+            return Err(EscrowError::UpgradeNotReady);
+        }
+        env.storage().instance().remove(&DataKey::PendingFeeChange);
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeBps, &pending.fee_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::Treasury, &pending.treasury);
+        bump_instance(&env);
+        env.events().publish(
+            (symbol_short!("fee_exec"),),
+            (pending.fee_bps, pending.treasury),
+        );
+        Ok(())
+    }
+
+    /// Returns the currently scheduled fee change, or `None` if none is pending.
+    pub fn get_pending_fee_change(env: Env) -> Option<PendingFeeChange> {
+        env.storage().instance().get(&DataKey::PendingFeeChange)
     }
 
     /// Current `(fee_bps, treasury)`; `(0, None)` by default.
