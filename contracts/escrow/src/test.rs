@@ -8519,3 +8519,379 @@ fn events_auth_doc_matches_source_event_topics() {
         assert!(DOC.contains(topic), "undocumented event topic: {topic}");
     }
 }
+
+// ============================================================================
+// Golden XDR storage serialization vectors
+// ============================================================================
+
+/// Standard RFC 4648 base64 encoder (test-only, avoids adding a crate dep).
+fn encode_base64(input: &[u8]) -> std::string::String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = std::string::String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[((n >> 18) & 0x3f) as usize] as char);
+        out.push(TABLE[((n >> 12) & 0x3f) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(TABLE[((n >> 6) & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(TABLE[(n & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+fn to_xdr_base64<T: IntoVal<Env, soroban_sdk::Val>>(env: &Env, value: T) -> std::string::String {
+    use soroban_sdk::xdr::ToXdr;
+    let val: soroban_sdk::Val = value.into_val(env);
+    let xdr_bytes = val.to_xdr(env);
+    let raw: std::vec::Vec<u8> = xdr_bytes.iter().collect();
+    encode_base64(&raw)
+}
+
+fn assert_golden_xdr<T: IntoVal<Env, soroban_sdk::Val>>(
+    env: &Env,
+    name: &str,
+    value: T,
+    expected_b64: &str,
+) {
+    let actual = to_xdr_base64(env, value);
+    assert_eq!(
+        actual, expected_b64,
+        "GOLDEN XDR MISMATCH for `{name}`!\n\
+         Changing a persisted storage key or struct/enum layout is a STORAGE-BREAKING CHANGE.\n\
+         Existing on-ledger data will fail to decode or become unreachable after an upgrade.\n\
+         Do NOT update this vector in place — add a new versioned key/variant and a migration plan\n\
+         (see docs/escrow/upgradeable-storage.md)."
+    );
+}
+
+/// Exhaustive touch of every `DataKey` variant so adding, removing, or renaming
+/// a variant fails to compile until its golden XDR vector is pinned below.
+fn assert_datakey_exhaustive(key: &DataKey) {
+    match key {
+        DataKey::Admin
+        | DataKey::Paused
+        | DataKey::NextId
+        | DataKey::Contract(_)
+        | DataKey::Reputation(_)
+        | DataKey::Outcomes(_)
+        | DataKey::Rating(_)
+        | DataKey::Bonus(_)
+        | DataKey::BonusTotal(_)
+        | DataKey::Liability(_)
+        | DataKey::Payout(_)
+        | DataKey::Frozen(_)
+        | DataKey::ClosedAt(_)
+        | DataKey::Receipt(_)
+        | DataKey::Team(_)
+        | DataKey::ClientReputation(_)
+        | DataKey::ClientRated(_)
+        | DataKey::Sequential(_)
+        | DataKey::WeightedRep(_)
+        | DataKey::RatingWeight(_)
+        | DataKey::Panel
+        | DataKey::Votes(_)
+        | DataKey::RoleMember(_, _)
+        | DataKey::Funders(_)
+        | DataKey::FundBy(_)
+        | DataKey::ChangeOrder(_)
+        | DataKey::MilestonePaid(_, _)
+        | DataKey::Terms(_)
+        | DataKey::MilestoneSpecs(_)
+        | DataKey::Delivery(_, _)
+        | DataKey::DisputeBond(_)
+        | DataKey::Version
+        | DataKey::PendingUpgrade
+        | DataKey::ContractV(_)
+        | DataKey::Submitted(_, _)
+        | DataKey::ReviewWindow(_)
+        | DataKey::PendingAdmin
+        | DataKey::PausedAt
+        | DataKey::Resigned(_)
+        | DataKey::Settlement(_)
+        | DataKey::PauseFlags
+        | DataKey::FeeBps
+        | DataKey::Treasury
+        | DataKey::EscrowFee(_)
+        | DataKey::ClientEscrows(_)
+        | DataKey::FreelancerEscrows(_)
+        | DataKey::ClientPage(_, _)
+        | DataKey::FreelancerPage(_, _)
+        | DataKey::Stream(_)
+        | DataKey::Amendment(_)
+        | DataKey::AmendNonce(_) => {}
+    }
+}
+
+const GOLDEN_CLIENT_STR: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+const GOLDEN_FREELANCER_STR: &str = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+const GOLDEN_TOKEN_STR: &str = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
+
+#[test]
+fn golden_datakey_xdr_vectors() {
+    let env = Env::default();
+    let acc = Address::from_str(&env, GOLDEN_CLIENT_STR);
+    let con = Address::from_str(&env, GOLDEN_FREELANCER_STR);
+
+    let vectors: std::vec::Vec<(&str, DataKey, &str)> = std::vec![
+        ("DataKey::Admin", DataKey::Admin, "AAAAEAAAAAEAAAABAAAADwAAAAVBZG1pbgAAAA=="),
+        ("DataKey::Paused", DataKey::Paused, "AAAAEAAAAAEAAAABAAAADwAAAAZQYXVzZWQAAA=="),
+        ("DataKey::NextId", DataKey::NextId, "AAAAEAAAAAEAAAABAAAADwAAAAZOZXh0SWQAAA=="),
+        ("DataKey::Contract", DataKey::Contract(1), "AAAAEAAAAAEAAAACAAAADwAAAAhDb250cmFjdAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Reputation", DataKey::Reputation(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAApSZXB1dGF0aW9uAAAAAAASAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="),
+        ("DataKey::Outcomes", DataKey::Outcomes(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAAhPdXRjb21lcwAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        ("DataKey::Rating", DataKey::Rating(1), "AAAAEAAAAAEAAAACAAAADwAAAAZSYXRpbmcAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Bonus", DataKey::Bonus(1), "AAAAEAAAAAEAAAACAAAADwAAAAVCb251cwAAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::BonusTotal", DataKey::BonusTotal(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAApCb251c1RvdGFsAAAAAAASAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="),
+        ("DataKey::Liability", DataKey::Liability(con.clone()), "AAAAEAAAAAEAAAACAAAADwAAAAlMaWFiaWxpdHkAAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        ("DataKey::Payout", DataKey::Payout(1), "AAAAEAAAAAEAAAACAAAADwAAAAZQYXlvdXQAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Frozen", DataKey::Frozen(1), "AAAAEAAAAAEAAAACAAAADwAAAAZGcm96ZW4AAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::ClosedAt", DataKey::ClosedAt(1), "AAAAEAAAAAEAAAACAAAADwAAAAhDbG9zZWRBdAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Receipt", DataKey::Receipt(1), "AAAAEAAAAAEAAAACAAAADwAAAAdSZWNlaXB0AAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Team", DataKey::Team(1), "AAAAEAAAAAEAAAACAAAADwAAAARUZWFtAAAABQAAAAAAAAAB"),
+        ("DataKey::ClientReputation", DataKey::ClientReputation(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAABBDbGllbnRSZXB1dGF0aW9uAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        ("DataKey::ClientRated", DataKey::ClientRated(1), "AAAAEAAAAAEAAAACAAAADwAAAAtDbGllbnRSYXRlZAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::Sequential", DataKey::Sequential(1), "AAAAEAAAAAEAAAACAAAADwAAAApTZXF1ZW50aWFsAAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::WeightedRep", DataKey::WeightedRep(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAAtXZWlnaHRlZFJlcAAAAAASAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="),
+        ("DataKey::RatingWeight", DataKey::RatingWeight(1), "AAAAEAAAAAEAAAACAAAADwAAAAxSYXRpbmdXZWlnaHQAAAAFAAAAAAAAAAE="),
+        ("DataKey::Panel", DataKey::Panel, "AAAAEAAAAAEAAAABAAAADwAAAAVQYW5lbAAAAA=="),
+        ("DataKey::Votes", DataKey::Votes(1), "AAAAEAAAAAEAAAACAAAADwAAAAVWb3RlcwAAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::RoleMember(Pauser)", DataKey::RoleMember(Role::Pauser, acc.clone()), "AAAAEAAAAAEAAAADAAAADwAAAApSb2xlTWVtYmVyAAAAAAAQAAAAAQAAAAEAAAAPAAAABlBhdXNlcgAAAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        ("DataKey::RoleMember(Resolver)", DataKey::RoleMember(Role::Resolver, acc.clone()), "AAAAEAAAAAEAAAADAAAADwAAAApSb2xlTWVtYmVyAAAAAAAQAAAAAQAAAAEAAAAPAAAACFJlc29sdmVyAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        ("DataKey::Funders", DataKey::Funders(1), "AAAAEAAAAAEAAAACAAAADwAAAAdGdW5kZXJzAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::FundBy", DataKey::FundBy(1), "AAAAEAAAAAEAAAACAAAADwAAAAZGdW5kQnkAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::ChangeOrder", DataKey::ChangeOrder(1), "AAAAEAAAAAEAAAACAAAADwAAAAtDaGFuZ2VPcmRlcgAAAAAFAAAAAAAAAAE="),
+        ("DataKey::MilestonePaid", DataKey::MilestonePaid(1, 0), "AAAAEAAAAAEAAAADAAAADwAAAA1NaWxlc3RvbmVQYWlkAAAAAAAABQAAAAAAAAABAAAAAwAAAAA="),
+        ("DataKey::Terms", DataKey::Terms(1), "AAAAEAAAAAEAAAACAAAADwAAAAVUZXJtcwAAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::MilestoneSpecs", DataKey::MilestoneSpecs(1), "AAAAEAAAAAEAAAACAAAADwAAAA5NaWxlc3RvbmVTcGVjcwAAAAAABQAAAAAAAAAB"),
+        ("DataKey::Delivery", DataKey::Delivery(1, 0), "AAAAEAAAAAEAAAADAAAADwAAAAhEZWxpdmVyeQAAAAUAAAAAAAAAAQAAAAMAAAAA"),
+        ("DataKey::DisputeBond", DataKey::DisputeBond(1), "AAAAEAAAAAEAAAACAAAADwAAAAtEaXNwdXRlQm9uZAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::Version", DataKey::Version, "AAAAEAAAAAEAAAABAAAADwAAAAdWZXJzaW9uAA=="),
+        ("DataKey::PendingUpgrade", DataKey::PendingUpgrade, "AAAAEAAAAAEAAAABAAAADwAAAA5QZW5kaW5nVXBncmFkZQAA"),
+        ("DataKey::ContractV", DataKey::ContractV(1), "AAAAEAAAAAEAAAACAAAADwAAAAlDb250cmFjdFYAAAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::Submitted", DataKey::Submitted(1, 0), "AAAAEAAAAAEAAAADAAAADwAAAAlTdWJtaXR0ZWQAAAAAAAAFAAAAAAAAAAEAAAADAAAAAA=="),
+        ("DataKey::ReviewWindow", DataKey::ReviewWindow(1), "AAAAEAAAAAEAAAACAAAADwAAAAxSZXZpZXdXaW5kb3cAAAAFAAAAAAAAAAE="),
+        ("DataKey::PendingAdmin", DataKey::PendingAdmin, "AAAAEAAAAAEAAAABAAAADwAAAAxQZW5kaW5nQWRtaW4="),
+        ("DataKey::PausedAt", DataKey::PausedAt, "AAAAEAAAAAEAAAABAAAADwAAAAhQYXVzZWRBdA=="),
+        ("DataKey::Resigned", DataKey::Resigned(1), "AAAAEAAAAAEAAAACAAAADwAAAAhSZXNpZ25lZAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Settlement", DataKey::Settlement(1), "AAAAEAAAAAEAAAACAAAADwAAAApTZXR0bGVtZW50AAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::PauseFlags", DataKey::PauseFlags, "AAAAEAAAAAEAAAABAAAADwAAAApQYXVzZUZsYWdzAAA="),
+        ("DataKey::FeeBps", DataKey::FeeBps, "AAAAEAAAAAEAAAABAAAADwAAAAZGZWVCcHMAAA=="),
+        ("DataKey::Treasury", DataKey::Treasury, "AAAAEAAAAAEAAAABAAAADwAAAAhUcmVhc3VyeQ=="),
+        ("DataKey::EscrowFee", DataKey::EscrowFee(1), "AAAAEAAAAAEAAAACAAAADwAAAAlFc2Nyb3dGZWUAAAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::ClientEscrows", DataKey::ClientEscrows(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAA1DbGllbnRFc2Nyb3dzAAAAAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        ("DataKey::FreelancerEscrows", DataKey::FreelancerEscrows(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAABFGcmVlbGFuY2VyRXNjcm93cwAAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        ("DataKey::ClientPage", DataKey::ClientPage(acc.clone(), 0), "AAAAEAAAAAEAAAADAAAADwAAAApDbGllbnRQYWdlAAAAAAASAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAA"),
+        ("DataKey::FreelancerPage", DataKey::FreelancerPage(acc, 0), "AAAAEAAAAAEAAAADAAAADwAAAA5GcmVlbGFuY2VyUGFnZQAAAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAA=="),
+        ("DataKey::Stream", DataKey::Stream(1), "AAAAEAAAAAEAAAACAAAADwAAAAZTdHJlYW0AAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Amendment", DataKey::Amendment(1), "AAAAEAAAAAEAAAACAAAADwAAAAlBbWVuZG1lbnQAAAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::AmendNonce", DataKey::AmendNonce(1), "AAAAEAAAAAEAAAACAAAADwAAAApBbWVuZE5vbmNlAAAAAAAFAAAAAAAAAAE="),
+    ];
+
+    for (name, key, expected) in vectors {
+        assert_datakey_exhaustive(&key);
+        assert_golden_xdr(&env, name, key, expected);
+    }
+}
+
+#[test]
+fn golden_storage_types_xdr_vectors() {
+    let env = Env::default();
+    let client = Address::from_str(&env, GOLDEN_CLIENT_STR);
+    let freelancer = Address::from_str(&env, GOLDEN_FREELANCER_STR);
+    let token = Address::from_str(&env, GOLDEN_TOKEN_STR);
+
+    let stored_escrow = StoredEscrow::V1(EscrowContract {
+        id: 1,
+        client: client.clone(),
+        freelancer: freelancer.clone(),
+        token: token.clone(),
+        milestones: vec![
+            &env,
+            Milestone {
+                amount: 100_000_000,
+                released: true,
+            },
+            Milestone {
+                amount: 200_000_000,
+                released: false,
+            },
+        ],
+        total_amount: 300_000_000,
+        funded_amount: 300_000_000,
+        released_amount: 100_000_000,
+        refunded_amount: 0,
+        status: ContractStatus::Funded,
+        reputation_issued: false,
+    });
+    assert_golden_xdr(
+        &env,
+        "StoredEscrow::V1(EscrowContract)",
+        stored_escrow,
+        "AAAAEAAAAAEAAAACAAAADwAAAAJWMQAAAAAAEQAAAAEAAAALAAAADwAAAAZjbGllbnQAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAApmcmVlbGFuY2VyAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA1mdW5kZWRfYW1vdW50AAAAAAAACwAAAAAAAAAAAAAAABHhowAAAAAPAAAAAmlkAAAAAAAFAAAAAAAAAAEAAAAPAAAACm1pbGVzdG9uZXMAAAAAABAAAAABAAAAAgAAABEAAAABAAAAAgAAAA8AAAAGYW1vdW50AAAAAAALAAAAAAAAAAAAAAAABfXhAAAAAA8AAAAIcmVsZWFzZWQAAAAAAAAAAQAAABEAAAABAAAAAgAAAA8AAAAGYW1vdW50AAAAAAALAAAAAAAAAAAAAAAAC+vCAAAAAA8AAAAIcmVsZWFzZWQAAAAAAAAAAAAAAA8AAAAPcmVmdW5kZWRfYW1vdW50AAAAAAsAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA9yZWxlYXNlZF9hbW91bnQAAAAACwAAAAAAAAAAAAAAAAX14QAAAAAPAAAAEXJlcHV0YXRpb25faXNzdWVkAAAAAAAAAAAAAAAAAAAPAAAABnN0YXR1cwAAAAAAEAAAAAEAAAABAAAADwAAAAZGdW5kZWQAAAAAAA8AAAAFdG9rZW4AAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAADwAAAAx0b3RhbF9hbW91bnQAAAALAAAAAAAAAAAAAAAAEeGjAA==",
+    );
+
+    let receipt = EscrowReceipt {
+        id: 1,
+        client: client.clone(),
+        freelancer: freelancer.clone(),
+        token,
+        total_amount: 300_000_000,
+        released_amount: 300_000_000,
+        refunded_amount: 0,
+        status: ContractStatus::Completed,
+        milestone_count: 2,
+        closed_at: 1_700_000_000,
+        reputation_issued: true,
+    };
+    assert_golden_xdr(
+        &env,
+        "EscrowReceipt",
+        receipt,
+        "AAAAEQAAAAEAAAALAAAADwAAAAZjbGllbnQAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAAljbG9zZWRfYXQAAAAAAAAFAAAAAGVT8QAAAAAPAAAACmZyZWVsYW5jZXIAAAAAABIAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPAAAAAmlkAAAAAAAFAAAAAAAAAAEAAAAPAAAAD21pbGVzdG9uZV9jb3VudAAAAAADAAAAAgAAAA8AAAAPcmVmdW5kZWRfYW1vdW50AAAAAAsAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA9yZWxlYXNlZF9hbW91bnQAAAAACwAAAAAAAAAAAAAAABHhowAAAAAPAAAAEXJlcHV0YXRpb25faXNzdWVkAAAAAAAAAAAAAAEAAAAPAAAABnN0YXR1cwAAAAAAEAAAAAEAAAABAAAADwAAAAlDb21wbGV0ZWQAAAAAAAAPAAAABXRva2VuAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAA8AAAAMdG90YWxfYW1vdW50AAAACwAAAAAAAAAAAAAAABHhowA=",
+    );
+
+    let panel = Panel {
+        members: vec![&env, client.clone(), freelancer.clone()],
+        threshold: 2,
+    };
+    assert_golden_xdr(
+        &env,
+        "Panel",
+        panel,
+        "AAAAEQAAAAEAAAACAAAADwAAAAdtZW1iZXJzAAAAABAAAAABAAAAAgAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8AAAAJdGhyZXNob2xkAAAAAAAAAwAAAAI=",
+    );
+
+    let stream_active = Stream {
+        start: 1_700_000_000,
+        end: 1_700_086_400,
+        withdrawn: 50_000_000,
+        stopped_at: None,
+    };
+    assert_golden_xdr(
+        &env,
+        "Stream(active)",
+        stream_active,
+        "AAAAEQAAAAEAAAAEAAAADwAAAANlbmQAAAAABQAAAABlVUKAAAAADwAAAAVzdGFydAAAAAAAAAUAAAAAZVPxAAAAAA8AAAAKc3RvcHBlZF9hdAAAAAAAAQAAAA8AAAAJd2l0aGRyYXduAAAAAAAACwAAAAAAAAAAAAAAAAL68IA=",
+    );
+
+    let stream_stopped = Stream {
+        start: 1_700_000_000,
+        end: 1_700_086_400,
+        withdrawn: 50_000_000,
+        stopped_at: Some(1_700_043_200),
+    };
+    assert_golden_xdr(
+        &env,
+        "Stream(stopped)",
+        stream_stopped,
+        "AAAAEQAAAAEAAAAEAAAADwAAAANlbmQAAAAABQAAAABlVUKAAAAADwAAAAVzdGFydAAAAAAAAAUAAAAAZVPxAAAAAA8AAAAKc3RvcHBlZF9hdAAAAAAABQAAAABlVJnAAAAADwAAAAl3aXRoZHJhd24AAAAAAAALAAAAAAAAAAAAAAAAAvrwgA==",
+    );
+
+    let amendment = Amendment {
+        proposer: client.clone(),
+        new_amounts: vec![&env, 150_000_000, 150_000_000],
+        nonce: 1,
+    };
+    assert_golden_xdr(
+        &env,
+        "Amendment",
+        amendment,
+        "AAAAEQAAAAEAAAADAAAADwAAAAtuZXdfYW1vdW50cwAAAAAQAAAAAQAAAAIAAAALAAAAAAAAAAAAAAAACPDRgAAAAAsAAAAAAAAAAAAAAAAI8NGAAAAADwAAAAVub25jZQAAAAAAAAMAAAABAAAADwAAAAhwcm9wb3NlcgAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    );
+
+    let settlement = SettlementProposal {
+        proposer: client,
+        freelancer_amount: 120_000_000,
+        created_at: 1_700_000_000,
+    };
+    assert_golden_xdr(
+        &env,
+        "SettlementProposal",
+        settlement,
+        "AAAAEQAAAAEAAAADAAAADwAAAApjcmVhdGVkX2F0AAAAAAAFAAAAAGVT8QAAAAAPAAAAEWZyZWVsYW5jZXJfYW1vdW50AAAAAAAACwAAAAAAAAAAAAAAAAcnDgAAAAAPAAAACHByb3Bvc2VyAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    );
+
+    let pending_upgrade = PendingUpgrade {
+        wasm_hash: BytesN::from_array(&env, &[0xab; 32]),
+        eta: 1_700_172_800,
+    };
+    assert_golden_xdr(
+        &env,
+        "PendingUpgrade",
+        pending_upgrade,
+        "AAAAEQAAAAEAAAACAAAADwAAAANldGEAAAAABQAAAABlVpQAAAAADwAAAAl3YXNtX2hhc2gAAAAAAAANAAAAIKurq6urq6urq6urq6urq6urq6urq6urq6urq6urq6ur",
+    );
+
+    assert_golden_xdr(
+        &env,
+        "Reputation",
+        Reputation {
+            completed_contracts: 3,
+            total_rating: 14,
+        },
+        "AAAAEQAAAAEAAAACAAAADwAAABNjb21wbGV0ZWRfY29udHJhY3RzAAAAAAMAAAADAAAADwAAAAx0b3RhbF9yYXRpbmcAAAADAAAADg==",
+    );
+
+    assert_golden_xdr(
+        &env,
+        "WeightedReputation",
+        WeightedReputation {
+            weighted_rating_sum: 500_000_000,
+            weight_total: 100_000_000,
+            rated_contracts: 2,
+        },
+        "AAAAEQAAAAEAAAADAAAADwAAAA9yYXRlZF9jb250cmFjdHMAAAAAAwAAAAIAAAAPAAAADHdlaWdodF90b3RhbAAAAAsAAAAAAAAAAAAAAAAF9eEAAAAADwAAABN3ZWlnaHRlZF9yYXRpbmdfc3VtAAAAAAsAAAAAAAAAAAAAAAAdzWUA",
+    );
+
+    assert_golden_xdr(
+        &env,
+        "Outcomes",
+        Outcomes {
+            disputes_opened: 1,
+            disputes_won: 1,
+            disputes_lost: 0,
+            cancellations: 2,
+        },
+        "AAAAEQAAAAEAAAAEAAAADwAAAA1jYW5jZWxsYXRpb25zAAAAAAAAAwAAAAIAAAAPAAAADWRpc3B1dGVzX2xvc3QAAAAAAAADAAAAAAAAAA8AAAAPZGlzcHV0ZXNfb3BlbmVkAAAAAAMAAAABAAAADwAAAAxkaXNwdXRlc193b24AAAADAAAAAQ==",
+    );
+
+    assert_golden_xdr(
+        &env,
+        "RatingRecord",
+        RatingRecord {
+            freelancer,
+            rating: 5,
+            issued_at: 1_700_000_000,
+            voided: false,
+        },
+        "AAAAEQAAAAEAAAAEAAAADwAAAApmcmVlbGFuY2VyAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAAlpc3N1ZWRfYXQAAAAAAAAFAAAAAGVT8QAAAAAPAAAABnJhdGluZwAAAAAAAwAAAAUAAAAPAAAABnZvaWRlZAAAAAAAAAAAAAA=",
+    );
+
+    for (name, status, expected) in [
+        ("ContractStatus::Created", ContractStatus::Created, "AAAAEAAAAAEAAAABAAAADwAAAAdDcmVhdGVkAA=="),
+        ("ContractStatus::Funded", ContractStatus::Funded, "AAAAEAAAAAEAAAABAAAADwAAAAZGdW5kZWQAAA=="),
+        ("ContractStatus::Completed", ContractStatus::Completed, "AAAAEAAAAAEAAAABAAAADwAAAAlDb21wbGV0ZWQAAAA="),
+        ("ContractStatus::Disputed", ContractStatus::Disputed, "AAAAEAAAAAEAAAABAAAADwAAAAhEaXNwdXRlZA=="),
+        ("ContractStatus::Resolved", ContractStatus::Resolved, "AAAAEAAAAAEAAAABAAAADwAAAAhSZXNvbHZlZA=="),
+        ("ContractStatus::Cancelled", ContractStatus::Cancelled, "AAAAEAAAAAEAAAABAAAADwAAAAlDYW5jZWxsZWQAAAA="),
+    ] {
+        assert_golden_xdr(&env, name, status, expected);
+    }
+
+    for (name, role, expected) in [
+        ("Role::Pauser", Role::Pauser, "AAAAEAAAAAEAAAABAAAADwAAAAZQYXVzZXIAAA=="),
+        ("Role::Resolver", Role::Resolver, "AAAAEAAAAAEAAAABAAAADwAAAAhSZXNvbHZlcg=="),
+    ] {
+        assert_golden_xdr(&env, name, role, expected);
+    }
+}
