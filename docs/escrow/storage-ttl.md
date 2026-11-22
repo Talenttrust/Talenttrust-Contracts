@@ -1,10 +1,10 @@
 # Escrow Storage TTL
 
-
-This document defines the deterministic, auditable TTL (time-to-live)
-policy for transient storage entries in the escrow contract. It exists to prevent
-unbounded state growth from orphaned pending approvals and pending migrations
-that are never resolved by counterparties.
+This document defines the deterministic, auditable TTL (time-to-live) policy
+for the escrow contract's **persistent** storage entries. The contract holds no
+temporary/transient storage: escrow state, side entries and reputation records
+live under `env.storage().persistent()`, and the contract instance state under
+`env.storage().instance()`. The policy below keeps that state from archiving.
 
 See also: [state-persistence.md](./state-persistence.md) for the persistent
 storage model; [upgradeable-storage.md](./upgradeable-storage.md) for upgrade
@@ -13,128 +13,130 @@ semantics.
 See also: [storage-validation.md](./storage-validation.md) for the invariant
 validation that guards the state model described below.
 
-## Scope
+## Constants
 
-Applies to keys stored in `env.storage().temporary()`. Persistent keys (e.g.
-`Contract(id)`, `NextId`) are unaffected — their TTL management is covered in
-[architecture.md](./architecture.md).
+The policy is defined by two constants in
+[contracts/escrow/src/lib.rs](../../contracts/escrow/src/lib.rs#L86-L87):
+
+| Named constant | Value (ledgers) | Rough duration |
+|---|--:|---|
+| `PERSISTENT_TTL_THRESHOLD` | `17_280` | ~1 day |
+| `PERSISTENT_TTL_EXTEND` | `518_400` | ~30 days |
+
+`PERSISTENT_TTL_THRESHOLD` is the point below which a live entry is considered
+stale and eligible for a bump. `PERSISTENT_TTL_EXTEND` is the TTL that a bumped
+entry is extended to. Both are `u32`.
+
+A third constant shares the ~30-day value but is unrelated to this policy:
+`THIRTY_DAYS_IN_LEDGERS: u32 = 518_400` is the compaction grace period after
+which an unrated terminal escrow may be compacted.
 
 ## Units
 
 All TTL values are denominated in **ledgers**, the Soroban-native unit. One
-ledger is ~5 seconds on Stellar mainnet. This avoids any coupling to
-wall-clock timestamps and keeps expiry deterministic as a function of
-env.ledger().sequence().
+ledger is ~5 seconds on Stellar mainnet, so `17_280` ledgers ≈ 1 day and
+`518_400` ledgers ≈ 30 days. This avoids any coupling to wall-clock timestamps
+and keeps expiry deterministic as a function of `env.ledger().sequence()`.
 
-| Named constant | Ledgers | Rough duration |
-|---|--:|---|
-| `LEFGERS_PER_DAY` | 17 280 | 1 day |
-| `PENDING_APPROVAL_TTL_LEDGERS` | 120 960 | 7 days |
-| `PENDING_APPROVAL_BUMP_THRESHOLD` | 17 280 | 1 day |
-| `PENDING_MIGRATION_TTL_LEDGERS` | 362 880 | 21 days |
-| `PENDING_MIGRATION_BUMP_THRESHOLD` | 51 840 | 3 days |
+## When TTLs Are Bumped
 
-Constants live in
-[contracts/escrow/src/ttl.rs](../../contracts/escrow/src/ttl.rs).
+Soroban's `extend_ttl(key, threshold, extend_to)` only extends an entry whose
+remaining TTL is **below** `threshold`, and never shrinks it. All extensions in
+this contract pass `(PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND)`.
 
-## Transient Keys
+### Writes: `save`
 
-| Key | TTL | Bump threshold | Rationale |
-|---|--:|--:|---|
-| `PendingApproval(contract_id)` | 7 days | 1 day | Counterparties are expected to respond within one business week; short enough to reclaim state on abandonment. |
-| `PendingMigration` | 21 days | 3 days | Migrations are rarer and more consequential; reviewers need more lead time. |
+[`save`](../../contracts/escrow/src/lib.rs#L653-L666) writes the current escrow
+under the versioned `ContractV(id)` key and then bumps that key's TTL to
+`PERSISTENT_TTL_EXTEND`. It drops any legacy `Contract(id)` entry and finishes
+with an instance bump. Because the bump target is `PERSISTENT_TTL_EXTEND`, an
+escrow that is read and re-saved is refreshed to the full ~30 days.
 
-`PendingMigration` is a **single-slot** key: at most one migration may be
-pending at any time.
+### `extend_if_present`
 
-## TTL Helper API
+[`extend_if_present`](../../contracts/escrow/src/lib.rs#L669-L678) is the shared
+helper for side entries: if the persistent key exists it bumps the TTL to
+`PERSISTENT_TTL_EXTEND` and returns `true`; otherwise it performs no write and
+returns `false`. Keeper entrypoints use the return value to decide whether any
+tracked key was found.
 
-All transient reads and writes go through the helpers in `contracts/escrow/src/ttl.rs`:
+### Instance bump: `bump_instance`
 
-| Function | Description |
-|---|---|
-| `compute_expiry(env, ttl)` | Returns `sequence + ttl` (saturating). |
-| `store_with_ttl(env, key, value, ttl)` | Writes to temporary storage and sets TTL. |
-| `read_if_live(env, key)` | Returns `Some(v)if live, `None` if absent or evicted. |
-| `extend_if_below_threshold(env, key, threshold, extend_to)` | Bumps TTL only below the threshold; returns `false` if key is absent or evicted. |
-| `remove_transient(env, key)` | Explicit removal before auto-eviction. |
-| `has_transient(env, key)` | Returns `true` if the key is currently live. |
+[`bump_instance`](../../contracts/escrow/src/lib.rs#L680-L684) extends the
+contract instance entry:
+
+```rust
+env.storage()
+    .instance()
+    .extend_ttl(PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+```
+
+It keeps the instance keys (`Admin`, `NextId`, pause flags) alive. It is called
+on **every gated call** via
+[`require_not_paused`](../../contracts/escrow/src/lib.rs#L576-L583), and also by
+[`require_admin`](../../contracts/escrow/src/lib.rs#L502-L508), `save`,
+`extend_escrow_ttl` and `extend_reputation_ttl`.
+
+## Keeper Entrypoints
+
+Both keepers are permissionless: they require no authorization beyond the
+submitting transaction, and **the caller pays the rent extension**. They only
+lengthen the TTL of existing keys; they never create state.
+
+### `extend_escrow_ttl(id)`
+
+[`extend_escrow_ttl`](../../contracts/escrow/src/lib.rs#L3528-L3572) is the
+per-escrow keep-alive. It bumps, whenever present:
+
+- the escrow entry itself — `ContractV(id)`, legacy `Contract(id)`, or the
+  compacted `Receipt(id)` once the escrow has been compacted;
+- per-escrow side entries: `FundBy`, `Funders`, `Frozen`, `Payout`, `Team`,
+  `ClosedAt`, `Sequential`, `Terms`, `MilestoneSpecs`, `DisputeBond`,
+  `Settlement`, `ReviewWindow`, `EscrowFee`, `Bonus`, `Votes`, `ChangeOrder`,
+  `Resigned`, `Rating`, `RatingWeight`, `ClientRated`, `Stream`, `Amendment`,
+  `AmendNonce`;
+- per-milestone entries for each milestone index `i`: `Submitted(id, i)`,
+  `Delivery(id, i)`, `MilestonePaid(id, i)`;
+- and finally the contract instance.
+
+If none of `ContractV(id)`, `Contract(id)` or `Receipt(id)` exist, the call
+returns `Err(EscrowError::ContractNotFound)`.
+
+### `extend_reputation_ttl(freelancer)`
+
+[`extend_reputation_ttl`](../../contracts/escrow/src/lib.rs#L3576-L3588) is the
+per-address reputation keep-alive. It bumps, whenever present:
+`Reputation(freelancer)`, `WeightedRep(freelancer)`,
+`ClientReputation(freelancer)`, `Outcomes(freelancer)` and
+`BonusTotal(freelancer)`, then bumps the contract instance. It has no error
+path — absent keys are simply skipped.
 
 ## Expiry Semantics
 
-- Soroban auto-evicts temporary storage entries once their TTL has elapsed.
-- `read_if_live` returns `None` for both "never set" and "expired" — callers
-  treat both as "no active pending record".
-- No on-chain event is emitted at auto-eviction. Off-chain indexers should
-  compute eviction by comparing `expires_at_ledger` against the current ledger
-  sequence.
-
-## Determinism
-
-Expiry is computed at write time as:
-
-```expires_at_ledger = env.ledger().sequence() + TTL_LEDGERS
-```
-
-Given the same starting sequence and the same TTL constant, two independent
-environments produce identical expiry values. This is verified by
-`expiry_is_deterministic_across_independent_envs` in the test suite.
-
-## Extending (Bumping) TTL
-
-`extend_if_below_threshold` wraps
-`env.storage().temporary().extend_ttl(key, threshold, extend_to)`:
-
-- If remaining TTL is **below** the bump threshold, the entry's TTL is
-  extended to the full policy value.
-- If the entry is already fresh, including when its remaining TTL equals the
-  threshold, the call is a no-op (Soroban only extends, never shrinks).
-- The helper's boolean reports whether the key was live. Soroban does not expose
-  the resulting TTL to production contracts, so the test suite uses the
-  test-only `get_ttl`API to verify whether an extension occurred.
-- If the entry is absent or already evicted, the helper returns `false` and
-  performs no write.
-
-## Security Notes
-
-- All writes use `store_with_ttl`; no direct `.temporary().set` bypass is
-  permitted, ensuring TTL is always set at write time.
-- `remove_transient` is used for explicit cleanup (e.g. after an approval is
-  consumed or cancelled) so stale entries do not linger until auto-eviction.
-- The fail-closed design means a `None` from `read_if_live` always blocks the
-  dependent operation, regardless of whether the entry expired or was never
-  created.
+- Persistent entries that lapse are **archived**, not deleted: they can be
+  restored and remain the source of truth. This is why the keepers above exist
+  — they keep live escrows and reputation records from archiving.
+- Expiry is a function of ledger sequence only; no wall-clock timestamp is
+  involved, so a given starting sequence and constant pair always yields the
+  same result across independent environments.
+- `extend_ttl` is monotonic (extend-only): a fresh entry is left untouched.
 
 ## Testing
 
-Tests live in
-[contracts/escrow/src/test/ttl_tests.rs](../../contracts/escrow/src/test/ttl_tests.rs).
-They call the TTL helpers directly via `env.as_contract` and advance
-`LedgerInfo.sequence_number` via `env.ledger().with_mut(...)` to simulate
-auto-eviction.
+TTL behaviour is covered in
+[contracts/escrow/src/test.rs](../../contracts/escrow/src/test.rs):
 
 | Test | What it covers |
 |---|---|
-| `compute_expiry_equals_sequence_plus_ttl` | `compute_expiry` returns correct value for both TTL constants |
-| `compute_expiry_saturates_on_overflow` | Saturating addition at `u32::MAX` |
-| `ledgers_per_day_constant_is_correct` | All five constants match their documented values |
-| `approval_readable_before_expiry` | `read_if_live` returns `Some` one ledger before approval TTL |
-| `approval_evicted_after_expiry` | `read_if_live` returns `None` one ledger after approval TTL |
-| `migration_readable_before_expiry` | `read_if_live` returns `Some` one ledger before migration TTL |
-| `migration_evicted_after_expiry` | `read_if_live` returns `None` one ledger after migration TTL |
-| `extend_returns_false_for_absent_key` | `extend_if_below_threshold` returns `false` when key absent |
-| `extend_returns_true_and_entry_survives_past_original_expiry` | Bump keeps entry live past original expiry |
-| `extend_is_a_no_op_when_remaining_ttl_is_at_threshold` | Exact threshold does not extend a fresh entry |
-| `extend_migration_returns_false_for_absent_key` | Same absent-key check for migration threshold |
-| `remove_transient_clears_entry_immediately` | Entry absent after `remove_transient` |
-| `remove_transient_is_idempotent` | Second `remove_transient` does not panic |
-| `has_transient_false_before_store` | `has_transient` returns `false` before any write |
-| `has_transient_true_after_store_false_after_expiry` | `has_transient` tracks live/evicted state |
-| `expiry_is_deterministic_across_independent_envs` | Same starting sequence → same expiry in two envs |
+| `extend_escrow_ttl_keeps_quiet_escrow_and_side_keys_alive` | After a long quiet jump the escrow, `FundBy`/`Funders` side keys and the instance are all bumped back above `PERSISTENT_TTL_THRESHOLD`; an absent id returns `ContractNotFound`. |
+| `extend_reputation_ttl_keeps_reputation_alive` | Reputation entries are bumped back above `PERSISTENT_TTL_THRESHOLD` after the same quiet jump. |
+| persistent-TTL assertions | Written side keys (`Terms`, `MilestoneSpecs`, `Delivery`) report a TTL of at least `PERSISTENT_TTL_THRESHOLD`. |
 
 ## Reviewer Checklist
 
-1. Every new transient key has an entry in the table above.
-2. Every write uses `ttl::store_with_ttl` (no direct `.temporary().set` bypass).
-3. Every read path uses `ttl::read_if_live` and handles `None` as "absent or expired".
-4. A corresponding TTL test exists when a new transient key is introduced.
+1. New persistent keys are bumped by the relevant keeper (`extend_escrow_ttl`
+   for per-escrow keys, `extend_reputation_ttl` for reputation keys).
+2. Any new gated entry point bumps the instance (via `require_not_paused` or
+   `require_admin`).
+3. TTL extensions use `(PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND)`; no
+   bare constants.
