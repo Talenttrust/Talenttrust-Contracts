@@ -489,3 +489,22 @@ milestones:
    {index: 1, amount: 400, released: true,  refunded: false},
    {index: 2, amount: 600, released: false, refunded: true}]
 ```
+
+
+---
+
+## Milestone Flow Events (`EVENT_SCHEMA_V = 1`)
+
+Source: `contracts/escrow/src/lib.rs`.
+
+All milestone-flow events use the versioned topic format `(EVENT_SCHEMA_V, name, id)` where `EVENT_SCHEMA_V = 1` and `id` is the escrow `u64` identifier, and emit a `#[contracttype]` struct payload:
+
+| Event | Topic | Payload Struct | Fields | Emitted by |
+|---|---|---|---|---|
+| `submit` | `(1, "submit", id)` | `SubmitEvent` | `index: u32`, `submitted_at: u64` | `submit_milestone` |
+| `claim` | `(1, "claim", id)` | `ClaimEvent` | `index: u32`, `amount: i128` | `claim_milestone` (followed by `release`, and `complete` if final) |
+| `rel_part` | `(1, "rel_part", id)` | `PartialReleaseEvent` | `index: u32`, `amount: i128`, `remaining: i128` | `release_partial` (followed by `complete` if final) |
+| `rel_batch` | `(1, "rel_batch", id)` | `BatchReleaseEvent` | `count: u32`, `total: i128` | `release_milestones` (preceded by one `release` per milestone, followed by `complete` if final) |
+| `deliver` | `(1, "deliver", id)` | `DeliverEvent` | `index: u32`, `delivery_hash: BytesN<32>` | `deliver` |
+| `bonus` | `(1, "bonus", id)` | `BonusEvent` | `amount: i128`, `cumulative: i128` | `pay_bonus` |
+| `terms` | `(1, "terms", id)` | `TermsEvent` | `terms_hash: BytesN<32>` | `set_terms` |

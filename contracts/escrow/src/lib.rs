@@ -35,6 +35,9 @@ pub const ESCROW_INDEX_PAGE_SIZE: u32 = 50;
 pub const BPS_DENOMINATOR: i128 = 10_000;
 /// 48-hour time-lock delay before a scheduled WASM upgrade can be executed.
 pub const UPGRADE_DELAY_SECS: u64 = 172_800;
+/// 48-hour time-lock delay before a scheduled governance parameter change
+/// (e.g. protocol fee increase) can be executed.
+pub const PARAM_DELAY_SECS: u64 = 172_800;
 /// Pause categories (bitmask) for `set_pause_flags`.
 pub const PAUSE_CREATE: u32 = 1;
 pub const PAUSE_DEPOSIT: u32 = 2;
@@ -57,6 +60,10 @@ pub const DEFAULT_REVIEW_WINDOW_SECS: u64 = 7 * 86_400;
 /// Funding window after creation (14 days); afterwards an escrow still in
 /// `Created` can no longer be funded and may be expired by anyone.
 pub const FUNDING_WINDOW_SECS: u64 = 14 * 86_400;
+/// Validity window for a mutual settlement proposal (7 days); after
+/// `created_at + SETTLEMENT_VALID_SECS`, `accept_settlement` returns
+/// `SettlementMismatch`.
+pub const SETTLEMENT_VALID_SECS: u64 = 7 * 86_400;
 /// Minimum amount for a single milestone: 0.1 token unit at 7 decimal places.
 pub const MIN_MILESTONE_AMOUNT: i128 = 1_000_000;
 /// Maximum total escrow value: 10^18 stroops.
@@ -93,57 +100,106 @@ pub const THIRTY_DAYS_IN_LEDGERS: u32 = 518_400;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum EscrowError {
+    /// Contract has already been initialized.
     AlreadyInitialized = 1,
+    /// Contract has not been initialized yet.
     NotInitialized = 2,
+    /// Caller is not authorized to perform this action.
     Unauthorized = 3,
+    /// The requested operation category is currently paused.
     Paused = 4,
+    /// No escrow exists for the given id.
     ContractNotFound = 5,
+    /// Client and freelancer addresses are invalid (e.g. identical).
     InvalidParties = 6,
+    /// Milestone list is empty or exceeds `MAX_MILESTONES`.
     InvalidMilestones = 7,
+    /// Supplied amount or batch size is invalid (e.g. non-positive or out of bounds).
     InvalidAmount = 8,
+    /// Deposit would exceed the escrow's total amount.
     OverFunded = 9,
+    /// Escrow is not in a status that permits this operation.
     InvalidStatus = 10,
+    /// Milestone index is out of range for this escrow.
     MilestoneNotFound = 11,
+    /// Milestone has already been released.
     MilestoneAlreadyReleased = 12,
+    /// Escrow does not hold enough funded balance to cover the payout.
     InsufficientFunds = 13,
+    /// Dispute split basis points are invalid (must be `<= BPS_DENOMINATOR`).
     InvalidSplit = 14,
+    /// Rating value is outside the allowed range (`1..=5`).
     InvalidRating = 15,
+    /// Reputation has already been issued for this escrow.
     ReputationAlreadyIssued = 16,
+    /// Checked arithmetic overflowed or underflowed.
     ArithmeticOverflow = 17,
+    /// No rating record exists for the given escrow id.
     RatingNotFound = 18,
+    /// Rating record has already been voided.
     RatingAlreadyVoided = 19,
+    /// Requested state transition is not permitted.
     InvalidTransition = 20,
+    /// Contract holds no surplus balance above liabilities for the token.
     NoSurplus = 21,
+    /// Escrow is frozen by an administrator and cannot be mutated.
     EscrowFrozen = 22,
+    /// Contract admin cannot be a party (client or freelancer) to an escrow.
     AdminCannotBeParty = 23,
+    /// Milestone amount is below `MIN_MILESTONE_AMOUNT`.
     MilestoneTooSmall = 24,
+    /// Escrow is not yet eligible for compaction into a receipt.
     NotCompactable = 25,
+    /// Escrow has been compacted into a receipt; use `get_receipt` instead.
     EscrowCompacted = 26,
+    /// Team payout split configuration is invalid (e.g. shares do not sum to `BPS_DENOMINATOR`).
     InvalidSplitConfig = 27,
+    /// Sequential milestone cannot be released before all prior milestones.
     OutOfOrder = 28,
+    /// Duplicate milestone index or member address supplied.
     DuplicateIndex = 29,
+    /// Released value is below `MIN_REPUTATION_VALUE` required to issue reputation.
     BelowReputationThreshold = 30,
+    /// Arbiter panel configuration (members or threshold) is invalid.
     InvalidPanel = 31,
+    /// Escrow value meets or exceeds `PANEL_THRESHOLD_AMOUNT` and requires arbiter panel voting.
     PanelRequired = 32,
+    /// Account already has (or already lacks) the specified role.
     RoleUnchanged = 33,
+    /// Number of distinct funders would exceed `MAX_FUNDERS`.
     TooManyFunders = 34,
+    /// Escrow funding window has elapsed and it can no longer be funded.
     FundingExpired = 35,
+    /// Escrow funding window has not yet elapsed.
     NotExpired = 36,
+    /// No pending change order or proposal exists for this escrow.
     ChangeOrderNotFound = 37,
+    /// Metadata hash or payload is invalid.
     InvalidMetadata = 38,
+    /// No WASM upgrade is currently scheduled.
     NoPendingUpgrade = 39,
+    /// Scheduled WASM upgrade time-lock has not yet elapsed.
     UpgradeNotReady = 40,
+    /// Review window duration is outside `[MIN_REVIEW_WINDOW_SECS, MAX_REVIEW_WINDOW_SECS]`.
     InvalidReviewWindow = 41,
+    /// Milestone has not been submitted by the freelancer yet.
     MilestoneNotSubmitted = 42,
+    /// Milestone review window has not yet elapsed.
     ReviewWindowActive = 43,
     /// The token moved a different amount than requested (fee-on-transfer,
     /// rebasing or misreporting token); see `transfer_checked`.
     TransferAmountMismatch = 44,
+    /// Proposed admin address is invalid (e.g. same as current admin).
     InvalidAdmin = 45,
+    /// No pending admin nomination exists to accept.
     NoPendingAdmin = 46,
+    /// Emergency exit is not available (contract not paused long enough or invalid state).
     EmergencyExitNotAvailable = 47,
+    /// Settlement proposal parameters do not match the pending proposal.
     SettlementMismatch = 48,
+    /// Protocol fee exceeds `MAX_FEE_BPS`.
     FeeTooHigh = 49,
+    /// Stream vesting schedule is invalid (e.g. duration below `MIN_STREAM_SECS`).
     InvalidSchedule = 50,
     // NOTE: the Soroban contract spec caps an error enum at 50 cases, so new
     // failure modes reuse the closest existing code (append-only numbering).
@@ -264,6 +320,16 @@ pub struct PendingUpgrade {
     pub eta: u64,
 }
 
+/// An in-flight protocol fee / treasury change scheduled by the admin.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingFeeChange {
+    pub fee_bps: u32,
+    pub treasury: Address,
+    /// The earliest ledger timestamp at which `execute_fee_change` may succeed.
+    pub eta: u64,
+}
+
 /// Schema version carried as the first topic of every structured event.
 pub const EVENT_SCHEMA_V: u32 = 1;
 
@@ -347,6 +413,62 @@ pub struct ReputationEvent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompletedEvent {
     pub released_amount: i128,
+}
+
+/// `(1, "submit", id)` — the freelancer submitted a milestone for review.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubmitEvent {
+    pub index: u32,
+    pub submitted_at: u64,
+}
+
+/// `(1, "claim", id)` — the freelancer claimed a submitted milestone after the review window.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimEvent {
+    pub index: u32,
+    pub amount: i128,
+}
+
+/// `(1, "rel_part", id)` — the client released a partial amount of a milestone.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PartialReleaseEvent {
+    pub index: u32,
+    pub amount: i128,
+    pub remaining: i128,
+}
+
+/// `(1, "rel_batch", id)` — the client released multiple milestones in one batch.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchReleaseEvent {
+    pub count: u32,
+    pub total: i128,
+}
+
+/// `(1, "deliver", id)` — the freelancer recorded a delivery hash for a milestone.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeliverEvent {
+    pub index: u32,
+    pub delivery_hash: BytesN<32>,
+}
+
+/// `(1, "bonus", id)` — the client paid a direct bonus/tip to the freelancer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BonusEvent {
+    pub amount: i128,
+    pub cumulative: i128,
+}
+
+/// `(1, "terms", id)` — the client committed the job terms hash.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TermsEvent {
+    pub terms_hash: BytesN<32>,
 }
 
 /// A pending two-party mutual settlement proposal.
@@ -487,6 +609,7 @@ enum DataKey {
     Stream(u64),
     Amendment(u64),
     AmendNonce(u64),
+    PendingFeeChange,
 }
 
 #[contract]
@@ -598,6 +721,11 @@ fn require_not_frozen(env: &Env, id: u64) -> Result<(), EscrowError> {
 
 /// Loads an escrow: the versioned `ContractV` entry first, falling back to the
 /// legacy `Contract` key. Never writes; the next `save` performs the lazy migration.
+///
+/// A compacted escrow no longer has either entry, only its receipt, so this
+/// returns `EscrowCompacted` rather than the misleading `ContractNotFound`.
+/// Every entrypoint that loads an escrow therefore reports compaction the same
+/// way; ids that never existed still fail with `ContractNotFound`.
 fn load(env: &Env, id: u64) -> Result<EscrowContract, EscrowError> {
     if let Some(stored) = env
         .storage()
@@ -606,10 +734,17 @@ fn load(env: &Env, id: u64) -> Result<EscrowContract, EscrowError> {
     {
         return Ok(upgrade_to_latest(stored));
     }
-    env.storage()
+    if let Some(legacy) = env
+        .storage()
         .persistent()
-        .get(&DataKey::Contract(id))
-        .ok_or(EscrowError::ContractNotFound)
+        .get::<_, EscrowContract>(&DataKey::Contract(id))
+    {
+        return Ok(legacy);
+    }
+    if is_compacted(env, id) {
+        return Err(EscrowError::EscrowCompacted);
+    }
+    Err(EscrowError::ContractNotFound)
 }
 
 /// Whether an escrow entry exists under either the versioned or the legacy key.
@@ -1643,6 +1778,10 @@ impl Escrow {
             .unwrap_or(1)
     }
 
+    /// Returns the contract administrator's address.
+    ///
+    /// - **Storage reads:** `DataKey::Admin` (instance storage).
+    /// - **Errors:** `EscrowError::NotInitialized` if `initialize` has not been called.
     pub fn get_admin(env: Env) -> Result<Address, EscrowError> {
         admin(&env)
     }
@@ -1742,8 +1881,12 @@ impl Escrow {
     }
 
     /// Admin sets the protocol fee (`fee_bps <= MAX_FEE_BPS`, else `FeeTooHigh`)
-    /// and its treasury. New escrows snapshot the rate at creation; existing
-    /// escrows keep theirs. Emits `("fee_set",) -> (fee_bps, treasury)`.
+    /// and its treasury immediately **only** when the fee is not increasing
+    /// (`fee_bps <= current_fee_bps`). Fee increases must go through the
+    /// timelocked `schedule_fee_change` -> `execute_fee_change` flow; attempting
+    /// to increase the fee directly returns `UpgradeNotReady`.
+    /// New escrows snapshot the rate at creation; existing escrows keep theirs.
+    /// Emits `("fee_set",) -> (fee_bps, treasury)`.
     pub fn set_fee(env: Env, fee_bps: u32, treasury: Address) -> Result<(), EscrowError> {
         require_admin(&env)?;
         if fee_bps > MAX_FEE_BPS {
@@ -1752,12 +1895,115 @@ impl Escrow {
         if treasury == env.current_contract_address() {
             return Err(EscrowError::InvalidParties);
         }
+        let current_fee: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
+        if fee_bps > current_fee {
+            return Err(EscrowError::UpgradeNotReady);
+        }
         env.storage().instance().set(&DataKey::FeeBps, &fee_bps);
         env.storage().instance().set(&DataKey::Treasury, &treasury);
         bump_instance(&env);
         env.events()
             .publish((symbol_short!("fee_set"),), (fee_bps, treasury));
         Ok(())
+    }
+
+    /// Admin schedules a protocol fee and treasury change. The scheduled change
+    /// can only be executed after `PARAM_DELAY_SECS` (48 h) have elapsed, giving
+    /// users time to react before a fee increase takes effect.
+    ///
+    /// Calling `schedule_fee_change` again while one is pending resets the timer.
+    ///
+    /// Event: `("fee_sched",) -> (fee_bps, treasury, eta)`
+    pub fn schedule_fee_change(
+        env: Env,
+        fee_bps: u32,
+        treasury: Address,
+    ) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        if fee_bps > MAX_FEE_BPS {
+            return Err(EscrowError::FeeTooHigh);
+        }
+        if treasury == env.current_contract_address() {
+            return Err(EscrowError::InvalidParties);
+        }
+        let now = env.ledger().timestamp();
+        let eta = now
+            .checked_add(PARAM_DELAY_SECS)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        let pending = PendingFeeChange {
+            fee_bps,
+            treasury: treasury.clone(),
+            eta,
+        };
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingFeeChange, &pending);
+        bump_instance(&env);
+        env.events()
+            .publish((symbol_short!("fee_sched"),), (fee_bps, treasury, eta));
+        Ok(())
+    }
+
+    /// Admin cancels a scheduled protocol fee change before it executes.
+    ///
+    /// Fails with `NoPendingUpgrade` if no fee change is pending.
+    ///
+    /// Event: `("fee_cncl",) -> (fee_bps, treasury)`
+    pub fn cancel_fee_change(env: Env) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        let pending: PendingFeeChange = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingFeeChange)
+            .ok_or(EscrowError::NoPendingUpgrade)?;
+        env.storage().instance().remove(&DataKey::PendingFeeChange);
+        bump_instance(&env);
+        env.events().publish(
+            (symbol_short!("fee_cncl"),),
+            (pending.fee_bps, pending.treasury),
+        );
+        Ok(())
+    }
+
+    /// Admin executes a previously scheduled protocol fee change after
+    /// `PARAM_DELAY_SECS` have elapsed.
+    ///
+    /// Fails with:
+    /// - `NoPendingUpgrade` — no fee change is pending.
+    /// - `UpgradeNotReady`  — `PARAM_DELAY_SECS` have not yet elapsed.
+    ///
+    /// Existing escrows keep their snapshotted fee; new escrows use the new rate.
+    ///
+    /// Event: `("fee_exec",) -> (fee_bps, treasury)`
+    pub fn execute_fee_change(env: Env) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        let pending: PendingFeeChange = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingFeeChange)
+            .ok_or(EscrowError::NoPendingUpgrade)?;
+        let now = env.ledger().timestamp();
+        if now < pending.eta {
+            return Err(EscrowError::UpgradeNotReady);
+        }
+        env.storage().instance().remove(&DataKey::PendingFeeChange);
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeBps, &pending.fee_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::Treasury, &pending.treasury);
+        bump_instance(&env);
+        env.events().publish(
+            (symbol_short!("fee_exec"),),
+            (pending.fee_bps, pending.treasury),
+        );
+        Ok(())
+    }
+
+    /// Returns the currently scheduled fee change, or `None` if none is pending.
+    pub fn get_pending_fee_change(env: Env) -> Option<PendingFeeChange> {
+        env.storage().instance().get(&DataKey::PendingFeeChange)
     }
 
     /// Current `(fee_bps, treasury)`; `(0, None)` by default.
@@ -2136,6 +2382,84 @@ impl Escrow {
         apply_deposit(&env, &mut c, &funder, amount)
     }
 
+    /// Lets a funder withdraw part or all of their own deposit while the escrow
+    /// is still `Created` (not frozen, not funded/cancelled/terminal). Reduces
+    /// the funder's contribution, `funded_amount`, and token liability; removes
+    /// the funder from the map at zero and clears any pending settlement
+    /// proposal. Emits `("wd_dep", id) -> (funder, amount, funded_amount)`.
+    pub fn withdraw_deposit(
+        env: Env,
+        id: u64,
+        funder: Address,
+        amount: i128,
+    ) -> Result<(), EscrowError> {
+        require_not_paused(&env, PAUSE_DEPOSIT)?;
+        let mut c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
+        funder.require_auth();
+        if c.status != ContractStatus::Created {
+            return Err(EscrowError::InvalidStatus);
+        }
+        if amount <= 0 {
+            return Err(EscrowError::InvalidAmount);
+        }
+        let key = DataKey::Funders(id);
+        let mut funders: Map<Address, i128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        let contribution = funders.get(funder.clone()).unwrap_or(0);
+        if amount > contribution {
+            return Err(EscrowError::InvalidAmount);
+        }
+        let held = c
+            .funded_amount
+            .checked_sub(c.released_amount)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        if amount > held {
+            return Err(EscrowError::InsufficientFunds);
+        }
+        let new_contribution = contribution
+            .checked_sub(amount)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        let new_funded = c
+            .funded_amount
+            .checked_sub(amount)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        transfer_checked(
+            &env,
+            &c.token,
+            &env.current_contract_address(),
+            &funder,
+            amount,
+        )?;
+        if new_contribution == 0 {
+            funders.remove(funder.clone());
+        } else {
+            funders.set(funder.clone(), new_contribution);
+        }
+        if funders.is_empty() {
+            env.storage().persistent().remove(&key);
+        } else {
+            env.storage().persistent().set(&key, &funders);
+            env.storage().persistent().extend_ttl(
+                &key,
+                PERSISTENT_TTL_THRESHOLD,
+                PERSISTENT_TTL_EXTEND,
+            );
+        }
+        c.funded_amount = new_funded;
+        clear_settlement(&env, c.id);
+        sub_liability(&env, &c.token, amount)?;
+        #[cfg(any(test, debug_assertions))]
+        assert_solvent(&env, &c.token);
+        save(&env, &c);
+        env.events()
+            .publish((symbol_short!("wd_dep"), id), (funder, amount, new_funded));
+        Ok(())
+    }
+
     /// Returns the map of funder -> contribution for an escrow.
     pub fn get_funders(env: Env, id: u64) -> Map<Address, i128> {
         env.storage()
@@ -2147,7 +2471,7 @@ impl Escrow {
     /// Freelancer marks a milestone as delivered, starting the review clock.
     /// The escrow must be `Funded`, the milestone `Pending`, and its unpaid
     /// amount covered by `funded - released - (already submitted backing)`.
-    /// Emits `("submit", id) -> (index, submitted_at)`.
+    /// Emits `(1, "submit", id) -> SubmitEvent { index, submitted_at }`.
     pub fn submit_milestone(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
         require_not_paused(&env, PAUSE_RELEASE)?;
         let c = load(&env, id)?;
@@ -2182,15 +2506,14 @@ impl Escrow {
         env.storage()
             .persistent()
             .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-        env.events()
-            .publish((symbol_short!("submit"), id), (index, now));
+        events::submit(&env, id, index, now);
         Ok(())
     }
 
     /// Freelancer claims a submitted milestone once its review window has
     /// elapsed (`now >= submitted_at + review_window`). Not available while the
     /// escrow is `Disputed`; still available after the client cancelled, since
-    /// submitted funds are kept in escrow. Emits `("claim", id) -> (index, amount)`.
+    /// submitted funds are kept in escrow. Emits `(1, "claim", id) -> ClaimEvent { index, amount }`.
     pub fn claim_milestone(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
         require_not_paused(&env, PAUSE_RELEASE)?;
         let mut c = load(&env, id)?;
@@ -2244,8 +2567,7 @@ impl Escrow {
         #[cfg(any(test, debug_assertions))]
         assert_solvent(&env, &c.token);
         save(&env, &c);
-        env.events()
-            .publish((symbol_short!("claim"), id), (index, remaining));
+        events::claim(&env, id, index, remaining);
         events::release(&env, &c, index, remaining, &payee(&env, &c), c.released_amount, fee);
         if completed {
             events::completed(&env, &c);
@@ -2341,7 +2663,7 @@ impl Escrow {
     /// Client releases any portion of a milestone (e.g. 50% on draft, 50% on
     /// final). The paid amount is tracked per milestone; once it reaches the
     /// milestone amount the milestone is released and completion is checked.
-    /// Emits `("rel_part", id) -> (index, amount, remaining)`.
+    /// Emits `(1, "rel_part", id) -> PartialReleaseEvent { index, amount, remaining }`.
     pub fn release_partial(env: Env, id: u64, index: u32, amount: i128) -> Result<(), EscrowError> {
         require_not_paused(&env, PAUSE_RELEASE)?;
         let mut c = load(&env, id)?;
@@ -2398,10 +2720,7 @@ impl Escrow {
         #[cfg(any(test, debug_assertions))]
         assert_solvent(&env, &c.token);
         save(&env, &c);
-        env.events().publish(
-            (symbol_short!("rel_part"), id),
-            (index, amount, remaining_after),
-        );
+        events::partial_release(&env, id, index, amount, remaining_after);
         if completed {
             events::completed(&env, &c);
         }
@@ -2529,8 +2848,7 @@ impl Escrow {
                 .ok_or(EscrowError::ArithmeticOverflow)?;
             events::release(&env, &c, index, amount, &to, running, fees.get(pos as u32).unwrap());
         }
-        env.events()
-            .publish((symbol_short!("rel_batch"), id), (count, total));
+        events::batch_release(&env, id, count, total);
         if completed {
             events::completed(&env, &c);
         }
@@ -2583,8 +2901,7 @@ impl Escrow {
             PERSISTENT_TTL_EXTEND,
         );
 
-        env.events()
-            .publish((symbol_short!("bonus"), id), (amount, cumulative));
+        events::bonus(&env, id, amount, cumulative);
         Ok(())
     }
 
@@ -2923,7 +3240,7 @@ impl Escrow {
     /// Client commits a hash of the agreed job terms plus optional per-milestone
     /// deliverable spec hashes (0 or one per milestone, else `InvalidMetadata`).
     /// Only while `Created` with nothing deposited; frozen afterwards
-    /// (`InvalidStatus`). Emits `("terms", id) -> terms_hash`.
+    /// (`InvalidStatus`). Emits `(1, "terms", id) -> TermsEvent { terms_hash }`.
     pub fn set_terms(
         env: Env,
         id: u64,
@@ -2951,13 +3268,12 @@ impl Escrow {
         env.storage()
             .persistent()
             .extend_ttl(&specs_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-        env.events()
-            .publish((symbol_short!("terms"), id), terms_hash);
+        events::terms(&env, id, terms_hash);
         Ok(())
     }
 
     /// Freelancer records a delivery hash for a milestone; it may be overwritten
-    /// until the milestone is released. Emits `("deliver", id) -> (index, hash)`.
+    /// until the milestone is released. Emits `(1, "deliver", id) -> DeliverEvent { index, delivery_hash }`.
     pub fn deliver(
         env: Env,
         id: u64,
@@ -2986,8 +3302,7 @@ impl Escrow {
         env.storage()
             .persistent()
             .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-        env.events()
-            .publish((symbol_short!("deliver"), id), (index, delivery_hash));
+        events::deliver(&env, id, index, delivery_hash);
         Ok(())
     }
 
@@ -3051,7 +3366,8 @@ impl Escrow {
     /// A party proposes a mutual settlement of the held balance: `freelancer_amount`
     /// to the freelancer and the rest to the client (`0 <= freelancer_amount <=
     /// funded - released`, else `InvalidAmount`). Allowed on `Created`, `Funded`
-    /// and `Disputed` escrows; replaces any earlier proposal. Emits
+    /// and `Disputed` escrows; replaces any earlier (including expired) proposal
+    /// and starts a fresh `SETTLEMENT_VALID_SECS` (7-day) validity window. Emits
     /// `("settle_p", id) -> (proposer, freelancer_amount)`.
     pub fn propose_settlement(
         env: Env,
@@ -3098,7 +3414,8 @@ impl Escrow {
 
     /// The *other* party accepts the pending settlement, echoing the proposed
     /// `freelancer_amount` (guards against a swapped proposal); a missing
-    /// proposal, self-acceptance or a different amount fail with
+    /// proposal, self-acceptance, a different amount, or an expired proposal
+    /// (`now > created_at + SETTLEMENT_VALID_SECS`) fail with
     /// `SettlementMismatch`. Pays both sides, returns any dispute bond to its
     /// opener and closes the escrow as `Resolved` without the admin. Emits
     /// `("settled", id) -> (to_freelancer, to_client)`.
@@ -3122,6 +3439,13 @@ impl Escrow {
             .get(&key)
             .ok_or(EscrowError::SettlementMismatch)?;
         if acceptor == proposal.proposer || freelancer_amount != proposal.freelancer_amount {
+            return Err(EscrowError::SettlementMismatch);
+        }
+        let deadline = proposal
+            .created_at
+            .checked_add(SETTLEMENT_VALID_SECS)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        if env.ledger().timestamp() > deadline {
             return Err(EscrowError::SettlementMismatch);
         }
         if !matches!(
@@ -3171,7 +3495,8 @@ impl Escrow {
         Ok(())
     }
 
-    /// The proposer withdraws its pending settlement proposal.
+    /// The proposer withdraws its pending settlement proposal (including an
+    /// expired one).
     pub fn withdraw_settlement(env: Env, id: u64, proposer: Address) -> Result<(), EscrowError> {
         load(&env, id)?;
         proposer.require_auth();
@@ -3190,7 +3515,9 @@ impl Escrow {
         Ok(())
     }
 
-    /// Pending settlement proposal, if any.
+    /// Pending settlement proposal, if any. Still returns the stored record
+    /// after expiry; a proposal is expired (and `accept_settlement` rejects it)
+    /// once `now > created_at + SETTLEMENT_VALID_SECS`.
     pub fn get_settlement(env: Env, id: u64) -> Option<SettlementProposal> {
         env.storage().persistent().get(&DataKey::Settlement(id))
     }
@@ -3482,14 +3809,22 @@ impl Escrow {
         Ok(())
     }
 
+    /// Returns the rating record issued for escrow `id`, or `None` if no rating has been issued.
+    ///
+    /// - **Storage reads:** `DataKey::Rating(id)` (persistent storage).
+    /// - **Errors:** None.
     pub fn get_rating(env: Env, id: u64) -> Option<RatingRecord> {
         env.storage().persistent().get(&DataKey::Rating(id))
     }
 
+    /// Returns the full `EscrowContract` for `id`.
+    ///
+    /// - **Storage reads:** `DataKey::Receipt(id)` (compaction check), then
+    ///   `DataKey::ContractV(id)` falling back to legacy `DataKey::Contract(id)`
+    ///   (persistent storage). Read-only; never mutates or migrates storage.
+    /// - **Errors:** `EscrowError::EscrowCompacted` if the escrow has been compacted
+    ///   into a receipt; `EscrowError::ContractNotFound` if no escrow exists for `id`.
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
-        if is_compacted(&env, id) {
-            return Err(EscrowError::EscrowCompacted);
-        }
         load(&env, id)
     }
 
@@ -3924,8 +4259,8 @@ impl Escrow {
         Ok(summarize(&load(&env, id)?))
     }
 
-    /// Returns up to `MAX_SUMMARY_BATCH` summaries; unknown ids are skipped and
-    /// larger batches return `InvalidAmount`. Read-only.
+    /// Returns up to `MAX_SUMMARY_BATCH` summaries; unknown and compacted ids
+    /// are skipped and larger batches return `InvalidAmount`. Read-only.
     pub fn get_escrow_summaries(
         env: Env,
         ids: Vec<u64>,
@@ -4008,6 +4343,10 @@ impl Escrow {
         env.storage().persistent().get(&DataKey::Receipt(id))
     }
 
+    /// Returns the total number of escrows created so far (`0` before any escrow is created).
+    ///
+    /// - **Storage reads:** `DataKey::NextId` (instance storage).
+    /// - **Errors:** None.
     pub fn contract_count(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -4016,6 +4355,11 @@ impl Escrow {
             - 1
     }
 
+    /// Returns the aggregate `Reputation` (completed contracts and total rating) for
+    /// `freelancer`, defaulting to zeroed fields if none is recorded.
+    ///
+    /// - **Storage reads:** `DataKey::Reputation(freelancer)` (persistent storage).
+    /// - **Errors:** None.
     pub fn get_reputation(env: Env, freelancer: Address) -> Reputation {
         env.storage()
             .persistent()
@@ -4023,6 +4367,11 @@ impl Escrow {
             .unwrap_or_default()
     }
 
+    /// Returns the value-weighted `WeightedReputation` for `freelancer`, defaulting
+    /// to zeroed fields if no weighted ratings are recorded.
+    ///
+    /// - **Storage reads:** `DataKey::WeightedRep(freelancer)` (persistent storage).
+    /// - **Errors:** None.
     pub fn get_weighted_reputation(env: Env, freelancer: Address) -> WeightedReputation {
         env.storage()
             .persistent()
@@ -4177,6 +4526,11 @@ impl Escrow {
         env.storage().persistent().get(&DataKey::DisputeBond(id))
     }
 
+    /// Returns the aggregate `Reputation` accrued by `client` from freelancer ratings,
+    /// defaulting to zeroed fields if none is recorded.
+    ///
+    /// - **Storage reads:** `DataKey::ClientReputation(client)` (persistent storage).
+    /// - **Errors:** None.
     pub fn get_client_reputation(env: Env, client: Address) -> Reputation {
         env.storage()
             .persistent()
@@ -4184,6 +4538,11 @@ impl Escrow {
             .unwrap_or_default()
     }
 
+    /// Returns the dispute and cancellation `Outcomes` counters for `addr`, defaulting
+    /// to zeroed fields if none are recorded.
+    ///
+    /// - **Storage reads:** `DataKey::Outcomes(addr)` (persistent storage).
+    /// - **Errors:** None.
     pub fn get_outcomes(env: Env, addr: Address) -> Outcomes {
         env.storage()
             .persistent()
@@ -4200,16 +4559,25 @@ mod events {
         (EVENT_SCHEMA_V, name, id)
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "init")` with the initialized `admin` address.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn init(env: &Env, admin: &Address) {
         env.events()
             .publish((EVENT_SCHEMA_V, symbol_short!("init")), admin.clone());
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "paused")` with the new `paused` boolean state.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn paused(env: &Env, paused: bool) {
         env.events()
             .publish((EVENT_SCHEMA_V, symbol_short!("paused")), paused);
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "created", c.id)` with a [`CreatedEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn created(env: &Env, c: &EscrowContract) {
         env.events().publish(
             escrow_topic(symbol_short!("created"), c.id),
@@ -4223,6 +4591,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "deposit", c.id)` with a [`DepositEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn deposit(env: &Env, c: &EscrowContract, from: &Address, amount: i128) {
         env.events().publish(
             escrow_topic(symbol_short!("deposit"), c.id),
@@ -4235,6 +4606,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "release", c.id)` with a [`ReleaseEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn release(
         env: &Env,
         c: &EscrowContract,
@@ -4257,6 +4631,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "complete", c.id)` with a [`CompletedEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn completed(env: &Env, c: &EscrowContract) {
         env.events().publish(
             escrow_topic(symbol_short!("complete"), c.id),
@@ -4266,6 +4643,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "dispute", c.id)` with a [`DisputeEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn dispute(env: &Env, c: &EscrowContract, by: &Address, bond: i128) {
         env.events().publish(
             escrow_topic(symbol_short!("dispute"), c.id),
@@ -4277,6 +4657,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "resolved", c.id)` with a [`ResolvedEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn resolved(
         env: &Env,
         c: &EscrowContract,
@@ -4297,6 +4680,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "cancel", c.id)` with a [`CancelEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn cancel(env: &Env, c: &EscrowContract, refund: i128) {
         env.events().publish(
             escrow_topic(symbol_short!("cancel"), c.id),
@@ -4308,6 +4694,9 @@ mod events {
         );
     }
 
+    /// Emits `(EVENT_SCHEMA_V, "rep", c.id)` with a [`ReputationEvent`] payload.
+    ///
+    /// Returns `()`; performs no storage reads and cannot fail.
     pub fn reputation(env: &Env, c: &EscrowContract, rating: u32, rep: &Reputation, weight: i128) {
         env.events().publish(
             escrow_topic(symbol_short!("rep"), c.id),
@@ -4318,6 +4707,65 @@ mod events {
                 total_rating: rep.total_rating,
                 weight,
             },
+        );
+    }
+
+    pub fn submit(env: &Env, id: u64, index: u32, submitted_at: u64) {
+        env.events().publish(
+            escrow_topic(symbol_short!("submit"), id),
+            SubmitEvent {
+                index,
+                submitted_at,
+            },
+        );
+    }
+
+    pub fn claim(env: &Env, id: u64, index: u32, amount: i128) {
+        env.events().publish(
+            escrow_topic(symbol_short!("claim"), id),
+            ClaimEvent { index, amount },
+        );
+    }
+
+    pub fn partial_release(env: &Env, id: u64, index: u32, amount: i128, remaining: i128) {
+        env.events().publish(
+            escrow_topic(symbol_short!("rel_part"), id),
+            PartialReleaseEvent {
+                index,
+                amount,
+                remaining,
+            },
+        );
+    }
+
+    pub fn batch_release(env: &Env, id: u64, count: u32, total: i128) {
+        env.events().publish(
+            escrow_topic(symbol_short!("rel_batch"), id),
+            BatchReleaseEvent { count, total },
+        );
+    }
+
+    pub fn deliver(env: &Env, id: u64, index: u32, delivery_hash: BytesN<32>) {
+        env.events().publish(
+            escrow_topic(symbol_short!("deliver"), id),
+            DeliverEvent {
+                index,
+                delivery_hash,
+            },
+        );
+    }
+
+    pub fn bonus(env: &Env, id: u64, amount: i128, cumulative: i128) {
+        env.events().publish(
+            escrow_topic(symbol_short!("bonus"), id),
+            BonusEvent { amount, cumulative },
+        );
+    }
+
+    pub fn terms(env: &Env, id: u64, terms_hash: BytesN<32>) {
+        env.events().publish(
+            escrow_topic(symbol_short!("terms"), id),
+            TermsEvent { terms_hash },
         );
     }
 }
