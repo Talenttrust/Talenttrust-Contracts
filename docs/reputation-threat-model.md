@@ -1,110 +1,79 @@
 # Threat Model: Reputation
 
-Scope: `Escrow::issue_reputation` (contracts/escrow/src/lib.rs) and the
-storage it reads/writes — `DataKey::ReputationIssued(contract_id)`,
-`DataKey::PendingReputationCredits(freelancer)`, `DataKey::Reputation(freelancer)`,
-`Contract::reputation_issued` — plus `grant_pending_reputation_credit`, the
-internal function (called from the milestone-release paths) that mints the
-pending credit `issue_reputation` later consumes.
+Scope: `EscrowContract::issue_reputation`, `EscrowContract::rate_client`, and
+`EscrowContract::void_rating` in `contracts/escrow/src/lib.rs`, together with
+their persistent storage keys:
+- `DataKey::Reputation(freelancer)`
+- `DataKey::WeightedRep(freelancer)`
+- `DataKey::Rating(id)`
+- `DataKey::RatingWeight(id)`
+- `DataKey::ClientReputation(client)`
+- `DataKey::ClientRated(id)`
+- `EscrowContract::reputation_issued`
 
 ## Trust assumptions
 
-- `contract.client` and `contract.freelancer` are trusted values: they were
-  fixed at `create_contract` time and are not attacker-writable afterward.
+- `c.client`, `c.freelancer`, and `c.released_amount` are trusted contract
+  fields maintained by the escrow lifecycle in `contracts/escrow/src/lib.rs` and
+  are not directly writable by callers.
 - Soroban's `Address::require_auth()` is trusted to prove the transaction was
-  actually authorized by the address it's called on — the contract cannot be
-  tricked into treating an unsigned call as authorized.
-- `rating`, `comment`, and `caller` are **untrusted, attacker-controlled**
-  call arguments. Nothing about them is assumed valid before the checks below
-  run.
-- A "pending reputation credit" for a freelancer is only trusted to exist if
-  it was minted by `grant_pending_reputation_credit`, which itself only runs
-  on the milestone-completion paths (release / dispute resolution reaching
-  `ContractStatus::Completed`). This is the mechanism that ties a reputation
-  event to real, paid-for work rather than to an arbitrary contract record.
+  authorized by the required address (`c.client`, `c.freelancer`, or admin).
+- `id`, `rating`, and `reason` are **untrusted, attacker-controlled** call
+  arguments.
+- Sybil resistance relies on the economic cost of releasing at least
+  `MIN_REPUTATION_VALUE` (`10_000_000`, 1 token unit at 7 decimals) to the
+  freelancer before a rating can be issued, and on weighting each rating by
+  `c.released_amount`.
 
 ## Attacker capabilities
 
-An attacker can call `issue_reputation(env, contract_id, caller, rating, comment)`
-directly, with:
-- any `contract_id` (including ones they have no relationship to),
-- any `caller` address (they do not need to control it to *call* the
-  function — only to make `require_auth()` succeed),
-- an arbitrary `rating` (any `u32`) and `comment` (any string, any byte length).
+An attacker can invoke `issue_reputation(id, rating)`, `rate_client(id, rating)`,
+or `void_rating(id, reason)` with any `id`, `rating`, or `reason`. They cannot
+forge `require_auth()` for an address they do not control.
 
-What an attacker **cannot** do: make `caller.require_auth()` succeed for an
-address they don't control. Soroban's auth framework enforces that
-independent of contract logic, so no amount of guessing `caller` values lets
-an attacker impersonate `contract.client`.
+## Mitigations, mapped to the actual checks
 
-## Mitigations, mapped to the actual checks (in source order)
+1. **Pause and freeze gating** — `require_not_paused(&env, PAUSE_REPUTATION)`
+   and `require_not_frozen(&env, id)` allow governance to halt reputation
+   mutations during incidents or per-escrow freezes.
+2. **Compaction safety** — `issue_reputation` rejects compacted escrows with
+   `EscrowCompacted`, while compaction of unrated terminal escrows is blocked
+   until `THIRTY_DAYS_IN_LEDGERS` has elapsed so compaction cannot be abused to
+   suppress a rating.
+3. **Signature verification** — `c.client.require_auth()` (for
+   `issue_reputation`), `c.freelancer.require_auth()` (for `rate_client`), and
+   `require_admin(&env)` (for `void_rating`) run before lifecycle, idempotency,
+   and bounds checks, ensuring unauthorized callers cannot mutate state.
+4. **Lifecycle gating** — `issue_reputation` and `rate_client` require
+   `ContractStatus::Completed | ContractStatus::Resolved` (`InvalidStatus`),
+   preventing ratings on unfunded, open, cancelled, or disputed escrows.
+5. **Idempotency** — `c.reputation_issued` (for freelancer ratings) and
+   `DataKey::ClientRated(id)` (for client ratings) block duplicate ratings with
+   `ReputationAlreadyIssued`. `RatingRecord.voided` blocks duplicate voiding
+   with `RatingAlreadyVoided`.
+6. **Rating bounds** — `!(1..=5).contains(&rating)` fails with `InvalidRating`.
+7. **Value threshold & weighting** — `issue_reputation` requires
+   `c.released_amount >= MIN_REPUTATION_VALUE` (`BelowReputationThreshold`) and
+   weights each rating by `c.released_amount` in `WeightedReputation`.
+   `reputation_score` computes an overflow-safe, half-up rounded score in
+   hundredths.
+8. **Checked and saturating arithmetic** — `issue_reputation` and `rate_client`
+   use checked arithmetic (`ArithmeticOverflow`), while `void_rating` uses
+   saturating subtraction clamped at `0` so reversing a rating cannot underflow.
+9. **Governance voiding & audit trail** — `void_rating` reverses both
+   unweighted `Reputation` and `WeightedReputation` (using `DataKey::RatingWeight(id)`),
+   marks `RatingRecord.voided = true`, and emits a `("rep_void", id)` event with
+   the `reason` symbol.
 
-1. **Role gating** — `if caller != contract.client { panic UnauthorizedRole }`.
-   Only the stored client may issue reputation for a given contract; the
-   freelancer or a third party cannot rate themselves in or bypass the client.
-2. **Rating bounds** — `if rating < 1 || rating > 5 { panic InvalidRating }`.
-   Prevents out-of-range/garbage values from being written to on-chain
-   reputation state.
-3. **Comment bounds** — `EmptyComment` / `CommentTooLong` (200-byte cap).
-   The cap is a direct mitigation against unbounded on-chain storage growth
-   from attacker-supplied strings (a storage-cost/DoS concern, not just
-   cosmetic).
-4. **Lifecycle gating** — `if contract.status != Completed { panic NotCompleted }`.
-   Reputation can only be issued once the engagement has actually completed
-   (all milestones released or refunded per the status-transition rules in
-   `release.rs`/`refund_impl.rs`), not on an open or disputed contract.
-5. **Idempotency** — `if contract.reputation_issued { panic ReputationAlreadyIssued }`.
-   A one-shot flag prevents the same completed contract from generating
-   reputation more than once (blocks reputation-inflation via repeated calls).
-6. **Self-rating guard** — `if contract.client == contract.freelancer { panic SelfRating }`.
-   Structurally redundant today (contract creation already requires distinct
-   client/freelancer addresses — see `InvalidParticipants` in
-   `create_contract.rs`), but kept as defense-in-depth in case that invariant
-   is ever relaxed.
-7. **Signature verification** — `caller.require_auth()`. Confirms the
-   transaction was actually signed/authorized by the address that passed the
-   role check in step 1. This is what makes step 1 meaningful rather than a
-   self-reported claim.
-8. **Earned-credit check** — `pending <= 0 { panic InvalidState }` against
-   `DataKey::PendingReputationCredits(contract.freelancer)`, decremented by 1
-   on success. This is the real anti-farming control: a client cannot rate a
-   freelancer for a contract unless `grant_pending_reputation_credit` already
-   minted a credit for that freelancer, which only happens on genuine
-   milestone completion. Rating cannot be manufactured without underlying
-   completed, paid work.
+## Known limitations
 
-## Known limitation: validation-before-auth ordering
-
-Steps 1–6 above run **before** `caller.require_auth()` (step 7). This means
-any caller — without needing to actually control the `caller` address, i.e.
-without a valid signature — can invoke `issue_reputation` and, from which
-specific error comes back, learn:
-- whether `contract_id` exists,
-- whether the caller they supplied matches the stored client,
-- whether the contract has reached `Completed`,
-- whether reputation was already issued for it.
-
-This is a **low-severity information-disclosure oracle**, not a fund- or
-reputation-state integrity issue: no state is mutated and no reputation is
-recorded unless `require_auth()` (step 7) actually succeeds, so an attacker
-cannot forge a rating this way. It's flagged here because reordering
-`require_auth()` earlier (immediately after loading the contract) would close
-even this limited disclosure, and other entrypoints in this crate follow the
-same "role check, then `require_auth()`" order (see cross-references below),
-so this is a repo-wide pattern rather than something specific to reputation.
-
-## Cross-reference: auth checks elsewhere in the crate
-
-The same "verify role/state, then `require_auth()`" shape recurs throughout
-`lib.rs` and is not unique to reputation:
-- `admin.require_auth()` — governance, pause/unpause, emergency controls
-  (e.g. `set_protocol_fee_bps`, `pause`, `unpause`).
-- `contract.client.require_auth()` — refund and milestone-release paths
-  gated to the client (subject to `release_authorization`, see
-  `ReleaseAuthorization` in `types.rs` for the client/arbiter/multisig
-  variants that can also require freelancer or arbiter auth).
-- `arbiter.require_auth()` — dispute-resolution entrypoints.
-
-Reputation follows the identical pattern; the ordering limitation above
-applies equally to those call sites and is called out here only because this
-note's scope is reputation.
+- **Existence/freeze oracle before auth**: In `issue_reputation` and
+  `rate_client`, `load(&env, id)` and `require_not_frozen(&env, id)` run before
+  `require_auth()`. An unauthenticated caller can therefore distinguish
+  `ContractNotFound`, `EscrowCompacted`, and `EscrowFrozen` from an auth
+  failure. This is a low-severity information-disclosure issue only; no state
+  can be mutated without valid authorization.
+- **Client ratings are unweighted and non-voidable**: `rate_client` does not
+  enforce `MIN_REPUTATION_VALUE`, does not maintain a `WeightedReputation`
+  aggregate, and `void_rating` operates only on freelancer `RatingRecord`
+  entries (`DataKey::Rating(id)`).
