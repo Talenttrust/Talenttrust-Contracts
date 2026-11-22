@@ -9414,3 +9414,49 @@ fn milestone_due_side_keys_extend_ttl() {
         persistent_ttl(&s, &DataKey::MilestoneReclaimed(id, 0)) >= PERSISTENT_TTL_THRESHOLD
     );
 }
+
+// ---------------------------------------------------------------------------
+// Deployment metadata sync
+// ---------------------------------------------------------------------------
+
+/// Verifies that README.md stays in sync with deployments/testnet.json.
+///
+/// Extracts the `contractId`, `admin`, and `explorer` values from the JSON
+/// (plain string search — no parser, no new dependencies) and asserts each one
+/// appears verbatim in the README.  If any check fails the message names the
+/// stale file so the developer knows exactly what to update.
+#[test]
+fn deployment_metadata_readme_matches_testnet_json() {
+    let readme = include_str!("../../../../README.md");
+    let json = include_str!("../../../../deployments/testnet.json");
+
+    /// Pull the value that follows `"<key>": "` up to the closing `"`.
+    fn extract<'a>(json: &'a str, key: &str) -> &'a str {
+        let needle = std::format!("\"{key}\": \"");
+        let start = json
+            .find(needle.as_str())
+            .unwrap_or_else(|| panic!("key `{key}` not found in deployments/testnet.json"))
+            + needle.len();
+        let end = json[start..]
+            .find('"')
+            .unwrap_or_else(|| panic!("unterminated value for key `{key}` in deployments/testnet.json"));
+        &json[start..start + end]
+    }
+
+    let contract_id = extract(json, "contractId");
+    let admin = extract(json, "admin");
+    let explorer = extract(json, "explorer");
+
+    assert!(
+        readme.contains(contract_id),
+        "README.md is stale: contract id `{contract_id}` from deployments/testnet.json not found in README.md"
+    );
+    assert!(
+        readme.contains(admin),
+        "README.md is stale: admin `{admin}` from deployments/testnet.json not found in README.md"
+    );
+    assert!(
+        readme.contains(explorer),
+        "README.md is stale: explorer URL `{explorer}` from deployments/testnet.json not found in README.md"
+    );
+}
