@@ -1,94 +1,75 @@
 # Escrow Governance Security
 
-The live escrow contract has a single operational admin initialized by
-`initialize(admin)`. That admin can pause, unpause, activate emergency pause,
-resolve emergency mode, and hand off the role via a two-step, timelocked
-transfer (see below).
+The live escrow contract (`contracts/escrow/src/lib.rs`) is governed by a single
+admin address initialized once via `initialize(admin)`. The admin can delegate
+specific operational roles (`Pauser`, `Resolver`), hand off control via a
+two-step admin transfer, and exercise privileged controls bounded by on-chain
+caps and timelocks.
 
-## Implemented Admin Controls
+## Initialization and Admin Queries
 
-- `initialize(admin) -> bool`
-- `get_admin() -> Option<Address>`
-- `pause() -> bool`
-- `unpause() -> bool`
-- `activate_emergency_pause() -> bool`
-- `resolve_emergency() -> bool`
-- `is_paused() -> bool`
-- `is_emergency() -> bool`
+- `initialize(admin: Address) -> Result<(), EscrowError>` — one-time setup;
+  requires `admin.require_auth()` and fails with `AlreadyInitialized` if already
+  set. Emits `("init",) -> admin`.
+- `get_admin() -> Result<Address, EscrowError>` — returns the current admin
+  address (or `NotInitialized`).
+- `get_pending_admin() -> Option<Address>` — returns the pending admin nominee,
+  if any.
+- `version() -> u32` — on-chain code version (`1` until the first
+  `execute_upgrade`, then incremented on each upgrade).
 
-### Two-step admin transfer
+## Two-Step Admin Transfer
 
-A single-call admin transfer is a well-known footgun: a typo'd address or a
-compromised admin key hands over the whole contract irrevocably. Instead,
-rotation is propose → (wait out a timelock) → accept, with a cancel escape
-hatch and a hard expiry so a forgotten proposal can't be accepted long after
-the fact. See [`docs/escrow/`](.) and the crate-level docs on
-`escrow::governance` for the full design rationale.
+Admin handoff is split into nomination and acceptance so a typo'd address cannot
+irrevocably lock governance:
 
-- `propose_admin(new: Address) -> bool` — current admin only. Stores `new`
-  under `PendingAdmin` with the current ledger sequence. Rejects proposing the
-  current admin itself (`Error::CannotProposeSelf`). A second call overwrites
-  any existing pending proposal.
-- `accept_admin() -> bool` — the *proposed* address must authorize. Fails with
-  `Error::TimelockNotElapsed` before `ADMIN_ROTATION_MIN_DELAY_LEDGERS` (~2
-  days) have elapsed since the proposal, and with
-  `Error::AdminProposalExpired` after `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS`
-  (~9 days) have elapsed — a panic rolls back all state, so an expired
-  proposal is left in place, not silently cleared.
-- `cancel_admin() -> bool` — current admin only. Clears a pending proposal at
-  any time, expired or not, with no timelock of its own.
-- `get_pending_admin() -> Option<Address>` — the proposed address, if any.
-- `get_pending_admin_proposed_at() -> Option<u32>` (alias:
-  `pending_admin_proposed_at`) — the ledger sequence the pending proposal was
-  made at, so off-chain tooling can compute the remaining timelock/expiry.
+- `propose_admin(new_admin: Address) -> Result<(), EscrowError>` — current admin
+  only. Rejects nominating the current admin with `InvalidAdmin`. Overwrites any
+  existing pending nomination. Emits `("adm_prop",) -> (current, new_admin)`.
+- `accept_admin() -> Result<(), EscrowError>` — requires the pending nominee's
+  authorization. Fails with `NoPendingAdmin` if no nomination is pending. Moves
+  `Admin` to the nominee, clears `PendingAdmin`, and emits
+  `("adm_acc",) -> (old, pending)`.
+- `cancel_admin_proposal() -> Result<(), EscrowError>` — current admin only.
+  Clears the pending nomination or fails with `NoPendingAdmin` if none is
+  pending. Emits `("adm_cncl",) -> pending`.
 
-Every transition clears or overwrites `PendingAdmin`, so an accept can never
-be replayed against a cancelled or already-consumed proposal — it finds
-nothing pending and fails with `Error::InvalidState`.
+All three rotation entrypoints (`propose_admin`, `accept_admin`,
+`cancel_admin_proposal`) are intentionally callable while the contract is paused
+so key rotation remains available as a recovery action. Because `PendingAdmin`
+is cleared on acceptance or cancellation, a consumed or cancelled nomination
+cannot be replayed (`NoPendingAdmin`).
 
-All mutating admin controls require the stored admin's (or, for `accept_admin`,
-the proposed admin's) Soroban authorization.
+## Role-Based Access Control
 
-### Concurrent clients and retries
+Operational duties can be delegated without sharing the admin key:
 
-Transactions execute atomically in serialized order, but a signed request can
-arrive after the pending proposal has been replaced. Use the additive checked
-entrypoints to bind intent to an observed admin-rotation revision:
+- `Role::Pauser` — authorized to call `set_paused` and `set_pause_flags`.
+- `Role::Resolver` — authorized to call `resolve_dispute` (for disputes below
+  the panel threshold and where the caller is not a party to the escrow).
 
-- `get_admin_rotation_revision() -> u64`
-- `propose_admin_checked(new: Address, expected_revision: u64) -> bool`
-- `accept_admin_checked(expected_revision: u64) -> bool`
-- `cancel_admin_checked(expected_revision: u64) -> bool`
-- `recover_admin_proposal_checked(expected_revision: u64) -> bool`
+Role management entrypoints:
 
-Read the revision before reading the pending proposal and confirming the action.
-For a consistent multi-query snapshot, read the revision again after the proposal
-and repeat the reads if it changed. Include that revision in the authorized call.
-All existing authorization, delay and expiry rules still apply. Recovery requires
-the current admin and an elapsed delay strictly greater than the proposal TTL;
-acceptance remains allowed at exactly the TTL.
+- `grant_role(role: Role, account: Address) -> Result<(), EscrowError>` — admin
+  only. Fails with `RoleUnchanged` if `account` already holds `role`. Emits
+  `("role_set", role) -> (account, true)`.
+- `revoke_role(role: Role, account: Address) -> Result<(), EscrowError>` — admin
+  only. Fails with `RoleUnchanged` if `account` does not hold `role`. Emits
+  `("role_set", role) -> (account, false)`.
+- `has_role(role: Role, account: Address) -> bool` — returns `true` if `account`
+  is the current admin or has been explicitly granted `role`.
 
-Every successful proposal, acceptance, cancellation or recovery advances the
-revision, including calls to the legacy entrypoints. Exactly one of two requests
-using the same revision can succeed. Repeated requests fail with `StaleNonce`
-without changing storage or emitting successful events, including replacement by
-the same address in the same ledger. On `StaleNonce`, read and review the new state;
-do not blindly substitute a newer revision into an old action. A successful call
-whose response was lost can be diagnosed from the current state and events rather
-than replayed as a new mutation.
+**Implicit admin privileges:** The current admin implicitly holds every `Role`
+(`has_role` returns `true` for the admin regardless of explicit role storage).
+Rotating the admin via `accept_admin` automatically transfers these implicit
+permissions to the new admin, while explicitly granted role memberships remain
+bound to their respective accounts until revoked.
 
-The revision is stored in contract instance storage so it cannot independently
-expire while the instance remains live. Missing revision storage on upgrade reads
-as zero; the existing pending-proposal encoding is unchanged. The counter never
-wraps: mutation at `u64::MAX` fails with `PotentialOverflow`, leaving state intact.
-Each successful mutation adds an `admin_rotation_revision` event containing the
-new revision. Existing admin event topics and payloads remain unchanged.
+## Admin Powers, Bounds, and Risks
 
-The legacy methods retain their signatures and latest-state behavior. Clients
-must migrate to checked methods for stale-intent protection; legacy calls do not
-gain that protection automatically. Existing deployed proposals can be operated
-on at revision zero after upgrade. See `tests/governance_concurrency.rs` for both
-serialized race orders, migration, retries, authorization and boundary checks.
+All mutating admin controls require the stored admin's Soroban authorization
+(except `set_paused`/`set_pause_flags`, which also accept `Role::Pauser`, and
+`resolve_dispute`, which also accepts `Role::Resolver`).
 
 ### Timelocked protocol fee changes
 
@@ -122,9 +103,74 @@ immediate so the admin can rapidly replace an unresponsive or compromised arbite
 during an active high-value dispute. Every panel update emits `("panel",) -> (len, threshold)`
 for off-chain monitoring.
 
-## Planned Governance Work
+### 1. Pause (Circuit Breaker)
+- **Entrypoints:** `set_paused(caller, paused)`, `set_pause_flags(caller, flags)`,
+  `is_paused()`, `get_pause_flags()`, `get_paused_at()`.
+- **Events / Errors:** `("paused",) -> paused` (`set_paused`),
+  `("pause",) -> flags` (`set_pause_flags`); `Unauthorized` if caller lacks
+  `Role::Pauser`, `InvalidAmount` if `flags` sets bits outside `PAUSE_ALL`.
+- **Bounds & Risks:** A compromised admin or `Pauser` can halt operations across
+  some or all categories (`PAUSE_CREATE`, `PAUSE_DEPOSIT`, `PAUSE_RELEASE`,
+  `PAUSE_DISPUTE`, `PAUSE_CANCEL`, `PAUSE_REPUTATION`). Prolonged pausing is
+  mitigated by `emergency_withdraw`: after `EMERGENCY_EXIT_DELAY_SECS` (30 days)
+  of continuous pause, parties can unwind eligible escrows without admin
+  cooperation.
 
-- Governed parameter setter/readiness wiring:
-  [#323](https://github.com/Talenttrust/Talenttrust-Contracts/issues/323)
-- Audit events for future fee/admin changes:
-  [#340](https://github.com/Talenttrust/Talenttrust-Contracts/issues/340)
+### 2. Freeze (Per-Escrow)
+- **Entrypoints:** `freeze_escrow(id, reason)`, `unfreeze_escrow(id)`,
+  `is_frozen(id)`.
+- **Events / Errors:** `("frozen", id) -> reason`, `("unfrozen", id) -> ()`;
+  `ContractNotFound`, `EscrowFrozen` (already frozen), `InvalidStatus` (not
+  frozen on unfreeze).
+- **Bounds & Risks:** Freezing blocks all party-initiated mutations on that
+  escrow with `EscrowFrozen`, while `resolve_dispute` remains available. A
+  malicious admin could indefinitely stall a specific escrow.
+
+### 3. Protocol Fee
+- **Entrypoints:** `set_fee(fee_bps, treasury)`, `get_fee_config()`,
+  `get_escrow_fee(id)`.
+- **Events / Errors:** `("fee_set",) -> (fee_bps, treasury)`; `FeeTooHigh` if
+  `fee_bps > MAX_FEE_BPS`, `InvalidParties` if `treasury` is the contract
+  address.
+- **Bounds & Risks:** Fees are hard-capped at `MAX_FEE_BPS = 500` (5%). Existing
+  escrows snapshot their fee rate at creation, so fee increases only affect new
+  escrows. However, the admin can redirect `treasury` or raise fees up to the
+  5% cap for future escrows without a timelock.
+
+### 4. Arbiter Panel
+- **Entrypoints:** `set_panel(members, threshold)`, `get_panel()`.
+- **Events / Errors:** `("panel",) -> (len, threshold)`; `InvalidPanel` if
+  `threshold == 0`, `threshold > len`, `len > PANEL_MAX_MEMBERS`, or duplicate
+  members are supplied.
+- **Bounds & Risks:** Replacing the panel is allowed mid-dispute; from that
+  point on, only votes from the new members count toward `threshold`. A
+  compromised admin could swap the panel to influence high-value disputes.
+
+### 5. Contract Upgrade (Timelocked)
+- **Entrypoints:** `schedule_upgrade(wasm_hash)`, `cancel_upgrade()`,
+  `execute_upgrade()`, `get_pending_upgrade()`.
+- **Events / Errors:** `("upg_sched",) -> (wasm_hash, eta)`,
+  `("upg_cncl",) -> wasm_hash`, `("upgraded",) -> (wasm_hash, new_version)`;
+  `NoPendingUpgrade`, `UpgradeNotReady`, `ArithmeticOverflow`.
+- **Bounds & Risks:** Scheduled WASM upgrades are subject to a 48-hour timelock
+  (`UPGRADE_DELAY_SECS = 172_800`). Re-scheduling while an upgrade is pending
+  resets the timer. `execute_upgrade` is intentionally allowed while paused so
+  critical fixes can be deployed during an incident. Because an executed upgrade
+  replaces contract code, admin key compromise carries full-contract takeover
+  risk after the 48-hour window; monitoring `upg_sched` events is essential.
+
+### 6. Surplus Sweep
+- **Entrypoints:** `sweep_surplus(token, to)`, `get_liability(token)`.
+- **Events / Errors:** `("sweep", token) -> (to, surplus)`; `NoSurplus` if the
+  contract holds no untracked balance above tracked liabilities.
+- **Bounds & Risks:** Sweeping is strictly bounded to
+  `token.balance(contract) - liability_of(token)`, so the admin cannot withdraw
+  funds backing active escrows.
+
+### 7. Void Rating
+- **Entrypoints:** `void_rating(id, reason)`.
+- **Events / Errors:** `("rep_void", id) -> (freelancer, rating, reason)`;
+  `RatingNotFound`, `RatingAlreadyVoided`.
+- **Bounds & Risks:** Allows the admin to reverse a fraudulent rating's effect
+  on reputation (blocked when `PAUSE_REPUTATION` is set). A compromised admin
+  could selectively erase legitimate ratings.

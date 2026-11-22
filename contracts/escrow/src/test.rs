@@ -2577,6 +2577,46 @@ fn test_rate_client_validation() {
 }
 
 #[test]
+fn dust_release_client_rating_returns_below_threshold() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    open_dispute_bonded(&s, &id, &s.client);
+    // 1 bps of the held balance reaches the freelancer: far below the threshold
+    resolve_refunding_bond(&s, &id, &1);
+    assert!(
+        s.escrow.get_contract(&id).released_amount < MIN_REPUTATION_VALUE
+    );
+    assert_eq!(
+        s.escrow.try_rate_client(&id, &5),
+        Err(Ok(EscrowError::BelowReputationThreshold))
+    );
+    assert_eq!(
+        s.escrow.get_client_reputation(&s.client),
+        Reputation::default()
+    );
+}
+
+#[test]
+fn client_rating_at_threshold_succeeds() {
+    let s = setup();
+    let id = completed_escrow(&s, MIN_REPUTATION_VALUE);
+    assert_eq!(
+        s.escrow.get_contract(&id).released_amount,
+        MIN_REPUTATION_VALUE
+    );
+    assert_eq!(s.escrow.try_rate_client(&id, &2), Ok(Ok(())));
+    let rep = s.escrow.get_client_reputation(&s.client);
+    assert_eq!(rep.completed_contracts, 1);
+    assert_eq!(rep.total_rating, 2);
+}
+
+#[test]
 fn test_rate_client_status_rejections() {
     let s = setup();
 
@@ -6311,6 +6351,146 @@ fn set_ts(env: &Env, ts: u64) {
 }
 
 #[test]
+fn resolve_expired_dispute_requires_timeout_and_disputed_status() {
+    let s = setup();
+    set_ts(&s.env, 1_000);
+
+    // Not disputed: rejected long after any timeout could have elapsed.
+    let funded = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&funded, &(100 * U));
+    let later = 1_000 + 2 * DISPUTE_TIMEOUT_SECS;
+    set_ts(&s.env, later);
+    assert_eq!(
+        s.escrow.try_resolve_expired_dispute(&funded),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+
+    // Disputed: rejected one second before the deadline, settles exactly on it.
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    open_dispute_bonded(&s, &id, &s.client);
+    set_ts(&s.env, later + DISPUTE_TIMEOUT_SECS - 1);
+    assert_eq!(
+        s.escrow.try_resolve_expired_dispute(&id),
+        Err(Ok(EscrowError::NotExpired))
+    );
+    set_ts(&s.env, later + DISPUTE_TIMEOUT_SECS);
+    s.escrow.resolve_expired_dispute(&id);
+    assert_eq!(
+        s.escrow.get_contract(&id).status,
+        ContractStatus::Resolved
+    );
+}
+
+#[test]
+fn resolve_expired_dispute_splits_evenly_and_returns_bond() {
+    let s = setup();
+    StellarAssetClient::new(&s.env, &s.token.address).mint(&s.freelancer, &(1_000 * U));
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 400 * U],
+    );
+    s.escrow.deposit_funds(&id, &(400 * U));
+    let client_before = s.token.balance(&s.client);
+    let freelancer_before = s.token.balance(&s.freelancer);
+    open_dispute_bonded(&s, &id, &s.freelancer);
+    assert_eq!(
+        s.escrow.get_dispute_bond(&id),
+        Some((s.freelancer.clone(), 8 * U))
+    );
+
+    // Permissionless: no caller argument at all.
+    set_ts(&s.env, DISPUTE_TIMEOUT_SECS);
+    s.escrow.resolve_expired_dispute(&id);
+
+    // Normal resolved event so indexers need no new handling. Read it before
+    // any other contract call, since `events().all()` only covers the latest
+    // invocation.
+    let r: ResolvedEvent = last_escrow_event(&s, "resolved", id).unwrap();
+    assert_eq!(r.to_freelancer, 200 * U);
+    assert_eq!(r.to_client, 200 * U);
+    assert_eq!(r.bond_recipient, Some(s.freelancer.clone()));
+    assert_eq!(r.bond, 8 * U);
+    assert_eq!(r.status, ContractStatus::Resolved);
+
+    assert_eq!(s.token.balance(&s.freelancer), freelancer_before + 208 * U);
+    assert_eq!(s.token.balance(&s.client), client_before + 200 * U);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+    assert_eq!(s.escrow.get_dispute_bond(&id), None);
+    assert_eq!(s.escrow.get_liability(&s.token.address), 0);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    check_invariants(&s.escrow.get_contract(&id));
+
+    // No resolver adjudicated the split: win/loss counters stay untouched.
+    let fo = s.escrow.get_outcomes(&s.freelancer);
+    assert_eq!(fo.disputes_opened, 1);
+    assert_eq!(fo.disputes_won, 0);
+    assert_eq!(fo.disputes_lost, 0);
+    let co = s.escrow.get_outcomes(&s.client);
+    assert_eq!(co.disputes_opened, 0);
+    assert_eq!(co.disputes_won, 0);
+    assert_eq!(co.disputes_lost, 0);
+}
+
+#[test]
+fn resolve_expired_dispute_rounds_remainder_to_client() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 1_000_001i128],
+    );
+    s.escrow.deposit_funds(&id, &1_000_001);
+    let client_before = s.token.balance(&s.client);
+    open_dispute_bonded(&s, &id, &s.client);
+    let bond = dispute_bond(1_000_001);
+    set_ts(&s.env, DISPUTE_TIMEOUT_SECS);
+
+    s.escrow.resolve_expired_dispute(&id);
+
+    // Odd held balance: 500_000 to the freelancer, 500_001 plus the bond back.
+    assert_eq!(s.token.balance(&s.freelancer), 500_000);
+    assert_eq!(s.token.balance(&s.client), client_before + 500_001 + bond);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+}
+
+#[test]
+fn resolve_expired_dispute_works_while_frozen_and_paused() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    open_dispute_bonded(&s, &id, &s.client);
+    // Neither a freeze nor a pause may strand the funds past the timeout.
+    s.escrow.freeze_escrow(&id, &symbol_short!("hold"));
+    s.escrow.set_paused(&s.admin, &true);
+    set_ts(&s.env, DISPUTE_TIMEOUT_SECS);
+
+    s.escrow.resolve_expired_dispute(&id);
+
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+    assert_eq!(s.token.balance(&s.freelancer), 50 * U);
+    assert_eq!(s.escrow.get_dispute_bond(&id), None);
+}
+
+#[test]
 fn emergency_withdraw_boundary_and_funded_refund() {
     let s = setup();
     let id = s.escrow.create_contract(
@@ -8263,5 +8443,974 @@ fn withdraw_deposit_blocked_in_non_created_frozen_and_paused_states() {
     assert_eq!(
         s.escrow.try_withdraw_deposit(&id3, &s.client, &(10 * U)),
         Err(Ok(EscrowError::InvalidStatus))
+    );
+}
+
+#[test]
+fn events_auth_doc_matches_source_event_topics() {
+    const DOC: &str = include_str!("../../../docs/events-auth.md");
+
+    assert!(DOC.lines().count() <= 250);
+    assert!(DOC.contains("escrow/indexer-schema.md#event-topics-and-payloads"));
+
+    for stale in [
+        "events.rs",
+        "finalize.rs",
+        "require_not_finalized",
+        "create_contract.rs",
+    ] {
+        assert!(!DOC.contains(stale), "stale reference: {stale}");
+    }
+
+    for topic in [
+        "adm_acc",
+        "adm_cncl",
+        "adm_prop",
+        "amend_p",
+        "amended",
+        "bonus",
+        "cancel",
+        "chg_ord",
+        "chg_prop",
+        "chg_rej",
+        "claim",
+        "compact",
+        "complete",
+        "created",
+        "deliver",
+        "deposit",
+        "dispute",
+        "emerg",
+        "expired",
+        "fee_set",
+        "frozen",
+        "init",
+        "migrated",
+        "panel",
+        "pause",
+        "paused",
+        "payout",
+        "rel_batch",
+        "rel_part",
+        "release",
+        "rep",
+        "rep_cli",
+        "rep_void",
+        "resign",
+        "resolved",
+        "role_set",
+        "seq",
+        "settle_p",
+        "settle_w",
+        "settled",
+        "stream_st",
+        "stream_wd",
+        "submit",
+        "sweep",
+        "team",
+        "terms",
+        "unfrozen",
+        "upg_cncl",
+        "upg_sched",
+        "upgraded",
+        "vote",
+        "voted",
+    ] {
+        assert!(DOC.contains(topic), "undocumented event topic: {topic}");
+    }
+}
+
+// ============================================================================
+// Golden XDR storage serialization vectors
+// ============================================================================
+
+/// Standard RFC 4648 base64 encoder (test-only, avoids adding a crate dep).
+fn encode_base64(input: &[u8]) -> std::string::String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = std::string::String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[((n >> 18) & 0x3f) as usize] as char);
+        out.push(TABLE[((n >> 12) & 0x3f) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(TABLE[((n >> 6) & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(TABLE[(n & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+fn to_xdr_base64<T: IntoVal<Env, soroban_sdk::Val>>(env: &Env, value: T) -> std::string::String {
+    use soroban_sdk::xdr::ToXdr;
+    let val: soroban_sdk::Val = value.into_val(env);
+    let xdr_bytes = val.to_xdr(env);
+    let raw: std::vec::Vec<u8> = xdr_bytes.iter().collect();
+    encode_base64(&raw)
+}
+
+fn assert_golden_xdr<T: IntoVal<Env, soroban_sdk::Val>>(
+    env: &Env,
+    name: &str,
+    value: T,
+    expected_b64: &str,
+) {
+    let actual = to_xdr_base64(env, value);
+    assert_eq!(
+        actual, expected_b64,
+        "GOLDEN XDR MISMATCH for `{name}`!\n\
+         Changing a persisted storage key or struct/enum layout is a STORAGE-BREAKING CHANGE.\n\
+         Existing on-ledger data will fail to decode or become unreachable after an upgrade.\n\
+         Do NOT update this vector in place — add a new versioned key/variant and a migration plan\n\
+         (see docs/escrow/upgradeable-storage.md)."
+    );
+}
+
+/// Exhaustive touch of every `DataKey` variant so adding, removing, or renaming
+/// a variant fails to compile until its golden XDR vector is pinned below.
+fn assert_datakey_exhaustive(key: &DataKey) {
+    match key {
+        DataKey::Admin
+        | DataKey::Paused
+        | DataKey::NextId
+        | DataKey::Contract(_)
+        | DataKey::Reputation(_)
+        | DataKey::Outcomes(_)
+        | DataKey::Rating(_)
+        | DataKey::Bonus(_)
+        | DataKey::BonusTotal(_)
+        | DataKey::Liability(_)
+        | DataKey::Payout(_)
+        | DataKey::Frozen(_)
+        | DataKey::ClosedAt(_)
+        | DataKey::Receipt(_)
+        | DataKey::Team(_)
+        | DataKey::ClientReputation(_)
+        | DataKey::ClientRated(_)
+        | DataKey::Sequential(_)
+        | DataKey::WeightedRep(_)
+        | DataKey::RatingWeight(_)
+        | DataKey::Panel
+        | DataKey::Votes(_)
+        | DataKey::RoleMember(_, _)
+        | DataKey::Funders(_)
+        | DataKey::FundBy(_)
+        | DataKey::ChangeOrder(_)
+        | DataKey::MilestonePaid(_, _)
+        | DataKey::Terms(_)
+        | DataKey::MilestoneSpecs(_)
+        | DataKey::Delivery(_, _)
+        | DataKey::DisputeBond(_)
+        | DataKey::Version
+        | DataKey::PendingUpgrade
+        | DataKey::ContractV(_)
+        | DataKey::Submitted(_, _)
+        | DataKey::ReviewWindow(_)
+        | DataKey::PendingAdmin
+        | DataKey::PausedAt
+        | DataKey::Resigned(_)
+        | DataKey::Settlement(_)
+        | DataKey::PauseFlags
+        | DataKey::FeeBps
+        | DataKey::Treasury
+        | DataKey::EscrowFee(_)
+        | DataKey::ClientEscrows(_)
+        | DataKey::FreelancerEscrows(_)
+        | DataKey::ClientPage(_, _)
+        | DataKey::FreelancerPage(_, _)
+        | DataKey::Stream(_)
+        | DataKey::Amendment(_)
+        | DataKey::AmendNonce(_) => {}
+    }
+}
+
+const GOLDEN_CLIENT_STR: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+const GOLDEN_FREELANCER_STR: &str = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+const GOLDEN_TOKEN_STR: &str = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
+
+#[test]
+fn golden_datakey_xdr_vectors() {
+    let env = Env::default();
+    let acc = Address::from_str(&env, GOLDEN_CLIENT_STR);
+    let con = Address::from_str(&env, GOLDEN_FREELANCER_STR);
+
+    let vectors: std::vec::Vec<(&str, DataKey, &str)> = std::vec![
+        ("DataKey::Admin", DataKey::Admin, "AAAAEAAAAAEAAAABAAAADwAAAAVBZG1pbgAAAA=="),
+        ("DataKey::Paused", DataKey::Paused, "AAAAEAAAAAEAAAABAAAADwAAAAZQYXVzZWQAAA=="),
+        ("DataKey::NextId", DataKey::NextId, "AAAAEAAAAAEAAAABAAAADwAAAAZOZXh0SWQAAA=="),
+        ("DataKey::Contract", DataKey::Contract(1), "AAAAEAAAAAEAAAACAAAADwAAAAhDb250cmFjdAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Reputation", DataKey::Reputation(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAApSZXB1dGF0aW9uAAAAAAASAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="),
+        ("DataKey::Outcomes", DataKey::Outcomes(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAAhPdXRjb21lcwAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        ("DataKey::Rating", DataKey::Rating(1), "AAAAEAAAAAEAAAACAAAADwAAAAZSYXRpbmcAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Bonus", DataKey::Bonus(1), "AAAAEAAAAAEAAAACAAAADwAAAAVCb251cwAAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::BonusTotal", DataKey::BonusTotal(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAApCb251c1RvdGFsAAAAAAASAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="),
+        ("DataKey::Liability", DataKey::Liability(con.clone()), "AAAAEAAAAAEAAAACAAAADwAAAAlMaWFiaWxpdHkAAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        ("DataKey::Payout", DataKey::Payout(1), "AAAAEAAAAAEAAAACAAAADwAAAAZQYXlvdXQAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Frozen", DataKey::Frozen(1), "AAAAEAAAAAEAAAACAAAADwAAAAZGcm96ZW4AAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::ClosedAt", DataKey::ClosedAt(1), "AAAAEAAAAAEAAAACAAAADwAAAAhDbG9zZWRBdAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Receipt", DataKey::Receipt(1), "AAAAEAAAAAEAAAACAAAADwAAAAdSZWNlaXB0AAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Team", DataKey::Team(1), "AAAAEAAAAAEAAAACAAAADwAAAARUZWFtAAAABQAAAAAAAAAB"),
+        ("DataKey::ClientReputation", DataKey::ClientReputation(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAABBDbGllbnRSZXB1dGF0aW9uAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        ("DataKey::ClientRated", DataKey::ClientRated(1), "AAAAEAAAAAEAAAACAAAADwAAAAtDbGllbnRSYXRlZAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::Sequential", DataKey::Sequential(1), "AAAAEAAAAAEAAAACAAAADwAAAApTZXF1ZW50aWFsAAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::WeightedRep", DataKey::WeightedRep(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAAtXZWlnaHRlZFJlcAAAAAASAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="),
+        ("DataKey::RatingWeight", DataKey::RatingWeight(1), "AAAAEAAAAAEAAAACAAAADwAAAAxSYXRpbmdXZWlnaHQAAAAFAAAAAAAAAAE="),
+        ("DataKey::Panel", DataKey::Panel, "AAAAEAAAAAEAAAABAAAADwAAAAVQYW5lbAAAAA=="),
+        ("DataKey::Votes", DataKey::Votes(1), "AAAAEAAAAAEAAAACAAAADwAAAAVWb3RlcwAAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::RoleMember(Pauser)", DataKey::RoleMember(Role::Pauser, acc.clone()), "AAAAEAAAAAEAAAADAAAADwAAAApSb2xlTWVtYmVyAAAAAAAQAAAAAQAAAAEAAAAPAAAABlBhdXNlcgAAAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        ("DataKey::RoleMember(Resolver)", DataKey::RoleMember(Role::Resolver, acc.clone()), "AAAAEAAAAAEAAAADAAAADwAAAApSb2xlTWVtYmVyAAAAAAAQAAAAAQAAAAEAAAAPAAAACFJlc29sdmVyAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        ("DataKey::Funders", DataKey::Funders(1), "AAAAEAAAAAEAAAACAAAADwAAAAdGdW5kZXJzAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::FundBy", DataKey::FundBy(1), "AAAAEAAAAAEAAAACAAAADwAAAAZGdW5kQnkAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::ChangeOrder", DataKey::ChangeOrder(1), "AAAAEAAAAAEAAAACAAAADwAAAAtDaGFuZ2VPcmRlcgAAAAAFAAAAAAAAAAE="),
+        ("DataKey::MilestonePaid", DataKey::MilestonePaid(1, 0), "AAAAEAAAAAEAAAADAAAADwAAAA1NaWxlc3RvbmVQYWlkAAAAAAAABQAAAAAAAAABAAAAAwAAAAA="),
+        ("DataKey::Terms", DataKey::Terms(1), "AAAAEAAAAAEAAAACAAAADwAAAAVUZXJtcwAAAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::MilestoneSpecs", DataKey::MilestoneSpecs(1), "AAAAEAAAAAEAAAACAAAADwAAAA5NaWxlc3RvbmVTcGVjcwAAAAAABQAAAAAAAAAB"),
+        ("DataKey::Delivery", DataKey::Delivery(1, 0), "AAAAEAAAAAEAAAADAAAADwAAAAhEZWxpdmVyeQAAAAUAAAAAAAAAAQAAAAMAAAAA"),
+        ("DataKey::DisputeBond", DataKey::DisputeBond(1), "AAAAEAAAAAEAAAACAAAADwAAAAtEaXNwdXRlQm9uZAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::Version", DataKey::Version, "AAAAEAAAAAEAAAABAAAADwAAAAdWZXJzaW9uAA=="),
+        ("DataKey::PendingUpgrade", DataKey::PendingUpgrade, "AAAAEAAAAAEAAAABAAAADwAAAA5QZW5kaW5nVXBncmFkZQAA"),
+        ("DataKey::ContractV", DataKey::ContractV(1), "AAAAEAAAAAEAAAACAAAADwAAAAlDb250cmFjdFYAAAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::Submitted", DataKey::Submitted(1, 0), "AAAAEAAAAAEAAAADAAAADwAAAAlTdWJtaXR0ZWQAAAAAAAAFAAAAAAAAAAEAAAADAAAAAA=="),
+        ("DataKey::ReviewWindow", DataKey::ReviewWindow(1), "AAAAEAAAAAEAAAACAAAADwAAAAxSZXZpZXdXaW5kb3cAAAAFAAAAAAAAAAE="),
+        ("DataKey::PendingAdmin", DataKey::PendingAdmin, "AAAAEAAAAAEAAAABAAAADwAAAAxQZW5kaW5nQWRtaW4="),
+        ("DataKey::PausedAt", DataKey::PausedAt, "AAAAEAAAAAEAAAABAAAADwAAAAhQYXVzZWRBdA=="),
+        ("DataKey::Resigned", DataKey::Resigned(1), "AAAAEAAAAAEAAAACAAAADwAAAAhSZXNpZ25lZAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Settlement", DataKey::Settlement(1), "AAAAEAAAAAEAAAACAAAADwAAAApTZXR0bGVtZW50AAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::PauseFlags", DataKey::PauseFlags, "AAAAEAAAAAEAAAABAAAADwAAAApQYXVzZUZsYWdzAAA="),
+        ("DataKey::FeeBps", DataKey::FeeBps, "AAAAEAAAAAEAAAABAAAADwAAAAZGZWVCcHMAAA=="),
+        ("DataKey::Treasury", DataKey::Treasury, "AAAAEAAAAAEAAAABAAAADwAAAAhUcmVhc3VyeQ=="),
+        ("DataKey::EscrowFee", DataKey::EscrowFee(1), "AAAAEAAAAAEAAAACAAAADwAAAAlFc2Nyb3dGZWUAAAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::ClientEscrows", DataKey::ClientEscrows(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAA1DbGllbnRFc2Nyb3dzAAAAAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        ("DataKey::FreelancerEscrows", DataKey::FreelancerEscrows(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAABFGcmVlbGFuY2VyRXNjcm93cwAAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        ("DataKey::ClientPage", DataKey::ClientPage(acc.clone(), 0), "AAAAEAAAAAEAAAADAAAADwAAAApDbGllbnRQYWdlAAAAAAASAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAA"),
+        ("DataKey::FreelancerPage", DataKey::FreelancerPage(acc, 0), "AAAAEAAAAAEAAAADAAAADwAAAA5GcmVlbGFuY2VyUGFnZQAAAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAA=="),
+        ("DataKey::Stream", DataKey::Stream(1), "AAAAEAAAAAEAAAACAAAADwAAAAZTdHJlYW0AAAAAAAUAAAAAAAAAAQ=="),
+        ("DataKey::Amendment", DataKey::Amendment(1), "AAAAEAAAAAEAAAACAAAADwAAAAlBbWVuZG1lbnQAAAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::AmendNonce", DataKey::AmendNonce(1), "AAAAEAAAAAEAAAACAAAADwAAAApBbWVuZE5vbmNlAAAAAAAFAAAAAAAAAAE="),
+    ];
+
+    for (name, key, expected) in vectors {
+        assert_datakey_exhaustive(&key);
+        assert_golden_xdr(&env, name, key, expected);
+    }
+}
+
+#[test]
+fn golden_storage_types_xdr_vectors() {
+    let env = Env::default();
+    let client = Address::from_str(&env, GOLDEN_CLIENT_STR);
+    let freelancer = Address::from_str(&env, GOLDEN_FREELANCER_STR);
+    let token = Address::from_str(&env, GOLDEN_TOKEN_STR);
+
+    let stored_escrow = StoredEscrow::V1(EscrowContract {
+        id: 1,
+        client: client.clone(),
+        freelancer: freelancer.clone(),
+        token: token.clone(),
+        milestones: vec![
+            &env,
+            Milestone {
+                amount: 100_000_000,
+                released: true,
+            },
+            Milestone {
+                amount: 200_000_000,
+                released: false,
+            },
+        ],
+        total_amount: 300_000_000,
+        funded_amount: 300_000_000,
+        released_amount: 100_000_000,
+        refunded_amount: 0,
+        status: ContractStatus::Funded,
+        reputation_issued: false,
+    });
+    assert_golden_xdr(
+        &env,
+        "StoredEscrow::V1(EscrowContract)",
+        stored_escrow,
+        "AAAAEAAAAAEAAAACAAAADwAAAAJWMQAAAAAAEQAAAAEAAAALAAAADwAAAAZjbGllbnQAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAApmcmVlbGFuY2VyAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA1mdW5kZWRfYW1vdW50AAAAAAAACwAAAAAAAAAAAAAAABHhowAAAAAPAAAAAmlkAAAAAAAFAAAAAAAAAAEAAAAPAAAACm1pbGVzdG9uZXMAAAAAABAAAAABAAAAAgAAABEAAAABAAAAAgAAAA8AAAAGYW1vdW50AAAAAAALAAAAAAAAAAAAAAAABfXhAAAAAA8AAAAIcmVsZWFzZWQAAAAAAAAAAQAAABEAAAABAAAAAgAAAA8AAAAGYW1vdW50AAAAAAALAAAAAAAAAAAAAAAAC+vCAAAAAA8AAAAIcmVsZWFzZWQAAAAAAAAAAAAAAA8AAAAPcmVmdW5kZWRfYW1vdW50AAAAAAsAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA9yZWxlYXNlZF9hbW91bnQAAAAACwAAAAAAAAAAAAAAAAX14QAAAAAPAAAAEXJlcHV0YXRpb25faXNzdWVkAAAAAAAAAAAAAAAAAAAPAAAABnN0YXR1cwAAAAAAEAAAAAEAAAABAAAADwAAAAZGdW5kZWQAAAAAAA8AAAAFdG9rZW4AAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAADwAAAAx0b3RhbF9hbW91bnQAAAALAAAAAAAAAAAAAAAAEeGjAA==",
+    );
+
+    let receipt = EscrowReceipt {
+        id: 1,
+        client: client.clone(),
+        freelancer: freelancer.clone(),
+        token,
+        total_amount: 300_000_000,
+        released_amount: 300_000_000,
+        refunded_amount: 0,
+        status: ContractStatus::Completed,
+        milestone_count: 2,
+        closed_at: 1_700_000_000,
+        reputation_issued: true,
+    };
+    assert_golden_xdr(
+        &env,
+        "EscrowReceipt",
+        receipt,
+        "AAAAEQAAAAEAAAALAAAADwAAAAZjbGllbnQAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAAljbG9zZWRfYXQAAAAAAAAFAAAAAGVT8QAAAAAPAAAACmZyZWVsYW5jZXIAAAAAABIAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPAAAAAmlkAAAAAAAFAAAAAAAAAAEAAAAPAAAAD21pbGVzdG9uZV9jb3VudAAAAAADAAAAAgAAAA8AAAAPcmVmdW5kZWRfYW1vdW50AAAAAAsAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA9yZWxlYXNlZF9hbW91bnQAAAAACwAAAAAAAAAAAAAAABHhowAAAAAPAAAAEXJlcHV0YXRpb25faXNzdWVkAAAAAAAAAAAAAAEAAAAPAAAABnN0YXR1cwAAAAAAEAAAAAEAAAABAAAADwAAAAlDb21wbGV0ZWQAAAAAAAAPAAAABXRva2VuAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAA8AAAAMdG90YWxfYW1vdW50AAAACwAAAAAAAAAAAAAAABHhowA=",
+    );
+
+    let panel = Panel {
+        members: vec![&env, client.clone(), freelancer.clone()],
+        threshold: 2,
+    };
+    assert_golden_xdr(
+        &env,
+        "Panel",
+        panel,
+        "AAAAEQAAAAEAAAACAAAADwAAAAdtZW1iZXJzAAAAABAAAAABAAAAAgAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8AAAAJdGhyZXNob2xkAAAAAAAAAwAAAAI=",
+    );
+
+    let stream_active = Stream {
+        start: 1_700_000_000,
+        end: 1_700_086_400,
+        withdrawn: 50_000_000,
+        stopped_at: None,
+    };
+    assert_golden_xdr(
+        &env,
+        "Stream(active)",
+        stream_active,
+        "AAAAEQAAAAEAAAAEAAAADwAAAANlbmQAAAAABQAAAABlVUKAAAAADwAAAAVzdGFydAAAAAAAAAUAAAAAZVPxAAAAAA8AAAAKc3RvcHBlZF9hdAAAAAAAAQAAAA8AAAAJd2l0aGRyYXduAAAAAAAACwAAAAAAAAAAAAAAAAL68IA=",
+    );
+
+    let stream_stopped = Stream {
+        start: 1_700_000_000,
+        end: 1_700_086_400,
+        withdrawn: 50_000_000,
+        stopped_at: Some(1_700_043_200),
+    };
+    assert_golden_xdr(
+        &env,
+        "Stream(stopped)",
+        stream_stopped,
+        "AAAAEQAAAAEAAAAEAAAADwAAAANlbmQAAAAABQAAAABlVUKAAAAADwAAAAVzdGFydAAAAAAAAAUAAAAAZVPxAAAAAA8AAAAKc3RvcHBlZF9hdAAAAAAABQAAAABlVJnAAAAADwAAAAl3aXRoZHJhd24AAAAAAAALAAAAAAAAAAAAAAAAAvrwgA==",
+    );
+
+    let amendment = Amendment {
+        proposer: client.clone(),
+        new_amounts: vec![&env, 150_000_000, 150_000_000],
+        nonce: 1,
+    };
+    assert_golden_xdr(
+        &env,
+        "Amendment",
+        amendment,
+        "AAAAEQAAAAEAAAADAAAADwAAAAtuZXdfYW1vdW50cwAAAAAQAAAAAQAAAAIAAAALAAAAAAAAAAAAAAAACPDRgAAAAAsAAAAAAAAAAAAAAAAI8NGAAAAADwAAAAVub25jZQAAAAAAAAMAAAABAAAADwAAAAhwcm9wb3NlcgAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    );
+
+    let settlement = SettlementProposal {
+        proposer: client,
+        freelancer_amount: 120_000_000,
+        created_at: 1_700_000_000,
+    };
+    assert_golden_xdr(
+        &env,
+        "SettlementProposal",
+        settlement,
+        "AAAAEQAAAAEAAAADAAAADwAAAApjcmVhdGVkX2F0AAAAAAAFAAAAAGVT8QAAAAAPAAAAEWZyZWVsYW5jZXJfYW1vdW50AAAAAAAACwAAAAAAAAAAAAAAAAcnDgAAAAAPAAAACHByb3Bvc2VyAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    );
+
+    let pending_upgrade = PendingUpgrade {
+        wasm_hash: BytesN::from_array(&env, &[0xab; 32]),
+        eta: 1_700_172_800,
+    };
+    assert_golden_xdr(
+        &env,
+        "PendingUpgrade",
+        pending_upgrade,
+        "AAAAEQAAAAEAAAACAAAADwAAAANldGEAAAAABQAAAABlVpQAAAAADwAAAAl3YXNtX2hhc2gAAAAAAAANAAAAIKurq6urq6urq6urq6urq6urq6urq6urq6urq6urq6ur",
+    );
+
+    assert_golden_xdr(
+        &env,
+        "Reputation",
+        Reputation {
+            completed_contracts: 3,
+            total_rating: 14,
+        },
+        "AAAAEQAAAAEAAAACAAAADwAAABNjb21wbGV0ZWRfY29udHJhY3RzAAAAAAMAAAADAAAADwAAAAx0b3RhbF9yYXRpbmcAAAADAAAADg==",
+    );
+
+    assert_golden_xdr(
+        &env,
+        "WeightedReputation",
+        WeightedReputation {
+            weighted_rating_sum: 500_000_000,
+            weight_total: 100_000_000,
+            rated_contracts: 2,
+        },
+        "AAAAEQAAAAEAAAADAAAADwAAAA9yYXRlZF9jb250cmFjdHMAAAAAAwAAAAIAAAAPAAAADHdlaWdodF90b3RhbAAAAAsAAAAAAAAAAAAAAAAF9eEAAAAADwAAABN3ZWlnaHRlZF9yYXRpbmdfc3VtAAAAAAsAAAAAAAAAAAAAAAAdzWUA",
+    );
+
+    assert_golden_xdr(
+        &env,
+        "Outcomes",
+        Outcomes {
+            disputes_opened: 1,
+            disputes_won: 1,
+            disputes_lost: 0,
+            cancellations: 2,
+        },
+        "AAAAEQAAAAEAAAAEAAAADwAAAA1jYW5jZWxsYXRpb25zAAAAAAAAAwAAAAIAAAAPAAAADWRpc3B1dGVzX2xvc3QAAAAAAAADAAAAAAAAAA8AAAAPZGlzcHV0ZXNfb3BlbmVkAAAAAAMAAAABAAAADwAAAAxkaXNwdXRlc193b24AAAADAAAAAQ==",
+    );
+
+    assert_golden_xdr(
+        &env,
+        "RatingRecord",
+        RatingRecord {
+            freelancer,
+            rating: 5,
+            issued_at: 1_700_000_000,
+            voided: false,
+        },
+        "AAAAEQAAAAEAAAAEAAAADwAAAApmcmVlbGFuY2VyAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAAlpc3N1ZWRfYXQAAAAAAAAFAAAAAGVT8QAAAAAPAAAABnJhdGluZwAAAAAAAwAAAAUAAAAPAAAABnZvaWRlZAAAAAAAAAAAAAA=",
+    );
+
+    for (name, status, expected) in [
+        ("ContractStatus::Created", ContractStatus::Created, "AAAAEAAAAAEAAAABAAAADwAAAAdDcmVhdGVkAA=="),
+        ("ContractStatus::Funded", ContractStatus::Funded, "AAAAEAAAAAEAAAABAAAADwAAAAZGdW5kZWQAAA=="),
+        ("ContractStatus::Completed", ContractStatus::Completed, "AAAAEAAAAAEAAAABAAAADwAAAAlDb21wbGV0ZWQAAAA="),
+        ("ContractStatus::Disputed", ContractStatus::Disputed, "AAAAEAAAAAEAAAABAAAADwAAAAhEaXNwdXRlZA=="),
+        ("ContractStatus::Resolved", ContractStatus::Resolved, "AAAAEAAAAAEAAAABAAAADwAAAAhSZXNvbHZlZA=="),
+        ("ContractStatus::Cancelled", ContractStatus::Cancelled, "AAAAEAAAAAEAAAABAAAADwAAAAlDYW5jZWxsZWQAAAA="),
+    ] {
+        assert_golden_xdr(&env, name, status, expected);
+    }
+
+    for (name, role, expected) in [
+        ("Role::Pauser", Role::Pauser, "AAAAEAAAAAEAAAABAAAADwAAAAZQYXVzZXIAAA=="),
+        ("Role::Resolver", Role::Resolver, "AAAAEAAAAAEAAAABAAAADwAAAAhSZXNvbHZlcg=="),
+    ] {
+        assert_golden_xdr(&env, name, role, expected);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Admin token allowlist
+// ---------------------------------------------------------------------------
+
+#[test]
+fn allowlist_disabled_by_default_preserves_behavior() {
+    let s = setup();
+    assert!(!s.escrow.is_allowlist_enabled());
+    assert!(!s.escrow.is_token_allowed(&s.token.address));
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 10 * U],
+    );
+    assert_eq!(id, 1);
+}
+
+#[test]
+fn allowlist_enabled_rejects_unlisted_across_all_create_paths() {
+    let s = setup();
+    s.escrow.set_allowlist_enabled(&true);
+    assert!(s.escrow.is_allowlist_enabled());
+
+    let amounts = vec![&s.env, 10 * U];
+    assert_eq!(
+        s.escrow
+            .try_create_contract(&s.client, &s.freelancer, &s.token.address, &amounts),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+    assert_eq!(
+        s.escrow.try_create_contract_with_review(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &amounts,
+            &DEFAULT_REVIEW_WINDOW_SECS,
+        ),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+    assert_eq!(
+        s.escrow.try_create_contract_sequential(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &amounts,
+        ),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+    assert_eq!(
+        s.escrow
+            .try_create_and_fund(&s.client, &s.freelancer, &s.token.address, &amounts),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+    assert_eq!(
+        s.escrow.try_create_stream(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &(10 * U),
+            &100,
+            &(100 + MIN_STREAM_SECS),
+        ),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+
+    // Allowlisting the token unblocks all creation paths and extends TTL.
+    s.escrow.set_token_allowed(&s.token.address, &true);
+    assert!(s.escrow.is_token_allowed(&s.token.address));
+    assert!(
+        persistent_ttl(&s, &DataKey::AllowedToken(s.token.address.clone()))
+            >= PERSISTENT_TTL_THRESHOLD
+    );
+
+    assert_eq!(
+        s.escrow
+            .create_contract(&s.client, &s.freelancer, &s.token.address, &amounts),
+        1
+    );
+    assert_eq!(
+        s.escrow.create_contract_with_review(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &amounts,
+            &DEFAULT_REVIEW_WINDOW_SECS,
+        ),
+        2
+    );
+    assert_eq!(
+        s.escrow.create_contract_sequential(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &amounts,
+        ),
+        3
+    );
+    assert_eq!(
+        s.escrow
+            .create_and_fund(&s.client, &s.freelancer, &s.token.address, &amounts),
+        4
+    );
+    assert_eq!(
+        s.escrow.create_stream(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &(10 * U),
+            &100,
+            &(100 + MIN_STREAM_SECS),
+        ),
+        5
+    );
+}
+
+#[test]
+fn allowlist_removing_token_does_not_block_existing_escrow_settlement() {
+    let s = setup();
+    s.escrow.set_allowlist_enabled(&true);
+    s.escrow.set_token_allowed(&s.token.address, &true);
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50 * U, 50 * U],
+    );
+
+    // Remove the token from the allowlist.
+    s.escrow.set_token_allowed(&s.token.address, &false);
+    assert!(!s.escrow.is_token_allowed(&s.token.address));
+
+    // New escrows with this token are now rejected.
+    assert_eq!(
+        s.escrow.try_create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 10 * U],
+        ),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+
+    // Existing escrow can still be funded, released, and completed.
+    s.escrow.deposit_funds(&id, &(100 * U));
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.release_milestone(&id, &1);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+    assert_eq!(s.token.balance(&s.freelancer), 100 * U);
+}
+
+#[test]
+fn allowlist_events_and_self_token_rejected() {
+    let s = setup();
+
+    // Reject self-referential token when enabling.
+    assert_eq!(
+        s.escrow.try_set_token_allowed(&s.escrow.address, &true),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+
+    s.escrow.set_allowlist_enabled(&true);
+    let ev = s.env.events().all().last().unwrap();
+    assert_eq!(ev.0, s.escrow.address);
+    assert_eq!(
+        Symbol::try_from_val(&s.env, &ev.1.get(0).unwrap()).unwrap(),
+        symbol_short!("allowlist")
+    );
+    assert!(bool::try_from_val(&s.env, &ev.2).unwrap());
+
+    s.escrow.set_token_allowed(&s.token.address, &true);
+    let ev = s.env.events().all().last().unwrap();
+    assert_eq!(ev.0, s.escrow.address);
+    assert_eq!(
+        Symbol::try_from_val(&s.env, &ev.1.get(0).unwrap()).unwrap(),
+        symbol_short!("tok_allow")
+    );
+    let (tok, allowed): (Address, bool) = TryFromVal::try_from_val(&s.env, &ev.2).unwrap();
+    assert_eq!(tok, s.token.address);
+    assert!(allowed);
+}
+
+#[test]
+#[should_panic]
+fn allowlist_non_admin_rejected_set_token_allowed() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let token = Address::generate(&env);
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    env.mock_all_auths();
+    escrow.initialize(&admin);
+
+    // Only mock auth for stranger, not admin.
+    env.mock_auths(&[MockAuth {
+        address: &stranger,
+        invoke: &MockAuthInvoke {
+            contract: &id,
+            fn_name: "set_token_allowed",
+            args: (token.clone(), true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    escrow.set_token_allowed(&token, &true);
+}
+
+#[test]
+#[should_panic]
+fn allowlist_non_admin_rejected_set_allowlist_enabled() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    env.mock_all_auths();
+    escrow.initialize(&admin);
+
+    env.mock_auths(&[MockAuth {
+        address: &stranger,
+        invoke: &MockAuthInvoke {
+            contract: &id,
+            fn_name: "set_allowlist_enabled",
+            args: (true,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    escrow.set_allowlist_enabled(&true);
+}
+
+// ---------------------------------------------------------------------------
+// Per-milestone due dates and overdue reclaim
+// ---------------------------------------------------------------------------
+
+/// Two milestones (100U, 200U) with due dates 10_000 and 20_000.
+fn due_fixture(s: &Setup) -> u64 {
+    let id = two_milestone_escrow(s);
+    s.escrow
+        .set_milestone_due(&id, &vec![&s.env, 10_000u64, 20_000u64]);
+    id
+}
+
+#[test]
+fn milestone_due_dates_set_only_before_funding() {
+    let s = setup();
+    let id = due_fixture(&s);
+    assert_eq!(s.escrow.get_milestone_due(&id, &0), Some(10_000));
+    assert_eq!(s.escrow.get_milestone_due(&id, &1), Some(20_000));
+    assert_eq!(s.escrow.get_milestone_due(&id, &2), None);
+    // An escrow without deadlines reports none.
+    let undated = two_milestone_escrow(&s);
+    assert_eq!(s.escrow.get_milestone_due(&undated, &0), None);
+
+    // Empty dates clear the schedule and are accepted before funding.
+    s.escrow.set_milestone_due(&id, &Vec::new(&s.env));
+    assert_eq!(s.escrow.get_milestone_due(&id, &0), None);
+
+    // Any deposit (even partial) freezes the schedule.
+    s.escrow.deposit_funds(&id, &(10 * U));
+    assert_eq!(
+        s.escrow
+            .try_set_milestone_due(&id, &vec![&s.env, 10_000u64, 20_000u64]),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+}
+
+#[test]
+fn milestone_due_dates_require_increasing_and_matching_length() {
+    let s = setup();
+    let id = two_milestone_escrow(&s);
+    assert_eq!(
+        s.escrow.try_set_milestone_due(&id, &vec![&s.env, 10_000u64]),
+        Err(Ok(EscrowError::InvalidMetadata))
+    );
+    assert_eq!(
+        s.escrow
+            .try_set_milestone_due(&id, &vec![&s.env, 10_000u64, 10_000u64]),
+        Err(Ok(EscrowError::InvalidMetadata))
+    );
+    assert_eq!(
+        s.escrow
+            .try_set_milestone_due(&id, &vec![&s.env, 20_000u64, 10_000u64]),
+        Err(Ok(EscrowError::InvalidMetadata))
+    );
+    s.escrow
+        .set_milestone_due(&id, &vec![&s.env, 10_000u64, 10_001u64]);
+    assert_eq!(s.escrow.get_milestone_due(&id, &1), Some(10_001));
+}
+
+#[test]
+fn milestone_due_writes_are_client_only() {
+    let s = setup();
+    let id = two_milestone_escrow(&s);
+    let dates = vec![&s.env, 10_000u64, 20_000u64];
+    s.env.mock_auths(&[MockAuth {
+        address: &s.freelancer,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "set_milestone_due",
+            args: (id, dates.clone()).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_set_milestone_due(&id, &dates).is_err());
+
+    s.env.mock_all_auths();
+    s.escrow.set_milestone_due(&id, &dates);
+    s.escrow.deposit_funds(&id, &(300 * U));
+    at_time(&s.env, 10_001);
+    s.env.mock_auths(&[MockAuth {
+        address: &s.freelancer,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "reclaim_overdue",
+            args: (id, 0u32).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_reclaim_overdue(&id, &0).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.escrow.get_contract(&id).funded_amount, 300 * U);
+}
+
+#[test]
+fn milestone_due_reclaim_refunds_overdue_unsubmitted() {
+    let s = setup();
+    let id = due_fixture(&s);
+    s.escrow.deposit_funds(&id, &(300 * U));
+
+    // Strictly after the due date only.
+    at_time(&s.env, 10_000);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::NotExpired))
+    );
+    at_time(&s.env, 10_001);
+    s.escrow.reclaim_overdue(&id, &0);
+
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Funded);
+    assert_eq!(c.total_amount, 200 * U);
+    assert_eq!(c.funded_amount, 200 * U);
+    assert_eq!(c.refunded_amount, 100 * U);
+    assert_eq!(s.token.balance(&s.client), 800 * U);
+    assert_eq!(s.token.balance(&s.escrow.address), 200 * U);
+    assert_invariants(&s, &c);
+
+    // A reclaimed milestone can never be submitted, released or reclaimed again.
+    assert_eq!(
+        s.escrow.try_submit_milestone(&id, &0),
+        Err(Ok(EscrowError::MilestoneAlreadyReleased))
+    );
+    assert_eq!(
+        s.escrow.try_release_milestone(&id, &0),
+        Err(Ok(EscrowError::MilestoneAlreadyReleased))
+    );
+    assert_eq!(
+        s.escrow.try_release_partial(&id, &0, &U),
+        Err(Ok(EscrowError::MilestoneAlreadyReleased))
+    );
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::MilestoneAlreadyReleased))
+    );
+
+    // Reclaiming the last outstanding milestone cancels the remainder.
+    at_time(&s.env, 20_001);
+    s.escrow.reclaim_overdue(&id, &1);
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Cancelled);
+    assert_eq!(c.total_amount, 0);
+    assert_eq!(c.funded_amount, 0);
+    assert_eq!(c.released_amount, 0);
+    assert_eq!(s.token.balance(&s.client), 1_000 * U);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_invariants(&s, &c);
+}
+
+#[test]
+fn milestone_due_reclaim_rejects_submitted_milestones() {
+    let s = setup();
+    let id = due_fixture(&s);
+    s.escrow.deposit_funds(&id, &(300 * U));
+    s.escrow.submit_milestone(&id, &0);
+    at_time(&s.env, 10_001);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(s.escrow.get_contract(&id).funded_amount, 300 * U);
+
+    // A milestone without an agreed deadline cannot be reclaimed.
+    let undated = two_milestone_escrow(&s);
+    s.escrow.deposit_funds(&undated, &(300 * U));
+    at_time(&s.env, 1_000_000);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&undated, &1),
+        Err(Ok(EscrowError::InvalidMetadata))
+    );
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&undated, &9),
+        Err(Ok(EscrowError::MilestoneNotFound))
+    );
+}
+
+#[test]
+fn milestone_due_reclaim_keeps_partial_payments() {
+    let s = setup();
+    let id = due_fixture(&s);
+    s.escrow.deposit_funds(&id, &(300 * U));
+    s.escrow.release_partial(&id, &0, &(30 * U));
+    at_time(&s.env, 10_001);
+    s.escrow.reclaim_overdue(&id, &0);
+
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.total_amount, 230 * U);
+    assert_eq!(c.funded_amount, 230 * U);
+    assert_eq!(c.released_amount, 30 * U);
+    assert_eq!(s.escrow.get_milestone_paid(&id, &0), 30 * U);
+    assert_eq!(s.token.balance(&s.client), 770 * U);
+    assert_invariants(&s, &c);
+}
+
+#[test]
+fn milestone_due_reclaim_respects_pause_freeze_and_stream() {
+    let s = setup();
+    let id = due_fixture(&s);
+    s.escrow.deposit_funds(&id, &(300 * U));
+    at_time(&s.env, 10_001);
+
+    s.escrow.set_pause_flags(&s.admin, &PAUSE_CANCEL);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::Paused))
+    );
+    s.escrow.set_pause_flags(&s.admin, &0);
+
+    s.escrow.freeze_escrow(&id, &symbol_short!("check"));
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::EscrowFrozen))
+    );
+    s.escrow.unfreeze_escrow(&id);
+
+    // Setting due dates is gated by the create pause category.
+    let id2 = two_milestone_escrow(&s);
+    s.escrow.set_pause_flags(&s.admin, &PAUSE_CREATE);
+    assert_eq!(
+        s.escrow
+            .try_set_milestone_due(&id2, &vec![&s.env, 10_000u64, 20_000u64]),
+        Err(Ok(EscrowError::Paused))
+    );
+    s.escrow.set_pause_flags(&s.admin, &0);
+
+    // Stream escrows settle only through withdraw/stop_stream.
+    at_time(&s.env, 10_000);
+    let stream = s.escrow.create_stream(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &(100 * U),
+        &10_000,
+        &13_600,
+    );
+    s.escrow
+        .set_milestone_due(&stream, &vec![&s.env, 11_000u64]);
+    s.escrow.deposit_funds(&stream, &(100 * U));
+    at_time(&s.env, 11_001);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&stream, &0),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+}
+
+#[test]
+fn milestone_due_reclaim_refunds_sponsors_proportionally() {
+    let s = setup();
+    let id = two_milestone_escrow(&s);
+    s.escrow
+        .set_milestone_due(&id, &vec![&s.env, 10_000u64, 20_000u64]);
+    let sponsor = Address::generate(&s.env);
+    StellarAssetClient::new(&s.env, &s.token.address).mint(&sponsor, &(300 * U));
+    s.escrow.deposit_from(&id, &sponsor, &(300 * U));
+    at_time(&s.env, 10_001);
+
+    // The sponsor (not the client) funded the escrow, so it receives the refund.
+    s.escrow.reclaim_overdue(&id, &0);
+    assert_eq!(s.token.balance(&sponsor), 100 * U);
+    assert_eq!(s.token.balance(&s.client), 1_000 * U);
+    assert_invariants(&s, &s.escrow.get_contract(&id));
+
+    // Contributions shrink with the refund, so the second reclaim is exact.
+    at_time(&s.env, 20_001);
+    s.escrow.reclaim_overdue(&id, &1);
+    assert_eq!(s.token.balance(&sponsor), 300 * U);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_invariants(&s, &s.escrow.get_contract(&id));
+}
+
+#[test]
+fn milestone_due_side_keys_extend_ttl() {
+    let s = setup();
+    let id = due_fixture(&s);
+    s.escrow.deposit_funds(&id, &(300 * U));
+    at_time(&s.env, 10_001);
+    s.escrow.reclaim_overdue(&id, &0);
+    s.env.ledger().set_sequence_number(QUIET);
+    assert!(persistent_ttl(&s, &DataKey::MilestoneDue(id)) < PERSISTENT_TTL_THRESHOLD);
+    s.escrow.extend_escrow_ttl(&id);
+    assert!(
+        persistent_ttl(&s, &DataKey::MilestoneDue(id)) >= PERSISTENT_TTL_THRESHOLD
+    );
+    assert!(
+        persistent_ttl(&s, &DataKey::MilestoneReclaimed(id, 0)) >= PERSISTENT_TTL_THRESHOLD
     );
 }

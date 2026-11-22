@@ -4,6 +4,19 @@ The Escrow contract (`contracts/escrow/src/lib.rs`) tracks value-weighted freela
 
 ## Overview
 
+9. **Value threshold:** Ratings are backed by released value. `issue_reputation` and `rate_client` both fail with `BelowReputationThreshold` when `contract.released_amount < MIN_REPUTATION_VALUE` (`10_000_000` stroops, 1 token at 7 decimals), so dust escrows cannot move reputation in either direction. An escrow at exactly `MIN_REPUTATION_VALUE` is eligible. The check runs after the rating-bounds check and before any state mutation, so the error ordering is the same on both entrypoints.
+
+## Client Ratings
+
+After an escrow reaches `Completed` or `Resolved`, the freelancer may call `rate_client(id, rating)` to rate the client once per escrow (`1..=5`). The call:
+
+- requires freelancer authorization (`UnauthorizedRole` otherwise)
+- rejects escrows that are not `Completed`/`Resolved` (`InvalidStatus`)
+- rejects a second rating for the same escrow (`ReputationAlreadyIssued`)
+- rejects ratings outside `1..=5` (`InvalidRating`)
+- rejects escrows below `MIN_REPUTATION_VALUE` (`BelowReputationThreshold`)
+
+Successful issuance increments the client's `Reputation { completed_contracts, total_rating }` and emits `("rep_cli", id) -> (client, rating)`.
 - **Freelancer ratings (`issue_reputation`)**: After an escrow reaches `Completed` or `Resolved`, the client may rate the freelancer (`1..=5`) once per contract, provided the released amount meets `MIN_REPUTATION_VALUE` (`10_000_000`, i.e. 1 token unit at 7 decimals).
 - **Client ratings (`rate_client`)**: After an escrow reaches `Completed` or `Resolved`, the freelancer may rate the client (`1..=5`) once per contract.
 - **Rating voiding (`void_rating`)**: The contract admin may void a fraudulent freelancer rating, reversing its effect on both unweighted `Reputation` and `WeightedReputation` while leaving an on-chain audit trail.
@@ -21,6 +34,7 @@ Stored under `DataKey::Reputation(freelancer)` and `DataKey::ClientReputation(cl
 
 Stored under `DataKey::WeightedRep(freelancer)`:
 
+- client ratings: success, authorization, duplicates, rating bounds, status gating, pause gate, dust rejection (`BelowReputationThreshold`) and the exact-threshold boundary
 - `weighted_rating_sum: i128` — sum of `released_amount * rating`
 - `weight_total: i128` — sum of `released_amount`
 - `rated_contracts: u32` — count of value-weighted rated contracts
@@ -97,6 +111,7 @@ Each freelancer rating is weighted by the escrow's `released_amount` (`weight`).
 
 ## Security Assumptions
 
+- **Dust resistance:** Both rating directions require `released_amount >= MIN_REPUTATION_VALUE`, so a cheap escrow cannot be used to inflate a freelancer's or a client's reputation.
 - **Sybil resistance**: Requiring `released_amount >= MIN_REPUTATION_VALUE` (`10_000_000`) ensures farming reputation costs real released value.
 - **Access control**: `issue_reputation` requires `c.client.require_auth()`, `rate_client` requires `c.freelancer.require_auth()`, and `void_rating` requires `require_admin`.
 - **One-shot issuance**: `c.reputation_issued` and `DataKey::ClientRated(id)` prevent duplicate ratings per contract.

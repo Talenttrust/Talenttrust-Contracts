@@ -50,6 +50,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `open_dispute(id, caller)` | client or freelancer | Post a refundable bond of `max(DISPUTE_BOND_MIN, total * DISPUTE_BOND_BPS / 10_000)` (`DISPUTE_BOND_BPS = 200`, `DISPUTE_BOND_MIN = 0`) and freeze the escrow pending resolution (increments `disputes_opened`) |
 | `resolve_dispute(caller, id, freelancer_bps, bond_to_opener)` | admin or Resolver | Split the held balance; the freelancer share follows the team split (records dispute win/loss outcomes based on 5,000 bps threshold); the resolver cannot be the escrow's client or freelancer; the dispute bond is never part of the split — it returns to the opener when `bond_to_opener`, otherwise goes to the counterparty (panel settlements return it to the opener only if the split favours them) |
 | `set_panel(members, threshold)` | admin | Replace the arbiter panel (1 <= threshold <= len <= 7, unique members, else `InvalidPanel` (`31`)); emits `("panel",) -> (len, threshold)` |
+| `resolve_expired_dispute(id)` | anyone | Permissionless escape hatch for a stalled dispute: once `now >= opened_at + DISPUTE_TIMEOUT_SECS` (30 days from `open_dispute`) it settles the escrow 50/50 (5,000 bps to the freelancer, rounding remainder to the client) and returns the bond to its opener. `NotExpired` (`36`) before the deadline, `InvalidStatus` (`10`) when the escrow is not `Disputed`. Works while the escrow is frozen and while the contract is paused; emits the normal `resolved` event and leaves the win/loss `Outcomes` counters unchanged |
 | `vote_resolution(member, id, freelancer_bps)` | panel member | Vote a split on a disputed escrow; re-votes replace earlier ones, parties cannot vote, only current members are tallied. When `threshold` members agree the escrow settles like `resolve_dispute` and one `("vote", id) -> (member, bps)` event per counted vote is emitted |
 | `propose_amendment(id, proposer, new_amounts) -> u32` | client or freelancer | Propose new amounts for the existing milestones (same count, released milestones unchanged else `MilestoneAlreadyReleased` (`12`)); returns the nonce. Emits `("amend_p", id) -> (proposer, nonce)` |
 | `accept_amendment(id, acceptor, nonce)` | the other party | Apply it (`SettlementMismatch` (`48`) for a missing/stale nonce): excess funding is refunded to the client, a larger total returns the escrow to `Created` until topped up. Emits `("amended", id) -> (old_total, new_total, refunded)` |
@@ -67,7 +68,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `resign(id)` | freelancer | Resign from a `Created`/`Funded` escrow: unreleased funds return to the client (released milestones stay paid), escrow `Cancelled`; emits `("resign", id) -> refunded` |
 | `was_resigned(id)` | - | Whether the escrow ended by freelancer resignation (vs client cancellation) |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
-| `rate_client(id, rating)` | freelancer | Rate the client of a completed or resolved job (1-5), once; emits `("rep_cli", id) -> (client, rating)` |
+| `rate_client(id, rating)` | freelancer | Rate the client of a completed or resolved job (1-5), once, when `released_amount >= MIN_REPUTATION_VALUE` (`BelowReputationThreshold` (`30`) otherwise); emits `("rep_cli", id) -> (client, rating)` |
 | `void_rating(id, reason)` | admin | Void a fraudulent rating, reverse reputation and emit audit trail |
 | `sweep_surplus(token, to) -> i128` | admin | Sweep untracked token surplus above aggregate escrow liabilities (`NoSurplus` (`21`) if none) |
 | `freeze_escrow(id, reason)` / `unfreeze_escrow(id)` / `is_frozen(id)` | admin / admin / - | Freeze a single escrow: party mutations return `EscrowFrozen` (`22`); `resolve_dispute` still works |
@@ -81,6 +82,8 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `set_paused(caller, paused)` / `is_paused()` | admin or Pauser / - | Circuit breaker for all mutations |
 | `set_fee(fee_bps, treasury)` | admin | Protocol fee on freelancer-side payouts (releases, claims, the freelancer share of disputes/settlements), capped at `MAX_FEE_BPS = 500` (`FeeTooHigh` (`49`) above); each escrow snapshots the rate at creation, so later changes never apply to it. Refunds are fee-free. Emits `("fee_set",) -> (fee_bps, treasury)`; `ReleaseEvent.fee` reports the fee per release |
 | `get_fee_config()`, `get_escrow_fee(id)` | - | `(fee_bps, Option<treasury>)` and an escrow's snapshotted rate |
+| `set_token_allowed(token, allowed)` / `is_token_allowed(token)` | admin / - | Add or remove a settlement token from the allowlist (persistent `AllowedToken(Address)` with TTL extension; rejects the contract's own address with `InvalidParties`). Removing a token does not block settlement of existing escrows. Emits `("tok_allow",) -> (token, allowed)` |
+| `set_allowlist_enabled(enabled)` / `is_allowlist_enabled()` | admin / - | Opt-in toggle for token-allowlist enforcement (`false` by default). When enabled, all escrow creation paths (`create_contract`, `create_contract_with_review`, `create_contract_sequential`, `create_and_fund`, `create_stream`) reject unlisted tokens with `InvalidParties`. Emits `("allowlist",) -> enabled` |
 | `set_pause_flags(caller, flags)` / `get_pause_flags()` | admin or Pauser / - | Granular pause bitmask: `PAUSE_CREATE = 1` (create/configure), `PAUSE_DEPOSIT = 2`, `PAUSE_RELEASE = 4` (releases, claims, bonuses, deliveries), `PAUSE_DISPUTE = 8`, `PAUSE_CANCEL = 16` (cancel, resign, settlement, expiry), `PAUSE_REPUTATION = 32` (ratings), `PAUSE_ALL = 63`; other bits return `InvalidAmount`. `set_paused(true)` sets `PAUSE_ALL`, `false` clears; `is_paused()` is true iff any flag is set. Emits `("pause",) -> flags` |
 | `grant_role(role, account)` / `revoke_role(role, account)` | admin | Grant or revoke a `Pauser` or `Resolver` role (`RoleUnchanged` (`33`) if no change); emits `("role_set", role) -> (account, true\|false)` |
 | `has_role(role, account)` | - | Role membership; the admin implicitly holds every role |
@@ -156,7 +159,7 @@ Core lifecycle events are versioned and structured: escrow events use topics
 | release | `(1, "release", id)` | `ReleaseEvent { index, amount, to, released_amount, status, fee }` | `release_milestone`, `release_milestones` (one per milestone) |
 | complete | `(1, "complete", id)` | `CompletedEvent { released_amount }` | exactly once, when the last milestone is released (single, batch or partial release) |
 | dispute | `(1, "dispute", id)` | `DisputeEvent { by, status, bond }` | `open_dispute` |
-| resolved | `(1, "resolved", id)` | `ResolvedEvent { to_freelancer, to_client, status, bond_recipient, bond }` | `resolve_dispute`, panel settlement |
+| resolved | `(1, "resolved", id)` | `ResolvedEvent { to_freelancer, to_client, status, bond_recipient, bond }` | `resolve_dispute`, panel settlement, `resolve_expired_dispute` |
 | cancel | `(1, "cancel", id)` | `CancelEvent { refund, to, status }` (`to` is the client; refunds go pro-rata to funders) | `cancel_contract` |
 | rep | `(1, "rep", id)` | `ReputationEvent { freelancer, rating, completed_contracts, total_rating, weight }` | `issue_reputation` |
 | submit | `(1, "submit", id)` | `SubmitEvent { index, submitted_at }` | `submit_milestone` |
@@ -172,6 +175,8 @@ Feature-specific events keep their `(symbol, id)` topics, e.g.:
 | Event | Topic | Data |
 | --- | --- | --- |
 | Panel vote recorded | `("voted", id)` | `(member, freelancer_bps)` |
+| Token allowlist entry | `("tok_allow",)` | `(token, allowed)` |
+| Token allowlist mode | `("allowlist",)` | `enabled` |
 
 Bonus payments reuse the escrow's existing validation errors: a missing escrow `id`, an escrow in a disallowed state (`Disputed`, `Cancelled`, `Resolved`), a non-positive `amount`, an unauthorized caller (client auth required), and the pause gate all return the corresponding contract error.
 
@@ -214,13 +219,13 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 | 27 | `InvalidSplitConfig` | `set_team_split` — bad length, zero/duplicate share, client/contract payee, or sum != 10 000 |
 | 28 | `OutOfOrder` | `release_milestone` / `release_milestones` on a sequential escrow before all earlier milestones are released |
 | 29 | `DuplicateIndex` | `release_milestones` with a repeated index |
-| 30 | `BelowReputationThreshold` | `issue_reputation` when `released_amount < MIN_REPUTATION_VALUE` |
+| 30 | `BelowReputationThreshold` | `issue_reputation` / `rate_client` when `released_amount < MIN_REPUTATION_VALUE` |
 | 31 | `InvalidPanel` | `set_panel` — bad threshold/size or duplicate members |
 | 32 | `PanelRequired` | `resolve_dispute` on an escrow with `total_amount >= PANEL_THRESHOLD_AMOUNT` (10^12) — settle via `vote_resolution` |
 | 33 | `RoleUnchanged` | `grant_role` on an existing member / `revoke_role` on a non-member |
 | 34 | `TooManyFunders` | `deposit_funds` / `deposit_from` by an 11th distinct funder |
 | 35 | `FundingExpired` | deposit into a `Created` escrow after its funding deadline |
-| 36 | `NotExpired` | `expire_unfunded` at or before the funding deadline |
+| 36 | `NotExpired` | `expire_unfunded` at or before the funding deadline; `resolve_expired_dispute` before the dispute timeout |
 | 37 | `ChangeOrderNotFound` | `accept_change_order` / `reject_change_order` without a pending proposal |
 | 38 | `InvalidMetadata` | `set_terms` — milestone hash count is neither 0 nor the milestone count |
 | 39 | `NoPendingUpgrade` | `cancel_upgrade` / `execute_upgrade` with nothing scheduled |
@@ -236,7 +241,8 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 | 49 | `FeeTooHigh` | `set_fee` above `MAX_FEE_BPS` |
 | 50 | `InvalidSchedule` | `create_stream` with `start >= end` or a duration under 1 hour |
 
-Constants: `MIN_MILESTONE_AMOUNT = 1_000_000` (0.1 token at 7 decimals), `MIN_REPUTATION_VALUE = 10_000_000` (1 token at 7 decimals; ratings are weighted by the released amount and dust jobs cannot be rated — sybil resistance comes from this value threshold, not counterparty graph analysis, so clients who are also freelancers of the same counterparty are not blocked), `MAX_ESCROW_TOTAL = 10^18` stroops, `MAX_MILESTONES = 20`.
+Constants: `MIN_MILESTONE_AMOUNT = 1_000_000` (0.1 token at 7 decimals), `MIN_REPUTATION_VALUE = 10_000_000` (1 token at 7 decimals; ratings are weighted by the released amount and dust jobs cannot be rated — sybil resistance comes from this value threshold, not counterparty graph analysis, so clients who are also freelancers of the same counterparty are not blocked), `MAX_ESCROW_TOTAL = 10^18` stroops, `MAX_MILESTONES = 20`, `DISPUTE_TIMEOUT_SECS = 2_592_000` (30 days before anyone may settle a stalled dispute 50/50 through `resolve_expired_dispute`).
+Constants: `MIN_MILESTONE_AMOUNT = 1_000_000` (0.1 token at 7 decimals), `MIN_REPUTATION_VALUE = 10_000_000` (1 token at 7 decimals; ratings are weighted by the released amount and dust jobs cannot be rated in either direction — sybil resistance comes from this value threshold, not counterparty graph analysis, so clients who are also freelancers of the same counterparty are not blocked), `MAX_ESCROW_TOTAL = 10^18` stroops, `MAX_MILESTONES = 20`.
 
 Error codes are **append-only** and never renumbered — the frontend and backend map directly on them. The Soroban contract spec allows at most 50 error cases, which `EscrowError` has reached; newer failure modes reuse the closest existing code (e.g. amendments use `MilestoneAlreadyReleased` and `SettlementMismatch`).
 

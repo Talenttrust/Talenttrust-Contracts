@@ -67,9 +67,80 @@ Details, guarantees and the full test list are in
 
 ## Test Coverage
 
+<<<<<<<<<<<<<<<<< ours
 The versioned-storage tests live in `contracts/escrow/src/test.rs`:
 `legacy_entry_is_migrated_on_first_mutation`,
 `reads_on_legacy_entry_do_not_mutate_storage`,
 `deposit_and_release_work_on_legacy_entry`, `migrate_escrows_is_idempotent`,
 `migrate_escrows_skips_unknown_and_enforces_cap` and
 `new_contracts_use_versioned_key`.
+||||||||||||||||| base
+Storage-planning coverage is implemented in `contracts/escrow/src/test/storage.rs`:
+
+- version default initialization
+- migration no-op to current version
+- migration rejection for unsupported targets
+- stable namespace reporting
+- preservation of existing data across migration no-op
+
+## Latest Local Test Output
+
+Date: `2026-03-23`
+
+```text
+running 23 tests
+.......................
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+## Coverage Snapshot
+
+- `cargo llvm-cov --workspace --all-features --summary-only`
+- `contracts/escrow/src/lib.rs` line coverage: `95.18%`
+- workspace total line coverage: `97.76%`
+=================
+Storage-planning coverage is implemented in `contracts/escrow/src/test/storage.rs`:
+
+- version default initialization
+- migration no-op to current version
+- migration rejection for unsupported targets
+- stable namespace reporting
+- preservation of existing data across migration no-op
+
+## Latest Local Test Output
+
+Date: `2026-03-23`
+
+```text
+running 23 tests
+.......................
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+## Coverage Snapshot
+
+- `cargo llvm-cov --workspace --all-features --summary-only`
+- `contracts/escrow/src/lib.rs` line coverage: `95.18%`
+- workspace total line coverage: `97.76%`
+
+
+## Golden XDR Serialization Vectors Policy
+
+All persisted storage keys (`DataKey`) and stored contract types (`StoredEscrow::V1(EscrowContract)`, `EscrowReceipt`, `Panel`, `Stream`, `Amendment`, `SettlementProposal`, `PendingUpgrade`, `Reputation`, `WeightedReputation`, `Outcomes`, `RatingRecord`, `ContractStatus`, `Role`) are pinned to golden base64 XDR vectors in `contracts/escrow/src/test.rs`:
+
+- `golden_datakey_xdr_vectors` — pins every `DataKey` variant and enforces exhaustiveness via `assert_datakey_exhaustive`.
+- `golden_storage_types_xdr_vectors` — pins every persisted struct and enum using fixed addresses and deterministic values.
+
+### Rules for Contributors
+
+1. **Never edit an existing golden vector in place** to make a failing test pass. A mismatch means a **storage-breaking change** that will corrupt or orphan live on-ledger state after an upgrade.
+2. **Adding new storage**:
+   - Adding a new `DataKey` variant is backwards-compatible; append the new variant and add a corresponding golden vector entry in `golden_datakey_xdr_vectors` (and `assert_datakey_exhaustive`).
+   - Evolving an existing persisted struct (such as `EscrowContract`) requires adding a new versioned envelope variant (for example `StoredEscrow::V2(...)`), updating `upgrade_to_latest` / `migrate_escrows`, and pinning the new variant alongside the unchanged `V1` vector.
+3. **Never rename, remove, or change field types** on existing `DataKey` variants or persisted structs/enums without a documented migration plan.
+4. **Verification**: Run the golden vector suite before opening a PR:
+
+```bash
+cargo test -p escrow golden
+```
+>>>>>>>>>>>>>>>>> theirs
