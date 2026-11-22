@@ -2136,6 +2136,84 @@ impl Escrow {
         apply_deposit(&env, &mut c, &funder, amount)
     }
 
+    /// Lets a funder withdraw part or all of their own deposit while the escrow
+    /// is still `Created` (not frozen, not funded/cancelled/terminal). Reduces
+    /// the funder's contribution, `funded_amount`, and token liability; removes
+    /// the funder from the map at zero and clears any pending settlement
+    /// proposal. Emits `("wd_dep", id) -> (funder, amount, funded_amount)`.
+    pub fn withdraw_deposit(
+        env: Env,
+        id: u64,
+        funder: Address,
+        amount: i128,
+    ) -> Result<(), EscrowError> {
+        require_not_paused(&env, PAUSE_DEPOSIT)?;
+        let mut c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
+        funder.require_auth();
+        if c.status != ContractStatus::Created {
+            return Err(EscrowError::InvalidStatus);
+        }
+        if amount <= 0 {
+            return Err(EscrowError::InvalidAmount);
+        }
+        let key = DataKey::Funders(id);
+        let mut funders: Map<Address, i128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        let contribution = funders.get(funder.clone()).unwrap_or(0);
+        if amount > contribution {
+            return Err(EscrowError::InvalidAmount);
+        }
+        let held = c
+            .funded_amount
+            .checked_sub(c.released_amount)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        if amount > held {
+            return Err(EscrowError::InsufficientFunds);
+        }
+        let new_contribution = contribution
+            .checked_sub(amount)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        let new_funded = c
+            .funded_amount
+            .checked_sub(amount)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        transfer_checked(
+            &env,
+            &c.token,
+            &env.current_contract_address(),
+            &funder,
+            amount,
+        )?;
+        if new_contribution == 0 {
+            funders.remove(funder.clone());
+        } else {
+            funders.set(funder.clone(), new_contribution);
+        }
+        if funders.is_empty() {
+            env.storage().persistent().remove(&key);
+        } else {
+            env.storage().persistent().set(&key, &funders);
+            env.storage().persistent().extend_ttl(
+                &key,
+                PERSISTENT_TTL_THRESHOLD,
+                PERSISTENT_TTL_EXTEND,
+            );
+        }
+        c.funded_amount = new_funded;
+        clear_settlement(&env, c.id);
+        sub_liability(&env, &c.token, amount)?;
+        #[cfg(any(test, debug_assertions))]
+        assert_solvent(&env, &c.token);
+        save(&env, &c);
+        env.events()
+            .publish((symbol_short!("wd_dep"), id), (funder, amount, new_funded));
+        Ok(())
+    }
+
     /// Returns the map of funder -> contribution for an escrow.
     pub fn get_funders(env: Env, id: u64) -> Map<Address, i128> {
         env.storage()
