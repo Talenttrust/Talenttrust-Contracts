@@ -2488,6 +2488,46 @@ fn test_rate_client_validation() {
 }
 
 #[test]
+fn dust_release_client_rating_returns_below_threshold() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    open_dispute_bonded(&s, &id, &s.client);
+    // 1 bps of the held balance reaches the freelancer: far below the threshold
+    resolve_refunding_bond(&s, &id, &1);
+    assert!(
+        s.escrow.get_contract(&id).released_amount < MIN_REPUTATION_VALUE
+    );
+    assert_eq!(
+        s.escrow.try_rate_client(&id, &5),
+        Err(Ok(EscrowError::BelowReputationThreshold))
+    );
+    assert_eq!(
+        s.escrow.get_client_reputation(&s.client),
+        Reputation::default()
+    );
+}
+
+#[test]
+fn client_rating_at_threshold_succeeds() {
+    let s = setup();
+    let id = completed_escrow(&s, MIN_REPUTATION_VALUE);
+    assert_eq!(
+        s.escrow.get_contract(&id).released_amount,
+        MIN_REPUTATION_VALUE
+    );
+    assert_eq!(s.escrow.try_rate_client(&id, &2), Ok(Ok(())));
+    let rep = s.escrow.get_client_reputation(&s.client);
+    assert_eq!(rep.completed_contracts, 1);
+    assert_eq!(rep.total_rating, 2);
+}
+
+#[test]
 fn test_rate_client_status_rejections() {
     let s = setup();
 

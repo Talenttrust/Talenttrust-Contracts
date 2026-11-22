@@ -12,6 +12,19 @@ The Escrow contract issues reputation credentials (ratings) to freelancers after
 6. **Duplicate issuance protection:** Reputation may only be issued once per contract. Subsequent attempts fail with `ReputationAlreadyIssued`.
 7. **Contract identifier bounds:** Contract identifiers start at `1 and are allocated sequentially. Any access to a contract id `equal to 0` or greater than or equal to the next unallocated id fails with `ContractNotFound`.
 8. **Pagination bounds:** `get_reputations_page` clamps the requested limit to the protocol ceiling and returns an empty page when the limit is zero or the start offset is out of range.
+9. **Value threshold:** Ratings are backed by released value. `issue_reputation` and `rate_client` both fail with `BelowReputationThreshold` when `contract.released_amount < MIN_REPUTATION_VALUE` (`10_000_000` stroops, 1 token at 7 decimals), so dust escrows cannot move reputation in either direction. An escrow at exactly `MIN_REPUTATION_VALUE` is eligible. The check runs after the rating-bounds check and before any state mutation, so the error ordering is the same on both entrypoints.
+
+## Client Ratings
+
+After an escrow reaches `Completed` or `Resolved`, the freelancer may call `rate_client(id, rating)` to rate the client once per escrow (`1..=5`). The call:
+
+- requires freelancer authorization (`UnauthorizedRole` otherwise)
+- rejects escrows that are not `Completed`/`Resolved` (`InvalidStatus`)
+- rejects a second rating for the same escrow (`ReputationAlreadyIssued`)
+- rejects ratings outside `1..=5` (`InvalidRating`)
+- rejects escrows below `MIN_REPUTATION_VALUE` (`BelowReputationThreshold`)
+
+Successful issuance increments the client's `Reputation { completed_contracts, total_rating }` and emits `("rep_cli", id) -> (client, rating)`.
 
 ## Reputation Aggregation
 
@@ -37,6 +50,7 @@ The escrow test suite includes dedicated coverage for the `issue_reputation` neg
 - configuration boundaries (min/max rating and comment byte limits)
 - pagination boundaries (zero limit, out-of-range start, clamped limit)
 - verified reputation aggregation and pending credit decrement on success
+- client ratings: success, authorization, duplicates, rating bounds, status gating, pause gate, dust rejection (`BelowReputationThreshold`) and the exact-threshold boundary
 
 ## Average Rating Accessor
 
@@ -53,4 +67,5 @@ The contract exposes `get_average_rating(freelancer) -> Option<i128>` as a read-
 - **Contract Completion:** Only `Completed` contracts are eligible for reputation issuance.
 - **Duplicate issuance guard:** Repeat issuance is blocked by a stored `ReputationIssued` flag.
 - **Aggregate consistency:** Reputation totals and pending credits are updated atomically within the same invocation and use checked arithmetic.
+- **Dust resistance:** Both rating directions require `released_amount >= MIN_REPUTATION_VALUE`, so a cheap escrow cannot be used to inflate a freelancer's or a client's reputation.
 - Public entrypoints reject invalid contract identifiers with `ContractNotFound` before any state mutation.

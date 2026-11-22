@@ -66,7 +66,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `resign(id)` | freelancer | Resign from a `Created`/`Funded` escrow: unreleased funds return to the client (released milestones stay paid), escrow `Cancelled`; emits `("resign", id) -> refunded` |
 | `was_resigned(id)` | - | Whether the escrow ended by freelancer resignation (vs client cancellation) |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
-| `rate_client(id, rating)` | freelancer | Rate the client of a completed or resolved job (1-5), once; emits `("rep_cli", id) -> (client, rating)` |
+| `rate_client(id, rating)` | freelancer | Rate the client of a completed or resolved job (1-5), once, when `released_amount >= MIN_REPUTATION_VALUE` (`BelowReputationThreshold` (`30`) otherwise); emits `("rep_cli", id) -> (client, rating)` |
 | `void_rating(id, reason)` | admin | Void a fraudulent rating, reverse reputation and emit audit trail |
 | `sweep_surplus(token, to) -> i128` | admin | Sweep untracked token surplus above aggregate escrow liabilities (`NoSurplus` (`21`) if none) |
 | `freeze_escrow(id, reason)` / `unfreeze_escrow(id)` / `is_frozen(id)` | admin / admin / - | Freeze a single escrow: party mutations return `EscrowFrozen` (`22`); `resolve_dispute` still works |
@@ -209,7 +209,7 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 | 27 | `InvalidSplitConfig` | `set_team_split` — bad length, zero/duplicate share, client/contract payee, or sum != 10 000 |
 | 28 | `OutOfOrder` | `release_milestone` / `release_milestones` on a sequential escrow before all earlier milestones are released |
 | 29 | `DuplicateIndex` | `release_milestones` with a repeated index |
-| 30 | `BelowReputationThreshold` | `issue_reputation` when `released_amount < MIN_REPUTATION_VALUE` |
+| 30 | `BelowReputationThreshold` | `issue_reputation` / `rate_client` when `released_amount < MIN_REPUTATION_VALUE` |
 | 31 | `InvalidPanel` | `set_panel` — bad threshold/size or duplicate members |
 | 32 | `PanelRequired` | `resolve_dispute` on an escrow with `total_amount >= PANEL_THRESHOLD_AMOUNT` (10^12) — settle via `vote_resolution` |
 | 33 | `RoleUnchanged` | `grant_role` on an existing member / `revoke_role` on a non-member |
@@ -231,7 +231,7 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 | 49 | `FeeTooHigh` | `set_fee` above `MAX_FEE_BPS` |
 | 50 | `InvalidSchedule` | `create_stream` with `start >= end` or a duration under 1 hour |
 
-Constants: `MIN_MILESTONE_AMOUNT = 1_000_000` (0.1 token at 7 decimals), `MIN_REPUTATION_VALUE = 10_000_000` (1 token at 7 decimals; ratings are weighted by the released amount and dust jobs cannot be rated — sybil resistance comes from this value threshold, not counterparty graph analysis, so clients who are also freelancers of the same counterparty are not blocked), `MAX_ESCROW_TOTAL = 10^18` stroops, `MAX_MILESTONES = 20`.
+Constants: `MIN_MILESTONE_AMOUNT = 1_000_000` (0.1 token at 7 decimals), `MIN_REPUTATION_VALUE = 10_000_000` (1 token at 7 decimals; ratings are weighted by the released amount and dust jobs cannot be rated in either direction — sybil resistance comes from this value threshold, not counterparty graph analysis, so clients who are also freelancers of the same counterparty are not blocked), `MAX_ESCROW_TOTAL = 10^18` stroops, `MAX_MILESTONES = 20`.
 
 Error codes are **append-only** and never renumbered — the frontend and backend map directly on them. The Soroban contract spec allows at most 50 error cases, which `EscrowError` has reached; newer failure modes reuse the closest existing code (e.g. amendments use `MilestoneAlreadyReleased` and `SettlementMismatch`).
 

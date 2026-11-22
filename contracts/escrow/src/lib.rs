@@ -3380,7 +3380,8 @@ impl Escrow {
         Ok(())
     }
 
-    /// After completion or resolution the freelancer may rate the client (1..=5) once per contract.
+    /// After completion or resolution the freelancer may rate the client (1..=5) once per
+    /// contract, provided `released_amount >= MIN_REPUTATION_VALUE`.
     pub fn rate_client(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
         require_not_paused(&env, PAUSE_REPUTATION)?;
         let c = load(&env, id)?;
@@ -3400,6 +3401,12 @@ impl Escrow {
         }
         if !(1..=5).contains(&rating) {
             return Err(EscrowError::InvalidRating);
+        }
+        // Mirror `issue_reputation`: dust escrows must not move client
+        // reputation either, otherwise dust jobs could be used to sybil up a
+        // client's score.
+        if c.released_amount < MIN_REPUTATION_VALUE {
+            return Err(EscrowError::BelowReputationThreshold);
         }
         let rep_key = DataKey::ClientReputation(c.client.clone());
         let mut rep: Reputation = env.storage().persistent().get(&rep_key).unwrap_or_default();
