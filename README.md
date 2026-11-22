@@ -55,9 +55,9 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `propose_amendment(id, proposer, new_amounts) -> u32` | client or freelancer | Propose new amounts for the existing milestones (same count, released milestones unchanged else `MilestoneAlreadyReleased` (`12`)); returns the nonce. Emits `("amend_p", id) -> (proposer, nonce)` |
 | `accept_amendment(id, acceptor, nonce)` | the other party | Apply it (`SettlementMismatch` (`48`) for a missing/stale nonce): excess funding is refunded to the client, a larger total returns the escrow to `Created` until topped up. Emits `("amended", id) -> (old_total, new_total, refunded)` |
 | `get_amendment(id)` | - | Pending `Amendment { proposer, new_amounts, nonce }` |
-| `propose_change_order(id, amounts)` | client | Propose extra milestones for a `Created`/`Funded`/`Completed` escrow (`existing + new <= 20`, else `InvalidMilestones`) |
-| `accept_change_order(id) -> (u32, i128)` | freelancer | Append the proposed milestones, grow `total_amount` and reopen the escrow as `Created` (needs funding; a fresh funding window starts); emits `("chg_ord", id) -> (added_count, added_total)`. A rating already issued stays issued, so `issue_reputation` remains blocked for that escrow |
-| `reject_change_order(id)` / `get_change_order(id)` | freelancer / - | Drop / read the pending proposal (`ChangeOrderNotFound` (`37`) if none) |
+| `propose_change_order(id, amounts)` | client | Propose extra milestones for a `Created`/`Funded`/`Completed` escrow (`existing + new <= 20`, else `InvalidMilestones`); stream escrows return `InvalidStatus` |
+| `accept_change_order(id) -> (u32, i128)` | freelancer | Append the proposed milestones, grow `total_amount` and reopen the escrow as `Created` (needs funding; a fresh funding window starts); emits `("chg_ord", id) -> (added_count, added_total)`. A rating already issued stays issued, so `issue_reputation` remains blocked for that escrow. Stream escrows return `InvalidStatus` |
+| `reject_change_order(id)` / `get_change_order(id)` | freelancer / - | Drop / read the pending proposal (`ChangeOrderNotFound` (`37`) if none); rejection is gated by `PAUSE_CREATE` (`Paused`) and the per-escrow freeze (`EscrowFrozen`) |
 | `set_terms(id, terms_hash, milestone_hashes)` | client | Commit a 32-byte terms hash and 0 or one spec hash per milestone (`InvalidMetadata` (`38`) otherwise); only while `Created` with nothing deposited (frozen afterwards, `InvalidStatus`); emits `(1, "terms", id) -> TermsEvent { terms_hash }` |
 | `deliver(id, index, delivery_hash)` | freelancer | Record/overwrite a milestone's delivery hash until it is released; emits `(1, "deliver", id) -> DeliverEvent { index, delivery_hash }` |
 | `expire_unfunded(id)` | anyone | After the 14-day funding window (`FUNDING_WINDOW_SECS`), cancel an escrow still `Created` with nothing released and refund any partial deposit to its funders; emits `("expired", id) -> refund`. `NotExpired` (`36`) before the deadline |
@@ -80,6 +80,8 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `emergency_withdraw(id, caller)` | client or freelancer | After a continuous pause of `EMERGENCY_EXIT_DELAY_SECS` (30 days) unwind a `Created`/`Funded`/`Disputed` escrow: unreleased funds return to the client/funders (submitted milestones go to the freelancer); `Disputed` splits 50/50 with the remainder to the client and returns the dispute bond; ends `Cancelled`. `EmergencyExitNotAvailable` (`47`) before the delay or while unpaused. Emits `("emerg", id) -> (to_client, to_freelancer)`. Re-pausing restarts the clock (the admin can delay, but not block, an exit only by keeping the contract unpaused) |
 | `get_paused_at()` | - | Timestamp at which the current pause began |
 | `set_paused(caller, paused)` / `is_paused()` | admin or Pauser / - | Circuit breaker for all mutations |
+| `set_max_open_escrows(max)` | admin | Cap the number of concurrently open (non-terminal) escrows per client; `0` (default) means unlimited. Emits `("max_open",) -> max` |
+| `get_open_escrows(client)` | - | Number of currently open escrows created by `client` |
 | `set_fee(fee_bps, treasury)` | admin | Protocol fee on freelancer-side payouts (releases, claims, the freelancer share of disputes/settlements), capped at `MAX_FEE_BPS = 500` (`FeeTooHigh` (`49`) above); each escrow snapshots the rate at creation, so later changes never apply to it. Refunds are fee-free. Emits `("fee_set",) -> (fee_bps, treasury)`; `ReleaseEvent.fee` reports the fee per release |
 | `get_fee_config()`, `get_escrow_fee(id)` | - | `(fee_bps, Option<treasury>)` and an escrow's snapshotted rate |
 | `set_token_allowed(token, allowed)` / `is_token_allowed(token)` | admin / - | Add or remove a settlement token from the allowlist (persistent `AllowedToken(Address)` with TTL extension; rejects the contract's own address with `InvalidParties`). Removing a token does not block settlement of existing escrows. Emits `("tok_allow",) -> (token, allowed)` |
@@ -186,6 +188,66 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 - Voided escrows remain flagged so they cannot be re-rated (`ReputationAlreadyIssued`). Attempting to void twice returns `EscrowError::RatingAlreadyVoided (19)`.
 - Ratings issued before this audit trail upgrade have no `RatingRecord` and return `EscrowError::RatingNotFound (18)`.
 
+### Stream escrows and disputes
+
+Stream escrows keep their own `Stream { start, end, withdrawn, stopped_at }`
+schedule, but every stream payout also updates the escrow-wide `released_amount`.
+`withdraw_vested` and `stop_stream` therefore keep
+`funded_amount - released_amount` equal to the balance still held, which is
+exactly what dispute settlement splits.
+
+Implemented behaviour (covered by the stream dispute tests):
+
+- A dispute may be opened on a funded stream before or after any withdrawal.
+- `resolve_dispute` / `vote_resolution` split only the still-held balance at
+  0..=10 000 bps; pay already withdrawn is never paid twice, refunded again or
+  lost.
+- `Stream.withdrawn` keeps recording only `withdraw_vested` payouts; resolution
+  does not rewrite the schedule, and `stopped_at` stays `None`.
+- `withdraw_vested` and `stop_stream` return `InvalidStatus` while the escrow is
+  `Disputed` (and after it is terminal): a disputed stream is settled only
+  through the dispute path.
+- Stream escrows reject change orders: `propose_change_order` and
+  `accept_change_order` both return `InvalidStatus`, leaving milestones, totals,
+  status, funded/released balances and the stream schedule untouched.
+
+### Per-client open-escrow cap
+
+`set_max_open_escrows(max)` (admin-only) limits how many non-terminal escrows a
+single client may hold at once:
+
+- `0` is the default and means unlimited, so behaviour is unchanged until an
+  admin sets a cap.
+- Only the escrow's `client` (the creator recorded by `build_escrow`) is
+  counted; freelancers and third-party funders never own counter entries.
+- Every creation entry point (`create_contract`, `create_contract_with_review`,
+  `create_contract_sequential`, `create_and_fund`, `create_stream`) checks the
+  cap before writing anything and increments the client's count exactly once on
+  success. A client at the cap gets `InvalidStatus` (the error enum is at its
+  50-case limit, so the closest existing code is reused); a failed creation
+  leaves the count unchanged.
+- The slot is released exactly once on every terminal transition: completion
+  (`release_milestone`, `release_partial`, `release_milestones`,
+  `claim_milestone`, `withdraw_vested`), `cancel_contract`, `expire_unfunded`,
+  `resign`, `stop_stream`, `emergency_withdraw`, dispute settlement
+  (`resolve_dispute`, `vote_resolution`) and `accept_settlement`. All of these
+  share one close helper, and its decrement is clamped at zero, so a repeated or
+  stale terminal call can never underflow the counter.
+- `accept_change_order` reopens a `Completed` escrow as `Created`; it checks the
+  cap again and increments the client's count when it reopens.
+- `get_open_escrows(client)` returns the current count.
+
+Escrows created before this feature have no counter entry: they read as zero,
+and their eventual terminal transition decrements at zero, leaving the counter
+unchanged.
+
+### Change-order gates
+
+`propose_change_order`, `accept_change_order` and `reject_change_order` are all
+gated by `PAUSE_CREATE` and the per-escrow freeze (`EscrowFrozen`), so a pending
+proposal cannot be created, accepted or withdrawn while the operation is paused
+or the escrow is frozen. Stream escrows are rejected before any storage write.
+
 ## Error catalog
 
 | Code | Variant | Raised by |
@@ -199,7 +261,7 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 | 7 | `InvalidMilestones` | `create_contract` — zero milestones or more than 20 |
 | 8 | `InvalidAmount` | non-positive amounts; `create_contract` total > `MAX_ESCROW_TOTAL` |
 | 9 | `OverFunded` | `deposit_funds` — would exceed the escrow total |
-| 10 | `InvalidStatus` | operation not allowed in the current status |
+| 10 | `InvalidStatus` | operation not allowed in the current status; also used when a client already holds the configured maximum number of open escrows, and for change orders on stream escrows |
 | 11 | `MilestoneNotFound` | `release_milestone` |
 | 12 | `MilestoneAlreadyReleased` | `release_milestone` |
 | 13 | `InsufficientFunds` | `release_milestone` — not enough deposited yet |

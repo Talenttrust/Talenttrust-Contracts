@@ -203,6 +203,10 @@ pub use types::{
     MilestoneDisputeEvent, ClaimableEvent,
 };
 
+    /// Number of currently open (non-terminal) escrows created by this client.
+    OpenCount(Address),
+    /// Configured per-client open-escrow cap; `0` means unlimited.
+    MaxOpenEscrows,
 pub mod storage;
 pub use storage::{extend_if_present, bump_instance, load, escrow_exists, save, distribute,
     pay_out, pay_out_with_fee, fee_for, team_split, liability_of, set_liability, add_liability,
@@ -452,9 +456,76 @@ fn mark_reclaimed(env: &Env, id: u64, index: u32) {
         && !env
             .storage()
             .persistent()
+/// Records the ledger sequence at which an escrow entered a terminal status and
+/// releases the client's open-escrow slot. Every terminal transition calls this
+/// exactly once, so the per-client open counter can never double-decrement or
+/// underflow (the decrement is clamped at zero).
+fn record_closed_at(env: &Env, c: &EscrowContract) {
+    let key = DataKey::ClosedAt(c.id);
+    drop_open_escrows(env, &c.client);
+}
+
+/// Configured per-client concurrent open-escrow cap; `0` means unlimited (the
+/// default, so existing behaviour is unchanged until an admin sets a cap).
+fn max_open_escrows(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxOpenEscrows)
+        .unwrap_or(0)
+}
+
+/// Number of currently open (non-terminal) escrows created by `client`.
+fn open_escrows(env: &Env, client: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::OpenCount(client.clone()))
+        .unwrap_or(0)
+}
+
+fn write_open_escrows(env: &Env, client: &Address, count: u32) {
+    let key = DataKey::OpenCount(client.clone());
+    env.storage().persistent().set(&key, &count);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+}
+
+/// Increments the client's open-escrow counter after a successful creation (or
+/// a change-order reopen).
+fn bump_open_escrows(env: &Env, client: &Address) -> Result<(), EscrowError> {
+    let count = open_escrows(env, client)
+        .checked_add(1)
+        .ok_or(EscrowError::ArithmeticOverflow)?;
+    write_open_escrows(env, client, count);
+    Ok(())
+}
+
+/// Decrements the client's open-escrow counter on a terminal transition. Never
+/// underflows: at zero it leaves the counter untouched.
+fn drop_open_escrows(env: &Env, client: &Address) {
+    let count = open_escrows(env, client);
+    if count > 0 {
+        write_open_escrows(env, client, count - 1);
+    }
+}
+
+/// Fails with `InvalidStatus` when `client` already holds the configured maximum
+/// number of open escrows (`0` = unlimited). The error enum has reached its
+/// 50-case Soroban limit, so the cap reuses the closest existing code; this is
+/// documented in the README.
+fn require_open_escrow_slot(env: &Env, client: &Address) -> Result<(), EscrowError> {
+    let max = max_open_escrows(env);
+    if max != 0 && open_escrows(env, client) >= max {
+        return Err(EscrowError::InvalidStatus);
+    }
+    Ok(())
             .get::<_, bool>(&DataKey::AllowedToken(token.clone()))
             .unwrap_or(false)
     {
+    // ---- Open-escrow cap (per client; checked before anything is written) ----
+    require_open_escrow_slot(&env, &client)?;
+    // Creation succeeded: the client now owns exactly one more open escrow.
+    bump_open_escrows(&env, &c.client)?;
 /// Refunds `refund` to the escrow's funders pro-rata and reduces their recorded
 /// contributions by the same amounts, so later partial refunds stay proportional
 /// to the remaining funded balance. Like `refund_funders`, the rounding
@@ -464,6 +535,7 @@ fn refund_funders_shrink(
     c: &EscrowContract,
     refund: i128,
 ) -> Result<(), EscrowError> {
+    record_closed_at(env, &c);
     if refund <= 0 {
         return Ok(());
     }
@@ -529,6 +601,26 @@ fn refund_funders_shrink(
         );
     }
 
+    /// Admin-only: maximum number of concurrently open (non-terminal) escrows a
+    /// single client may hold. `0` (the default) keeps creation unlimited. A
+    /// client at the cap gets `InvalidStatus` from every creation entry point
+    /// and from a change order that would reopen a completed escrow. Emits
+    /// `("max_open",) -> max`.
+    pub fn set_max_open_escrows(env: Env, max: u32) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        env.storage().instance().set(&DataKey::MaxOpenEscrows, &max);
+        bump_instance(&env);
+        env.events().publish((symbol_short!("max_open"),), max);
+        Ok(())
+    }
+
+    /// Number of currently open (non-terminal) escrows created by `client`.
+    /// Counts `Created` and `Funded` (and `Disputed`) escrows; every terminal
+    /// transition (`Completed`, `Resolved`, `Cancelled`) decrements it.
+    pub fn get_open_escrows(env: Env, client: Address) -> u32 {
+        open_escrows(&env, &client)
+    }
+
     pub fn dispute(env: &Env, c: &EscrowContract, by: &Address, bond: i128) {
         env.events().publish(
             escrow_topic(symbol_short!("dispute"), c.id),
@@ -560,6 +652,7 @@ fn refund_funders_shrink(
         );
     }
 
+        record_closed_at(&env, &c);
     pub fn cancel(env: &Env, c: &EscrowContract, refund: i128) {
         env.events().publish(
             escrow_topic(symbol_short!("cancel"), c.id),
@@ -738,6 +831,7 @@ impl Escrow {
         } else {
             funders.set(funder.clone(), new_contribution);
         }
+            record_closed_at(&env, &c);
         if funders.is_empty() {
             env.storage().persistent().remove(&key);
         } else {
@@ -845,6 +939,7 @@ impl Escrow {
         let completed = c.milestones.iter().all(|x| x.released);
         if completed {
             transition(&mut c, ContractStatus::Completed)?;
+            record_closed_at(&env, &c);
             record_closed_at(&env, c.id);
         }
         clear_settlement(&env, c.id);
@@ -912,6 +1007,7 @@ impl Escrow {
             clear_submitted(&env, c.id, index);
             if c.milestones.iter().all(|x| x.released) {
                 transition(&mut c, ContractStatus::Completed)?;
+                record_closed_at(&env, &c);
                 record_closed_at(&env, c.id);
                 completed = true;
             }
@@ -1061,6 +1157,7 @@ impl Escrow {
             m.released = true;
             c.milestones.set(0, m);
             transition(&mut c, ContractStatus::Completed)?;
+            record_closed_at(&env, &c);
             record_closed_at(&env, c.id);
         }
         clear_settlement(&env, id);
@@ -1284,6 +1381,28 @@ impl Escrow {
         if member == c.client || member == c.freelancer {
             return Err(EscrowError::Unauthorized);
         }
+        // Stream escrows vest linearly and never carry milestone change orders.
+        if is_stream(&env, id) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        // Checked before the proposal lookup so a stream escrow always reports
+        // InvalidStatus rather than ChangeOrderNotFound.
+        if is_stream(&env, id) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        // Reopening a terminal (`Completed`) escrow consumes a fresh open slot,
+        // subject to the same per-client cap as creation.
+        let was_terminal = c.status == ContractStatus::Completed;
+        if was_terminal {
+            require_open_escrow_slot(&env, &c.client)?;
+        }
+        if was_terminal {
+            bump_open_escrows(&env, &c.client)?;
+        }
+    /// Freelancer rejects (removes) the pending change order. Rejection follows
+    /// the same `PAUSE_CREATE` and freeze gates as proposing and accepting one.
+        require_not_paused(&env, PAUSE_CREATE)?;
+        require_not_frozen(&env, id)?;
     /// Client commits optional per-milestone due dates (ledger timestamps).
     /// `dates` is either empty (clears any deadlines) or exactly one strictly
     /// increasing date per milestone, else `InvalidMetadata`. Only while
@@ -1358,6 +1477,7 @@ impl Escrow {
         if env.ledger().timestamp() <= due {
             return Err(EscrowError::NotExpired);
         }
+        record_closed_at(&env, &c);
 
         let unpaid = m
             .amount
@@ -1554,7 +1674,7 @@ impl Escrow {
         c.refunded_amount = to_client;
         // Dedicated mutual-settlement edge: Created / Funded / Disputed -> Resolved, by both parties.
         c.status = ContractStatus::Resolved;
-        record_closed_at(&env, id);
+        record_closed_at(&env, &c);
         sub_liability(&env, &c.token, held)?;
         #[cfg(any(test, debug_assertions))]
         assert_solvent(&env, &c.token);
@@ -1583,10 +1703,12 @@ impl Escrow {
     }
 
     /// Pending settlement proposal, if any.
+        record_closed_at(&env, &c);
     pub fn try_get_settlement(env: Env, id: u64) -> Option<SettlementProposal> {
         env.storage().persistent().get(&types::DataKey::Settlement(id))
     }
 
+        record_closed_at(&env, &c);
     // ──────────────────────────────────────────────────────────────────────────
     // Reputation
     // ──────────────────────────────────────────────────────────────────────────
@@ -1834,6 +1956,7 @@ impl Escrow {
         if is_stream(&env, id) {
             return Err(EscrowError::InvalidStatus);
         }
+            record_closed_at(&env, &c);
         c.client.require_auth();
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
@@ -1846,7 +1969,7 @@ impl Escrow {
         c.refunded_amount = refund;
         c.funded_amount = c.funded_amount.checked_sub(refund).ok_or(EscrowError::ArithmeticOverflow)?;
         transition(&mut c, ContractStatus::Cancelled)?;
-        record_closed_at(&env, id);
+        record_closed_at(&env, &c);
         sub_liability(&env, &c.token, refund)?;
         #[cfg(any(test, debug_assertions))]
         assert_solvent(&env, &c.token);
@@ -1871,6 +1994,7 @@ impl Escrow {
         try_issue_reputation(env, id, rating)
     }
 
+            record_closed_at(&env, &c);
     /// After completion or resolution the freelancer may rate the client (1..=5) once per contract.
     pub fn try_rate_client_v2(env: Env, id: u64, rating: u32) -> Result<(), EscrowError> {
         // Same as try_rate_client
