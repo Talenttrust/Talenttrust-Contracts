@@ -32,6 +32,22 @@ can clear both flags together.
 
 ## Blocked Operations
 
+The category pause flags are a bitmask configured with `set_pause_flags`.
+`PAUSE_ALL` enables every category. Each flag gates its own entrypoints:
+
+| Flag | Gated entrypoints |
+|---|---|
+| `PAUSE_CREATE` | Contract creation entrypoints |
+| `PAUSE_DEPOSIT` | `deposit_funds` and other funding entrypoints |
+| `PAUSE_RELEASE` | `release_milestone`, `resolve_dispute`, `pay_bonus`, and `set_payout_address` |
+| `PAUSE_DISPUTE` | Dispute opening and dispute response entrypoints |
+| `PAUSE_CANCEL` | Cancellation and refund entrypoints |
+| `PAUSE_REPUTATION` | Reputation entrypoints |
+
+`set_payout_address` is gated by `PAUSE_RELEASE` because it changes the
+destination of future releases. `PAUSE_CREATE` alone does not prevent changing
+that destination.
+
 When `Paused` is `true` or `Emergency` is `true`, the following entrypoints panic
 with `ContractPaused` (or `EmergencyActive` when only the `Emergency` flag is
 set). The gate runs **before** any state read, TTL bump, or auth call so a

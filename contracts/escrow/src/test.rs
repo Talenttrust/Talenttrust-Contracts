@@ -6702,6 +6702,9 @@ fn each_pause_flag_gates_exactly_its_entry_points() {
         paused(r == Err(Ok(EscrowError::Paused)), PAUSE_DEPOSIT);
         let r = s.escrow.try_release_milestone(&f.funded, &0);
         paused(r == Err(Ok(EscrowError::Paused)), PAUSE_RELEASE);
+        let payout = Address::generate(&s.env);
+        let r = s.escrow.try_set_payout_address(&f.created, &payout);
+        paused(r == Err(Ok(EscrowError::Paused)), PAUSE_RELEASE);
         let r = s.escrow.try_open_dispute(&f.disputable, &s.client);
         paused(r == Err(Ok(EscrowError::Paused)), PAUSE_DISPUTE);
         let r = s.escrow.try_cancel_contract(&f.cancellable);

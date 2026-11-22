@@ -1910,7 +1910,7 @@ impl Escrow {
     /// `InvalidStatus` while a dispute is open. `payout` must not be the
     /// contract address or the client (`InvalidParties`).
     pub fn set_payout_address(env: Env, id: u64, payout: Address) -> Result<(), EscrowError> {
-        require_not_paused(&env, PAUSE_CREATE)?;
+        require_not_paused(&env, PAUSE_RELEASE)?;
         let c = load(&env, id)?;
         require_not_frozen(&env, id)?;
         c.freelancer.require_auth();
