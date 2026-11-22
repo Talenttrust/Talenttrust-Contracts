@@ -6351,6 +6351,146 @@ fn set_ts(env: &Env, ts: u64) {
 }
 
 #[test]
+fn resolve_expired_dispute_requires_timeout_and_disputed_status() {
+    let s = setup();
+    set_ts(&s.env, 1_000);
+
+    // Not disputed: rejected long after any timeout could have elapsed.
+    let funded = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&funded, &(100 * U));
+    let later = 1_000 + 2 * DISPUTE_TIMEOUT_SECS;
+    set_ts(&s.env, later);
+    assert_eq!(
+        s.escrow.try_resolve_expired_dispute(&funded),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+
+    // Disputed: rejected one second before the deadline, settles exactly on it.
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    open_dispute_bonded(&s, &id, &s.client);
+    set_ts(&s.env, later + DISPUTE_TIMEOUT_SECS - 1);
+    assert_eq!(
+        s.escrow.try_resolve_expired_dispute(&id),
+        Err(Ok(EscrowError::NotExpired))
+    );
+    set_ts(&s.env, later + DISPUTE_TIMEOUT_SECS);
+    s.escrow.resolve_expired_dispute(&id);
+    assert_eq!(
+        s.escrow.get_contract(&id).status,
+        ContractStatus::Resolved
+    );
+}
+
+#[test]
+fn resolve_expired_dispute_splits_evenly_and_returns_bond() {
+    let s = setup();
+    StellarAssetClient::new(&s.env, &s.token.address).mint(&s.freelancer, &(1_000 * U));
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 400 * U],
+    );
+    s.escrow.deposit_funds(&id, &(400 * U));
+    let client_before = s.token.balance(&s.client);
+    let freelancer_before = s.token.balance(&s.freelancer);
+    open_dispute_bonded(&s, &id, &s.freelancer);
+    assert_eq!(
+        s.escrow.get_dispute_bond(&id),
+        Some((s.freelancer.clone(), 8 * U))
+    );
+
+    // Permissionless: no caller argument at all.
+    set_ts(&s.env, DISPUTE_TIMEOUT_SECS);
+    s.escrow.resolve_expired_dispute(&id);
+
+    // Normal resolved event so indexers need no new handling. Read it before
+    // any other contract call, since `events().all()` only covers the latest
+    // invocation.
+    let r: ResolvedEvent = last_escrow_event(&s, "resolved", id).unwrap();
+    assert_eq!(r.to_freelancer, 200 * U);
+    assert_eq!(r.to_client, 200 * U);
+    assert_eq!(r.bond_recipient, Some(s.freelancer.clone()));
+    assert_eq!(r.bond, 8 * U);
+    assert_eq!(r.status, ContractStatus::Resolved);
+
+    assert_eq!(s.token.balance(&s.freelancer), freelancer_before + 208 * U);
+    assert_eq!(s.token.balance(&s.client), client_before + 200 * U);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+    assert_eq!(s.escrow.get_dispute_bond(&id), None);
+    assert_eq!(s.escrow.get_liability(&s.token.address), 0);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    check_invariants(&s.escrow.get_contract(&id));
+
+    // No resolver adjudicated the split: win/loss counters stay untouched.
+    let fo = s.escrow.get_outcomes(&s.freelancer);
+    assert_eq!(fo.disputes_opened, 1);
+    assert_eq!(fo.disputes_won, 0);
+    assert_eq!(fo.disputes_lost, 0);
+    let co = s.escrow.get_outcomes(&s.client);
+    assert_eq!(co.disputes_opened, 0);
+    assert_eq!(co.disputes_won, 0);
+    assert_eq!(co.disputes_lost, 0);
+}
+
+#[test]
+fn resolve_expired_dispute_rounds_remainder_to_client() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 1_000_001i128],
+    );
+    s.escrow.deposit_funds(&id, &1_000_001);
+    let client_before = s.token.balance(&s.client);
+    open_dispute_bonded(&s, &id, &s.client);
+    let bond = dispute_bond(1_000_001);
+    set_ts(&s.env, DISPUTE_TIMEOUT_SECS);
+
+    s.escrow.resolve_expired_dispute(&id);
+
+    // Odd held balance: 500_000 to the freelancer, 500_001 plus the bond back.
+    assert_eq!(s.token.balance(&s.freelancer), 500_000);
+    assert_eq!(s.token.balance(&s.client), client_before + 500_001 + bond);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+}
+
+#[test]
+fn resolve_expired_dispute_works_while_frozen_and_paused() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    open_dispute_bonded(&s, &id, &s.client);
+    // Neither a freeze nor a pause may strand the funds past the timeout.
+    s.escrow.freeze_escrow(&id, &symbol_short!("hold"));
+    s.escrow.set_paused(&s.admin, &true);
+    set_ts(&s.env, DISPUTE_TIMEOUT_SECS);
+
+    s.escrow.resolve_expired_dispute(&id);
+
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+    assert_eq!(s.token.balance(&s.freelancer), 50 * U);
+    assert_eq!(s.escrow.get_dispute_bond(&id), None);
+}
+
+#[test]
 fn emergency_withdraw_boundary_and_funded_refund() {
     let s = setup();
     let id = s.escrow.create_contract(
