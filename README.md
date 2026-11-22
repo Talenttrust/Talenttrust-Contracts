@@ -243,7 +243,7 @@ Error codes are **append-only** and never renumbered — the frontend and backen
 ## Build and test
 
 ```bash
-rustup target add wasm32v1-none      # toolchain pinned in rust-toolchain.toml
+rustup target add wasm32v1-none      # Rust 1.91 pinned in rust-toolchain.toml
 cargo build --target wasm32v1-none --release
 cargo test
 ```
