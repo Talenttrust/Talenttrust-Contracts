@@ -29,7 +29,9 @@ entry is extended to. Both are `u32`.
 
 A third constant shares the ~30-day value but is unrelated to this policy:
 `THIRTY_DAYS_IN_LEDGERS: u32 = 518_400` is the compaction grace period after
-which an unrated terminal escrow may be compacted.
+which an unrated terminal escrow may be compacted. A fourth constant,
+`MAX_TTL_BATCH: u32 = 25`, caps the number of escrow ids accepted by the batched
+keeper; it is a batch-size limit, not a TTL duration.
 
 ## Units
 
@@ -79,7 +81,7 @@ on **every gated call** via
 
 ## Keeper Entrypoints
 
-Both keepers are permissionless: they require no authorization beyond the
+All keepers are permissionless: they require no authorization beyond the
 submitting transaction, and **the caller pays the rent extension**. They only
 lengthen the TTL of existing keys; they never create state.
 
@@ -91,16 +93,25 @@ per-escrow keep-alive. It bumps, whenever present:
 - the escrow entry itself — `ContractV(id)`, legacy `Contract(id)`, or the
   compacted `Receipt(id)` once the escrow has been compacted;
 - per-escrow side entries: `FundBy`, `Funders`, `Frozen`, `Payout`, `Team`,
-  `ClosedAt`, `Sequential`, `Terms`, `MilestoneSpecs`, `DisputeBond`,
-  `Settlement`, `ReviewWindow`, `EscrowFee`, `Bonus`, `Votes`, `ChangeOrder`,
-  `Resigned`, `Rating`, `RatingWeight`, `ClientRated`, `Stream`, `Amendment`,
-  `AmendNonce`;
+  `ClosedAt`, `Sequential`, `Terms`, `MilestoneSpecs`, `MilestoneDue`,
+  `DisputeBond`, `Settlement`, `DisputeOpenedAt`, `ReviewWindow`, `EscrowFee`,
+  `Bonus`, `Votes`, `ChangeOrder`, `Resigned`, `Rating`, `RatingWeight`,
+  `ClientRated`, `Stream`, `Amendment`, `AmendNonce`;
 - per-milestone entries for each milestone index `i`: `Submitted(id, i)`,
-  `Delivery(id, i)`, `MilestonePaid(id, i)`;
+  `Delivery(id, i)`, `MilestonePaid(id, i)`, `MilestoneReclaimed(id, i)`;
 - and finally the contract instance.
 
 If none of `ContractV(id)`, `Contract(id)` or `Receipt(id)` exist, the call
 returns `Err(EscrowError::ContractNotFound)`.
+
+### `extend_escrows_ttl(ids)`
+
+[`extend_escrows_ttl`](../../contracts/escrow/src/lib.rs) is the bounded batch
+form of the same keep-alive. It shares the per-escrow key-list helper with
+`extend_escrow_ttl`, accepts at most `MAX_TTL_BATCH` (25) ids, skips unknown ids
+instead of failing, bumps the contract instance once, and returns the number of
+escrows actually extended. A longer batch fails with
+`Err(EscrowError::InvalidAmount)` before any storage is touched.
 
 ### `extend_reputation_ttl(freelancer)`
 
@@ -129,13 +140,16 @@ TTL behaviour is covered in
 | Test | What it covers |
 |---|---|
 | `extend_escrow_ttl_keeps_quiet_escrow_and_side_keys_alive` | After a long quiet jump the escrow, `FundBy`/`Funders` side keys and the instance are all bumped back above `PERSISTENT_TTL_THRESHOLD`; an absent id returns `ContractNotFound`. |
+| `extend_escrows_ttl_enforces_batch_cap` | Batches longer than `MAX_TTL_BATCH` fail with `InvalidAmount`; a batch at the cap is accepted. |
+| `extend_escrows_ttl_skips_unknown_ids_and_extends_known_escrows` | Mixed known/unknown batches return the number extended and bump escrow, side and instance TTLs. |
 | `extend_reputation_ttl_keeps_reputation_alive` | Reputation entries are bumped back above `PERSISTENT_TTL_THRESHOLD` after the same quiet jump. |
 | persistent-TTL assertions | Written side keys (`Terms`, `MilestoneSpecs`, `Delivery`) report a TTL of at least `PERSISTENT_TTL_THRESHOLD`. |
 
 ## Reviewer Checklist
 
 1. New persistent keys are bumped by the relevant keeper (`extend_escrow_ttl`
-   for per-escrow keys, `extend_reputation_ttl` for reputation keys).
+   and `extend_escrows_ttl` for per-escrow keys, `extend_reputation_ttl` for
+   reputation keys).
 2. Any new gated entry point bumps the instance (via `require_not_paused` or
    `require_admin`).
 3. TTL extensions use `(PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND)`; no

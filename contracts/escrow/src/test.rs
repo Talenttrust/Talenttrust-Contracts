@@ -7469,14 +7469,6 @@ fn fee_change_timelock_schedule_early_execute_and_execute() {
 
     assert_eq!(s.escrow.get_pending_fee_change(), None);
     s.escrow.schedule_fee_change(&300, &treasury);
-    assert_eq!(
-        s.escrow.get_pending_fee_change(),
-        Some(PendingFeeChange {
-            fee_bps: 300,
-            treasury: treasury.clone(),
-            eta: expected_eta,
-        })
-    );
     let ev = s
         .env
         .events()
@@ -7493,6 +7485,14 @@ fn fee_change_timelock_schedule_early_execute_and_execute() {
         <(u32, Address, u64)>::try_from_val(&s.env, &ev.2).unwrap(),
         (300, treasury.clone(), expected_eta)
     );
+    assert_eq!(
+        s.escrow.get_pending_fee_change(),
+        Some(PendingFeeChange {
+            fee_bps: 300,
+            treasury: treasury.clone(),
+            eta: expected_eta,
+        })
+    );
 
     // Early execute fails with UpgradeNotReady and leaves fee unchanged.
     s.env.ledger().set_timestamp(expected_eta - 1);
@@ -7505,8 +7505,6 @@ fn fee_change_timelock_schedule_early_execute_and_execute() {
     // At eta, execute succeeds and clears pending change.
     s.env.ledger().set_timestamp(expected_eta);
     s.escrow.execute_fee_change();
-    assert_eq!(s.escrow.get_pending_fee_change(), None);
-    assert_eq!(s.escrow.get_fee_config(), (300, Some(treasury.clone())));
     let ev = s
         .env
         .events()
@@ -7521,8 +7519,10 @@ fn fee_change_timelock_schedule_early_execute_and_execute() {
     );
     assert_eq!(
         <(u32, Address)>::try_from_val(&s.env, &ev.2).unwrap(),
-        (300, treasury)
+        (300, treasury.clone())
     );
+    assert_eq!(s.escrow.get_pending_fee_change(), None);
+    assert_eq!(s.escrow.get_fee_config(), (300, Some(treasury.clone())));
 
     // Executing again fails with NoPendingUpgrade.
     assert_eq!(
@@ -7545,7 +7545,6 @@ fn fee_change_cancel_clears_pending_and_emits_event() {
     assert!(s.escrow.get_pending_fee_change().is_some());
 
     s.escrow.cancel_fee_change();
-    assert_eq!(s.escrow.get_pending_fee_change(), None);
     let ev = s
         .env
         .events()
@@ -7562,6 +7561,7 @@ fn fee_change_cancel_clears_pending_and_emits_event() {
         <(u32, Address)>::try_from_val(&s.env, &ev.2).unwrap(),
         (400, treasury)
     );
+    assert_eq!(s.escrow.get_pending_fee_change(), None);
 
     s.env
         .ledger()
@@ -7714,6 +7714,58 @@ fn extend_escrow_ttl_keeps_quiet_escrow_and_side_keys_alive() {
         s.escrow.try_extend_escrow_ttl(&999),
         Err(Ok(EscrowError::ContractNotFound))
     );
+}
+
+#[test]
+fn extend_escrows_ttl_enforces_batch_cap() {
+    let s = setup();
+    let mut ids = Vec::new(&s.env);
+    for _ in 0..MAX_TTL_BATCH {
+        ids.push_back(999);
+    }
+    assert_eq!(s.escrow.try_extend_escrows_ttl(&ids), Ok(Ok(0)));
+
+    ids.push_back(999);
+    assert_eq!(
+        s.escrow.try_extend_escrows_ttl(&ids),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+}
+
+#[test]
+fn extend_escrows_ttl_skips_unknown_ids_and_extends_known_escrows() {
+    let s = setup();
+    let a = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    let b = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&a, &(40 * U));
+    s.escrow.deposit_funds(&b, &(60 * U));
+
+    s.env.ledger().set_sequence_number(QUIET);
+    let before_a = escrow_ttl(&s, a);
+    let before_b = escrow_ttl(&s, b);
+    assert!(before_a < PERSISTENT_TTL_THRESHOLD);
+    assert!(before_b < PERSISTENT_TTL_THRESHOLD);
+
+    assert_eq!(
+        s.escrow
+            .extend_escrows_ttl(&vec![&s.env, a, 999, b]),
+        2
+    );
+    assert!(escrow_ttl(&s, a) >= PERSISTENT_TTL_THRESHOLD);
+    assert!(escrow_ttl(&s, b) >= PERSISTENT_TTL_THRESHOLD);
+    assert!(persistent_ttl(&s, &DataKey::FundBy(a)) >= PERSISTENT_TTL_THRESHOLD);
+    assert!(persistent_ttl(&s, &DataKey::Funders(b)) >= PERSISTENT_TTL_THRESHOLD);
+    assert!(instance_ttl(&s) >= PERSISTENT_TTL_THRESHOLD);
 }
 
 #[test]
@@ -8386,7 +8438,7 @@ fn withdraw_deposit_blocked_in_non_created_frozen_and_paused_states() {
     s.escrow.set_pause_flags(&s.admin, &0);
 
     s.escrow
-        .freeze_escrow(&id, &soroban_sdk::String::from_str(&s.env, "review"));
+        .freeze_escrow(&id, &symbol_short!("review"));
     assert_eq!(
         s.escrow.try_withdraw_deposit(&id, &s.client, &(10 * U)),
         Err(Ok(EscrowError::EscrowFrozen))
@@ -8628,7 +8680,13 @@ fn assert_datakey_exhaustive(key: &DataKey) {
         | DataKey::FreelancerPage(_, _)
         | DataKey::Stream(_)
         | DataKey::Amendment(_)
-        | DataKey::AmendNonce(_) => {}
+        | DataKey::AmendNonce(_)
+        | DataKey::PendingFeeChange
+        | DataKey::DisputeOpenedAt(_)
+        | DataKey::AllowedToken(_)
+        | DataKey::AllowlistEnabled
+        | DataKey::MilestoneDue(_)
+        | DataKey::MilestoneReclaimed(_, _) => {}
     }
 }
 
@@ -8737,7 +8795,7 @@ fn golden_storage_types_xdr_vectors() {
         &env,
         "StoredEscrow::V1(EscrowContract)",
         stored_escrow,
-        "AAAAEAAAAAEAAAACAAAADwAAAAJWMQAAAAAAEQAAAAEAAAALAAAADwAAAAZjbGllbnQAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAApmcmVlbGFuY2VyAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA1mdW5kZWRfYW1vdW50AAAAAAAACwAAAAAAAAAAAAAAABHhowAAAAAPAAAAAmlkAAAAAAAFAAAAAAAAAAEAAAAPAAAACm1pbGVzdG9uZXMAAAAAABAAAAABAAAAAgAAABEAAAABAAAAAgAAAA8AAAAGYW1vdW50AAAAAAALAAAAAAAAAAAAAAAABfXhAAAAAA8AAAAIcmVsZWFzZWQAAAAAAAAAAQAAABEAAAABAAAAAgAAAA8AAAAGYW1vdW50AAAAAAALAAAAAAAAAAAAAAAAC+vCAAAAAA8AAAAIcmVsZWFzZWQAAAAAAAAAAAAAAA8AAAAPcmVmdW5kZWRfYW1vdW50AAAAAAsAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA9yZWxlYXNlZF9hbW91bnQAAAAACwAAAAAAAAAAAAAAAAX14QAAAAAPAAAAEXJlcHV0YXRpb25faXNzdWVkAAAAAAAAAAAAAAAAAAAPAAAABnN0YXR1cwAAAAAAEAAAAAEAAAABAAAADwAAAAZGdW5kZWQAAAAAAA8AAAAFdG9rZW4AAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAADwAAAAx0b3RhbF9hbW91bnQAAAALAAAAAAAAAAAAAAAAEeGjAA==",
+        "AAAAEAAAAAEAAAACAAAADwAAAAJWMQAAAAAAEQAAAAEAAAALAAAADwAAAAZjbGllbnQAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAApmcmVlbGFuY2VyAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA1mdW5kZWRfYW1vdW50AAAAAAAACgAAAAAAAAAAAAAAABHhowAAAAAPAAAAAmlkAAAAAAAFAAAAAAAAAAEAAAAPAAAACm1pbGVzdG9uZXMAAAAAABAAAAABAAAAAgAAABEAAAABAAAAAgAAAA8AAAAGYW1vdW50AAAAAAAKAAAAAAAAAAAAAAAABfXhAAAAAA8AAAAIcmVsZWFzZWQAAAAAAAAAAQAAABEAAAABAAAAAgAAAA8AAAAGYW1vdW50AAAAAAAKAAAAAAAAAAAAAAAAC+vCAAAAAA8AAAAIcmVsZWFzZWQAAAAAAAAAAAAAAA8AAAAPcmVmdW5kZWRfYW1vdW50AAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA9yZWxlYXNlZF9hbW91bnQAAAAACgAAAAAAAAAAAAAAAAX14QAAAAAPAAAAEXJlcHV0YXRpb25faXNzdWVkAAAAAAAAAAAAAAAAAAAPAAAABnN0YXR1cwAAAAAAEAAAAAEAAAABAAAADwAAAAZGdW5kZWQAAAAAAA8AAAAFdG9rZW4AAAAAAAASAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAADwAAAAx0b3RhbF9hbW91bnQAAAAKAAAAAAAAAAAAAAAAEeGjAA==",
     );
 
     let receipt = EscrowReceipt {
@@ -8757,7 +8815,7 @@ fn golden_storage_types_xdr_vectors() {
         &env,
         "EscrowReceipt",
         receipt,
-        "AAAAEQAAAAEAAAALAAAADwAAAAZjbGllbnQAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAAljbG9zZWRfYXQAAAAAAAAFAAAAAGVT8QAAAAAPAAAACmZyZWVsYW5jZXIAAAAAABIAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPAAAAAmlkAAAAAAAFAAAAAAAAAAEAAAAPAAAAD21pbGVzdG9uZV9jb3VudAAAAAADAAAAAgAAAA8AAAAPcmVmdW5kZWRfYW1vdW50AAAAAAsAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA9yZWxlYXNlZF9hbW91bnQAAAAACwAAAAAAAAAAAAAAABHhowAAAAAPAAAAEXJlcHV0YXRpb25faXNzdWVkAAAAAAAAAAAAAAEAAAAPAAAABnN0YXR1cwAAAAAAEAAAAAEAAAABAAAADwAAAAlDb21wbGV0ZWQAAAAAAAAPAAAABXRva2VuAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAA8AAAAMdG90YWxfYW1vdW50AAAACwAAAAAAAAAAAAAAABHhowA=",
+        "AAAAEQAAAAEAAAALAAAADwAAAAZjbGllbnQAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAAljbG9zZWRfYXQAAAAAAAAFAAAAAGVT8QAAAAAPAAAACmZyZWVsYW5jZXIAAAAAABIAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPAAAAAmlkAAAAAAAFAAAAAAAAAAEAAAAPAAAAD21pbGVzdG9uZV9jb3VudAAAAAADAAAAAgAAAA8AAAAPcmVmdW5kZWRfYW1vdW50AAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAADwAAAA9yZWxlYXNlZF9hbW91bnQAAAAACgAAAAAAAAAAAAAAABHhowAAAAAPAAAAEXJlcHV0YXRpb25faXNzdWVkAAAAAAAAAAAAAAEAAAAPAAAABnN0YXR1cwAAAAAAEAAAAAEAAAABAAAADwAAAAlDb21wbGV0ZWQAAAAAAAAPAAAABXRva2VuAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAA8AAAAMdG90YWxfYW1vdW50AAAACgAAAAAAAAAAAAAAABHhowA=",
     );
 
     let panel = Panel {
@@ -8781,7 +8839,7 @@ fn golden_storage_types_xdr_vectors() {
         &env,
         "Stream(active)",
         stream_active,
-        "AAAAEQAAAAEAAAAEAAAADwAAAANlbmQAAAAABQAAAABlVUKAAAAADwAAAAVzdGFydAAAAAAAAAUAAAAAZVPxAAAAAA8AAAAKc3RvcHBlZF9hdAAAAAAAAQAAAA8AAAAJd2l0aGRyYXduAAAAAAAACwAAAAAAAAAAAAAAAAL68IA=",
+        "AAAAEQAAAAEAAAAEAAAADwAAAANlbmQAAAAABQAAAABlVUKAAAAADwAAAAVzdGFydAAAAAAAAAUAAAAAZVPxAAAAAA8AAAAKc3RvcHBlZF9hdAAAAAAAAQAAAA8AAAAJd2l0aGRyYXduAAAAAAAACgAAAAAAAAAAAAAAAAL68IA=",
     );
 
     let stream_stopped = Stream {
@@ -8794,7 +8852,7 @@ fn golden_storage_types_xdr_vectors() {
         &env,
         "Stream(stopped)",
         stream_stopped,
-        "AAAAEQAAAAEAAAAEAAAADwAAAANlbmQAAAAABQAAAABlVUKAAAAADwAAAAVzdGFydAAAAAAAAAUAAAAAZVPxAAAAAA8AAAAKc3RvcHBlZF9hdAAAAAAABQAAAABlVJnAAAAADwAAAAl3aXRoZHJhd24AAAAAAAALAAAAAAAAAAAAAAAAAvrwgA==",
+        "AAAAEQAAAAEAAAAEAAAADwAAAANlbmQAAAAABQAAAABlVUKAAAAADwAAAAVzdGFydAAAAAAAAAUAAAAAZVPxAAAAAA8AAAAKc3RvcHBlZF9hdAAAAAAABQAAAABlVJnAAAAADwAAAAl3aXRoZHJhd24AAAAAAAAKAAAAAAAAAAAAAAAAAvrwgA==",
     );
 
     let amendment = Amendment {
@@ -8806,7 +8864,7 @@ fn golden_storage_types_xdr_vectors() {
         &env,
         "Amendment",
         amendment,
-        "AAAAEQAAAAEAAAADAAAADwAAAAtuZXdfYW1vdW50cwAAAAAQAAAAAQAAAAIAAAALAAAAAAAAAAAAAAAACPDRgAAAAAsAAAAAAAAAAAAAAAAI8NGAAAAADwAAAAVub25jZQAAAAAAAAMAAAABAAAADwAAAAhwcm9wb3NlcgAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAEQAAAAEAAAADAAAADwAAAAtuZXdfYW1vdW50cwAAAAAQAAAAAQAAAAIAAAAKAAAAAAAAAAAAAAAACPDRgAAAAAoAAAAAAAAAAAAAAAAI8NGAAAAADwAAAAVub25jZQAAAAAAAAMAAAABAAAADwAAAAhwcm9wb3NlcgAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     );
 
     let settlement = SettlementProposal {
@@ -8818,7 +8876,7 @@ fn golden_storage_types_xdr_vectors() {
         &env,
         "SettlementProposal",
         settlement,
-        "AAAAEQAAAAEAAAADAAAADwAAAApjcmVhdGVkX2F0AAAAAAAFAAAAAGVT8QAAAAAPAAAAEWZyZWVsYW5jZXJfYW1vdW50AAAAAAAACwAAAAAAAAAAAAAAAAcnDgAAAAAPAAAACHByb3Bvc2VyAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "AAAAEQAAAAEAAAADAAAADwAAAApjcmVhdGVkX2F0AAAAAAAFAAAAAGVT8QAAAAAPAAAAEWZyZWVsYW5jZXJfYW1vdW50AAAAAAAACgAAAAAAAAAAAAAAAAcnDgAAAAAPAAAACHByb3Bvc2VyAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     );
 
     let pending_upgrade = PendingUpgrade {
@@ -8850,7 +8908,7 @@ fn golden_storage_types_xdr_vectors() {
             weight_total: 100_000_000,
             rated_contracts: 2,
         },
-        "AAAAEQAAAAEAAAADAAAADwAAAA9yYXRlZF9jb250cmFjdHMAAAAAAwAAAAIAAAAPAAAADHdlaWdodF90b3RhbAAAAAsAAAAAAAAAAAAAAAAF9eEAAAAADwAAABN3ZWlnaHRlZF9yYXRpbmdfc3VtAAAAAAsAAAAAAAAAAAAAAAAdzWUA",
+        "AAAAEQAAAAEAAAADAAAADwAAAA9yYXRlZF9jb250cmFjdHMAAAAAAwAAAAIAAAAPAAAADHdlaWdodF90b3RhbAAAAAoAAAAAAAAAAAAAAAAF9eEAAAAADwAAABN3ZWlnaHRlZF9yYXRpbmdfc3VtAAAAAAoAAAAAAAAAAAAAAAAdzWUA",
     );
 
     assert_golden_xdr(

@@ -44,6 +44,7 @@ for future SDK upgrades.
 - **Measured memory**: 8.9 KB persistent storage, 3.2 KB instance
 - **Enforced ceiling**: 200,000 CPU instructions (50% of network limit)
 - **Status**: ✅ Passes budget assertion
+- **Batch variant**: `extend_escrows_ttl` uses the same per-escrow operation for at most `MAX_TTL_BATCH` (25) ids and bumps the instance once per call.
 
 ### 5. `get_escrow_summaries` with MAX_SUMMARY_BATCH (25 IDs)
 

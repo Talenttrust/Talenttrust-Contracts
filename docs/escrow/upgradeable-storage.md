@@ -35,7 +35,8 @@ under its own `DataKey` variant and is unaffected by the envelope.
   `MAX_MIGRATE_BATCH` (50) ids per permissionless call, skipping ids that are
   already versioned or unknown, and returns how many it migrated.
 - `extend_escrow_ttl` covers the versioned key, the legacy key and the receipt,
-  so rent can be topped up for any shape of record.
+  so rent can be topped up for any shape of record; `extend_escrows_ttl(ids)`
+  applies the same coverage to a bounded batch of up to 25 ids.
 
 Details, guarantees and the full test list are in
 [`migration.md`](./migration.md).
