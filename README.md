@@ -134,6 +134,7 @@ Persistent entries are extended to `PERSISTENT_TTL_EXTEND` (~30 days of ledgers)
 | Function | Auth | Description |
 | --- | --- | --- |
 | `extend_escrow_ttl(id)` | anyone | Extend an escrow entry (or its receipt) and all of its existing side entries; `ContractNotFound` if missing |
+| `extend_escrows_ttl(ids)` | anyone | Extend up to `MAX_TTL_BATCH` (25) escrows in one call, skip unknown ids, and return the count extended; `InvalidAmount` if the batch is too large |
 | `extend_reputation_ttl(addr)` | anyone | Extend an address's reputation, weighted reputation, client reputation, outcomes and bonus totals |
 
 ### Arithmetic

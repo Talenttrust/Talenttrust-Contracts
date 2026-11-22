@@ -110,6 +110,7 @@ Every mutating public entrypoint in `contracts/escrow/src/lib.rs` appears below.
 | `void_rating(id, reason)` | Stored admin | Admin | `PAUSE_REPUTATION` | Allowed while frozen | Rating record exists and is not already voided; authentication precedes the pause check |
 | `migrate_escrows(ids)` | None | Anyone | None | Allowed while frozen | At most 50 ids; already-migrated and unknown ids are skipped |
 | `extend_escrow_ttl(id)` | None | Anyone | None | Allowed while frozen | Escrow or compact receipt must exist; caller pays rent extension |
+| `extend_escrows_ttl(ids)` | None | Anyone | None | Allowed while frozen | At most `MAX_TTL_BATCH` (25) ids; unknown ids are skipped; returns the count extended |
 | `extend_reputation_ttl(freelancer)` | None | Anyone | None | N/A | No authorization or existence precondition |
 | `compact_escrow(id)` | None | Anyone | None | Blocked | Not already compacted; terminal status; `Cancelled` fully refunded or `Completed`/`Resolved` rated or past grace period |
 | `grant_role(role, account)` | Stored admin | Admin | None | N/A | Admin initialized; membership must actually change, otherwise `RoleUnchanged` |
@@ -130,7 +131,7 @@ These properties are enforced by the code paths in the matrix above.
 4. **Dispute resolution is conflict-free.** `resolve_dispute` rejects the client and freelancer even if they hold `Resolver`, and high-value escrows require a panel vote instead of a single resolver call.
 5. **Pause is category-specific.** A `PAUSE_CREATE` flag blocks creation and setup but not cancellation; `PAUSE_REPUTATION` blocks ratings and voiding; `PAUSE_ALL` blocks all six categories. Recovery and governance actions are deliberately exempt.
 6. **Freeze is escrow-local and party-facing.** Frozen escrows reject party mutations with `EscrowFrozen` but remain resolvable, emergency-exitable, migratable, TTL-extendable, and voidable by admin governance.
-7. **Permissionless entrypoints are predicate-bound.** `expire_unfunded`, `migrate_escrows`, `extend_escrow_ttl`, `extend_reputation_ttl`, and `compact_escrow` require no signature, but each is limited by status, deadline, batch size, existence, or receipt rules.
+7. **Permissionless entrypoints are predicate-bound.** `expire_unfunded`, `migrate_escrows`, `extend_escrow_ttl`, `extend_escrows_ttl`, `extend_reputation_ttl`, and `compact_escrow` require no signature, but each is limited by status, deadline, batch size, existence, or receipt rules.
 8. **No hidden timelock.** Admin rotation is two-step but does not enforce a delay in this contract. The 48-hour delay applies only to `execute_upgrade`, and the 30-day delay applies only to `emergency_withdraw`.
 
 ---
