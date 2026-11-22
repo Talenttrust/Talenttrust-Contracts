@@ -1,910 +1,100 @@
 # Events authorization and access rules
 
-This document describes **who may publish each event**, **in which contract state**, and **which entrypoints trigger them**. It is derived from the auth checks and event emission points across the escrow contract.
-
-All event topics use `symbol_short!` for the first element (4-character max) and indexable keys for the second element where applicable, enabling efficient off-chain filtering by contract ID, milestone index, or event type.
-
----
-
-## Roles
-
-| Role | Identity source | Can emit events via |
-|------|----------------|---------------------|
-| **Admin** | `DataKey::Admin` (set by `initialize`) | Governance, pause/emergency, admin rotation, protocol fees, rollback, contract finalization rollback, milestone rollback, storage migration, settlement limit, contract limits |
-| **Client** | `Contract.client` (set at `create_contract`) | Contract creation, deposit, approve milestone, release milestone, refund, cancel, raise dispute, issue reputation |
-| **Freelancer** | `Contract.freelancer` (set at `create_contract`) | Approve milestone (MultiSig), release milestone (MultiSig), raise dispute, submit work evidence |
-| **Arbiter** | `Contract.arbiter` (optional, set at `create_contract`) | Approve milestone (ArbiterOnly/ClientAndArbiter), release milestone (ArbiterOnly/ClientAndArbiter), resolve dispute |
-| **Any participant** | Client, freelancer, or arbiter | Finalize contract, client migration (propose/accept/cancel) |
-
----
-
-## Shared gates
-
-Every mutating entrypoint that emits an event runs these checks first:
-
-| Order | Check | Rejection |
-|-------|-------|-----------|
-| 1 | `require_initialized` — `DataKey::Initialized` is true | `NotInitialized` |
-| 2 | `require_not_paused` — neither pause nor emergency is active | `ContractPaused` or `EmergencyActive` |
-| 3 | Caller `require_auth()` | Soroban auth failure (no contract error code) |
-
-Then per-contract entrypoints additionally load `DataKey::Contract(contract_id)` and run:
-
-| Check | Rejection |
-|-------|-----------|
-| Contract storage present | `ContractNotFound` |
-| `require_not_finalized(contract_id)` — no finalization record | `AlreadyFinalized` |
-
----
-
-## Event inventory
-
-### Lifecycle events
-
-#### `("created", contract_id)`
-
-| Entrypoint | Auth | Required status | Transition |
-|------------|------|----------------|------------|
-| `create_contract` | `client.require_auth()` | (none — new contract) | → `Created` |
-
-**Payload:** `(client: Address, freelancer: Address, timestamp: u64)`
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Pause/emergency active | `ContractPaused` / `EmergencyActive` |
-| Client == freelancer | `InvalidParticipant` |
-| Arbiter required by mode but missing | `MissingArbiter` |
-| Arbiter == client or freelancer | `InvalidArbiter` |
-| Milestones empty | `EmptyMilestones` |
-| Milestone amounts invalid | `InvalidMilestoneAmount` |
-| Total cap exceeded | `TotalCapExceeded` |
-| Too many milestones | `TooManyMilestones` |
-
----
-
-#### `("contract", contract_id)` — indexed contract snapshot
-
-Emitted by `emit_contract_indexed_event` after every state-changing lifecycle operation.
-
-**Payload:** `(status: u32, funded_amount: i128, released_amount: i128, refunded_amount: i128, total_deposited: i128)`
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `create_contract` | `client.require_auth()` | (new) |
-| `deposit_funds` | `contract.client.require_auth()` | `Created` / `PartiallyFunded` |
-| `release_milestone` | Per `ReleaseAuthorization` mode | `Funded` |
-| `refund_unreleased_milestones` | `contract.client.require_auth()` | `Created` / `Funded` / `Disputed` |
-| `cancel_contract` | `contract.client.require_auth()` | `Created` / `Funded` |
-| `raise_dispute` | Client or freelancer | `Funded` / `PartiallyFunded` |
-| `resolve_dispute` | `contract.arbiter.require_auth()` | `Disputed` |
-| `finalize_contract` | Any participant | `Completed` / `Disputed` |
-
----
-
-#### `("deposit", contract_id)`
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `deposit_funds` | `caller.require_auth()` where caller == client | `Created` / `PartiallyFunded` |
-
-**Payload:** `(deposit_amount: i128, caller: Address, timestamp: u64)`
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Amount ≤ 0 | `AmountMustBePositive` |
-| Status not `Created` or `PartiallyFunded` | `InvalidState` |
-| Caller not client | `UnauthorizedRole` |
-| Deposit would exceed total milestone amount | `InvalidDepositAmount` |
-| Settlement token not bound | `SettlementTokenNotConfigured` |
-
----
-
-### Milestone events
-
-#### `("mlstn_idx", contract_id, milestone_index)` — per-milestone indexed event
-
-Emitted by both `release_milestone` and `refund_unreleased_milestones` for each affected milestone.
-
-**Payload:** `(amount: i128, released: bool, refunded: bool, timestamp: u64)`
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `release_milestone` | Per `ReleaseAuthorization` mode | `Funded` |
-| `refund_unreleased_milestones` | `contract.client.require_auth()` | `Created` / `Funded` / `Disputed` |
-
----
-
-#### `("mlstn_rls", contract_id)` — milestone release
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `release_milestone` | Per `ReleaseAuthorization` mode | `Funded` |
-
-**Payload:** `(milestone_index: u32, gross_amount: i128, protocol_fee: i128, new_released_amount: i128, caller: Address, timestamp: u64)`
-
-**Rejection matrix (release_milestone):**
-
-| Condition | Error |
-|-----------|-------|
-| Status not `Funded` | `InvalidState` |
-| Caller not authorized by release mode | `UnauthorizedRole` |
-| Milestone already released | `AlreadyReleased` |
-| Milestone already refunded | `AlreadyRefunded` |
-| Insufficient approvals (mode-specific) | `InsufficientApprovals` |
-| Insufficient balance | `InsufficientFunds` |
-| Milestone index out of bounds | `IndexOutOfBounds` |
-
----
-
-#### `("ctrct_cmp", contract_id)` — contract completed
-
-Emitted conditionally by `release_milestone` when all milestones are released.
-
-**Payload:** `(caller: Address, timestamp: u64)`
-
-Same auth and state requirements as `release_milestone`.
-
----
-
-#### `("approve", contract_id)` — milestone approval
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `approve_milestone_release_batch` | Per `ReleaseAuthorization` mode | `Funded` / `PartiallyFunded` |
-
-**Payload:** `(caller: Address, milestone_index: u32, timestamp: u64)`
-
-Emitted per approved milestone in the batch.
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Status not `Funded` or `PartiallyFunded` | `InvalidState` |
-| Caller not authorized by release mode | `UnauthorizedRole` |
-| Milestone already released | `AlreadyReleased` |
-| Caller already approved this milestone | `AlreadyApproved` |
-
----
-
-#### `("refunded", contract_id)` — contract refunded
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `refund_unreleased_milestones` | `contract.client.require_auth()` | `Created` / `Funded` / `Disputed` |
-
-**Payload:** `(total_refund_amount: i128, new_status: ContractStatus, timestamp: u64)`
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Status not `Created`, `Funded`, or `Disputed` | `InvalidState` |
-| Caller not client | `UnauthorizedRole` |
-| Empty refund request | `EmptyRefundRequest` |
-| Duplicate milestone indices | `DuplicateMilestoneInRefund` |
-| Milestone already released | `AlreadyReleased` |
-| Milestone already refunded | `AlreadyRefunded` |
-| Insufficient balance | `InsufficientFunds` |
-
----
-
-#### `("cancelled", contract_id)` — contract cancelled
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `cancel_contract` | `contract.client.require_auth()` | `Created` / `Funded` |
-
-**Payload:** `(client: Address, refund_amount: i128, timestamp: u64)`
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Status not `Created` or `Funded` | `InvalidStatusTransition` |
-| Caller not client | `UnauthorizedRole` |
-| Released amount > 0 | `InvalidStatusTransition` |
-| Already cancelled | `ContractCancelled` |
-
----
-
-### Dispute events
-
-#### `("dispute", "opened")` — dispute opened
-
-**Payload:** `(contract_id: u32, caller: Address)`
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `raise_dispute` | Client or freelancer | `Funded` / `PartiallyFunded` |
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Status not `Funded` or `PartiallyFunded` | `InvalidState` |
-| Caller not client or freelancer | `UnauthorizedRole` |
-| Arbiter not assigned (`contract.arbiter` is `None`) | `ArbiterRequired` |
-
----
-
-#### `("dispute", "resolved")` — dispute resolved
-
-**Payload:** `(contract_id: u32, resolution_code: u32)`
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `resolve_dispute` | `contract.arbiter.require_auth()` | `Disputed` |
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Status not `Disputed` | `InvalidStatusTransition` |
-| Caller not assigned arbiter | `UnauthorizedRole` |
-| Invalid split amounts | `InvalidDisputeSplit` |
-| Accounting invariant violated | `AccountingInvariantViolated` |
-
----
-
-### Finalization events
-
-#### `("finalized", contract_id)` — contract finalized
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `finalize_contract` | Any participant (`caller.require_auth()` where caller is client, freelancer, or arbiter) | `Completed` / `Disputed` |
-
-**Payload:** `(finalizer: Address, timestamp: u64)`
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Status not `Completed` or `Disputed` | `InvalidStatusTransition` |
-| Caller not client, freelancer, or arbiter | `UnauthorizedRole` |
-| Already finalized | `AlreadyFinalized` |
-
----
-
-#### `("rollback", contract_id)` — rollback
-
-Emitted by three different rollback operations with different auth rules.
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `rollback_dispute` | Admin only (`admin.require_auth()`) | `Disputed` (rollback record exists) |
-| `rollback_contract` | Admin only | Finalized, status `Completed` or `Disputed` |
-| `rollback_milestone` | Admin only | `Funded` or `PartiallyFunded` |
-
-**Payload (varies by caller):**
-- `rollback_dispute`: `(admin: Address, from_status: Disputed, to_status: ContractStatus, timestamp: u64)`
-- `rollback_contract`: `(admin: Address, status: ContractStatus, timestamp: u64)`
-- `rollback_milestone`: `(milestone_index: u32, admin: Address, timestamp: u64)`
-
----
-
-### Evidence and reputation events
-
-#### `("evidence", contract_id)` — work evidence submitted
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `submit_work_evidence` | `contract.freelancer.require_auth()` | `Funded` |
-
-**Payload:** `(milestone_index: u32, freelancer: Address, timestamp: u64)`
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Status not `Funded` | `InvalidState` |
-| Caller not freelancer | `UnauthorizedRole` |
-| Milestone already released or refunded | `AlreadyReleased` / `AlreadyRefunded` |
-
----
-
-#### `("repr_put", contract_id)` — reputation issued
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `issue_reputation` | `contract.client.require_auth()` | `Completed` |
-
-**Payload:** `(freelancer: Address, rating: u32, timestamp: u64)`
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Status not `Completed` | `NotCompleted` |
-| Caller not client | `UnauthorizedRole` |
-| Rating out of range (1–5) | `InvalidRating` |
-| Self-rating (client == freelancer) | `SelfRating` |
-| Reputation already issued | `ReputationAlreadyIssued` |
-| Comment empty | `EmptyComment` |
-| Comment too long (>200 bytes) | `CommentTooLong` |
-
----
-
-### Governance events
-
-#### `("init", Symbol("admin_set"))` — initialization
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `initialize` | `admin.require_auth()` | (none — one-time) |
-
-**Payload:** `(admin: Address, timestamp: u64)`
-
-Rejected with `AlreadyInitialized` if called again.
-
----
-
-#### `("sttl_bind",)` — settlement token bound
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `bind_settlement_token` | `admin.require_auth()` | Initialized |
-
-**Payload:** `(admin: Address, token: Address, timestamp: u64)`
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Not initialized | `NotInitialized` |
-| Pause/emergency active | `ContractPaused` / `EmergencyActive` |
-| Caller not admin | `UnauthorizedRole` |
-| Token already bound | `SettlementTokenAlreadyBound` |
-| Token is escrow contract address | `SettlementTokenIsSelf` |
-| Token is admin address | `SettlementTokenIsAdmin` |
-| Token not a valid SAC | `InvalidSettlementToken` |
-
----
-
-#### `("protocol_fee_bps",)` — protocol fee changed
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `set_protocol_fee_bps` | Admin only | Initialized |
-
-**Payload:** `(old_bps: u32, new_bps: u32, admin: Address, timestamp: u64)`
-
----
-
-#### `("events_limit",)` — events storage limit changed
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `set_events_limit` | Admin only | Initialized |
-
-**Payload:** `(old_limit: u32, new_limit: u32, admin: Address, timestamp: u64)`
-
----
-
-#### `("settlement_limit",)` — settlement limit changed
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `set_settlement_limit` | Admin only | Initialized |
-
-**Payload:** `(old_limit: i128, new_limit: i128, admin: Address, timestamp: u64)`
-
----
-
-#### Admin rotation events
-
-| Event topic | Entrypoint | Auth | Payload |
-|-------------|------------|------|---------|
-| `("admin", Symbol("proposed"))` | `propose_governance_admin` | Admin | `(admin: Address, proposed: Address, timestamp: u64)` |
-| `("admin", Symbol("accepted"))` | `accept_governance_admin` | Proposed admin | `(old_admin: Address, new_admin: Address, timestamp: u64)` |
-| `("admin", Symbol("cancelled"))` | `cancel_governance_admin_proposal` | Admin | `(admin: Address, cancelled_proposal: Address, timestamp: u64)` |
-
----
-
-#### Contract limits events (admin only)
-
-| Event topic | Entrypoint | Payload |
-|-------------|------------|---------|
-| `("limits", Symbol("max_milestones"))` | `set_max_milestones` | `(max_milestones: u32, timestamp: u64)` |
-| `("limits", Symbol("max_escrow"))` | `set_max_escrow_stroops` | `(max_escrow_stroops: i128, timestamp: u64)` |
-
----
-
-#### `("arbiter", contract_id)` — arbiter changed
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `set_arbiter` | Admin only | Initialized |
-
-**Payload:** `(old_arbiter: Option<Address>, new_arbiter: Option<Address>, timestamp: u64)`
-
----
-
-### Pause and emergency events
-
-| Event topic | Entrypoint | Auth |
-|-------------|------------|------|
-| `("pause", timestamp: u64)` | `pause` | Admin |
-| `("unpaused", timestamp: u64)` | `unpause` | Admin |
-| `("emergency", Symbol("activated"))` | `activate_emergency_pause` | Admin |
-| `("emergency", Symbol("resolved"))` | `resolve_emergency` | Admin |
-
-All pause/emergency events carry `(admin: Address, timestamp: u64)` payload.
-
----
-
-### Storage migration event
-
-#### `(Symbol("state_migrated"), version: u32)` — storage version migrated
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `migrate_state` | Admin only | Initialized |
-
-**Payload:** `(admin: Address, timestamp: u64)`
-
----
-
-### Fee events
-
-#### `("fee", Symbol("withdraw"))` — protocol fee withdrawal
-
-| Entrypoint | Auth | Required status |
-|------------|------|----------------|
-| `withdraw_protocol_fees` | Admin only | Initialized |
-
-**Payload:** `(admin: Address, to: Address, amount: i128, timestamp: u64)`
-
-**Rejection matrix:**
-
-| Condition | Error |
-|-----------|-------|
-| Amount ≤ 0 | `AmountMustBePositive` |
-| Amount > accumulated fees | `InsufficientAccumulatedFees` |
-
----
-
-### Client migration events
-
-| Event topic | Entrypoint | Auth | Required status | Payload |
-|-------------|------------|------|-----------------|---------|
-| `(Symbol("client_migration_proposed"), contract_id)` | `propose_client_migration` | Current client | Not completed, cancelled, refunded, or disputed | `(current_client: Address, new_client: Address, requested_at: u32)` |
-| `(Symbol("client_migration_accepted"), contract_id)` | `accept_client_migration` | Proposed new client | Pending migration exists | `(old_client: Address, new_client: Address, timestamp: u64)` |
-| `(Symbol("client_migration_cancelled"), contract_id)` | `cancel_client_migration` | Current client | Pending migration exists | `(current_client: Address, timestamp: u64)` |
-
----
-
-## ReleaseAuthorization mode matrix
-
-The `ReleaseAuthorization` enum controls who may approve and release milestones.
-This directly governs which events can be emitted by `approve_milestone_release_batch`
-and `release_milestone`.
-
-| Mode | Who may approve | Who may release | Approval threshold |
-|------|----------------|-----------------|-------------------|
-| `ClientOnly` | Client | Client | Client alone |
-| `ArbiterOnly` | Arbiter | Arbiter | Arbiter alone (arbiter required at creation) |
-| `ClientAndArbiter` | Client or arbiter | Client or arbiter | Either client or arbiter (arbiter required at creation) |
-| `MultiSig` | Client and freelancer | Client or freelancer | Both client and freelancer must approve; either may execute release |
-
----
-
-## Event dependency graph
-
-```
-create_contract
-  ├── ("created", id)
-  └── ("contract", id)
-
-deposit_funds
-  ├── ("deposit", id)
-  └── ("contract", id)
-
-approve_milestone_release_batch
-  └── ("approve", id)  [per milestone]
-
-release_milestone  (status: Funded → Completed when last milestone)
-  ├── ("mlstn_idx", id, idx)
-  ├── ("mlstn_rls", id)
-  ├── ("ctrct_cmp", id)  [conditional]
-  └── ("contract", id)
-
-refund_unreleased_milestones
-  ├── ("mlstn_idx", id, idx)  [per milestone]
-  ├── ("refunded", id)
-  └── ("contract", id)
-
-cancel_contract
-  ├── ("cancelled", id)
-  └── ("contract", id)
-
-raise_dispute
-  ├── ("dispute", "opened")
-  └── ("contract", id)
-
-resolve_dispute
-  ├── ("dispute", "resolved")
-  └── ("contract", id)
-
-finalize_contract
-  ├── ("finalized", id)
-  └── ("contract", id)
-
-submit_work_evidence
-  └── ("evidence", id)
-
-issue_reputation
-  └── ("repr_put", id)
-```
-
----
-
-## Worked example: full lifecycle event sequence
-
-Scenario: client `C` creates contract 42 with freelancer `F`, arbiter `A`,
-`ReleaseAuthorization::ClientAndArbiter`, two milestones (300 + 200).
-
-### Step 1 — Create
-
-```
-Entrypoint:  create_contract
-Auth:        C.require_auth()
-Events:
-  ("created", 42)              → (C, F, ts1)
-  ("contract", 42)             → (Created(0), 0, 0, 0, 0)
-
-Rejected alternatives:
-  create_contract called by F  → Soroban auth failure
-  create_contract with arbiter=None in ClientAndArbiter mode → MissingArbiter
-```
-
-### Step 2 — Deposit (full amount: 500)
-
-```
-Entrypoint:  deposit_funds(contract_id=42, caller=C, amount=500)
-Auth:        C.require_auth()  (must match contract.client)
-Events:
-  ("deposit", 42)              → (500, C, ts2)
-  ("contract", 42)             → (Funded(2), 500, 0, 0, 500)
-
-Rejected alternatives:
-  deposit_funds by F           → UnauthorizedRole
-  deposit while paused         → ContractPaused
-  deposit on finalized         → AlreadyFinalized
-```
-
-### Step 3 — Approve milestone 0 (arbiter approves)
-
-```
-Entrypoint:  approve_milestone_release_batch(contract_id=42, caller=A, milestone_indices=[0])
-Auth:        A.require_auth(), mode ClientAndArbiter → arbiter allowed
-Events:
-  ("approve", 42)              → (A, 0, ts3)
-
-Rejected alternatives:
-  approve by F (not allowed in ClientAndArbiter) → UnauthorizedRole
-  approve already-released milestone  → AlreadyReleased
-  approve already-approved milestone by same caller → AlreadyApproved
-```
-
-### Step 4 — Release milestone 0 (client releases)
-
-```
-Entrypoint:  release_milestone(contract_id=42, caller=C, milestone_index=0)
-Auth:        C.require_auth(), mode ClientAndArbiter → client allowed
-Checks:      milestone not released, check_approvals → arbiter_approved=true, status=Funded
-Events:
-  ("mlstn_idx", 42, 0)         → (300, true, false, ts4)
-  ("mlstn_rls", 42)            → (0, 300, fee, 300, C, ts4)
-  ("contract", 42)             → (Funded(2), 500, 300, 0, 500)
-
-Rejected alternatives:
-  release by non-participant   → UnauthorizedRole
-  release without approval (ClientAndArbiter requires client or arbiter approval) → InsufficientApprovals
-  release with insufficient balance → InsufficientFunds
-```
-
-### Step 5 — Approve and release milestone 1
-
-```
-Entrypoint:  approve_milestone_release_batch(contract_id=42, caller=C, milestone_indices=[1])
-Events:      ("approve", 42) → (C, 1, ts5)
-
-Entrypoint:  release_milestone(contract_id=42, caller=C, milestone_index=1)
-Events:
-  ("mlstn_idx", 42, 1)         → (200, true, false, ts6)
-  ("mlstn_rls", 42)            → (1, 200, fee, 500, C, ts6)
-  ("ctrct_cmp", 42)            → (C, ts6)   [all milestones released]
-  ("contract", 42)             → (Completed(3), 500, 500, 0, 500)
-```
-
-### Step 6 — Issue reputation
-
-```
-Entrypoint:  issue_reputation(contract_id=42, caller=C, freelancer=F, rating=5, comment="Great work")
-Auth:        C.require_auth()
-Events:
-  ("repr_put", 42)             → (F, 5, ts7)
-
-Rejected alternatives:
-  issue_reputation before Completed → NotCompleted
-  issue_reputation by freelancer    → UnauthorizedRole
-  double issuance                  → ReputationAlreadyIssued
-```
-
-### Step 7 — Finalize
-
-```
-Entrypoint:  finalize_contract(contract_id=42, finalizer=C)
-Auth:        C.require_auth()  (any participant allowed)
-Events:
-  ("finalized", 42)            → (C, ts8)
-  ("contract", 42)             → (Completed(3), 500, 500, 0, 500)
-
-Rejected alternatives:
-  finalize by non-participant  → UnauthorizedRole
-  finalize when not Completed or Disputed → InvalidStatusTransition
-  finalize when already finalized → AlreadyFinalized
-```
-
----
-
-## Dispute lifecycle example
-
-Scenario: same contract, after deposit (status = Funded).
-
-### Raise dispute
-
-```
-Entrypoint:  raise_dispute(contract_id=42, caller=F)
-Auth:        F.require_auth()  (client or freelancer)
-Events:
-  ("dispute", "opened")        → (42, F)
-  ("contract", 42)             → (Disputed(4), 500, 0, 0, 500)
-
-Rejected alternatives:
-  raise_dispute by arbiter     → UnauthorizedRole
-  raise_dispute with no arbiter assigned → ArbiterRequired
-```
-
-### Resolve dispute
-
-```
-Entrypoint:  resolve_dispute(contract_id=42, arbiter=A, resolution=FullPayout)
-Auth:        A.require_auth()  (must match contract.arbiter)
-Events:
-  ("dispute", "resolved")      → (42, resolution_code)
-  ("contract", 42)             → (Completed(3), 500, 500, 0, 500)
-
-Rejected alternatives:
-  resolve_dispute by client    → UnauthorizedRole
-  resolve_dispute on non-disputed → InvalidStatusTransition
-```
-
----
-
-## Admin-only event summary
-
-These events are emitted by entrypoints that require `admin.require_auth()`:
-
-| Event | Entrypoint |
-|-------|------------|
-| `("init", Symbol("admin_set"))` | `initialize` |
-| `("sttl_bind",)` | `bind_settlement_token` |
-| `("protocol_fee_bps",)` | `set_protocol_fee_bps` |
-| `("events_limit",)` | `set_events_limit` |
-| `("settlement_limit",)` | `set_settlement_limit` |
-| `("admin", Symbol("proposed"))` | `propose_governance_admin` |
-| `("admin", Symbol("cancelled"))` | `cancel_governance_admin_proposal` |
-| `("limits", Symbol("max_milestones"))` | `set_max_milestones` |
-| `("limits", Symbol("max_escrow"))` | `set_max_escrow_stroops` |
-| `("arbiter", contract_id)` | `set_arbiter` |
-| `("pause", timestamp)` | `pause` |
-| `("unpaused", timestamp)` | `unpause` |
-| `("emergency", Symbol("activated"))` | `activate_emergency_pause` |
-| `("emergency", Symbol("resolved"))` | `resolve_emergency` |
-| `(Symbol("state_migrated"), version)` | `migrate_state` |
-| `("fee", Symbol("withdraw"))` | `withdraw_protocol_fees` |
-| `("rollback", contract_id)` | `rollback_dispute`, `rollback_contract`, `rollback_milestone` |
-
----
-
-## Cross-reference: entrypoint → source location
-
-| Entrypoint | Source location | Event emission |
-|------------|----------------|----------------|
-| `initialize` | `lib.rs:554` | `lib.rs:582` |
-| `bind_settlement_token` | `lib.rs:388` | `lib.rs:439` |
-| `create_contract` | `create_contract.rs:56` | `create_contract.rs:154`; `create_contract.rs:160` |
-| `deposit_funds` | `lib.rs:732` | `deposit.rs:140`; `deposit.rs:136` |
-| `approve_milestone_release_batch` | `lib.rs:1340` | `lib.rs:1359` |
-| `release_milestone` | `lib.rs:1600` | `milestones.rs:243,256`; `lib.rs:1616,1652,1669,1686` |
-| `refund_unreleased_milestones` | `lib.rs:2015` | `refund_impl.rs:125`; `refund_impl.rs:147`; `lib.rs:2041,2070,2079` |
-| `cancel_contract` | `lib.rs:2870` | `refund.rs:257`; `lib.rs:2903,2906` |
-| `raise_dispute` | `lib.rs:3945` | `dispute.rs:351`; `lib.rs:3963,3967` |
-| `resolve_dispute` | `lib.rs:4045` | `dispute.rs:415`; `lib.rs:4064,4068` |
-| `finalize_contract` | `lib.rs:841` | `finalize.rs:168,173` |
-| `rollback_dispute` | `lib.rs:1012` | `rollback.rs:91` |
-| `rollback_contract` | `lib.rs:1054` | `finalize.rs:225` |
-| `rollback_milestone` | `lib.rs:1812` | `lib.rs:1834` |
-| `submit_work_evidence` | `lib.rs:3575` | `lib.rs:3598` |
-| `issue_reputation` | `lib.rs:3100` | `lib.rs:3136` |
-| `set_protocol_fee_bps` | `governance.rs:50` | `governance.rs:75` |
-| `set_events_limit` | `governance.rs:125` | `governance.rs:147` |
-| `propose_governance_admin` | `governance.rs:165` | `governance.rs:186` |
-| `accept_governance_admin` | `governance.rs:205` | `governance.rs:228` |
-| `cancel_governance_admin_proposal` | `governance.rs:245` | `governance.rs:267` |
-| `set_settlement_limit` | `governance.rs:410` | `governance.rs:433` |
-| `set_max_milestones` | `contracts.rs:495` | `contracts.rs:511` |
-| `set_max_escrow_stroops` | `contracts.rs:525` | `contracts.rs:541` |
-| `set_arbiter` | `contracts.rs:460` | `contracts.rs:484` |
-| `pause` | `lib.rs:2590` | `lib.rs:2608` |
-| `unpause` | `lib.rs:2635` | `lib.rs:2652` |
-| `activate_emergency_pause` | `lib.rs:2710` | `lib.rs:2737` |
-| `resolve_emergency` | `lib.rs:2775` | `lib.rs:2798` |
-| `migrate_state` | `lib.rs:1228` | `lib.rs:1255` |
-| `withdraw_protocol_fees` | `lib.rs:3760` | `lib.rs:3787` |
-| `propose_client_migration` | `lib.rs:1085` | `migration.rs:71` |
-| `accept_client_migration` | `lib.rs:1119` | `migration.rs:104` |
-| `cancel_client_migration` | `lib.rs:1150` | `migration.rs:125` |
-
----
-
-## Quick reference: event → who may trigger
-
-| Event topic | Client | Freelancer | Arbiter | Admin | Any participant |
-|-------------|--------|------------|---------|-------|-----------------|
-| `("init", ...)` | | | | ✓ | |
-| `("sttl_bind",)` | | | | ✓ | |
-| `("created", id)` | ✓ | | | | |
-| `("contract", id)` | ✓ | ✓ | ✓ | | ✓ (finalize) |
-| `("deposit", id)` | ✓ | | | | |
-| `("approve", id)` | ✓ | ✓ (MultiSig) | ✓ (ArbiterOnly/ClientAndArbiter) | | |
-| `("mlstn_idx", id, idx)` | ✓ | ✓ (MultiSig) | ✓ (ArbiterOnly/ClientAndArbiter) | | |
-| `("mlstn_rls", id)` | ✓ | ✓ (MultiSig) | ✓ (ArbiterOnly/ClientAndArbiter) | | |
-| `("ctrct_cmp", id)` | ✓ | ✓ (MultiSig) | ✓ (ArbiterOnly/ClientAndArbiter) | | |
-| `("refunded", id)` | ✓ | | | | |
-| `("cancelled", id)` | ✓ | | | | |
-| `("dispute", "opened")` | ✓ | ✓ | | | |
-| `("dispute", "resolved")` | | | ✓ | | |
-| `("finalized", id)` | | | | | ✓ |
-| `("rollback", id)` | | | | ✓ | |
-| `("evidence", id)` | | ✓ | | | |
-| `("repr_put", id)` | ✓ | | | | |
-| `("arbiter", id)` | | | | ✓ | |
-| `("limits", ...)` | | | | ✓ | |
-| `("protocol_fee_bps",)` | | | | ✓ | |
-| `("events_limit",)` | | | | ✓ | |
-| `("settlement_limit",)` | | | | ✓ | |
-| `("admin", ...)` | | | | ✓ | |
-| `("pause", ...)` | | | | ✓ | |
-| `("unpaused", ...)` | | | | ✓ | |
-| `("emergency", ...)` | | | | ✓ | |
-| `(Symbol("state_migrated"), ...)` | | | | ✓ | |
-| `("fee", ...)` | | | | ✓ | |
-| `(Symbol("client_migration_*"), id)` | ✓ | | | ✓ (proposed) | |
-
-Note: Client and freelancer column for milestone events depends on
-`ReleaseAuthorization` mode. See the mode matrix above for details.
-
----
-
-## Auth check order (reference)
-
-### Lifecycle entrypoints
-
-```
-deposit_funds:
-  1. require_initialized
-  2. require_not_paused
-  3. require_not_finalized
-  4. validate_deposit (caller == client, status Created|PartiallyFunded)
-  5. token.transfer
-  6. apply_validated_deposit → emit ("deposit", id) + ("contract", id)
-
-release_milestone:
-  1. require_initialized
-  2. require_not_paused
-  3. require_not_finalized
-  4. Load contract → ContractNotFound
-  5. Status == Funded → else InvalidState
-  6. caller.require_auth()
-  7. require_release_authorization → else UnauthorizedRole
-  8. Milestone bounds + not released/refunded
-  9. check_approvals (mode-specific) → else InsufficientApprovals
-  10. Balance check → InsufficientFunds
-  11. token.transfer
-  12. Update state + emit events
-
-refund_unreleased_milestones:
-  1. require_initialized
-  2. require_not_paused
-  3. require_not_finalized
-  4. Load contract → ContractNotFound
-  5. contract.client.require_auth()
-  6. Status ∈ {Created, Funded, Disputed} → else InvalidState
-  7. Validate indices + milestone states
-  8. token.transfer
-  9. Update state + emit events
-
-cancel_contract:
-  1. require_initialized
-  2. require_not_paused
-  3. require_not_finalized
-  4. Load contract → ContractNotFound
-  5. Status ∈ {Created, Funded} → else InvalidStatusTransition
-  6. released_amount == 0 → else InvalidStatusTransition
-  7. client.require_auth()
-  8. token.transfer
-  9. Update state + emit events
-```
-
-### Dispute entrypoints (derived from `disputes-auth.md`)
-
-```
-raise_dispute:
-  1. require_initialized
-  2. require_not_paused
-  3. caller.require_auth()
-  4. Load contract → ContractNotFound
-  5. TTL bump + require_not_finalized
-  6. Role: client OR freelancer → else UnauthorizedRole
-  7. Arbiter present → else ArbiterRequired
-  8. Status ∈ {Funded, PartiallyFunded} → else InvalidState
-  9. Write Disputed + emit opened event
-
-resolve_dispute:
-  1. require_initialized
-  2. require_not_paused
-  3. arbiter.require_auth()
-  4. Load contract → ContractNotFound
-  5. TTL bump + require_not_finalized
-  6. Status == Disputed → else InvalidStatusTransition
-  7. caller == contract.arbiter → else UnauthorizedRole
-  8. resolution_payouts → typed math errors
-  9. Update accounting, final status, emit resolved event
-```
-
----
-
-## Error code reference
-
-| Code | Name | Relevant entrypoints |
-|------|------|---------------------|
-| 11 | `UnauthorizedRole` | All entrypoints when caller lacks required role |
-| 14 | `NotInitialized` | `raise_dispute`, `resolve_dispute`, `bind_settlement_token`, all governance |
-| 16 | `InvalidState` | `deposit_funds`, `release_milestone`, `refund_unreleased_milestones`, `raise_dispute`, `resolve_dispute` |
-| 24 | `InvalidStatusTransition` | `resolve_dispute`, `finalize_contract`, `cancel_contract` |
-| 29 | `AlreadyFinalized` | All mutating entrypoints after finalization |
-| 37 | `ContractPaused` | All mutating entrypoints when paused |
-| 38 | `EmergencyActive` | All mutating entrypoints in emergency |
-| 10 | `ContractNotFound` | Any per-contract entrypoint with unknown contract ID |
-| 9 | `InsufficientFunds` | `release_milestone`, `refund_unreleased_milestones` |
-| 4 | `AlreadyReleased` | `release_milestone` on released milestone; `refund_unreleased_milestones` on released |
-| 8 | `AlreadyRefunded` | `release_milestone` on refunded milestone; `refund_unreleased_milestones` on refunded |
-| 20 | `InsufficientApprovals` | `release_milestone` when mode requires approval |
-| 25 | `ArbiterRequired` | `raise_dispute` when no arbiter assigned |
-| 26 | `InvalidDisputeSplit` | `resolve_dispute` with non-conserving split |
-| 27 | `AccountingInvariantViolated` | `resolve_dispute` when math violates invariants |
-| 42 | `ArbiterRequired` | `create_contract` for modes requiring arbiter |
-| 43 | `InvalidDisputeSplit` | `resolve_dispute` |
-| 44 | `AccountingInvariantViolated` | `resolve_dispute` |
-
----
+Source of truth: `contracts/escrow/src/lib.rs`. `Lnnnn` links to that file at line `nnnn`. Structured events are emitted by the `events` module and use topic prefix `EVENT_SCHEMA_V = 1`; inline events publish directly from entrypoints/helpers and have no prefix.
+
+Payloads are intentionally not duplicated here. See [indexer-schema.md](escrow/indexer-schema.md#event-topics-and-payloads) for every topic's emitted data.
+
+## Reading the tables
+
+- **Signer** is the exact `require_auth` subject. `stored Admin` means `require_admin` reads `DataKey::Admin` and calls `require_auth` on it. `none` means the entrypoint has no `require_auth`.
+- `init` — stored `Admin` exists, else `NotInitialized`.
+- `NP(x)` — `require_not_paused(PAUSE_x)`, else `Paused`. `L(id)` — `load(id)` succeeds, else `ContractNotFound`. `NF(id)` — `require_not_frozen(id)`, else `EscrowFrozen`. `S(...)` — current status must be one of the listed statuses, else `InvalidStatus`.
+- `CREATE` — `init`; `NP(CREATE)`; `build_escrow` checks parties are distinct and neither the contract nor the admin, 1..=20 milestones, each amount >= `MIN_MILESTONE_AMOUNT`, total <= `MAX_ESCROW_TOTAL`.
+- `DEPOSIT` — `NP(DEPOSIT)`; `L(id)`; `NF(id)`; `S(Created)`; deadline not passed; amount > 0; no overfund; <= 10 funders; exact token transfer.
+- `REL` — `NP(RELEASE)`; `L(id)`; `NF(id)`; not a stream escrow.
+
+There is no finalization gate in the current contract. Terminal/compacted checks are listed per row.
+
+## Structured events (`events` module)
+
+| Event topic | Entrypoint (source) | Signer | Preconditions |
+|---|---|---|---|
+| `(1, "init")` | `initialize` ([L1624](../contracts/escrow/src/lib.rs#L1624) → [L1633](../contracts/escrow/src/lib.rs#L1633)) | `admin` argument | No stored `Admin` yet, else `AlreadyInitialized`. |
+| `(1, "paused")` | `set_paused` ([L1712](../contracts/escrow/src/lib.rs#L1712) → [L1721](../contracts/escrow/src/lib.rs#L1721)) | `caller` argument | `holds_role(Pauser, caller)` (admin or granted member); `true` sets all pause bits, `false` clears them. |
+| `(1, "created", id)` | `create_contract` ([L1985](../contracts/escrow/src/lib.rs#L1985) → [L1008](../contracts/escrow/src/lib.rs#L1008)) | `client` argument | `CREATE`. |
+| `(1, "created", id)` | `create_contract_with_review` ([L1998](../contracts/escrow/src/lib.rs#L1998) → [L1008](../contracts/escrow/src/lib.rs#L1008)) | `client` argument | `CREATE`; review window 1 hour..30 days. |
+| `(1, "created", id)` | `create_and_fund` ([L2023](../contracts/escrow/src/lib.rs#L2023) → [L1008](../contracts/escrow/src/lib.rs#L1008)) | `client` argument | `CREATE`; `NP(DEPOSIT)`; exact full-total transfer; status becomes `Funded`. |
+| `(1, "created", id)` | `create_contract_sequential` ([L2035](../contracts/escrow/src/lib.rs#L2035) → [L1008](../contracts/escrow/src/lib.rs#L1008)) | `client` argument | `CREATE`; sequential flag stored after creation. |
+| `(1, "created", id)` | `create_stream` ([L3628](../contracts/escrow/src/lib.rs#L3628) → [L1008](../contracts/escrow/src/lib.rs#L1008)) | `client` argument | `CREATE`; `start < end` and duration >= 1 hour. |
+| `(1, "deposit", id)` | `deposit_funds` ([L2121](../contracts/escrow/src/lib.rs#L2121) → [L1519](../contracts/escrow/src/lib.rs#L1519)) | stored client (`c.client` in `apply_deposit`) | `DEPOSIT`. |
+| `(1, "deposit", id)` | `deposit_from` ([L2132](../contracts/escrow/src/lib.rs#L2132) → [L1519](../contracts/escrow/src/lib.rs#L1519)) | `funder` argument | `DEPOSIT`. |
+| `(1, "deposit", id)` | `create_and_fund` ([L2023](../contracts/escrow/src/lib.rs#L2023) → [L1010](../contracts/escrow/src/lib.rs#L1010)) | `client` argument | `CREATE`; `NP(DEPOSIT)`; exact full-total transfer; status becomes `Funded`. |
+| `(1, "release", id)` | `claim_milestone` ([L2194](../contracts/escrow/src/lib.rs#L2194) → [L2249](../contracts/escrow/src/lib.rs#L2249)) | stored freelancer (`c.freelancer`) | `REL`; `S(Funded\|Cancelled)`; milestone exists, unreleased, submitted; review window elapsed; funds available. |
+| `(1, "release", id)` | `release_milestone` ([L2285](../contracts/escrow/src/lib.rs#L2285) → [L2334](../contracts/escrow/src/lib.rs#L2334)) | stored client (`c.client`) | `REL`; `S(Created\|Funded)`; milestone exists/unreleased; sequential order if enabled; funds available. |
+| `(1, "release", id)` | `release_milestones` ([L2427](../contracts/escrow/src/lib.rs#L2427) → [L2530](../contracts/escrow/src/lib.rs#L2530)) | stored client (`c.client`) | `REL`; `S(Created\|Funded)`; 1..=20 unique, existing, unreleased indices; sequential order if enabled; funds available. |
+| `(1, "complete", id)` | `claim_milestone` ([L2194](../contracts/escrow/src/lib.rs#L2194) → [L2251](../contracts/escrow/src/lib.rs#L2251)) | stored freelancer (`c.freelancer`) | Same as its `(1, "release", id)`, plus all milestones released while status was `Funded`. |
+| `(1, "complete", id)` | `release_milestone` ([L2285](../contracts/escrow/src/lib.rs#L2285) → [L2336](../contracts/escrow/src/lib.rs#L2336)) | stored client (`c.client`) | Same as its `(1, "release", id)`, plus all milestones released. |
+| `(1, "complete", id)` | `release_partial` ([L2345](../contracts/escrow/src/lib.rs#L2345) → [L2406](../contracts/escrow/src/lib.rs#L2406)) | stored client (`c.client`) | `REL`; `S(Created\|Funded)`; unreleased index; `0 < amount <= remaining`; funds available; final part leaves all milestones released. |
+| `(1, "complete", id)` | `release_milestones` ([L2427](../contracts/escrow/src/lib.rs#L2427) → [L2535](../contracts/escrow/src/lib.rs#L2535)) | stored client (`c.client`) | Same as its `(1, "release", id)`, plus all milestones released. |
+| `(1, "complete", id)` | `withdraw_vested` ([L3678](../contracts/escrow/src/lib.rs#L3678) → [L3717](../contracts/escrow/src/lib.rs#L3717)) | stored freelancer (`c.freelancer`) | `NP(RELEASE)`; `L(id)`; `NF(id)`; stream exists; `S(Funded)`; not stopped; vested amount > withdrawn and reaches total. |
+| `(1, "dispute", id)` | `open_dispute` ([L2608](../contracts/escrow/src/lib.rs#L2608) → [L2653](../contracts/escrow/src/lib.rs#L2653)) | `caller` argument | `NP(DISPUTE)`; `L(id)`; `NF(id)`; caller is client or freelancer; `S(Created\|Funded)`; dispute bond transferred. |
+| `(1, "resolved", id)` | `resolve_dispute` ([L2670](../contracts/escrow/src/lib.rs#L2670) → [L1452](../contracts/escrow/src/lib.rs#L1452)) | `caller` argument | `holds_role(Resolver, caller)`; caller not a party; `S(Disputed)`; `total_amount < PANEL_THRESHOLD_AMOUNT`; `freelancer_bps <= 10000`. Frozen escrows are allowed. |
+| `(1, "resolved", id)` | `vote_resolution` ([L2729](../contracts/escrow/src/lib.rs#L2729) → [L1452](../contracts/escrow/src/lib.rs#L1452)) | `member` argument | `S(Disputed)`; caller is current panel member and not a party; `freelancer_bps <= 10000`; current matching votes >= `threshold`. |
+| `(1, "cancel", id)` | `cancel_contract` ([L3244](../contracts/escrow/src/lib.rs#L3244) → [L3295](../contracts/escrow/src/lib.rs#L3295)) | stored client (`c.client`) | `NP(CANCEL)`; `L(id)`; `NF(id)`; not a stream; `S(Created\|Funded)`. |
+| `(1, "rep", id)` | `issue_reputation` ([L3300](../contracts/escrow/src/lib.rs#L3300) → [L3379](../contracts/escrow/src/lib.rs#L3379)) | stored client (`c.client`) | `NP(REPUTATION)`; not compacted; `L(id)`; `NF(id)`; `S(Completed\|Resolved)`; not already issued; rating 1..=5; released amount >= `MIN_REPUTATION_VALUE`. |
+
+## Inline events
+
+| Event topic | Entrypoint (source) | Signer | Preconditions |
+|---|---|---|---|
+| `("role_set", role)` | `grant_role` / `revoke_role` ([L4044](../contracts/escrow/src/lib.rs#L4044) → [L538](../contracts/escrow/src/lib.rs#L538)) | stored Admin | `init`; requested membership differs from current (`RoleUnchanged` otherwise). |
+| `("adm_prop",)` | `propose_admin` ([L1656](../contracts/escrow/src/lib.rs#L1656)) | stored Admin | `init`; `new_admin != current`. Allowed while paused. |
+| `("adm_acc",)` | `accept_admin` ([L1674](../contracts/escrow/src/lib.rs#L1674)) | `PendingAdmin` address | Pending nomination exists (`NoPendingAdmin`); stored Admin exists. Allowed while paused. |
+| `("adm_cncl",)` | `cancel_admin_proposal` ([L1693](../contracts/escrow/src/lib.rs#L1693)) | stored Admin | Pending nomination exists. Allowed while paused. |
+| `("pause",)` | `set_pause_flags` ([L1730](../contracts/escrow/src/lib.rs#L1730)) | `caller` argument | `holds_role(Pauser, caller)`; flags contain only bits in `PAUSE_ALL`. |
+| `("fee_set",)` | `set_fee` ([L1747](../contracts/escrow/src/lib.rs#L1747)) | stored Admin | `init`; `fee_bps <= MAX_FEE_BPS`; treasury is not the contract. |
+| `("emerg", id)` | `emergency_withdraw` ([L1797](../contracts/escrow/src/lib.rs#L1797)) | `caller` argument | `L(id)`; caller is client or freelancer; paused continuously >= 30 days; `S(Created\|Funded\|Disputed)`. Works while paused/frozen. |
+| `("sweep", token)` | `sweep_surplus` ([L1888](../contracts/escrow/src/lib.rs#L1888)) | stored Admin | `init`; contract token balance exceeds aggregate liability (`NoSurplus` otherwise). |
+| `("payout", id)` | `set_payout_address` ([L1912](../contracts/escrow/src/lib.rs#L1912)) | stored freelancer (`c.freelancer`) | `NP(CREATE)`; `L(id)`; `NF(id)`; `S(Created\|Funded)`; payout is neither contract nor client. |
+| `("frozen", id)` | `freeze_escrow` ([L1944](../contracts/escrow/src/lib.rs#L1944)) | stored Admin | `init`; escrow exists; not already frozen. |
+| `("unfrozen", id)` | `unfreeze_escrow` ([L1962](../contracts/escrow/src/lib.rs#L1962)) | stored Admin | `init`; escrow exists; currently frozen. |
+| `("seq", id)` | `create_contract_sequential` ([L2035](../contracts/escrow/src/lib.rs#L2035)) | `client` argument | `CREATE`; sequential flag written after `build_escrow`. |
+| `("team", id)` | `set_team_split` ([L2070](../contracts/escrow/src/lib.rs#L2070)) | stored freelancer (`c.freelancer`) | `NP(CREATE)`; `L(id)`; `NF(id)`; `S(Created)`; no deposit; 1..=5 unique non-zero payees excluding client/contract; shares sum to 10000 bps. |
+| `("submit", id)` | `submit_milestone` ([L2151](../contracts/escrow/src/lib.rs#L2151)) | stored freelancer (`c.freelancer`) | `REL`; `S(Funded)`; non-stream; milestone exists, unreleased, not already submitted; unpaid amount covered by held balance. |
+| `("claim", id)` | `claim_milestone` ([L2194](../contracts/escrow/src/lib.rs#L2194)) | stored freelancer (`c.freelancer`) | `REL`; `S(Funded\|Cancelled)`; submitted, unreleased milestone; review window elapsed; funds available. |
+| `("rel_part", id)` | `release_partial` ([L2345](../contracts/escrow/src/lib.rs#L2345)) | stored client (`c.client`) | `REL`; `S(Created\|Funded)`; unreleased index; `0 < amount <= remaining`; sequential order if enabled; funds available. |
+| `("rel_batch", id)` | `release_milestones` ([L2427](../contracts/escrow/src/lib.rs#L2427)) | stored client (`c.client`) | `REL`; `S(Created\|Funded)`; 1..=20 unique, existing, unreleased indices; sequential order if enabled; funds available. |
+| `("bonus", id)` | `pay_bonus` ([L2545](../contracts/escrow/src/lib.rs#L2545)) | stored client (`c.client`) | `NP(RELEASE)`; `L(id)`; `NF(id)`; `S(Funded\|Completed)`; `amount > 0`; direct transfer succeeds. |
+| `("panel",)` | `set_panel` ([L2701](../contracts/escrow/src/lib.rs#L2701)) | stored Admin | `init`; `1 <= threshold <= len <= 7`; no duplicate members. |
+| `("voted", id)` | `vote_resolution` ([L2729](../contracts/escrow/src/lib.rs#L2729)) | `member` argument | `S(Disputed)`; member is on current panel and not a party; `freelancer_bps <= 10000`. |
+| `("vote", id)` | `vote_resolution` ([L2792](../contracts/escrow/src/lib.rs#L2792)) | `member` argument | Same as `("voted", id)`, plus current matching votes reach `threshold`; emitted per counted vote after settlement. |
+| `("chg_prop", id)` | `propose_change_order` ([L2806](../contracts/escrow/src/lib.rs#L2806)) | stored client (`c.client`) | `NP(CREATE)`; `L(id)`; `NF(id)`; `S(Created\|Funded\|Completed)`; added milestones fit cap and pass amount checks. |
+| `("chg_ord", id)` | `accept_change_order` ([L2844](../contracts/escrow/src/lib.rs#L2844)) | stored freelancer (`c.freelancer`) | `NP(CREATE)`; `L(id)`; `NF(id)`; pending proposal; `S(Created\|Funded\|Completed)`; amounts revalidated; reopens escrow as `Created`. |
+| `("chg_rej", id)` | `reject_change_order` ([L2905](../contracts/escrow/src/lib.rs#L2905)) | stored freelancer (`c.freelancer`) | `L(id)`; pending change order exists. No pause/freeze gate. |
+| `("terms", id)` | `set_terms` ([L2927](../contracts/escrow/src/lib.rs#L2927)) | stored client (`c.client`) | `NP(CREATE)`; `L(id)`; `NF(id)`; `S(Created)`; no deposit; zero or one spec hash per milestone. |
+| `("deliver", id)` | `deliver` ([L2961](../contracts/escrow/src/lib.rs#L2961)) | stored freelancer (`c.freelancer`) | `NP(RELEASE)`; `L(id)`; `NF(id)`; `S(Created\|Funded\|Disputed)`; milestone exists and is unreleased. |
+| `("expired", id)` | `expire_unfunded` ([L3014](../contracts/escrow/src/lib.rs#L3014)) | none | `NP(CANCEL)`; `L(id)`; `NF(id)`; `S(Created)`; nothing released; funding deadline recorded and passed. |
+| `("settle_p", id)` | `propose_settlement` ([L3056](../contracts/escrow/src/lib.rs#L3056)) | `proposer` argument | `NP(CANCEL)`; `L(id)`; `NF(id)`; proposer is client or freelancer; `S(Created\|Funded\|Disputed)`; `0 <= freelancer_amount <= held`. |
+| `("settled", id)` | `accept_settlement` ([L3105](../contracts/escrow/src/lib.rs#L3105)) | `acceptor` argument | `NP(CANCEL)`; `L(id)`; `NF(id)`; acceptor is the other party; pending proposal amount matches; `S(Created\|Funded\|Disputed)`; amount <= held. |
+| `("settle_w", id)` | `withdraw_settlement` ([L3175](../contracts/escrow/src/lib.rs#L3175)) | `proposer` argument | `L(id)`; pending proposal belongs to signer. No pause/freeze gate. |
+| `("resign", id)` | `resign` ([L3202](../contracts/escrow/src/lib.rs#L3202)) | stored freelancer (`c.freelancer`) | `NP(CANCEL)`; `L(id)`; `NF(id)`; `S(Created\|Funded)`. |
+| `("rep_cli", id)` | `rate_client` ([L3384](../contracts/escrow/src/lib.rs#L3384)) | stored freelancer (`c.freelancer`) | `NP(REPUTATION)`; `L(id)`; `NF(id)`; `S(Completed\|Resolved)`; client not already rated; rating 1..=5. |
+| `("rep_void", id)` | `void_rating` ([L3428](../contracts/escrow/src/lib.rs#L3428)) | stored Admin | `init`; `NP(REPUTATION)`; rating record exists and is not already voided. |
+| `("migrated",)` | `migrate_escrows` ([L3500](../contracts/escrow/src/lib.rs#L3500)) | none | <= 50 ids; at least one legacy entry migrated. |
+| `("stream_wd", id)` | `withdraw_vested` ([L3678](../contracts/escrow/src/lib.rs#L3678)) | stored freelancer (`c.freelancer`) | `NP(RELEASE)`; `L(id)`; `NF(id)`; stream exists; `S(Funded)`; not stopped; vested amount > withdrawn. |
+| `("stream_st", id)` | `stop_stream` ([L3726](../contracts/escrow/src/lib.rs#L3726)) | stored client (`c.client`) | `NP(CANCEL)`; `L(id)`; `NF(id)`; stream exists; `S(Funded)`; not already stopped. |
+| `("amend_p", id)` | `propose_amendment` ([L3778](../contracts/escrow/src/lib.rs#L3778)) | `proposer` argument | `NP(CREATE)`; `L(id)`; `NF(id)`; non-stream; proposer is client or freelancer; `S(Created\|Funded)`; amounts pass amendment checks. |
+| `("amended", id)` | `accept_amendment` ([L3830](../contracts/escrow/src/lib.rs#L3830)) | `acceptor` argument | `NP(CREATE)`; `L(id)`; `NF(id)`; acceptor is the other party; pending nonce matches; `S(Created\|Funded)`; amounts revalidated. |
+| `("compact", id)` | `compact_escrow` ([L3949](../contracts/escrow/src/lib.rs#L3949)) | none | `L(id)`; `NF(id)`; not already compacted; `Cancelled` with no held funds, or `Completed`/`Resolved` already rated or past the 30-day grace period. |
+| `("upg_sched",)` | `schedule_upgrade` ([L4069](../contracts/escrow/src/lib.rs#L4069)) | stored Admin | `init`; timestamp addition succeeds; rescheduling resets the 48-hour delay. Allowed while paused. |
+| `("upg_cncl",)` | `cancel_upgrade` ([L4093](../contracts/escrow/src/lib.rs#L4093)) | stored Admin | `init`; pending upgrade exists. |
+| `("upgraded",)` | `execute_upgrade` ([L4120](../contracts/escrow/src/lib.rs#L4120)) | stored Admin | `init`; pending upgrade exists; current time >= `eta`; version addition succeeds. Allowed while paused. |
+
+## Role shorthand
+
+`stored Admin` signs all admin entrypoints. `Pauser` and `Resolver` are delegated roles; the admin implicitly holds both. Party-scoped events require the stored `client` or `freelancer`, never an arbitrary caller, except where the table names an explicit argument that is checked against the stored party.
 
 ## Related documentation
 
-- [`docs/disputes-auth.md`](disputes-auth.md) — Detailed dispute authorization rules
-- [`docs/settlement-auth.md`](settlement-auth.md) — Settlement and release authorization rules
-- [`docs/arbiter-auth.md`](arbiter-auth.md) — Arbiter role authorization rules
-- [`docs/milestones-auth.md`](milestones-auth.md) — Milestone-level authorization rules
-- [`docs/reputation-auth.md`](reputation-auth.md) — Reputation authorization rules
-- [`docs/escrow/abi-reference.md`](escrow/abi-reference.md) — Public ABI signatures
-- [`docs/escrow/indexer-schema.md`](escrow/indexer-schema.md) — Indexer event schema
-- [`contracts/escrow/src/events.rs`](../contracts/escrow/src/events.rs) — Event helper source
-- [`contracts/escrow/src/authorization.rs`](../contracts/escrow/src/authorization.rs) — Shared auth helpers
+- [indexer-schema.md](escrow/indexer-schema.md#event-topics-and-payloads) — event topics and payloads.
+- [ABI reference](escrow/abi-reference.md) — public entrypoint signatures.

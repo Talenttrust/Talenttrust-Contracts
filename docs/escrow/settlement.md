@@ -81,6 +81,15 @@ sequenceDiagram
   - Transfers `client_payout` to the client.
 - **Error Handling**: Verifies the escrow balance before executing transfers, failing with `InsufficientEscrowBalance` if insufficient.
 
+### 6. Two-Party Mutual Settlement & Proposal Expiry
+- **Propose**: Either party (`client` or `freelancer`) may call `propose_settlement(id, proposer, freelancer_amount)` on a `Created`, `Funded`, or `Disputed` escrow. This stores a `SettlementProposal { proposer, freelancer_amount, created_at }` and replaces any earlier proposal (including an expired one).
+- **Validity Window**: A proposal is valid for `SETTLEMENT_VALID_SECS` (7 days = `604_800` seconds) from `created_at`.
+  - `accept_settlement` succeeds up to and including `created_at + SETTLEMENT_VALID_SECS`.
+  - After `created_at + SETTLEMENT_VALID_SECS`, `accept_settlement` fails with `EscrowError::SettlementMismatch` (`48`).
+- **Reading & Withdrawing Expired Proposals**:
+  - `get_settlement(id)` still returns the stored `SettlementProposal` after expiry; callers should check `now <= proposal.created_at + SETTLEMENT_VALID_SECS`.
+  - `withdraw_settlement(id, proposer)` continues to work on expired proposals, and either party may overwrite an expired proposal by calling `propose_settlement`.
+
 ---
 
 ## Threat Model & Security Mitigations

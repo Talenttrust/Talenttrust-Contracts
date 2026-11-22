@@ -1,8 +1,8 @@
-# Reputation Credential Issuance
+# Escrow Reputation System
 
-The Escrow contract issues reputation credentials (ratings) to freelancers after a contract reaches `Completed` status.
+The Escrow contract (`contracts/escrow/src/lib.rs`) tracks value-weighted freelancer reputation, client ratings, and governance-controlled rating voiding.
 
-## Validation Rules
+## Overview
 
 1. **Client authorization:** Only the contract client may call `issue_reputation`. Unauthorized callers fail with `UnauthorizedRole`.
 2. **Comment validation:** The comment must not be empty (`EmptyComment`) and must not exceed the configured byte limit (`CommentTooLong`). The default limit is 200 bytes and the protocol ceiling is 1,000 bytes.
@@ -26,19 +26,18 @@ After an escrow reaches `Completed` or `Resolved`, the freelancer may call `rate
 
 Successful issuance increments the client's `Reputation { completed_contracts, total_rating }` and emits `("rep_cli", id) -> (client, rating)`.
 
-## Reputation Aggregation
+## Data Structures
 
-Successful issuance updates the freelancer's aggregate `ReputationRecord`:
+### `Reputation`
 
-- `completed_contracts` increments by `1`
-- `total_rating` increases by the rating value
-- `last_rating` is set to the most recent rating
+Stored under `DataKey::Reputation(freelancer)` and `DataKey::ClientReputation(client)`:
 
-Pending reputation credits are also decremented on success. Aggregate updates use checked arithmetic so overflow fails with `PotentialOverflow` instead of silently wrapping.
+- `completed_contracts: u32` — count of rated contracts
+- `total_rating: u32` — sum of ratings
 
-## Test Coverage
+### `WeightedReputation`
 
-The escrow test suite includes dedicated coverage for the `issue_reputation` negative paths in `contracts/escrow/src/test/reputation.rs` and boundary coverage in `contracts/escrow/src/test/reputation_bounds_tests.rs`.
+Stored under `DataKey::WeightedRep(freelancer)`:
 
 - unauthorized caller
 - freelancer mismatch
@@ -52,13 +51,75 @@ The escrow test suite includes dedicated coverage for the `issue_reputation` neg
 - verified reputation aggregation and pending credit decrement on success
 - client ratings: success, authorization, duplicates, rating bounds, status gating, pause gate, dust rejection (`BelowReputationThreshold`) and the exact-threshold boundary
 
-## Average Rating Accessor
+### `RatingRecord`
 
-The contract exposes `get_average_rating(freelancer) -> Option<i128>` as a read-only helper for consumer convenience. The returned integer is scaled by 10,000, so `45000` is an average rating of `4.5000`.
+Stored under `DataKey::Rating(id)`:
 
-- Returns `None` when the freelancer has no completed contracts.
-- Returns `Some(value)` when `completed_contracts > 0`.
-- The result is computed as `(total_rating * 10_000) / completed_contracts`.
+- `freelancer: Address`
+- `rating: u32`
+- `issued_at: u64` — ledger timestamp when issued
+- `voided: bool` — set to `true` by `void_rating`
+
+The weight used for a rating is stored separately under `DataKey::RatingWeight(id)` (`i128`) so `void_rating` can reverse the exact weighted contribution.
+
+## Mutating Entrypoints
+
+### `issue_reputation(env, id: u64, rating: u32) -> Result<(), EscrowError>`
+
+1. **Pause check**: Fails with `Paused` if `PAUSE_REPUTATION` is active.
+2. **Compaction check**: Fails with `EscrowCompacted` if the escrow has been compacted (unrated terminal escrows cannot be compacted until `THIRTY_DAYS_IN_LEDGERS` has elapsed).
+3. **Existence & freeze check**: Loads the escrow (`ContractNotFound`) and requires it not to be frozen (`EscrowFrozen`).
+4. **Client authorization**: Calls `c.client.require_auth()`.
+5. **Lifecycle gating**: Contract status must be `Completed` or `Resolved` (`InvalidStatus`).
+6. **Duplicate issuance protection**: Fails with `ReputationAlreadyIssued` if `c.reputation_issued` is already `true`.
+7. **Rating bounds**: `rating` must be in `1..=5` (`InvalidRating`).
+8. **Value threshold**: `weight = c.released_amount` must be `>= MIN_REPUTATION_VALUE` (`10_000_000`), otherwise fails with `BelowReputationThreshold`.
+9. **State updates** (checked arithmetic, failing with `ArithmeticOverflow` on overflow):
+   - Updates `Reputation`: `completed_contracts += 1`, `total_rating += rating`.
+   - Updates `WeightedReputation`: `weighted_rating_sum += weight * rating`, `weight_total += weight`, `rated_contracts += 1`.
+   - Persists `DataKey::RatingWeight(id) = weight` and `DataKey::Rating(id) = RatingRecord { freelancer, rating, issued_at, voided: false }`.
+   - Sets `c.reputation_issued = true` and emits a `ReputationEvent`.
+
+### `rate_client(env, id: u64, rating: u32) -> Result<(), EscrowError>`
+
+1. **Pause check**: Fails with `Paused` if `PAUSE_REPUTATION` is active.
+2. **Existence & freeze check**: Loads the escrow (`ContractNotFound`) and requires it not to be frozen (`EscrowFrozen`).
+3. **Freelancer authorization**: Calls `c.freelancer.require_auth()`.
+4. **Lifecycle gating**: Contract status must be `Completed` or `Resolved` (`InvalidStatus`).
+5. **Duplicate issuance protection**: Checks `DataKey::ClientRated(id)`; fails with `ReputationAlreadyIssued` if already `true`.
+6. **Rating bounds**: `rating` must be in `1..=5` (`InvalidRating`).
+7. **State updates**: Updates `DataKey::ClientReputation(c.client)` with checked arithmetic (`ArithmeticOverflow`), sets `DataKey::ClientRated(id) = true`, and publishes the `("rep_cli", id)` event.
+
+### `void_rating(env, id: u64, reason: Symbol) -> Result<(), EscrowError>`
+
+1. **Admin authorization**: Requires admin via `require_admin(&env)` (`Unauthorized` / `NotInitialized`).
+2. **Pause check**: Fails with `Paused` if `PAUSE_REPUTATION` is active.
+3. **Record lookup**: Loads `DataKey::Rating(id)`, failing with `RatingNotFound` if absent.
+4. **Idempotency**: Fails with `RatingAlreadyVoided` if `record.voided` is already `true`.
+5. **Reversal**:
+   - Subtracts `record.rating` from `Reputation.total_rating` and `1` from `Reputation.completed_contracts` using saturating subtraction.
+   - If `DataKey::RatingWeight(id)` exists, subtracts `weight * record.rating` from `WeightedReputation.weighted_rating_sum` (clamped at `>= 0`), subtracts `weight` from `WeightedReputation.weight_total` (clamped at `>= 0`), and decrements `WeightedReputation.rated_contracts` (saturating). Legacy ratings issued before weighting existed have no stored weight and only reverse the unweighted aggregate.
+   - Marks `record.voided = true` and publishes the `("rep_void", id)` event with `(freelancer, rating, reason)`.
+
+## Score Computation & Weighting
+
+Each freelancer rating is weighted by the escrow's `released_amount` (`weight`). The contract exposes:
+
+- `get_reputation(freelancer) -> Reputation` — unweighted aggregate (`completed_contracts`, `total_rating`)
+- `get_weighted_reputation(freelancer) -> WeightedReputation` — weighted aggregate (`weighted_rating_sum`, `weight_total`, `rated_contracts`)
+- `get_reputation_score(freelancer) -> Option<u32>` — value-weighted score in hundredths (e.g. `437` = `4.37`)
+- `get_rating(id) -> Option<RatingRecord>` — per-contract rating record and voided status
+- `get_client_reputation(client) -> Reputation` — unweighted client aggregate
+- `extend_reputation_ttl(freelancer)` — extends persistent storage TTL for a freelancer's reputation record
+
+`get_reputation_score` delegates to `reputation_score(w.weighted_rating_sum, w.weight_total)`:
+
+- Returns `None` when `total <= 0` or `sum < 0` (including when the freelancer has no eligible ratings or all ratings have been voided).
+- Computes overflow-safe `round(sum * 100 / total)` in hundredths:
+  - `whole = sum / total`, `rem = sum % total`
+  - Scales `rem * 100` (with fallback `rem / (total / 100)` when `rem * 100` would overflow `i128`) and computes `q = scaled / total`, `r = scaled % total`.
+  - Applies **half-up rounding**: increments `q` by `1` when `r >= total - r` (equivalent to `2 * r >= total`, without overflow).
+  - Returns `whole * 100 + frac` as `Option<u32>`.
 
 ## Security Assumptions
 
