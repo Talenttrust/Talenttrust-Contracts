@@ -208,5 +208,66 @@ New events introduced for claimable balances:
 - `claimable(id, token, address, amount)` — Emitted when a claimable balance is credited
   or claimed.
 
-Existing events (`release`, `dispute`, `resolved`, `cancel`, `deposit`) continue to work
-unchanged. The `claimable` event is emitted in addition to any other relevant events.
+---
+
+## Failure Modes
+
+| Scenario | Error |
+|---|---|
+| `deposit_funds` / `release_milestone` called before `bind_settlement_token` | `SettlementTokenNotConfigured` |
+| `bind_settlement_token` called a second time | `SettlementTokenAlreadyBound` |
+| Any fund-moving call before `initialize` | `NotInitialized` |
+| Caller not the expected role (client / admin) | `UnauthorizedRole` |
+| Contract is paused | `ContractPaused` |
+| Deposit while status is not `Created` | `InvalidState` |
+| Release while status is not `Funded` | `InvalidState` |
+| Available balance less than requested amount | `InsufficientFunds` |
+
+---
+
+## Security Notes for Integrators
+
+1. **Single-token deployment**: Deploy one escrow contract per currency.  Binding a
+   different SAC after the first binding is rejected; migration requires deploying a new
+   contract.
+2. **Commingled protocol fees**: Accrued fees sit in the escrow contract's own SAC
+   balance.  The balance invariant above accounts for them.  Draining `withdraw_protocol_fees`
+   regularly avoids confusion when auditing the contract balance.
+3. **Client auth on deposit**: The SAC `transfer` in `deposit_funds` requires the
+   client's signature (`require_auth`).  An escrow contract cannot pull funds without
+   explicit client authorisation per transaction.
+4. **Atomicity**: State updates and SAC transfers occur in the same Soroban transaction.
+   A failed SAC transfer (e.g., insufficient client balance) leaves contract state
+   unchanged.
+5. **Overflow protection**: All arithmetic uses `safe_add_amounts` /
+   `safe_subtract_amounts` wrappers; overflow panics with `PotentialOverflow` before any
+   state or balance is modified.
+
+---
+
+## Admin Token Allowlist
+
+To prevent non-token contracts or malicious tokens from being used in production
+deployments, the escrow contract provides an opt-in, admin-controlled token allowlist:
+
+- **`set_token_allowed(token, allowed)`** (admin-only): Adds or removes `token` in
+  persistent storage (`DataKey::AllowedToken(Address)`) with TTL extension. Rejects
+  allowlisting the escrow contract's own address (`InvalidParties`). Emits
+  `("tok_allow",) -> (token, allowed)`.
+- **`is_token_allowed(token)`**: Read-only check returning whether `token` is currently
+  allowlisted (`false` if unset).
+- **`set_allowlist_enabled(enabled)`** (admin-only): Enables or disables allowlist
+  enforcement (`DataKey::AllowlistEnabled`, `false` by default). Emits
+  `("allowlist",) -> enabled`.
+- **`is_allowlist_enabled()`**: Read-only check returning whether allowlist enforcement
+  is active.
+
+### Enforcement & Existing Escrows
+
+- While disabled (default), `build_escrow` preserves existing behavior and accepts any
+  token address other than the escrow contract itself.
+- Once enabled, `build_escrow` — and therefore all creation paths (`create_contract`,
+  `create_contract_with_review`, `create_contract_sequential`, `create_and_fund`, and
+  `create_stream`) — rejects unlisted tokens with `EscrowError::InvalidParties`.
+- Removing a token from the allowlist only blocks *new* escrow creation; existing
+  escrows using that token continue to deposit, release, cancel, and settle normally.

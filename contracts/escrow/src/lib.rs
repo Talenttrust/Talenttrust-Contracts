@@ -497,6 +497,10 @@ enum DataKey {
     AmendNonce(u64),
     /// Ledger timestamp at which the current dispute was opened.
     DisputeOpenedAt(u64),
+    /// Whether `Address` is allowlisted as an escrow settlement token.
+    AllowedToken(Address),
+    /// Whether the token allowlist is enforced during escrow creation.
+    AllowlistEnabled,
 }
 
 #[contract]
@@ -881,6 +885,19 @@ mod events as internal_events {
 
     pub fn init(env: &Env, admin: &Address) {
         env.events().publish((EVENT_SCHEMA_V, symbol_short!("init")), admin.clone());
+    }
+    if env
+        .storage()
+        .instance()
+        .get::<_, bool>(&DataKey::AllowlistEnabled)
+        .unwrap_or(false)
+        && !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::AllowedToken(token.clone()))
+            .unwrap_or(false)
+    {
+        return Err(EscrowError::InvalidParties);
     }
 
     pub fn paused(env: &Env, paused: bool) {
@@ -1627,16 +1644,62 @@ impl Escrow {
     // Creation
     // ──────────────────────────────────────────────────────────────────────────
 
-    /// Creates a new escrow with the given milestone amounts.
-    /// The caller must be the client.
-    pub fn try_create_contract(
+    /// Admin adds or removes `token` from the settlement-token allowlist.
+    /// Stored in persistent `DataKey::AllowedToken(token)` with TTL extension.
+    /// Removing a token does not affect existing escrows.
+    /// Emits `("tok_allow",) -> (token, allowed)`.
+    pub fn set_token_allowed(
         env: Env,
-        client: Address,
-        freelancer: Address,
         token: Address,
-        milestone_amounts: Vec<i128>,
-    ) -> Result<u64, EscrowError> {
-        build_escrow(env, client, freelancer, token, milestone_amounts, false, DEFAULT_REVIEW_WINDOW_SECS)
+        allowed: bool,
+    ) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        if allowed && token == env.current_contract_address() {
+            return Err(EscrowError::InvalidParties);
+        }
+        let key = DataKey::AllowedToken(token.clone());
+        env.storage().persistent().set(&key, &allowed);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        env.events()
+            .publish((symbol_short!("tok_allow"),), (token, allowed));
+        Ok(())
+    }
+
+    /// Whether `token` is currently on the settlement-token allowlist.
+    pub fn is_token_allowed(env: Env, token: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::AllowedToken(token))
+            .unwrap_or(false)
+    }
+
+    /// Admin enables or disables token-allowlist enforcement for escrow
+    /// creation (disabled by default). When enabled, all creation paths reject
+    /// unlisted tokens with `InvalidParties`.
+    /// Emits `("allowlist",) -> enabled`.
+    pub fn set_allowlist_enabled(env: Env, enabled: bool) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowlistEnabled, &enabled);
+        env.events()
+            .publish((symbol_short!("allowlist"),), enabled);
+        Ok(())
+    }
+
+    /// Whether token-allowlist enforcement is currently enabled (`false` by default).
+    pub fn is_allowlist_enabled(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get::<_, bool>(&DataKey::AllowlistEnabled)
+            .unwrap_or(false)
+    }
+
+    /// Current pause bitmask (`0` when nothing is paused).
+    pub fn get_pause_flags(env: Env) -> u32 {
+        pause_flags(&env)
     }
 
     /// Creates a new escrow and immediately funds it.

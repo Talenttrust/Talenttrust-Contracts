@@ -82,6 +82,8 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `set_paused(caller, paused)` / `is_paused()` | admin or Pauser / - | Circuit breaker for all mutations |
 | `set_fee(fee_bps, treasury)` | admin | Protocol fee on freelancer-side payouts (releases, claims, the freelancer share of disputes/settlements), capped at `MAX_FEE_BPS = 500` (`FeeTooHigh` (`49`) above); each escrow snapshots the rate at creation, so later changes never apply to it. Refunds are fee-free. Emits `("fee_set",) -> (fee_bps, treasury)`; `ReleaseEvent.fee` reports the fee per release |
 | `get_fee_config()`, `get_escrow_fee(id)` | - | `(fee_bps, Option<treasury>)` and an escrow's snapshotted rate |
+| `set_token_allowed(token, allowed)` / `is_token_allowed(token)` | admin / - | Add or remove a settlement token from the allowlist (persistent `AllowedToken(Address)` with TTL extension; rejects the contract's own address with `InvalidParties`). Removing a token does not block settlement of existing escrows. Emits `("tok_allow",) -> (token, allowed)` |
+| `set_allowlist_enabled(enabled)` / `is_allowlist_enabled()` | admin / - | Opt-in toggle for token-allowlist enforcement (`false` by default). When enabled, all escrow creation paths (`create_contract`, `create_contract_with_review`, `create_contract_sequential`, `create_and_fund`, `create_stream`) reject unlisted tokens with `InvalidParties`. Emits `("allowlist",) -> enabled` |
 | `set_pause_flags(caller, flags)` / `get_pause_flags()` | admin or Pauser / - | Granular pause bitmask: `PAUSE_CREATE = 1` (create/configure), `PAUSE_DEPOSIT = 2`, `PAUSE_RELEASE = 4` (releases, claims, bonuses, deliveries), `PAUSE_DISPUTE = 8`, `PAUSE_CANCEL = 16` (cancel, resign, settlement, expiry), `PAUSE_REPUTATION = 32` (ratings), `PAUSE_ALL = 63`; other bits return `InvalidAmount`. `set_paused(true)` sets `PAUSE_ALL`, `false` clears; `is_paused()` is true iff any flag is set. Emits `("pause",) -> flags` |
 | `grant_role(role, account)` / `revoke_role(role, account)` | admin | Grant or revoke a `Pauser` or `Resolver` role (`RoleUnchanged` (`33`) if no change); emits `("role_set", role) -> (account, true\|false)` |
 | `has_role(role, account)` | - | Role membership; the admin implicitly holds every role |
@@ -173,6 +175,8 @@ Feature-specific events keep their `(symbol, id)` topics, e.g.:
 | Event | Topic | Data |
 | --- | --- | --- |
 | Panel vote recorded | `("voted", id)` | `(member, freelancer_bps)` |
+| Token allowlist entry | `("tok_allow",)` | `(token, allowed)` |
+| Token allowlist mode | `("allowlist",)` | `enabled` |
 
 Bonus payments reuse the escrow's existing validation errors: a missing escrow `id`, an escrow in a disallowed state (`Disputed`, `Cancelled`, `Resolved`), a non-positive `amount`, an unauthorized caller (client auth required), and the pause gate all return the corresponding contract error.
 

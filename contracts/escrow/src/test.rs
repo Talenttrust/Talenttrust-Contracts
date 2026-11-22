@@ -8895,3 +8895,235 @@ fn golden_storage_types_xdr_vectors() {
         assert_golden_xdr(&env, name, role, expected);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Admin token allowlist
+// ---------------------------------------------------------------------------
+
+#[test]
+fn allowlist_disabled_by_default_preserves_behavior() {
+    let s = setup();
+    assert!(!s.escrow.is_allowlist_enabled());
+    assert!(!s.escrow.is_token_allowed(&s.token.address));
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 10 * U],
+    );
+    assert_eq!(id, 1);
+}
+
+#[test]
+fn allowlist_enabled_rejects_unlisted_across_all_create_paths() {
+    let s = setup();
+    s.escrow.set_allowlist_enabled(&true);
+    assert!(s.escrow.is_allowlist_enabled());
+
+    let amounts = vec![&s.env, 10 * U];
+    assert_eq!(
+        s.escrow
+            .try_create_contract(&s.client, &s.freelancer, &s.token.address, &amounts),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+    assert_eq!(
+        s.escrow.try_create_contract_with_review(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &amounts,
+            &DEFAULT_REVIEW_WINDOW_SECS,
+        ),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+    assert_eq!(
+        s.escrow.try_create_contract_sequential(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &amounts,
+        ),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+    assert_eq!(
+        s.escrow
+            .try_create_and_fund(&s.client, &s.freelancer, &s.token.address, &amounts),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+    assert_eq!(
+        s.escrow.try_create_stream(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &(10 * U),
+            &100,
+            &(100 + MIN_STREAM_SECS),
+        ),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+
+    // Allowlisting the token unblocks all creation paths and extends TTL.
+    s.escrow.set_token_allowed(&s.token.address, &true);
+    assert!(s.escrow.is_token_allowed(&s.token.address));
+    assert!(
+        persistent_ttl(&s, &DataKey::AllowedToken(s.token.address.clone()))
+            >= PERSISTENT_TTL_THRESHOLD
+    );
+
+    assert_eq!(
+        s.escrow
+            .create_contract(&s.client, &s.freelancer, &s.token.address, &amounts),
+        1
+    );
+    assert_eq!(
+        s.escrow.create_contract_with_review(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &amounts,
+            &DEFAULT_REVIEW_WINDOW_SECS,
+        ),
+        2
+    );
+    assert_eq!(
+        s.escrow.create_contract_sequential(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &amounts,
+        ),
+        3
+    );
+    assert_eq!(
+        s.escrow
+            .create_and_fund(&s.client, &s.freelancer, &s.token.address, &amounts),
+        4
+    );
+    assert_eq!(
+        s.escrow.create_stream(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &(10 * U),
+            &100,
+            &(100 + MIN_STREAM_SECS),
+        ),
+        5
+    );
+}
+
+#[test]
+fn allowlist_removing_token_does_not_block_existing_escrow_settlement() {
+    let s = setup();
+    s.escrow.set_allowlist_enabled(&true);
+    s.escrow.set_token_allowed(&s.token.address, &true);
+
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 50 * U, 50 * U],
+    );
+
+    // Remove the token from the allowlist.
+    s.escrow.set_token_allowed(&s.token.address, &false);
+    assert!(!s.escrow.is_token_allowed(&s.token.address));
+
+    // New escrows with this token are now rejected.
+    assert_eq!(
+        s.escrow.try_create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 10 * U],
+        ),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+
+    // Existing escrow can still be funded, released, and completed.
+    s.escrow.deposit_funds(&id, &(100 * U));
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.release_milestone(&id, &1);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+    assert_eq!(s.token.balance(&s.freelancer), 100 * U);
+}
+
+#[test]
+fn allowlist_events_and_self_token_rejected() {
+    let s = setup();
+
+    // Reject self-referential token when enabling.
+    assert_eq!(
+        s.escrow.try_set_token_allowed(&s.escrow.address, &true),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+
+    s.escrow.set_allowlist_enabled(&true);
+    let ev = s.env.events().all().last().unwrap();
+    assert_eq!(ev.0, s.escrow.address);
+    assert_eq!(
+        Symbol::try_from_val(&s.env, &ev.1.get(0).unwrap()).unwrap(),
+        symbol_short!("allowlist")
+    );
+    assert!(bool::try_from_val(&s.env, &ev.2).unwrap());
+
+    s.escrow.set_token_allowed(&s.token.address, &true);
+    let ev = s.env.events().all().last().unwrap();
+    assert_eq!(ev.0, s.escrow.address);
+    assert_eq!(
+        Symbol::try_from_val(&s.env, &ev.1.get(0).unwrap()).unwrap(),
+        symbol_short!("tok_allow")
+    );
+    let (tok, allowed): (Address, bool) = TryFromVal::try_from_val(&s.env, &ev.2).unwrap();
+    assert_eq!(tok, s.token.address);
+    assert!(allowed);
+}
+
+#[test]
+#[should_panic]
+fn allowlist_non_admin_rejected_set_token_allowed() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let token = Address::generate(&env);
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    env.mock_all_auths();
+    escrow.initialize(&admin);
+
+    // Only mock auth for stranger, not admin.
+    env.mock_auths(&[MockAuth {
+        address: &stranger,
+        invoke: &MockAuthInvoke {
+            contract: &id,
+            fn_name: "set_token_allowed",
+            args: (token.clone(), true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    escrow.set_token_allowed(&token, &true);
+}
+
+#[test]
+#[should_panic]
+fn allowlist_non_admin_rejected_set_allowlist_enabled() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let id = env.register(Escrow, ());
+    let escrow = EscrowClient::new(&env, &id);
+    env.mock_all_auths();
+    escrow.initialize(&admin);
+
+    env.mock_auths(&[MockAuth {
+        address: &stranger,
+        invoke: &MockAuthInvoke {
+            contract: &id,
+            fn_name: "set_allowlist_enabled",
+            args: (true,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    escrow.set_allowlist_enabled(&true);
+}
