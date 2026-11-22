@@ -242,6 +242,7 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 | 50 | `InvalidSchedule` | `create_stream` with `start >= end` or a duration under 1 hour |
 
 Constants: `MIN_MILESTONE_AMOUNT = 1_000_000` (0.1 token at 7 decimals), `MIN_REPUTATION_VALUE = 10_000_000` (1 token at 7 decimals; ratings are weighted by the released amount and dust jobs cannot be rated — sybil resistance comes from this value threshold, not counterparty graph analysis, so clients who are also freelancers of the same counterparty are not blocked), `MAX_ESCROW_TOTAL = 10^18` stroops, `MAX_MILESTONES = 20`, `DISPUTE_TIMEOUT_SECS = 2_592_000` (30 days before anyone may settle a stalled dispute 50/50 through `resolve_expired_dispute`).
+Constants: `MIN_MILESTONE_AMOUNT = 1_000_000` (0.1 token at 7 decimals), `MIN_REPUTATION_VALUE = 10_000_000` (1 token at 7 decimals; ratings are weighted by the released amount and dust jobs cannot be rated in either direction — sybil resistance comes from this value threshold, not counterparty graph analysis, so clients who are also freelancers of the same counterparty are not blocked), `MAX_ESCROW_TOTAL = 10^18` stroops, `MAX_MILESTONES = 20`.
 
 Error codes are **append-only** and never renumbered — the frontend and backend map directly on them. The Soroban contract spec allows at most 50 error cases, which `EscrowError` has reached; newer failure modes reuse the closest existing code (e.g. amendments use `MilestoneAlreadyReleased` and `SettlementMismatch`).
 

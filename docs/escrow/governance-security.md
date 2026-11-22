@@ -71,6 +71,38 @@ All mutating admin controls require the stored admin's Soroban authorization
 (except `set_paused`/`set_pause_flags`, which also accept `Role::Pauser`, and
 `resolve_dispute`, which also accepts `Role::Resolver`).
 
+### Timelocked protocol fee changes
+
+Protocol fee increases are protected by a 48-hour timelock (`PARAM_DELAY_SECS = 172_800`,
+matching `UPGRADE_DELAY_SECS`), following the same schedule → execute / cancel pattern as
+WASM upgrades:
+
+- `schedule_fee_change(fee_bps: u32, treasury: Address)` — admin only. Validates
+  `fee_bps <= MAX_FEE_BPS` (`FeeTooHigh`) and `treasury != current_contract_address()`
+  (`InvalidParties`), stores `PendingFeeChange { fee_bps, treasury, eta }` with
+  `eta = now + PARAM_DELAY_SECS`, and emits `("fee_sched",) -> (fee_bps, treasury, eta)`.
+  Re-scheduling while a change is pending resets the timer.
+- `execute_fee_change()` — admin only. Fails with `NoPendingUpgrade` if nothing is
+  pending or `UpgradeNotReady` if `now < eta`. Clears the pending record, updates
+  `FeeBps` and `Treasury`, and emits `("fee_exec",) -> (fee_bps, treasury)`.
+- `cancel_fee_change()` — admin only. Fails with `NoPendingUpgrade` if nothing is
+  pending. Clears the pending record and emits `("fee_cncl",) -> (fee_bps, treasury)`.
+- `get_pending_fee_change() -> Option<PendingFeeChange>` — view returning the currently
+  scheduled fee change and its `eta`, if any.
+
+Existing escrows keep the fee rate snapshotted at creation (`get_escrow_fee(id)`);
+only newly created escrows pick up the updated rate.
+
+**Compatibility choice for `set_fee`:** The direct `set_fee(fee_bps, treasury)` setter
+remains available **only for non-increasing fees** (`fee_bps <= current_fee_bps`),
+allowing the admin to lower or zero out fees immediately without waiting 48 hours.
+Any attempt to increase `fee_bps` via `set_fee` is rejected with `UpgradeNotReady`.
+
+**Why `set_panel` is exempt:** The arbiter panel (`set_panel`) is intentionally kept
+immediate so the admin can rapidly replace an unresponsive or compromised arbiter
+during an active high-value dispute. Every panel update emits `("panel",) -> (len, threshold)`
+for off-chain monitoring.
+
 ### 1. Pause (Circuit Breaker)
 - **Entrypoints:** `set_paused(caller, paused)`, `set_pause_flags(caller, flags)`,
   `is_paused()`, `get_pause_flags()`, `get_paused_at()`.
