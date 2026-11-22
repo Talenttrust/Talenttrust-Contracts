@@ -43,6 +43,74 @@ summary is only available as part of a `FinalizationRecord`. See
 
 [`get_finalization_record(contract_id)`]: ../contracts/escrow/src/lib.rs
 
+## Event topics and payloads
+
+Source of truth: `contracts/escrow/src/lib.rs`. Structured topics are prefixed
+with `EVENT_SCHEMA_V` (`1`); inline topics are not. Authorization and
+preconditions for each emission are in [events-auth.md](../events-auth.md).
+
+### Structured payloads
+
+| Topic | Payload |
+|---|---|
+| `(1, "init")` | `Address` — `admin.clone()` |
+| `(1, "paused")` | `bool` — `paused` |
+| `(1, "created", id)` | `CreatedEvent { client, freelancer, token, total, milestone_count }` |
+| `(1, "deposit", id)` | `DepositEvent { from, amount, funded_amount, status }` |
+| `(1, "release", id)` | `ReleaseEvent { index, amount, to, released_amount, status, fee }` |
+| `(1, "complete", id)` | `CompletedEvent { released_amount }` |
+| `(1, "dispute", id)` | `DisputeEvent { by, status, bond }` |
+| `(1, "resolved", id)` | `ResolvedEvent { to_freelancer, to_client, status, bond_recipient, bond }` |
+| `(1, "cancel", id)` | `CancelEvent { refund, to, status }` |
+| `(1, "rep", id)` | `ReputationEvent { freelancer, rating, completed_contracts, total_rating, weight }` |
+
+### Inline payloads
+
+| Topic | Payload |
+|---|---|
+| `("role_set", role)` | `(account, member)` |
+| `("adm_prop",)` | `(current, new_admin)` |
+| `("adm_acc",)` | `(old, pending)` |
+| `("adm_cncl",)` | `pending` |
+| `("pause",)` | `flags: u32` |
+| `("fee_set",)` | `(fee_bps, treasury)` |
+| `("emerg", id)` | `(to_client, to_freelancer)` |
+| `("sweep", token)` | `(to, surplus)` |
+| `("payout", id)` | `(old_payout, payout)` |
+| `("frozen", id)` | `reason: Symbol` |
+| `("unfrozen", id)` | `()` |
+| `("seq", id)` | `true` |
+| `("team", id)` | `payee_count: u32` |
+| `("submit", id)` | `(index, submitted_at)` |
+| `("claim", id)` | `(index, remaining)` |
+| `("rel_part", id)` | `(index, amount, remaining_after)` |
+| `("rel_batch", id)` | `(count, total)` |
+| `("bonus", id)` | `(amount, cumulative)` |
+| `("panel",)` | `(len, threshold)` |
+| `("voted", id)` | `(member, freelancer_bps)` |
+| `("vote", id)` | `(voter, freelancer_bps)` |
+| `("chg_prop", id)` | `(added_count, added_total)` |
+| `("chg_ord", id)` | `(added_count, added_total)` |
+| `("chg_rej", id)` | `()` |
+| `("terms", id)` | `terms_hash: BytesN<32>` |
+| `("deliver", id)` | `(index, delivery_hash)` |
+| `("expired", id)` | `refund: i128` |
+| `("settle_p", id)` | `(proposer, freelancer_amount)` |
+| `("settled", id)` | `(to_freelancer, to_client)` |
+| `("settle_w", id)` | `proposer: Address` |
+| `("resign", id)` | `refund: i128` |
+| `("rep_cli", id)` | `(client, rating)` |
+| `("rep_void", id)` | `(freelancer, rating, reason)` |
+| `("migrated",)` | `migrated: u32` |
+| `("stream_wd", id)` | `amount: i128` |
+| `("stream_st", id)` | `(to_freelancer, to_client)` |
+| `("amend_p", id)` | `(proposer, nonce)` |
+| `("amended", id)` | `(old_total, new_total, refunded)` |
+| `("compact", id)` | `id: u64` |
+| `("upg_sched",)` | `(wasm_hash, eta)` |
+| `("upg_cncl",)` | `wasm_hash: BytesN<32>` |
+| `("upgraded",)` | `(wasm_hash, new_version)` |
+
 ---
 
 ## ContractSummary Schema
@@ -421,3 +489,22 @@ milestones:
    {index: 1, amount: 400, released: true,  refunded: false},
    {index: 2, amount: 600, released: false, refunded: true}]
 ```
+
+
+---
+
+## Milestone Flow Events (`EVENT_SCHEMA_V = 1`)
+
+Source: `contracts/escrow/src/lib.rs`.
+
+All milestone-flow events use the versioned topic format `(EVENT_SCHEMA_V, name, id)` where `EVENT_SCHEMA_V = 1` and `id` is the escrow `u64` identifier, and emit a `#[contracttype]` struct payload:
+
+| Event | Topic | Payload Struct | Fields | Emitted by |
+|---|---|---|---|---|
+| `submit` | `(1, "submit", id)` | `SubmitEvent` | `index: u32`, `submitted_at: u64` | `submit_milestone` |
+| `claim` | `(1, "claim", id)` | `ClaimEvent` | `index: u32`, `amount: i128` | `claim_milestone` (followed by `release`, and `complete` if final) |
+| `rel_part` | `(1, "rel_part", id)` | `PartialReleaseEvent` | `index: u32`, `amount: i128`, `remaining: i128` | `release_partial` (followed by `complete` if final) |
+| `rel_batch` | `(1, "rel_batch", id)` | `BatchReleaseEvent` | `count: u32`, `total: i128` | `release_milestones` (preceded by one `release` per milestone, followed by `complete` if final) |
+| `deliver` | `(1, "deliver", id)` | `DeliverEvent` | `index: u32`, `delivery_hash: BytesN<32>` | `deliver` |
+| `bonus` | `(1, "bonus", id)` | `BonusEvent` | `amount: i128`, `cumulative: i128` | `pay_bonus` |
+| `terms` | `(1, "terms", id)` | `TermsEvent` | `terms_hash: BytesN<32>` | `set_terms` |
