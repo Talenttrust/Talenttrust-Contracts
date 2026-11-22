@@ -8265,3 +8265,77 @@ fn withdraw_deposit_blocked_in_non_created_frozen_and_paused_states() {
         Err(Ok(EscrowError::InvalidStatus))
     );
 }
+
+#[test]
+fn events_auth_doc_matches_source_event_topics() {
+    const DOC: &str = include_str!("../../../docs/events-auth.md");
+
+    assert!(DOC.lines().count() <= 250);
+    assert!(DOC.contains("escrow/indexer-schema.md#event-topics-and-payloads"));
+
+    for stale in [
+        "events.rs",
+        "finalize.rs",
+        "require_not_finalized",
+        "create_contract.rs",
+    ] {
+        assert!(!DOC.contains(stale), "stale reference: {stale}");
+    }
+
+    for topic in [
+        "adm_acc",
+        "adm_cncl",
+        "adm_prop",
+        "amend_p",
+        "amended",
+        "bonus",
+        "cancel",
+        "chg_ord",
+        "chg_prop",
+        "chg_rej",
+        "claim",
+        "compact",
+        "complete",
+        "created",
+        "deliver",
+        "deposit",
+        "dispute",
+        "emerg",
+        "expired",
+        "fee_set",
+        "frozen",
+        "init",
+        "migrated",
+        "panel",
+        "pause",
+        "paused",
+        "payout",
+        "rel_batch",
+        "rel_part",
+        "release",
+        "rep",
+        "rep_cli",
+        "rep_void",
+        "resign",
+        "resolved",
+        "role_set",
+        "seq",
+        "settle_p",
+        "settle_w",
+        "settled",
+        "stream_st",
+        "stream_wd",
+        "submit",
+        "sweep",
+        "team",
+        "terms",
+        "unfrozen",
+        "upg_cncl",
+        "upg_sched",
+        "upgraded",
+        "vote",
+        "voted",
+    ] {
+        assert!(DOC.contains(topic), "undocumented event topic: {topic}");
+    }
+}
