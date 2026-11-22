@@ -103,7 +103,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `get_dispute_bond(id) -> Option<(Address, i128)>` | - | Opener and amount of the bond held for a disputed escrow |
 | `get_funders(id)` | - | Map of funder -> contribution |
 | `get_panel()`, `get_votes(id)` | - | Current arbiter panel and the votes on a disputed escrow (cleared after settlement) |
-| `get_receipt(id) -> Option<EscrowReceipt>` | - | Receipt of a compacted escrow; `get_contract` on a compacted id returns `EscrowCompacted` (`26`) |
+| `get_receipt(id) -> Option<EscrowReceipt>` | - | Receipt of a compacted escrow; any entrypoint that loads a compacted escrow returns `EscrowCompacted` (`26`) |
 | `get_payout_address(id)` | - | Payout address for an escrow (falls back to the freelancer) |
 | `get_liability(token)` | - | Aggregate amount held for live escrows in `token` |
 
@@ -210,7 +210,7 @@ Bonus payments reuse the escrow's existing validation errors: a missing escrow `
 | 23 | `AdminCannotBeParty` | `create_contract` — client or freelancer is the admin address |
 | 24 | `MilestoneTooSmall` | `create_contract` — milestone amount < `MIN_MILESTONE_AMOUNT` (1 000 000) |
 | 25 | `NotCompactable` | `compact_escrow` — escrow live, already compacted, or unrated within the grace period |
-| 26 | `EscrowCompacted` | `get_contract` / `issue_reputation` on a compacted escrow |
+| 26 | `EscrowCompacted` | any entrypoint that loads a compacted escrow (`get_contract`, `get_escrow_summary`, `get_milestone`, `pay_bonus`, `rate_client`, `issue_reputation`, ...) |
 | 27 | `InvalidSplitConfig` | `set_team_split` — bad length, zero/duplicate share, client/contract payee, or sum != 10 000 |
 | 28 | `OutOfOrder` | `release_milestone` / `release_milestones` on a sequential escrow before all earlier milestones are released |
 | 29 | `DuplicateIndex` | `release_milestones` with a repeated index |

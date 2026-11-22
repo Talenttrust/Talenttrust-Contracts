@@ -1842,6 +1842,95 @@ fn get_contract_returns_escrow_compacted() {
     );
 }
 
+/// Creates, funds, cancels and compacts an escrow, returning its id.
+/// `load`-based entrypoints must report `EscrowCompacted` for it.
+fn compacted_escrow(s: &Setup) -> u64 {
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    s.escrow.cancel_contract(&id);
+    s.escrow.compact_escrow(&id);
+    id
+}
+
+#[test]
+fn get_escrow_summary_returns_escrow_compacted() {
+    let s = setup();
+    let id = compacted_escrow(&s);
+    assert_eq!(
+        s.escrow.try_get_escrow_summary(&id),
+        Err(Ok(EscrowError::EscrowCompacted))
+    );
+}
+
+#[test]
+fn get_milestone_returns_escrow_compacted() {
+    let s = setup();
+    let id = compacted_escrow(&s);
+    assert_eq!(
+        s.escrow.try_get_milestone(&id, &0),
+        Err(Ok(EscrowError::EscrowCompacted))
+    );
+}
+
+#[test]
+fn pay_bonus_returns_escrow_compacted() {
+    let s = setup();
+    let id = compacted_escrow(&s);
+    assert_eq!(
+        s.escrow.try_pay_bonus(&id, &(10 * U)),
+        Err(Ok(EscrowError::EscrowCompacted))
+    );
+}
+
+#[test]
+fn rate_client_returns_escrow_compacted() {
+    let s = setup();
+    let id = compacted_escrow(&s);
+    assert_eq!(
+        s.escrow.try_rate_client(&id, &4),
+        Err(Ok(EscrowError::EscrowCompacted))
+    );
+}
+
+#[test]
+fn get_escrow_summaries_skips_compacted_ids() {
+    let s = setup();
+    let compacted = compacted_escrow(&s);
+    let live = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    let summaries = s
+        .escrow
+        .get_escrow_summaries(&vec![&s.env, compacted, live]);
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries.get(0).unwrap().id, live);
+}
+
+#[test]
+fn extend_escrow_ttl_still_works_on_compacted_escrow() {
+    let s = setup();
+    let id = compacted_escrow(&s);
+    s.escrow.extend_escrow_ttl(&id);
+    assert!(s.escrow.get_receipt(&id).is_some());
+    // Only ids that never existed report ContractNotFound.
+    assert_eq!(
+        s.escrow.try_extend_escrow_ttl(&9_999),
+        Err(Ok(EscrowError::ContractNotFound))
+    );
+    assert_eq!(
+        s.escrow.try_get_contract(&9_999),
+        Err(Ok(EscrowError::ContractNotFound))
+    );
+}
+
 #[test]
 fn get_receipt_returns_none_for_non_compacted() {
     let s = setup();

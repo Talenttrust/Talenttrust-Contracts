@@ -721,6 +721,11 @@ fn require_not_frozen(env: &Env, id: u64) -> Result<(), EscrowError> {
 
 /// Loads an escrow: the versioned `ContractV` entry first, falling back to the
 /// legacy `Contract` key. Never writes; the next `save` performs the lazy migration.
+///
+/// A compacted escrow no longer has either entry, only its receipt, so this
+/// returns `EscrowCompacted` rather than the misleading `ContractNotFound`.
+/// Every entrypoint that loads an escrow therefore reports compaction the same
+/// way; ids that never existed still fail with `ContractNotFound`.
 fn load(env: &Env, id: u64) -> Result<EscrowContract, EscrowError> {
     if let Some(stored) = env
         .storage()
@@ -729,10 +734,17 @@ fn load(env: &Env, id: u64) -> Result<EscrowContract, EscrowError> {
     {
         return Ok(upgrade_to_latest(stored));
     }
-    env.storage()
+    if let Some(legacy) = env
+        .storage()
         .persistent()
-        .get(&DataKey::Contract(id))
-        .ok_or(EscrowError::ContractNotFound)
+        .get::<_, EscrowContract>(&DataKey::Contract(id))
+    {
+        return Ok(legacy);
+    }
+    if is_compacted(env, id) {
+        return Err(EscrowError::EscrowCompacted);
+    }
+    Err(EscrowError::ContractNotFound)
 }
 
 /// Whether an escrow entry exists under either the versioned or the legacy key.
@@ -3813,9 +3825,6 @@ impl Escrow {
     /// - **Errors:** `EscrowError::EscrowCompacted` if the escrow has been compacted
     ///   into a receipt; `EscrowError::ContractNotFound` if no escrow exists for `id`.
     pub fn get_contract(env: Env, id: u64) -> Result<EscrowContract, EscrowError> {
-        if is_compacted(&env, id) {
-            return Err(EscrowError::EscrowCompacted);
-        }
         load(&env, id)
     }
 
@@ -4250,8 +4259,8 @@ impl Escrow {
         Ok(summarize(&load(&env, id)?))
     }
 
-    /// Returns up to `MAX_SUMMARY_BATCH` summaries; unknown ids are skipped and
-    /// larger batches return `InvalidAmount`. Read-only.
+    /// Returns up to `MAX_SUMMARY_BATCH` summaries; unknown and compacted ids
+    /// are skipped and larger batches return `InvalidAmount`. Read-only.
     pub fn get_escrow_summaries(
         env: Env,
         ids: Vec<u64>,
