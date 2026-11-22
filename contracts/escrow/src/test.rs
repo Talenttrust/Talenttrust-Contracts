@@ -153,12 +153,8 @@ fn pause_blocks_mutations() {
     let s = setup();
     s.escrow.set_paused(&s.admin, &true);
     assert_eq!(
-        s.escrow.try_create_contract(
-            &s.client,
-            &s.freelancer,
-            &s.token.address,
-            &vec![&s.env, U]
-        ),
+        s.escrow
+            .try_create_contract(&s.client, &s.freelancer, &s.token.address, &vec![&s.env, U]),
         Err(Ok(EscrowError::Paused))
     );
 }
@@ -438,7 +434,8 @@ fn ratings_issued_before_upgrade_return_rating_not_found() {
     let unrecorded_id = 42;
     assert_eq!(s.escrow.get_rating(&unrecorded_id), None);
     assert_eq!(
-        s.escrow.try_void_rating(&unrecorded_id, &symbol_short!("legacy")),
+        s.escrow
+            .try_void_rating(&unrecorded_id, &symbol_short!("legacy")),
         Err(Ok(EscrowError::RatingNotFound))
     );
 }
@@ -470,7 +467,10 @@ fn non_admin_cannot_void_rating() {
     }]);
 
     // Calling void_rating as non-admin must fail
-    assert!(s.escrow.try_void_rating(&id, &symbol_short!("fraud")).is_err());
+    assert!(s
+        .escrow
+        .try_void_rating(&id, &symbol_short!("fraud"))
+        .is_err());
 }
 
 #[test]
@@ -583,6 +583,138 @@ impl Lcg {
             self.next_u32() % bound
         }
     }
+}
+
+struct ConservationEscrow {
+    id: u64,
+    token: Address,
+    stream: bool,
+    deposits: i128,
+    refunds: i128,
+    pending_amendment: Option<(u32, bool)>,
+}
+
+fn result_ok<T, E, F>(result: &Result<Result<T, E>, F>) -> bool {
+    matches!(result, Ok(Ok(_)))
+}
+
+fn assert_conservation_state(
+    s: &Setup,
+    token2: &Address,
+    escrows: &[ConservationEscrow],
+    seed: u64,
+    step: u32,
+) {
+    let tokens = [s.token.address.clone(), token2.clone()];
+    let mut liabilities = [0i128; 2];
+
+    for escrow in escrows {
+        let c = s.escrow.get_contract(&escrow.id);
+        check_invariants(&c);
+        assert_invariants(s, &c);
+        assert!(
+            c.funded_amount >= c.released_amount,
+            "funded below released for escrow {} at step {} (seed {:#x})",
+            escrow.id,
+            step,
+            seed
+        );
+
+        let held = c.funded_amount - c.released_amount;
+        assert_eq!(
+            escrow.deposits,
+            c.released_amount + escrow.refunds + held,
+            "deposits != treasury/payees + refunds + held for escrow {} at step {} (seed {:#x})",
+            escrow.id,
+            step,
+            seed
+        );
+        assert!(
+            c.refunded_amount <= escrow.refunds,
+            "reported refunds exceed cumulative refunds for escrow {} at step {} (seed {:#x})",
+            escrow.id,
+            step,
+            seed
+        );
+
+        let token_index = if escrow.token == tokens[0] { 0 } else { 1 };
+        let bond = s
+            .escrow
+            .get_dispute_bond(&escrow.id)
+            .map(|(_, amount)| amount)
+            .unwrap_or(0);
+        liabilities[token_index] += held + bond;
+    }
+
+    for (index, token) in tokens.iter().enumerate() {
+        let balance = TokenClient::new(&s.env, token).balance(&s.escrow.address);
+        let liability = s.escrow.get_liability(token);
+        assert_eq!(
+            liability, liabilities[index],
+            "liability does not match escrow holdings for token {} at step {} (seed {:#x})",
+            index, step, seed
+        );
+        assert!(
+            balance >= liability,
+            "insolvent token {} at step {}: balance {}, liability {} (seed {:#x})",
+            index,
+            step,
+            balance,
+            liability,
+            seed
+        );
+        let surplus = balance - liability;
+        assert_eq!(
+            surplus, 0,
+            "unexpected token surplus for token {} at step {} (seed {:#x})",
+            index, step, seed
+        );
+        assert_eq!(
+            balance,
+            liability + surplus,
+            "balance conservation failed for token {} at step {} (seed {:#x})",
+            index,
+            step,
+            seed
+        );
+    }
+}
+
+fn finish_conservation_call(
+    s: &Setup,
+    token2: &Address,
+    escrows: &mut [ConservationEscrow],
+    escrow_index: usize,
+    before: EscrowContract,
+    succeeded: bool,
+    deposit_delta: i128,
+    seed: u64,
+    step: u32,
+) {
+    let escrow = &mut escrows[escrow_index];
+    let after = s.escrow.get_contract(&escrow.id);
+    if !succeeded {
+        assert_eq!(
+            after, before,
+            "failed call mutated escrow {} at step {} (seed {:#x})",
+            escrow.id, step, seed
+        );
+    } else {
+        let held_before = before.funded_amount - before.released_amount;
+        let held_after = after.funded_amount - after.released_amount;
+        let released_delta = after.released_amount - before.released_amount;
+        let refund_delta = held_before + deposit_delta - released_delta - held_after;
+        assert!(
+            refund_delta >= 0,
+            "negative refund delta for escrow {} at step {} (seed {:#x})",
+            escrow.id,
+            step,
+            seed
+        );
+        escrow.deposits += deposit_delta;
+        escrow.refunds += refund_delta;
+    }
+    assert_conservation_state(s, token2, escrows, seed, step);
 }
 
 #[test]
@@ -721,11 +853,9 @@ fn randomized_lifecycle_property_test() {
                 let current_c = s.escrow.get_contract(&target_id);
                 let snap_c = if target_idx == 0 { &c1 } else { &c2 };
                 assert_eq!(
-                    &current_c,
-                    snap_c,
+                    &current_c, snap_c,
                     "State mutated on failure in iteration {} (seed: {:#x})",
-                    iteration,
-                    SEED
+                    iteration, SEED
                 );
                 assert_eq!(
                     s.token.balance(&s.escrow.address),
@@ -735,6 +865,483 @@ fn randomized_lifecycle_property_test() {
                     SEED
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn multi_feature_balance_conservation_property_test() {
+    const SEED: u64 = 0xC05E_1776_2026;
+    const RANDOM_OPERATIONS: u32 = 400;
+    std::println!("multi-feature conservation seed: {:#x}", SEED);
+    let mut rng = Lcg::new(SEED);
+    let s = setup();
+    let token2 = s
+        .env
+        .register_stellar_asset_contract_v2(s.admin.clone())
+        .address();
+    let token2_admin = StellarAssetClient::new(&s.env, &token2);
+    let sponsor = Address::generate(&s.env);
+    let treasury = Address::generate(&s.env);
+    let admin_token1 = StellarAssetClient::new(&s.env, &s.token.address);
+
+    admin_token1.mint(&s.client, &(10_000_000 * U));
+    admin_token1.mint(&s.freelancer, &(10_000_000 * U));
+    admin_token1.mint(&sponsor, &(10_000_000 * U));
+    token2_admin.mint(&s.client, &(10_000_000 * U));
+    token2_admin.mint(&s.freelancer, &(10_000_000 * U));
+    token2_admin.mint(&sponsor, &(10_000_000 * U));
+
+    let mut escrows = std::vec::Vec::new();
+    let mut fee_bps: u32;
+    s.escrow.schedule_fee_change(&500, &treasury);
+    assert_conservation_state(&s, &token2, &escrows, SEED, 0);
+    s.env
+        .ledger()
+        .set_timestamp(s.env.ledger().timestamp() + PARAM_DELAY_SECS);
+    s.escrow.execute_fee_change();
+    fee_bps = 500;
+    assert_conservation_state(&s, &token2, &escrows, SEED, 0);
+
+    let now = s.env.ledger().timestamp();
+    for index in 0..12 {
+        let token = if index % 2 == 0 {
+            s.token.address.clone()
+        } else {
+            token2.clone()
+        };
+        let stream = index % 3 == 0;
+        let id = if stream {
+            s.escrow.create_stream(
+                &s.client,
+                &s.freelancer,
+                &token,
+                &(100 * U),
+                &now,
+                &(now + 4 * MIN_STREAM_SECS),
+            )
+        } else {
+            s.escrow.create_contract(
+                &s.client,
+                &s.freelancer,
+                &token,
+                &vec![&s.env, 100 * U, 100 * U],
+            )
+        };
+        escrows.push(ConservationEscrow {
+            id,
+            token,
+            stream,
+            deposits: 0,
+            refunds: 0,
+            pending_amendment: None,
+        });
+        assert_conservation_state(&s, &token2, &escrows, SEED, index + 1);
+
+        let amount = if stream { 100 * U } else { 200 * U };
+        let before = s.escrow.get_contract(&id);
+        if index % 4 == 0 {
+            s.escrow.deposit_from(&id, &sponsor, &amount);
+        } else {
+            s.escrow.deposit_funds(&id, &amount);
+        }
+        finish_conservation_call(
+            &s,
+            &token2,
+            &mut escrows,
+            index as usize,
+            before,
+            true,
+            amount,
+            SEED,
+            index + 13,
+        );
+    }
+
+    let before = s.escrow.get_contract(&escrows[2].id);
+    let proposal =
+        s.escrow
+            .propose_amendment(&escrows[2].id, &s.client, &vec![&s.env, 90 * U, 110 * U]);
+    escrows[2].pending_amendment = Some((proposal, true));
+    finish_conservation_call(&s, &token2, &mut escrows, 2, before, true, 0, SEED, 30);
+    let before = s.escrow.get_contract(&escrows[2].id);
+    s.escrow
+        .accept_amendment(&escrows[2].id, &s.freelancer, &proposal);
+    escrows[2].pending_amendment = None;
+    finish_conservation_call(&s, &token2, &mut escrows, 2, before, true, 0, SEED, 31);
+
+    let before = s.escrow.get_contract(&escrows[4].id);
+    s.escrow
+        .propose_change_order(&escrows[4].id, &vec![&s.env, 50 * U]);
+    finish_conservation_call(&s, &token2, &mut escrows, 4, before, true, 0, SEED, 32);
+    let before = s.escrow.get_contract(&escrows[4].id);
+    s.escrow.accept_change_order(&escrows[4].id);
+    finish_conservation_call(&s, &token2, &mut escrows, 4, before, true, 0, SEED, 33);
+    let before = s.escrow.get_contract(&escrows[4].id);
+    s.escrow.deposit_from(&escrows[4].id, &sponsor, &(50 * U));
+    finish_conservation_call(&s, &token2, &mut escrows, 4, before, true, 50 * U, SEED, 34);
+
+    let before = s.escrow.get_contract(&escrows[2].id);
+    s.escrow.release_partial(&escrows[2].id, &0, &(50 * U));
+    finish_conservation_call(&s, &token2, &mut escrows, 2, before, true, 0, SEED, 35);
+    let before = s.escrow.get_contract(&escrows[2].id);
+    s.escrow
+        .release_milestones(&escrows[2].id, &vec![&s.env, 0]);
+    finish_conservation_call(&s, &token2, &mut escrows, 2, before, true, 0, SEED, 36);
+
+    let before = s.escrow.get_contract(&escrows[10].id);
+    let bond = dispute_bond(before.total_amount);
+    admin_token1.mint(&s.client, &bond);
+    s.escrow.open_dispute(&escrows[10].id, &s.client);
+    finish_conservation_call(&s, &token2, &mut escrows, 10, before, true, 0, SEED, 37);
+    let before = s.escrow.get_contract(&escrows[10].id);
+    s.escrow
+        .resolve_dispute(&s.admin, &escrows[10].id, &5_000, &true);
+    finish_conservation_call(&s, &token2, &mut escrows, 10, before, true, 0, SEED, 38);
+
+    let before = s.escrow.get_contract(&escrows[0].id);
+    let stream = s.escrow.get_stream(&escrows[0].id);
+    s.env.ledger().set_timestamp(stream.end);
+    s.escrow.withdraw_vested(&escrows[0].id);
+    finish_conservation_call(&s, &token2, &mut escrows, 0, before, true, 0, SEED, 39);
+    let before = s.escrow.get_contract(&escrows[6].id);
+    let stream = s.escrow.get_stream(&escrows[6].id);
+    s.env
+        .ledger()
+        .set_timestamp(stream.start + (stream.end - stream.start) / 2);
+    s.escrow.stop_stream(&escrows[6].id);
+    finish_conservation_call(&s, &token2, &mut escrows, 6, before, true, 0, SEED, 40);
+
+    let before = s.escrow.get_contract(&escrows[8].id);
+    s.escrow.cancel_contract(&escrows[8].id);
+    finish_conservation_call(&s, &token2, &mut escrows, 8, before, true, 0, SEED, 41);
+    let before = s.escrow.get_contract(&escrows[11].id);
+    s.escrow.resign(&escrows[11].id);
+    finish_conservation_call(&s, &token2, &mut escrows, 11, before, true, 0, SEED, 42);
+    s.escrow.set_fee(&300, &treasury);
+    fee_bps = 300;
+    assert_conservation_state(&s, &token2, &escrows, SEED, 43);
+
+    for iteration in 0..RANDOM_OPERATIONS {
+        let step = iteration + 100;
+        let operation = if iteration < 15 {
+            iteration
+        } else {
+            rng.next_bounded(15)
+        };
+        let mut escrow_index = rng.next_bounded(escrows.len() as u32) as usize;
+        if operation == 8 || operation == 9 {
+            let streams: std::vec::Vec<usize> = escrows
+                .iter()
+                .enumerate()
+                .filter_map(|(i, escrow)| if escrow.stream { Some(i) } else { None })
+                .collect();
+            if !streams.is_empty() {
+                escrow_index = streams[rng.next_bounded(streams.len() as u32) as usize];
+            }
+        }
+        let id = escrows[escrow_index].id;
+        let token = escrows[escrow_index].token.clone();
+        let before = s.escrow.get_contract(&id);
+
+        match operation {
+            0 => {
+                let amount = (rng.next_bounded(120) + 1) as i128 * U;
+                let result = s.escrow.try_deposit_from(&id, &sponsor, &amount);
+                let succeeded = result_ok(&result);
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    succeeded,
+                    if succeeded { amount } else { 0 },
+                    SEED,
+                    step,
+                );
+            }
+            1 => {
+                let index = rng.next_bounded(2);
+                let amount = (rng.next_bounded(200) + 1) as i128 * U;
+                let result = s.escrow.try_release_partial(&id, &index, &amount);
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    result_ok(&result),
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            2 => {
+                let index = rng.next_bounded(2);
+                let result = s.escrow.try_release_milestones(&id, &vec![&s.env, index]);
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    result_ok(&result),
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            3 => {
+                let first = (rng.next_bounded(100) + 1) as i128 * U;
+                let second = (rng.next_bounded(100) + 1) as i128 * U;
+                let result =
+                    s.escrow
+                        .try_propose_amendment(&id, &s.client, &vec![&s.env, first, second]);
+                if let Ok(Ok(nonce)) = &result {
+                    escrows[escrow_index].pending_amendment = Some((*nonce, true));
+                }
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    result_ok(&result),
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            4 => {
+                let pending = escrows[escrow_index].pending_amendment;
+                let (nonce, proposer_is_client) = pending.unwrap_or((0, true));
+                let acceptor = if proposer_is_client {
+                    s.freelancer.clone()
+                } else {
+                    s.client.clone()
+                };
+                let result = s.escrow.try_accept_amendment(&id, &acceptor, &nonce);
+                let succeeded = result_ok(&result);
+                if succeeded {
+                    escrows[escrow_index].pending_amendment = None;
+                }
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    succeeded,
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            5 => {
+                let result = s.escrow.try_propose_change_order(
+                    &id,
+                    &vec![&s.env, (rng.next_bounded(50) + 1) as i128 * U],
+                );
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    result_ok(&result),
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            6 => {
+                let result = s.escrow.try_accept_change_order(&id);
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    result_ok(&result),
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            7 => {
+                let start = s.env.ledger().timestamp();
+                let amount = (rng.next_bounded(100) + 1) as i128 * U;
+                let result = s.escrow.try_create_stream(
+                    &s.client,
+                    &s.freelancer,
+                    &token,
+                    &amount,
+                    &start,
+                    &(start + 4 * MIN_STREAM_SECS),
+                );
+                if let Ok(Ok(new_id)) = result {
+                    escrows.push(ConservationEscrow {
+                        id: new_id,
+                        token: token.clone(),
+                        stream: true,
+                        deposits: 0,
+                        refunds: 0,
+                        pending_amendment: None,
+                    });
+                    assert_conservation_state(&s, &token2, &escrows, SEED, step);
+                    let new_index = escrows.len() - 1;
+                    let before_new = s.escrow.get_contract(&new_id);
+                    s.escrow.deposit_from(&new_id, &sponsor, &amount);
+                    finish_conservation_call(
+                        &s,
+                        &token2,
+                        &mut escrows,
+                        new_index,
+                        before_new,
+                        true,
+                        amount,
+                        SEED,
+                        step,
+                    );
+                } else {
+                    finish_conservation_call(
+                        &s,
+                        &token2,
+                        &mut escrows,
+                        escrow_index,
+                        before,
+                        false,
+                        0,
+                        SEED,
+                        step,
+                    );
+                }
+            }
+            8 => {
+                let stream = s.escrow.try_get_stream(&id);
+                if let Ok(Ok(stream)) = stream {
+                    s.env.ledger().set_timestamp(stream.end);
+                }
+                let before = s.escrow.get_contract(&id);
+                let result = s.escrow.try_withdraw_vested(&id);
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    result_ok(&result),
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            9 => {
+                if let Ok(Ok(stream)) = s.escrow.try_get_stream(&id) {
+                    s.env
+                        .ledger()
+                        .set_timestamp(stream.start + (stream.end - stream.start) / 2);
+                }
+                let before = s.escrow.get_contract(&id);
+                let result = s.escrow.try_stop_stream(&id);
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    result_ok(&result),
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            10 => {
+                let caller = if rng.next_bounded(2) == 0 {
+                    s.client.clone()
+                } else {
+                    s.freelancer.clone()
+                };
+                let bond = dispute_bond(before.total_amount);
+                StellarAssetClient::new(&s.env, &token).mint(&caller, &bond);
+                let result = s.escrow.try_open_dispute(&id, &caller);
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    result_ok(&result),
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            11 => {
+                let result =
+                    s.escrow
+                        .try_resolve_dispute(&s.admin, &id, &rng.next_bounded(10_001), &true);
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    result_ok(&result),
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            12 => {
+                let result = s.escrow.try_cancel_contract(&id);
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    result_ok(&result),
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            13 => {
+                let result = s.escrow.try_resign(&id);
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    result_ok(&result),
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            14 => {
+                let fee = rng.next_bounded(fee_bps + 1);
+                let result = s.escrow.try_set_fee(&fee, &treasury);
+                let succeeded = result_ok(&result);
+                if succeeded {
+                    fee_bps = fee;
+                }
+                finish_conservation_call(
+                    &s,
+                    &token2,
+                    &mut escrows,
+                    escrow_index,
+                    before,
+                    succeeded,
+                    0,
+                    SEED,
+                    step,
+                );
+            }
+            _ => unreachable!(),
         }
     }
 }
@@ -906,7 +1513,9 @@ fn test_sweep_surplus_and_direct_deposit() {
     let freelancer2 = Address::generate(&env);
 
     let contract_id = env.register(Escrow, ());
-    let token_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
+    let token_id = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
 
     let token_client = token::Client::new(&env, &token_id);
     let token_admin_client = token::StellarAssetClient::new(&env, &token_id);
@@ -919,19 +1528,9 @@ fn test_sweep_surplus_and_direct_deposit() {
     token_admin_client.mint(&client, &(1000 * U));
 
     // Create two live escrows
-    let id1 = escrow_client.create_contract(
-        &client,
-        &freelancer1,
-        &token_id,
-        &vec![&env, 100 * U],
-    );
+    let id1 = escrow_client.create_contract(&client, &freelancer1, &token_id, &vec![&env, 100 * U]);
 
-    let id2 = escrow_client.create_contract(
-        &client,
-        &freelancer2,
-        &token_id,
-        &vec![&env, 200 * U],
-    );
+    let id2 = escrow_client.create_contract(&client, &freelancer2, &token_id, &vec![&env, 200 * U]);
 
     // Fund both escrows
     escrow_client.deposit_funds(&id1, &(100 * U));
@@ -974,7 +1573,9 @@ fn liability_randomized_lifecycle() {
     let freelancer = Address::generate(&env);
 
     let contract_id = env.register(Escrow, ());
-    let token_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
+    let token_id = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
 
     let token_client = token::Client::new(&env, &token_id);
     let token_admin_client = token::StellarAssetClient::new(&env, &token_id);
@@ -1049,9 +1650,12 @@ fn liability_randomized_lifecycle() {
 
 /// Helper: create + fully fund an escrow, returning its id.
 fn funded_escrow(s: &Setup) -> u64 {
-    let id = s
-        .escrow
-        .create_contract(&s.client, &s.freelancer, &s.token.address, &vec![&s.env, 100 * U]);
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
     s.escrow.deposit_funds(&id, &(100 * U));
     id
 }
@@ -1134,7 +1738,10 @@ fn client_cannot_set_payout_address() {
             sub_invokes: &[],
         },
     }]);
-    assert!(s.escrow.try_set_payout_address(&id, &payout_wallet).is_err());
+    assert!(s
+        .escrow
+        .try_set_payout_address(&id, &payout_wallet)
+        .is_err());
     s.env.mock_all_auths();
 }
 
@@ -1193,11 +1800,17 @@ fn set_payout_address_emits_event() {
         .iter()
         .filter(|(_contract, topics, _data)| {
             topics.len() >= 2
-                && Symbol::try_from_val(&s.env, &topics.get(0).unwrap()).ok().as_ref()
+                && Symbol::try_from_val(&s.env, &topics.get(0).unwrap())
+                    .ok()
+                    .as_ref()
                     == Some(&payout_sym)
         })
         .collect();
-    assert!(!matching.is_empty(), "no 'payout' event found in {:?}", events);
+    assert!(
+        !matching.is_empty(),
+        "no 'payout' event found in {:?}",
+        events
+    );
     let (_contract, _topics, data) = &matching[0];
     let (old, new): (Address, Address) =
         <(Address, Address)>::try_from_val(&s.env, data).expect("data decode failed");
@@ -1260,7 +1873,10 @@ fn test_per_escrow_freeze_isolation_and_unfreeze() {
     // Escrow B operations succeed normally
     assert_eq!(s.escrow.try_deposit_funds(&id_b, &(300 * U)), Ok(Ok(())));
     assert_eq!(s.escrow.try_release_milestone(&id_b, &0), Ok(Ok(())));
-    assert_eq!(s.token.balance(&s.freelancer), freelancer_bal_before + 100 * U);
+    assert_eq!(
+        s.token.balance(&s.freelancer),
+        freelancer_bal_before + 100 * U
+    );
 
     // Unfreeze Escrow A and verify normal operation is restored
     s.escrow.unfreeze_escrow(&id_a);
@@ -1946,7 +2562,6 @@ fn get_receipt_returns_none_for_non_compacted() {
     assert!(receipt.is_none());
 }
 
-
 #[test]
 fn compact_resolved_unrated_escrow_after_30_days() {
     let s = setup();
@@ -1960,7 +2575,9 @@ fn compact_resolved_unrated_escrow_after_30_days() {
     open_dispute_bonded(&s, &id, &s.freelancer);
     resolve_refunding_bond(&s, &id, &5_000);
 
-    s.env.ledger().set_sequence_number(THIRTY_DAYS_IN_LEDGERS - 1);
+    s.env
+        .ledger()
+        .set_sequence_number(THIRTY_DAYS_IN_LEDGERS - 1);
     assert_eq!(
         s.escrow.try_compact_escrow(&id),
         Err(Ok(EscrowError::NotCompactable))
@@ -2117,7 +2734,6 @@ fn dispute_freelancer_share_respects_team_split() {
     assert_eq!(s.token.balance(&s.client), 1_000 * U - 1_000_001);
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
 }
-
 
 #[test]
 fn team_split_rejected_on_frozen_escrow() {
@@ -2808,7 +3424,10 @@ fn sequential_create_emits_seq_event_and_validates_like_create() {
         Symbol::try_from_val(&s.env, &last.1.get(0).unwrap()).unwrap(),
         symbol_short!("seq")
     );
-    assert_eq!(u64::try_from_val(&s.env, &last.1.get(1).unwrap()).unwrap(), id);
+    assert_eq!(
+        u64::try_from_val(&s.env, &last.1.get(1).unwrap()).unwrap(),
+        id
+    );
 
     assert_eq!(
         s.escrow.try_create_contract_sequential(
@@ -2901,7 +3520,8 @@ fn release_milestones_already_released_fails_without_state_change() {
     let before = s.escrow.get_contract(&id);
     let bal_before = s.token.balance(&s.freelancer);
     assert_eq!(
-        s.escrow.try_release_milestones(&id, &vec![&s.env, 1u32, 0u32]),
+        s.escrow
+            .try_release_milestones(&id, &vec![&s.env, 1u32, 0u32]),
         Err(Ok(EscrowError::MilestoneAlreadyReleased))
     );
     assert_eq!(s.escrow.get_contract(&id), before);
@@ -2964,12 +3584,12 @@ fn release_milestones_sequential_enforced() {
     let s = setup();
     let id = three_milestone_escrow(&s, true);
     assert_eq!(
-        s.escrow.try_release_milestones(&id, &vec![&s.env, 0u32, 2u32]),
+        s.escrow
+            .try_release_milestones(&id, &vec![&s.env, 0u32, 2u32]),
         Err(Ok(EscrowError::OutOfOrder))
     );
     // Order within the batch does not matter as long as the prefix is complete
-    s.escrow
-        .release_milestones(&id, &vec![&s.env, 1u32, 0u32]);
+    s.escrow.release_milestones(&id, &vec![&s.env, 1u32, 0u32]);
     s.escrow.release_milestones(&id, &vec![&s.env, 2u32]);
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
 }
@@ -3018,7 +3638,10 @@ fn dust_release_rating_returns_below_threshold() {
         s.escrow.try_issue_reputation(&id, &5),
         Err(Ok(EscrowError::BelowReputationThreshold))
     );
-    assert_eq!(s.escrow.get_reputation(&s.freelancer), Reputation::default());
+    assert_eq!(
+        s.escrow.get_reputation(&s.freelancer),
+        Reputation::default()
+    );
     assert_eq!(s.escrow.get_reputation_score(&s.freelancer), None);
 }
 
@@ -3058,7 +3681,10 @@ fn weighted_score_rounds_half_up() {
 #[test]
 fn reputation_score_is_overflow_safe() {
     assert_eq!(reputation_score(i128::MAX, i128::MAX), Some(100));
-    assert_eq!(reputation_score(5 * (i128::MAX / 5), i128::MAX / 5), Some(500));
+    assert_eq!(
+        reputation_score(5 * (i128::MAX / 5), i128::MAX / 5),
+        Some(500)
+    );
     let near = reputation_score(i128::MAX, i128::MAX / 2 + 1).unwrap();
     assert!((199..=200).contains(&near));
     assert_eq!(reputation_score(0, 0), None);
@@ -3299,13 +3925,13 @@ fn set_panel_validates_threshold_and_members() {
     assert_eq!(panel.members.len(), 2);
 }
 
-
 #[test]
 fn panel_settlement_records_outcomes_and_liability() {
     let s = setup();
     let m1 = Address::generate(&s.env);
     let m2 = Address::generate(&s.env);
-    s.escrow.set_panel(&vec![&s.env, m1.clone(), m2.clone()], &2);
+    s.escrow
+        .set_panel(&vec![&s.env, m1.clone(), m2.clone()], &2);
     let id = disputed_high_value_escrow(&s, PANEL_THRESHOLD_AMOUNT);
     s.escrow.vote_resolution(&m1, &id, &6_000);
     s.escrow.vote_resolution(&m2, &id, &6_000);
@@ -3479,7 +4105,6 @@ fn resolver_who_is_a_party_cannot_resolve_that_escrow() {
     assert_eq!(result, Err(Ok(EscrowError::Unauthorized)));
 }
 
-
 #[test]
 fn grant_and_revoke_role_unchanged_and_admin_only() {
     let s = setup();
@@ -3500,10 +4125,7 @@ fn grant_and_revoke_role_unchanged_and_admin_only() {
     assert!(!s.escrow.has_role(&Role::Resolver, &account));
     // A role holder cannot grant roles: without the admin's signature it fails
     s.env.mock_auths(&[]);
-    assert!(s
-        .escrow
-        .try_grant_role(&Role::Resolver, &account)
-        .is_err());
+    assert!(s.escrow.try_grant_role(&Role::Resolver, &account).is_err());
     s.env.mock_all_auths();
     assert!(!s.escrow.has_role(&Role::Resolver, &account));
 }
@@ -3527,12 +4149,7 @@ fn sponsor_client_cancel_pro_rata() {
     let id = env.register(Escrow, ());
     let escrow = EscrowClient::new(&env, &id);
     escrow.initialize(&admin);
-    let id = escrow.create_contract(
-        &client,
-        &freelancer,
-        &token.address,
-        &vec![&env, 100 * U],
-    );
+    let id = escrow.create_contract(&client, &freelancer, &token.address, &vec![&env, 100 * U]);
 
     // sponsor funds 60, client funds 40
     escrow.deposit_from(&id, &sponsor, &(60 * U));
@@ -3584,12 +4201,7 @@ fn partial_release_cancel_pro_rata() {
     let escrow = EscrowClient::new(&env, &id);
     escrow.initialize(&admin);
     let milestones = vec![&env, 30 * U, 70 * U];
-    let id = escrow.create_contract(
-        &client,
-        &freelancer,
-        &token.address,
-        &milestones,
-    );
+    let id = escrow.create_contract(&client, &freelancer, &token.address, &milestones);
     let contract_addr = escrow.address.clone();
 
     // sponsor funds 60, client funds 40
@@ -3636,12 +4248,7 @@ fn dispute_split_pro_rata() {
     let id = env.register(Escrow, ());
     let escrow = EscrowClient::new(&env, &id);
     escrow.initialize(&admin);
-    let id = escrow.create_contract(
-        &client,
-        &freelancer,
-        &token.address,
-        &vec![&env, 100 * U],
-    );
+    let id = escrow.create_contract(&client, &freelancer, &token.address, &vec![&env, 100 * U]);
     let contract_addr = escrow.address.clone();
 
     // sponsor funds 60, client funds 40
@@ -3686,12 +4293,7 @@ fn too_many_funders_rejected() {
     let id = env.register(Escrow, ());
     let escrow = EscrowClient::new(&env, &id);
     escrow.initialize(&admin);
-    let id = escrow.create_contract(
-        &client,
-        &freelancer,
-        &token.address,
-        &vec![&env, 2_000 * U],
-    );
+    let id = escrow.create_contract(&client, &freelancer, &token.address, &vec![&env, 2_000 * U]);
 
     // 10 funders deposit 100 each
     for _ in 0..10 {
@@ -3725,12 +4327,7 @@ fn funder_auth_enforced() {
     let escrow = EscrowClient::new(&env, &id);
     let contract_addr = escrow.address.clone();
     escrow.initialize(&admin);
-    let id = escrow.create_contract(
-        &client,
-        &freelancer,
-        &token.address,
-        &vec![&env, 100 * U],
-    );
+    let id = escrow.create_contract(&client, &freelancer, &token.address, &vec![&env, 100 * U]);
 
     // sponsor (a third party) funds the escrow and is recorded as a funder
     escrow.deposit_from(&id, &sponsor, &(60 * U));
@@ -3743,7 +4340,6 @@ fn funder_auth_enforced() {
     assert_eq!(token.balance(&sponsor), (1_000 - 60) * U);
     assert_eq!(token.balance(&contract_addr), 60 * U);
 }
-
 
 #[test]
 fn pro_rata_rounding_remainder_goes_to_largest_funder() {
@@ -3864,10 +4460,7 @@ fn test_funding_deadline_boundaries_expire() {
     // At now == fund_by + 1, expire_unfunded must succeed
     set_now(&s.env, fund_by + 1);
     assert_eq!(s.escrow.try_expire_unfunded(&id), Ok(Ok(())));
-    assert_eq!(
-        s.escrow.get_contract(&id).status,
-        ContractStatus::Cancelled
-    );
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Cancelled);
 }
 
 #[test]
@@ -4130,7 +4723,6 @@ fn test_expire_unfunded_pause_gate_and_status_checks() {
     assert_eq!(s.escrow.get_fund_by(&999), 0);
 }
 
-
 #[test]
 fn expire_unfunded_refunds_sponsors_pro_rata_and_clears_liability() {
     let s = setup();
@@ -4295,7 +4887,6 @@ fn client_cannot_accept_own_change_order() {
     assert_eq!((count, total), (1, 50 * U));
 }
 
-
 #[test]
 fn change_order_resets_funding_deadline_and_keeps_rating_blocked() {
     let s = setup();
@@ -4347,7 +4938,8 @@ fn change_order_rejected_while_disputed_or_too_small() {
     s.escrow.deposit_funds(&id, &(100 * U));
     open_dispute_bonded(&s, &id, &s.client);
     assert_eq!(
-        s.escrow.try_propose_change_order(&id, &vec![&s.env, 10 * U]),
+        s.escrow
+            .try_propose_change_order(&id, &vec![&s.env, 10 * U]),
         Err(Ok(EscrowError::InvalidStatus))
     );
 }
@@ -4373,9 +4965,12 @@ fn assert_invariants(s: &Setup, c: &EscrowContract) {
 #[test]
 fn partial_release_completes_milestone_and_escrow() {
     let s = setup();
-    let id = s
-        .escrow
-        .create_contract(&s.client, &s.freelancer, &s.token.address, &vec![&s.env, 100 * U]);
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
     s.escrow.deposit_funds(&id, &(100 * U));
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
 
@@ -4394,9 +4989,12 @@ fn partial_release_completes_milestone_and_escrow() {
 #[test]
 fn partial_then_release_milestone_pays_remaining() {
     let s = setup();
-    let id = s
-        .escrow
-        .create_contract(&s.client, &s.freelancer, &s.token.address, &vec![&s.env, 100 * U]);
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
     s.escrow.deposit_funds(&id, &(100 * U));
 
     s.escrow.release_partial(&id, &0, &(30 * U));
@@ -4412,9 +5010,12 @@ fn partial_then_release_milestone_pays_remaining() {
 #[test]
 fn over_release_is_rejected() {
     let s = setup();
-    let id = s
-        .escrow
-        .create_contract(&s.client, &s.freelancer, &s.token.address, &vec![&s.env, 100 * U]);
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
     s.escrow.deposit_funds(&id, &(100 * U));
 
     s.escrow.release_partial(&id, &0, &(30 * U));
@@ -4436,9 +5037,12 @@ fn over_release_is_rejected() {
 #[test]
 fn zero_or_negative_partial_release_is_rejected() {
     let s = setup();
-    let id = s
-        .escrow
-        .create_contract(&s.client, &s.freelancer, &s.token.address, &vec![&s.env, 100 * U]);
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
     s.escrow.deposit_funds(&id, &(100 * U));
 
     assert_eq!(
@@ -4456,9 +5060,12 @@ fn zero_or_negative_partial_release_is_rejected() {
 #[test]
 fn cancel_after_partial_refunds_funded_minus_released() {
     let s = setup();
-    let id = s
-        .escrow
-        .create_contract(&s.client, &s.freelancer, &s.token.address, &vec![&s.env, 100 * U]);
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
     s.escrow.deposit_funds(&id, &(100 * U));
     let client_before = s.token.balance(&s.client);
 
@@ -4474,9 +5081,12 @@ fn cancel_after_partial_refunds_funded_minus_released() {
 #[test]
 fn resolve_dispute_after_partial_splits_held_remainder() {
     let s = setup();
-    let id = s
-        .escrow
-        .create_contract(&s.client, &s.freelancer, &s.token.address, &vec![&s.env, 100 * U]);
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
     s.escrow.deposit_funds(&id, &(100 * U));
 
     s.escrow.release_partial(&id, &0, &(30 * U));
@@ -4487,7 +5097,10 @@ fn resolve_dispute_after_partial_splits_held_remainder() {
     assert_invariants(&s, &s.escrow.get_contract(&id));
     // held = 100 - 30 = 70 units; freelancer gets 70 * 2500 / 10000 = 17.5, client 52.5
     assert_eq!(s.token.balance(&s.freelancer), 30 * U + 70 * U / 4);
-    assert_eq!(s.token.balance(&s.client), 1_000 * U - 100 * U + (70 * U - 70 * U / 4));
+    assert_eq!(
+        s.token.balance(&s.client),
+        1_000 * U - 100 * U + (70 * U - 70 * U / 4)
+    );
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
 }
 
@@ -4506,9 +5119,7 @@ fn partial_release_respects_sequential_order_and_batch_pays_remaining() {
         Err(Ok(EscrowError::OutOfOrder))
     );
     s.escrow.release_partial(&id, &0, &(40 * U));
-    let paid = s
-        .escrow
-        .release_milestones(&id, &vec![&s.env, 0u32, 1u32]);
+    let paid = s.escrow.release_milestones(&id, &vec![&s.env, 0u32, 1u32]);
     assert_eq!(paid, 160 * U);
     assert_eq!(s.token.balance(&s.freelancer), 200 * U);
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
@@ -4546,8 +5157,14 @@ fn create_and_fund_matches_two_step_field_by_field() {
     assert_eq!(b.status, ContractStatus::Funded);
     assert_eq!(b.status, a.status);
     assert_eq!(b.reputation_issued, a.reputation_issued);
-    assert_eq!(s.escrow.get_funders(&one_step), s.escrow.get_funders(&two_step));
-    assert_eq!(s.escrow.get_fund_by(&one_step), s.escrow.get_fund_by(&two_step));
+    assert_eq!(
+        s.escrow.get_funders(&one_step),
+        s.escrow.get_funders(&two_step)
+    );
+    assert_eq!(
+        s.escrow.get_fund_by(&one_step),
+        s.escrow.get_fund_by(&two_step)
+    );
     assert_eq!(s.token.balance(&s.client), 400 * U);
     assert_eq!(s.escrow.get_liability(&s.token.address), 600 * U);
     check_invariants(&b);
@@ -4679,8 +5296,9 @@ fn two_milestone_escrow(s: &Setup) -> u64 {
 
 fn persistent_ttl<K: IntoVal<Env, soroban_sdk::Val>>(s: &Setup, key: &K) -> u32 {
     use soroban_sdk::testutils::storage::Persistent as _;
-    s.env
-        .as_contract(&s.escrow.address, || s.env.storage().persistent().get_ttl(key))
+    s.env.as_contract(&s.escrow.address, || {
+        s.env.storage().persistent().get_ttl(key)
+    })
 }
 
 #[test]
@@ -4689,12 +5307,16 @@ fn set_terms_then_fund_succeeds() {
     let id = two_milestone_escrow(&s);
     let specs = vec![&s.env, hash32(&s.env, 2), hash32(&s.env, 3)];
     s.escrow.set_terms(&id, &hash32(&s.env, 1), &specs);
-    assert_eq!(s.escrow.get_terms(&id), Some((hash32(&s.env, 1), specs.clone())));
+    assert_eq!(
+        s.escrow.get_terms(&id),
+        Some((hash32(&s.env, 1), specs.clone()))
+    );
     s.escrow.deposit_funds(&id, &(300 * U));
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
     // Terms without milestone specs are accepted too
     let id2 = two_milestone_escrow(&s);
-    s.escrow.set_terms(&id2, &hash32(&s.env, 9), &Vec::new(&s.env));
+    s.escrow
+        .set_terms(&id2, &hash32(&s.env, 9), &Vec::new(&s.env));
     assert_eq!(
         s.escrow.get_terms(&id2),
         Some((hash32(&s.env, 9), Vec::new(&s.env)))
@@ -4708,7 +5330,8 @@ fn set_terms_after_deposit_rejected() {
     let id = two_milestone_escrow(&s);
     s.escrow.deposit_funds(&id, &(10 * U));
     assert_eq!(
-        s.escrow.try_set_terms(&id, &hash32(&s.env, 1), &Vec::new(&s.env)),
+        s.escrow
+            .try_set_terms(&id, &hash32(&s.env, 1), &Vec::new(&s.env)),
         Err(Ok(EscrowError::InvalidStatus))
     );
 }
@@ -4769,10 +5392,7 @@ fn client_cannot_deliver_and_freelancer_cannot_set_terms() {
             sub_invokes: &[],
         },
     }]);
-    assert!(s
-        .escrow
-        .try_set_terms(&id, &h, &Vec::new(&s.env))
-        .is_err());
+    assert!(s.escrow.try_set_terms(&id, &h, &Vec::new(&s.env)).is_err());
     s.env.mock_all_auths();
     assert_eq!(s.escrow.get_delivery(&id, &0), None);
     assert_eq!(s.escrow.get_terms(&id), None);
@@ -4813,14 +5433,19 @@ fn escrow_event_names(s: &Setup) -> std::vec::Vec<Symbol> {
     escrow_events(s)
         .iter()
         .filter(|(topics, _)| {
-            topics.len() == 3 && u32::try_from_val(&s.env, &topics.get(0).unwrap()) == Ok(EVENT_SCHEMA_V)
+            topics.len() == 3
+                && u32::try_from_val(&s.env, &topics.get(0).unwrap()) == Ok(EVENT_SCHEMA_V)
         })
         .map(|(topics, _)| Symbol::try_from_val(&s.env, &topics.get(1).unwrap()).unwrap())
         .collect()
 }
 
 /// Last structured event `(1, name, id)` decoded as `T`.
-fn last_escrow_event<T: TryFromVal<Env, soroban_sdk::Val>>(s: &Setup, name: &str, id: u64) -> Option<T> {
+fn last_escrow_event<T: TryFromVal<Env, soroban_sdk::Val>>(
+    s: &Setup,
+    name: &str,
+    id: u64,
+) -> Option<T> {
     let want = Symbol::new(&s.env, name);
     escrow_events(s)
         .into_iter()
@@ -4850,7 +5475,10 @@ fn init_and_paused_events_are_versioned() {
     let ev = env.events().all().last().unwrap();
     assert_eq!(ev.0, id);
     assert_eq!(ev.1.len(), 2);
-    assert_eq!(u32::try_from_val(&env, &ev.1.get(0).unwrap()).unwrap(), EVENT_SCHEMA_V);
+    assert_eq!(
+        u32::try_from_val(&env, &ev.1.get(0).unwrap()).unwrap(),
+        EVENT_SCHEMA_V
+    );
     assert_eq!(
         Symbol::try_from_val(&env, &ev.1.get(1).unwrap()).unwrap(),
         symbol_short!("init")
@@ -4859,7 +5487,10 @@ fn init_and_paused_events_are_versioned() {
 
     escrow.set_paused(&admin, &true);
     let ev = env.events().all().last().unwrap();
-    assert_eq!(u32::try_from_val(&env, &ev.1.get(0).unwrap()).unwrap(), EVENT_SCHEMA_V);
+    assert_eq!(
+        u32::try_from_val(&env, &ev.1.get(0).unwrap()).unwrap(),
+        EVENT_SCHEMA_V
+    );
     assert_eq!(
         Symbol::try_from_val(&env, &ev.1.get(1).unwrap()).unwrap(),
         symbol_short!("paused")
@@ -4968,7 +5599,10 @@ fn complete_event_for_batch_and_partial_releases() {
     let done: CompletedEvent = last_escrow_event(&s, "complete", id2).unwrap();
     assert_eq!(done.released_amount, 300 * U);
     let rel: ReleaseEvent = last_escrow_event(&s, "release", id2).unwrap();
-    assert_eq!((rel.index, rel.amount, rel.released_amount), (1, 200 * U, 300 * U));
+    assert_eq!(
+        (rel.index, rel.amount, rel.released_amount),
+        (1, 200 * U, 300 * U)
+    );
 }
 
 #[test]
@@ -5221,7 +5855,10 @@ fn dispute_bond_returns_to_opener() {
     s.escrow.resolve_dispute(&s.admin, &id, &2_500, &true);
 
     // Split is 100/300, unaffected by the bond; the 8 bond returns to the opener.
-    assert_eq!(s.token.balance(&s.freelancer), 1_000 * U - 8 * U + 100 * U + 8 * U);
+    assert_eq!(
+        s.token.balance(&s.freelancer),
+        1_000 * U - 8 * U + 100 * U + 8 * U
+    );
     assert_eq!(s.token.balance(&s.client), 1_000 * U - 400 * U + 300 * U);
     assert_eq!(s.token.balance(&s.escrow.address), 0);
     assert_eq!(s.escrow.get_liability(&s.token.address), 0);
@@ -5248,7 +5885,10 @@ fn dispute_bond_forfeited_to_counterparty() {
 
     // Same split, but the 8 bond is forfeited to the client (the counterparty).
     assert_eq!(s.token.balance(&s.freelancer), 1_000 * U - 8 * U + 100 * U);
-    assert_eq!(s.token.balance(&s.client), 1_000 * U - 400 * U + 300 * U + 8 * U);
+    assert_eq!(
+        s.token.balance(&s.client),
+        1_000 * U - 400 * U + 300 * U + 8 * U
+    );
     assert_eq!(s.token.balance(&s.escrow.address), 0);
 }
 
@@ -5353,7 +5993,10 @@ fn upgrade_schedule_boundary_and_execute() {
     let hash = s
         .env
         .deployer()
-        .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&s.env, &minimal_contract_wasm()));
+        .upload_contract_wasm(soroban_sdk::Bytes::from_slice(
+            &s.env,
+            &minimal_contract_wasm(),
+        ));
     set_time(&s.env, 1_000);
     s.escrow.schedule_upgrade(&hash);
     let (topics, data) = last_global_event(&s);
@@ -5463,7 +6106,10 @@ fn non_admin_cannot_schedule_cancel_or_execute_upgrade() {
 /// Plant a legacy `DataKey::Contract(id)` entry directly (pre-versioning layout).
 fn write_legacy(s: &Setup, c: &EscrowContract) {
     s.env.as_contract(&s.escrow.address, || {
-        s.env.storage().persistent().set(&DataKey::Contract(c.id), c);
+        s.env
+            .storage()
+            .persistent()
+            .set(&DataKey::Contract(c.id), c);
     });
 }
 
@@ -5634,7 +6280,10 @@ fn cancel_after_submission_cannot_claw_back_submitted_work() {
     let s = setup();
     let id = funded_two_milestones(&s);
     s.escrow.submit_milestone(&id, &0);
-    assert_eq!(s.escrow.get_milestone_status(&id, &0), MilestoneStatus::Submitted);
+    assert_eq!(
+        s.escrow.get_milestone_status(&id, &0),
+        MilestoneStatus::Submitted
+    );
     s.escrow.cancel_contract(&id);
     // Only the pending milestone (200) is refunded; 100 stays for the freelancer.
     assert_eq!(s.token.balance(&s.client), 1_000 * U - 100 * U);
@@ -5691,7 +6340,10 @@ fn claim_after_review_window_completes_escrow() {
     s.escrow.claim_milestone(&id, &0);
     assert_eq!(s.token.balance(&s.freelancer), 100 * U);
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
-    assert_eq!(s.escrow.get_milestone_status(&id, &0), MilestoneStatus::Released);
+    assert_eq!(
+        s.escrow.get_milestone_status(&id, &0),
+        MilestoneStatus::Released
+    );
     assert_eq!(s.escrow.get_submitted_at(&id, &0), None);
 }
 
@@ -5824,7 +6476,10 @@ fn client_release_accepts_submitted_and_claim_after_release_fails() {
     let id = funded_two_milestones(&s);
     s.escrow.submit_milestone(&id, &1);
     s.escrow.release_milestone(&id, &1);
-    assert_eq!(s.escrow.get_milestone_status(&id, &1), MilestoneStatus::Released);
+    assert_eq!(
+        s.escrow.get_milestone_status(&id, &1),
+        MilestoneStatus::Released
+    );
     s.env
         .ledger()
         .with_mut(|li| li.timestamp += DEFAULT_REVIEW_WINDOW_SECS);
@@ -5833,7 +6488,10 @@ fn client_release_accepts_submitted_and_claim_after_release_fails() {
         Err(Ok(EscrowError::MilestoneAlreadyReleased))
     );
     // Pending milestones can still be paid early
-    assert_eq!(s.escrow.get_milestone_status(&id, &0), MilestoneStatus::Pending);
+    assert_eq!(
+        s.escrow.get_milestone_status(&id, &0),
+        MilestoneStatus::Pending
+    );
     s.escrow.release_milestone(&id, &0);
     assert_eq!(s.token.balance(&s.freelancer), 300 * U);
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
@@ -6260,7 +6918,8 @@ fn max_value_escrow_dispute_split_is_exact() {
     let m1 = Address::generate(&s.env);
     let m2 = Address::generate(&s.env);
     // Totals above the panel threshold settle through the arbiter panel.
-    s.escrow.set_panel(&vec![&s.env, m1.clone(), m2.clone()], &2);
+    s.escrow
+        .set_panel(&vec![&s.env, m1.clone(), m2.clone()], &2);
     open_dispute_bonded(&s, &id, &s.client);
     let client_before = s.token.balance(&s.client);
     s.escrow.vote_resolution(&m1, &id, &2_500);
@@ -6540,7 +7199,6 @@ fn resign_while_disputed_rejected() {
     assert!(!s.escrow.was_resigned(&id));
 }
 
-
 #[test]
 fn client_calling_resign_rejected() {
     let s = setup();
@@ -6591,7 +7249,10 @@ fn resign_emits_event_and_is_not_a_client_cancellation() {
         Symbol::try_from_val(&s.env, &ev.1.get(0).unwrap()).unwrap(),
         symbol_short!("resign")
     );
-    assert_eq!(u64::try_from_val(&s.env, &ev.1.get(1).unwrap()).unwrap(), id);
+    assert_eq!(
+        u64::try_from_val(&s.env, &ev.1.get(1).unwrap()).unwrap(),
+        id
+    );
     assert_eq!(i128::try_from_val(&s.env, &ev.2).unwrap(), 40 * U);
     assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 0);
     assert_eq!(s.escrow.get_liability(&s.token.address), 0);
@@ -6685,7 +7346,8 @@ fn settlement_mismatched_amount_rejected() {
     s.escrow.propose_settlement(&id, &s.client, &(100 * U));
 
     assert_eq!(
-        s.escrow.try_accept_settlement(&id, &s.freelancer, &(50 * U)),
+        s.escrow
+            .try_accept_settlement(&id, &s.freelancer, &(50 * U)),
         Err(Ok(EscrowError::SettlementMismatch))
     );
     assert_eq!(s.token.balance(&s.freelancer), 0);
@@ -6708,7 +7370,8 @@ fn settlement_invalidated_by_release() {
     assert!(s.escrow.get_settlement(&id).is_none());
 
     assert_eq!(
-        s.escrow.try_accept_settlement(&id, &s.freelancer, &(100 * U)),
+        s.escrow
+            .try_accept_settlement(&id, &s.freelancer, &(100 * U)),
         Err(Ok(EscrowError::SettlementMismatch))
     );
 }
@@ -6754,7 +7417,8 @@ fn withdraw_settlement_removes_proposal() {
     s.escrow.withdraw_settlement(&id, &s.client);
     assert!(s.escrow.get_settlement(&id).is_none());
     assert_eq!(
-        s.escrow.try_accept_settlement(&id, &s.freelancer, &(100 * U)),
+        s.escrow
+            .try_accept_settlement(&id, &s.freelancer, &(100 * U)),
         Err(Ok(EscrowError::SettlementMismatch))
     );
 }
@@ -6770,7 +7434,8 @@ fn settlement_amount_out_of_bounds_rejected() {
     );
     s.escrow.deposit_funds(&id, &(200 * U));
     assert_eq!(
-        s.escrow.try_propose_settlement(&id, &s.client, &(200 * U + 1)),
+        s.escrow
+            .try_propose_settlement(&id, &s.client, &(200 * U + 1)),
         Err(Ok(EscrowError::InvalidAmount))
     );
     assert_eq!(
@@ -6778,7 +7443,6 @@ fn settlement_amount_out_of_bounds_rejected() {
         Err(Ok(EscrowError::InvalidAmount))
     );
 }
-
 
 #[test]
 fn settlement_invalidated_by_deposit_and_events_emitted() {
@@ -7403,8 +8067,7 @@ fn fee_change_admin_only_and_validation() {
         Err(Ok(EscrowError::FeeTooHigh))
     );
     assert_eq!(
-        s.escrow
-            .try_schedule_fee_change(&100, &s.escrow.address),
+        s.escrow.try_schedule_fee_change(&100, &s.escrow.address),
         Err(Ok(EscrowError::InvalidParties))
     );
 
@@ -7434,8 +8097,7 @@ fn batch_release_charges_exact_per_milestone_fees() {
         &vec![&s.env, 100 * U, 200 * U],
     );
     s.escrow.deposit_funds(&id, &(300 * U));
-    s.escrow
-        .release_milestones(&id, &vec![&s.env, 0u32, 1u32]);
+    s.escrow.release_milestones(&id, &vec![&s.env, 0u32, 1u32]);
     let fee = mul_bps(100 * U, 250) + mul_bps(200 * U, 250);
     assert_eq!(s.token.balance(&treasury), fee);
     assert_eq!(s.token.balance(&s.freelancer), 300 * U - fee);
@@ -7476,7 +8138,11 @@ fn mutating_entry_points_keep_instance_alive() {
     s.env.ledger().set_sequence_number(QUIET);
     assert!(instance_ttl(&s) < PERSISTENT_TTL_THRESHOLD);
     // A non-creating mutation (no new escrow) must bump the instance.
-    s.escrow.set_terms(&id, &BytesN::from_array(&s.env, &[1u8; 32]), &Vec::new(&s.env));
+    s.escrow.set_terms(
+        &id,
+        &BytesN::from_array(&s.env, &[1u8; 32]),
+        &Vec::new(&s.env),
+    );
     assert!(instance_ttl(&s) >= PERSISTENT_TTL_THRESHOLD);
 
     let s = setup();
@@ -7610,8 +8276,7 @@ fn extend_reputation_ttl_keeps_reputation_alive() {
     s.escrow.extend_reputation_ttl(&s.freelancer);
     assert!(persistent_ttl(&s, &key) >= PERSISTENT_TTL_THRESHOLD);
     assert!(
-        persistent_ttl(&s, &DataKey::WeightedRep(s.freelancer.clone()))
-            >= PERSISTENT_TTL_THRESHOLD
+        persistent_ttl(&s, &DataKey::WeightedRep(s.freelancer.clone())) >= PERSISTENT_TTL_THRESHOLD
     );
 }
 
@@ -7620,12 +8285,8 @@ fn extend_reputation_ttl_keeps_reputation_alive() {
 // ---------------------------------------------------------------------------
 
 fn create_indexed_escrow(s: &Setup, freelancer: &Address) -> u64 {
-    s.escrow.create_contract(
-        &s.client,
-        freelancer,
-        &s.token.address,
-        &vec![&s.env, U],
-    )
+    s.escrow
+        .create_contract(&s.client, freelancer, &s.token.address, &vec![&s.env, U])
 }
 
 fn assert_ids(actual: &Vec<u64>, expected: &[u64]) {
@@ -8018,10 +8679,7 @@ fn amendment_increase_flips_to_created_and_requires_deposit() {
     assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
     s.escrow.release_milestone(&id, &0);
     assert_eq!(s.token.balance(&s.freelancer), 100 * U);
-    assert_eq!(
-        s.escrow.get_contract(&id).status,
-        ContractStatus::Completed
-    );
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
 }
 
 #[test]
@@ -8087,7 +8745,8 @@ fn amendment_stale_nonce_rejected() {
         .escrow
         .propose_amendment(&id, &s.client, &vec![&s.env, 40 * U, 60 * U]);
     assert_eq!(
-        s.escrow.try_accept_amendment(&id, &s.freelancer, &(first + 1)),
+        s.escrow
+            .try_accept_amendment(&id, &s.freelancer, &(first + 1)),
         Err(Ok(EscrowError::SettlementMismatch))
     );
     // A newer proposal makes the first nonce stale.
