@@ -6797,11 +6797,18 @@ fn legacy_paused_flag_means_pause_all() {
 // Snapshotted platform fee
 // ---------------------------------------------------------------------------
 
+fn set_fee_timelocked(s: &Setup, fee_bps: u32, treasury: &Address) {
+    s.escrow.schedule_fee_change(&fee_bps, treasury);
+    let now = s.env.ledger().timestamp();
+    s.env.ledger().set_timestamp(now + PARAM_DELAY_SECS);
+    s.escrow.execute_fee_change();
+}
+
 #[test]
 fn fee_snapshot_survives_admin_fee_increase() {
     let s = setup();
     let treasury = Address::generate(&s.env);
-    s.escrow.set_fee(&100, &treasury);
+    set_fee_timelocked(&s, 100, &treasury);
     let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
@@ -6810,7 +6817,7 @@ fn fee_snapshot_survives_admin_fee_increase() {
     );
     assert_eq!(s.escrow.get_escrow_fee(&id), 100);
     s.escrow.deposit_funds(&id, &(100 * U));
-    s.escrow.set_fee(&300, &treasury);
+    set_fee_timelocked(&s, 300, &treasury);
     assert_eq!(s.escrow.get_fee_config(), (300, Some(treasury.clone())));
     s.escrow.release_milestone(&id, &0);
     let rel: ReleaseEvent = last_escrow_event(&s, "release", id).unwrap();
@@ -6839,7 +6846,7 @@ fn fee_snapshot_survives_admin_fee_increase() {
 fn fee_rounds_down_on_tiny_amounts() {
     let s = setup();
     let treasury = Address::generate(&s.env);
-    s.escrow.set_fee(&100, &treasury);
+    set_fee_timelocked(&s, 100, &treasury);
     // A milestone of 1_000_099 base units: 1% = 10_000.99 -> 10_000 (rounded down).
     let id = s.escrow.create_contract(
         &s.client,
@@ -6861,7 +6868,7 @@ fn fee_rounds_down_on_tiny_amounts() {
 fn dispute_fee_only_on_freelancer_share_and_cancel_free() {
     let s = setup();
     let treasury = Address::generate(&s.env);
-    s.escrow.set_fee(&500, &treasury);
+    set_fee_timelocked(&s, 500, &treasury);
     let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
@@ -6897,11 +6904,23 @@ fn set_fee_cap_and_admin_only() {
         s.escrow.try_set_fee(&(MAX_FEE_BPS + 1), &treasury),
         Err(Ok(EscrowError::FeeTooHigh))
     );
+    // Direct fee increase is rejected with UpgradeNotReady.
+    assert_eq!(
+        s.escrow.try_set_fee(&100, &treasury),
+        Err(Ok(EscrowError::UpgradeNotReady))
+    );
     s.env.mock_auths(&[]);
-    assert!(s.escrow.try_set_fee(&100, &treasury).is_err());
+    assert!(s.escrow.try_set_fee(&0, &treasury).is_err());
     s.env.mock_all_auths();
     assert_eq!(s.escrow.get_fee_config(), (0, None));
-    s.escrow.set_fee(&MAX_FEE_BPS, &treasury);
+
+    // Increase via timelock, then decrease immediately with set_fee.
+    set_fee_timelocked(&s, MAX_FEE_BPS, &treasury);
+    assert_eq!(
+        s.escrow.get_fee_config(),
+        (MAX_FEE_BPS, Some(treasury.clone()))
+    );
+    s.escrow.set_fee(&100, &treasury);
     let ev = s
         .env
         .events()
@@ -6916,15 +6935,157 @@ fn set_fee_cap_and_admin_only() {
     );
     assert_eq!(
         <(u32, Address)>::try_from_val(&s.env, &ev.2).unwrap(),
-        (MAX_FEE_BPS, treasury)
+        (100, treasury)
     );
+}
+
+#[test]
+fn fee_change_timelock_schedule_early_execute_and_execute() {
+    let s = setup();
+    let treasury = Address::generate(&s.env);
+    let start = s.env.ledger().timestamp();
+    let expected_eta = start + PARAM_DELAY_SECS;
+
+    assert_eq!(s.escrow.get_pending_fee_change(), None);
+    s.escrow.schedule_fee_change(&300, &treasury);
+    assert_eq!(
+        s.escrow.get_pending_fee_change(),
+        Some(PendingFeeChange {
+            fee_bps: 300,
+            treasury: treasury.clone(),
+            eta: expected_eta,
+        })
+    );
+    let ev = s
+        .env
+        .events()
+        .all()
+        .iter()
+        .filter(|e| e.0 == s.escrow.address)
+        .last()
+        .unwrap();
+    assert_eq!(
+        Symbol::try_from_val(&s.env, &ev.1.get(0).unwrap()).unwrap(),
+        symbol_short!("fee_sched")
+    );
+    assert_eq!(
+        <(u32, Address, u64)>::try_from_val(&s.env, &ev.2).unwrap(),
+        (300, treasury.clone(), expected_eta)
+    );
+
+    // Early execute fails with UpgradeNotReady and leaves fee unchanged.
+    s.env.ledger().set_timestamp(expected_eta - 1);
+    assert_eq!(
+        s.escrow.try_execute_fee_change(),
+        Err(Ok(EscrowError::UpgradeNotReady))
+    );
+    assert_eq!(s.escrow.get_fee_config(), (0, None));
+
+    // At eta, execute succeeds and clears pending change.
+    s.env.ledger().set_timestamp(expected_eta);
+    s.escrow.execute_fee_change();
+    assert_eq!(s.escrow.get_pending_fee_change(), None);
+    assert_eq!(s.escrow.get_fee_config(), (300, Some(treasury.clone())));
+    let ev = s
+        .env
+        .events()
+        .all()
+        .iter()
+        .filter(|e| e.0 == s.escrow.address)
+        .last()
+        .unwrap();
+    assert_eq!(
+        Symbol::try_from_val(&s.env, &ev.1.get(0).unwrap()).unwrap(),
+        symbol_short!("fee_exec")
+    );
+    assert_eq!(
+        <(u32, Address)>::try_from_val(&s.env, &ev.2).unwrap(),
+        (300, treasury)
+    );
+
+    // Executing again fails with NoPendingUpgrade.
+    assert_eq!(
+        s.escrow.try_execute_fee_change(),
+        Err(Ok(EscrowError::NoPendingUpgrade))
+    );
+}
+
+#[test]
+fn fee_change_cancel_clears_pending_and_emits_event() {
+    let s = setup();
+    let treasury = Address::generate(&s.env);
+
+    assert_eq!(
+        s.escrow.try_cancel_fee_change(),
+        Err(Ok(EscrowError::NoPendingUpgrade))
+    );
+
+    s.escrow.schedule_fee_change(&400, &treasury);
+    assert!(s.escrow.get_pending_fee_change().is_some());
+
+    s.escrow.cancel_fee_change();
+    assert_eq!(s.escrow.get_pending_fee_change(), None);
+    let ev = s
+        .env
+        .events()
+        .all()
+        .iter()
+        .filter(|e| e.0 == s.escrow.address)
+        .last()
+        .unwrap();
+    assert_eq!(
+        Symbol::try_from_val(&s.env, &ev.1.get(0).unwrap()).unwrap(),
+        symbol_short!("fee_cncl")
+    );
+    assert_eq!(
+        <(u32, Address)>::try_from_val(&s.env, &ev.2).unwrap(),
+        (400, treasury)
+    );
+
+    s.env
+        .ledger()
+        .set_timestamp(s.env.ledger().timestamp() + PARAM_DELAY_SECS);
+    assert_eq!(
+        s.escrow.try_execute_fee_change(),
+        Err(Ok(EscrowError::NoPendingUpgrade))
+    );
+}
+
+#[test]
+fn fee_change_admin_only_and_validation() {
+    let s = setup();
+    let treasury = Address::generate(&s.env);
+
+    assert_eq!(
+        s.escrow
+            .try_schedule_fee_change(&(MAX_FEE_BPS + 1), &treasury),
+        Err(Ok(EscrowError::FeeTooHigh))
+    );
+    assert_eq!(
+        s.escrow
+            .try_schedule_fee_change(&100, &s.escrow.address),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+
+    s.env.mock_auths(&[]);
+    assert!(s.escrow.try_schedule_fee_change(&100, &treasury).is_err());
+
+    s.env.mock_all_auths();
+    s.escrow.schedule_fee_change(&100, &treasury);
+
+    s.env.mock_auths(&[]);
+    assert!(s.escrow.try_cancel_fee_change().is_err());
+    s.env
+        .ledger()
+        .set_timestamp(s.env.ledger().timestamp() + PARAM_DELAY_SECS);
+    assert!(s.escrow.try_execute_fee_change().is_err());
 }
 
 #[test]
 fn batch_release_charges_exact_per_milestone_fees() {
     let s = setup();
     let treasury = Address::generate(&s.env);
-    s.escrow.set_fee(&250, &treasury);
+    set_fee_timelocked(&s, 250, &treasury);
     let id = s.escrow.create_contract(
         &s.client,
         &s.freelancer,
