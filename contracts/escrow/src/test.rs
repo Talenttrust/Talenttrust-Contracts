@@ -6606,6 +6606,115 @@ fn settlement_invalidated_by_deposit_and_events_emitted() {
     );
 }
 
+#[test]
+fn settlement_accept_succeeds_at_exact_deadline() {
+    let s = setup();
+    s.env.ledger().with_mut(|li| li.timestamp = 1_000);
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 200 * U],
+    );
+    s.escrow.deposit_funds(&id, &(200 * U));
+
+    s.escrow.propose_settlement(&id, &s.client, &(100 * U));
+    let proposal = s.escrow.get_settlement(&id).unwrap();
+    assert_eq!(proposal.created_at, 1_000);
+
+    s.env
+        .ledger()
+        .with_mut(|li| li.timestamp = 1_000 + SETTLEMENT_VALID_SECS);
+    s.escrow.accept_settlement(&id, &s.freelancer, &(100 * U));
+    assert_eq!(s.token.balance(&s.freelancer), 100 * U);
+    assert_eq!(s.token.balance(&s.client), 900 * U);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+    assert!(s.escrow.get_settlement(&id).is_none());
+}
+
+#[test]
+fn settlement_accept_fails_after_deadline_and_get_returns_record() {
+    let s = setup();
+    s.env.ledger().with_mut(|li| li.timestamp = 1_000);
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 200 * U],
+    );
+    s.escrow.deposit_funds(&id, &(200 * U));
+
+    s.escrow.propose_settlement(&id, &s.client, &(100 * U));
+    s.env
+        .ledger()
+        .with_mut(|li| li.timestamp = 1_000 + SETTLEMENT_VALID_SECS + 1);
+
+    assert_eq!(
+        s.escrow
+            .try_accept_settlement(&id, &s.freelancer, &(100 * U)),
+        Err(Ok(EscrowError::SettlementMismatch))
+    );
+    let proposal = s.escrow.get_settlement(&id).unwrap();
+    assert_eq!(proposal.proposer, s.client);
+    assert_eq!(proposal.freelancer_amount, 100 * U);
+    assert_eq!(proposal.created_at, 1_000);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+}
+
+#[test]
+fn expired_settlement_can_be_replaced_and_accepted() {
+    let s = setup();
+    s.env.ledger().with_mut(|li| li.timestamp = 1_000);
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 200 * U],
+    );
+    s.escrow.deposit_funds(&id, &(200 * U));
+
+    s.escrow.propose_settlement(&id, &s.client, &(100 * U));
+    let after_expiry = 1_000 + SETTLEMENT_VALID_SECS + 10;
+    s.env.ledger().with_mut(|li| li.timestamp = after_expiry);
+    assert_eq!(
+        s.escrow
+            .try_accept_settlement(&id, &s.freelancer, &(100 * U)),
+        Err(Ok(EscrowError::SettlementMismatch))
+    );
+
+    s.escrow.propose_settlement(&id, &s.freelancer, &(120 * U));
+    let replaced = s.escrow.get_settlement(&id).unwrap();
+    assert_eq!(replaced.proposer, s.freelancer);
+    assert_eq!(replaced.freelancer_amount, 120 * U);
+    assert_eq!(replaced.created_at, after_expiry);
+
+    s.escrow.accept_settlement(&id, &s.client, &(120 * U));
+    assert_eq!(s.token.balance(&s.freelancer), 120 * U);
+    assert_eq!(s.token.balance(&s.client), 880 * U);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Resolved);
+}
+
+#[test]
+fn withdraw_settlement_works_on_expired_proposal() {
+    let s = setup();
+    s.env.ledger().with_mut(|li| li.timestamp = 1_000);
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 200 * U],
+    );
+    s.escrow.deposit_funds(&id, &(200 * U));
+
+    s.escrow.propose_settlement(&id, &s.client, &(100 * U));
+    s.env
+        .ledger()
+        .with_mut(|li| li.timestamp = 1_000 + SETTLEMENT_VALID_SECS + 1);
+
+    s.escrow.withdraw_settlement(&id, &s.client);
+    assert!(s.escrow.get_settlement(&id).is_none());
+}
+
 // ---------------------------------------------------------------------------
 // Granular pause flags
 // ---------------------------------------------------------------------------

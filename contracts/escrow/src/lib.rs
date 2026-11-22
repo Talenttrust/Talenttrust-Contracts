@@ -60,6 +60,10 @@ pub const DEFAULT_REVIEW_WINDOW_SECS: u64 = 7 * 86_400;
 /// Funding window after creation (14 days); afterwards an escrow still in
 /// `Created` can no longer be funded and may be expired by anyone.
 pub const FUNDING_WINDOW_SECS: u64 = 14 * 86_400;
+/// Validity window for a mutual settlement proposal (7 days); after
+/// `created_at + SETTLEMENT_VALID_SECS`, `accept_settlement` returns
+/// `SettlementMismatch`.
+pub const SETTLEMENT_VALID_SECS: u64 = 7 * 86_400;
 /// Minimum amount for a single milestone: 0.1 token unit at 7 decimal places.
 pub const MIN_MILESTONE_AMOUNT: i128 = 1_000_000;
 /// Maximum total escrow value: 10^18 stroops.
@@ -3303,7 +3307,8 @@ impl Escrow {
     /// A party proposes a mutual settlement of the held balance: `freelancer_amount`
     /// to the freelancer and the rest to the client (`0 <= freelancer_amount <=
     /// funded - released`, else `InvalidAmount`). Allowed on `Created`, `Funded`
-    /// and `Disputed` escrows; replaces any earlier proposal. Emits
+    /// and `Disputed` escrows; replaces any earlier (including expired) proposal
+    /// and starts a fresh `SETTLEMENT_VALID_SECS` (7-day) validity window. Emits
     /// `("settle_p", id) -> (proposer, freelancer_amount)`.
     pub fn propose_settlement(
         env: Env,
@@ -3350,7 +3355,8 @@ impl Escrow {
 
     /// The *other* party accepts the pending settlement, echoing the proposed
     /// `freelancer_amount` (guards against a swapped proposal); a missing
-    /// proposal, self-acceptance or a different amount fail with
+    /// proposal, self-acceptance, a different amount, or an expired proposal
+    /// (`now > created_at + SETTLEMENT_VALID_SECS`) fail with
     /// `SettlementMismatch`. Pays both sides, returns any dispute bond to its
     /// opener and closes the escrow as `Resolved` without the admin. Emits
     /// `("settled", id) -> (to_freelancer, to_client)`.
@@ -3374,6 +3380,13 @@ impl Escrow {
             .get(&key)
             .ok_or(EscrowError::SettlementMismatch)?;
         if acceptor == proposal.proposer || freelancer_amount != proposal.freelancer_amount {
+            return Err(EscrowError::SettlementMismatch);
+        }
+        let deadline = proposal
+            .created_at
+            .checked_add(SETTLEMENT_VALID_SECS)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        if env.ledger().timestamp() > deadline {
             return Err(EscrowError::SettlementMismatch);
         }
         if !matches!(
@@ -3423,7 +3436,8 @@ impl Escrow {
         Ok(())
     }
 
-    /// The proposer withdraws its pending settlement proposal.
+    /// The proposer withdraws its pending settlement proposal (including an
+    /// expired one).
     pub fn withdraw_settlement(env: Env, id: u64, proposer: Address) -> Result<(), EscrowError> {
         load(&env, id)?;
         proposer.require_auth();
@@ -3442,7 +3456,9 @@ impl Escrow {
         Ok(())
     }
 
-    /// Pending settlement proposal, if any.
+    /// Pending settlement proposal, if any. Still returns the stored record
+    /// after expiry; a proposal is expired (and `accept_settlement` rejects it)
+    /// once `now > created_at + SETTLEMENT_VALID_SECS`.
     pub fn get_settlement(env: Env, id: u64) -> Option<SettlementProposal> {
         env.storage().persistent().get(&DataKey::Settlement(id))
     }
