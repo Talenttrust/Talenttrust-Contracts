@@ -12,6 +12,8 @@
 //! 9. After completion or resolution the freelancer may `rate_client` to rate the client.
 //! 10. Anyone may `expire_unfunded` an escrow still unfunded past its funding deadline,
 //!     refunding any partial deposit to its funders.
+//! 11. Anyone may `resolve_expired_dispute` on a `Disputed` escrow left unresolved past
+//!     `DISPUTE_TIMEOUT_SECS`, splitting the held balance 50/50.
 //!
 //! Storage versioning: escrows are stored under `DataKey::ContractV(id)` as a
 //! `StoredEscrow` envelope. Entries written under the legacy `DataKey::Contract(id)`
@@ -83,6 +85,12 @@ pub const DISPUTE_WIN_THRESHOLD_BPS: u32 = 5_000;
 pub const DISPUTE_BOND_BPS: i128 = 200;
 /// Floor for the dispute bond. Kept at 0, so tiny escrows round down to no bond.
 pub const DISPUTE_BOND_MIN: i128 = 0;
+/// How long a `Disputed` escrow may stay unresolved before anyone can settle it
+/// through `resolve_expired_dispute` (30 days).
+pub const DISPUTE_TIMEOUT_SECS: u64 = 2_592_000;
+/// Freelancer share applied by `resolve_expired_dispute`: 5,000 bps (50%) of
+/// the held balance, with the rounding remainder going to the client.
+pub const DISPUTE_TIMEOUT_SPLIT_BPS: u32 = 5_000;
 const PERSISTENT_TTL_THRESHOLD: u32 = 17_280; // ~1 day
 const PERSISTENT_TTL_EXTEND: u32 = 518_400; // ~30 days
 /// Grace period (in ledgers, ~30 days at ~5s per ledger) after which an unrated
@@ -487,6 +495,8 @@ enum DataKey {
     Stream(u64),
     Amendment(u64),
     AmendNonce(u64),
+    /// Ledger timestamp at which the current dispute was opened.
+    DisputeOpenedAt(u64),
 }
 
 #[contract]
@@ -1339,11 +1349,15 @@ pub fn mul_bps(amount: i128, bps: u32) -> i128 {
 /// to the counterparty, and `None` (panel settlement) returns it to the opener
 /// only when the split favours the opener (freelancer opener with
 /// `freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS`, or client opener below it).
+///
+/// `record_outcomes` is false for the timeout exit (`resolve_expired_dispute`):
+/// no resolver adjudicated that split, so win/loss counters must not move.
 fn settle(
     env: &Env,
     mut c: EscrowContract,
     freelancer_bps: u32,
     bond_to_opener: Option<bool>,
+    record_outcomes: bool,
 ) -> Result<(), EscrowError> {
     let held = c
         .funded_amount
@@ -1396,7 +1410,29 @@ fn settle(
         bond_recipient = Some(recipient);
     }
 
-    // Record dispute outcomes for both parties
+    // The dispute is over: drop its open timestamp alongside the bond.
+    env.storage()
+        .persistent()
+        .remove(&DataKey::DisputeOpenedAt(c.id));
+
+    // Record dispute outcomes for both parties unless this is the timeout exit,
+    // which no resolver adjudicated.
+    if record_outcomes {
+        record_dispute_outcomes(env, &c, freelancer_bps)?;
+    }
+
+    events::resolved(env, &c, to_freelancer, to_client, bond_recipient, bond);
+    Ok(())
+}
+
+/// Increments the win/loss dispute counters for both parties of `c`. A split at
+/// or above `DISPUTE_WIN_THRESHOLD_BPS` counts as a freelancer win (and a client
+/// loss), anything below as the reverse.
+fn record_dispute_outcomes(
+    env: &Env,
+    c: &EscrowContract,
+    freelancer_bps: u32,
+) -> Result<(), EscrowError> {
     let freelancer_key = DataKey::Outcomes(c.freelancer.clone());
     let mut freelancer_outcomes: Outcomes = env
         .storage()
@@ -1448,8 +1484,6 @@ fn settle(
         PERSISTENT_TTL_THRESHOLD,
         PERSISTENT_TTL_EXTEND,
     );
-
-    events::resolved(env, &c, to_freelancer, to_client, bond_recipient, bond);
     Ok(())
 }
 
@@ -2626,6 +2660,17 @@ impl Escrow {
         env.storage()
             .persistent()
             .extend_ttl(&bond_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        // Record when the dispute clock started, so `resolve_expired_dispute`
+        // can release the funds if no resolver ever acts.
+        let opened_key = DataKey::DisputeOpenedAt(id);
+        env.storage()
+            .persistent()
+            .set(&opened_key, &env.ledger().timestamp());
+        env.storage().persistent().extend_ttl(
+            &opened_key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
         add_liability(&env, &c.token, bond)?;
         transition(&mut c, ContractStatus::Disputed)?;
         save(&env, &c);
@@ -2691,7 +2736,7 @@ impl Escrow {
         if freelancer_bps as i128 > BPS_DENOMINATOR {
             return Err(EscrowError::InvalidSplit);
         }
-        settle(&env, c, freelancer_bps, Some(bond_to_opener))
+        settle(&env, c, freelancer_bps, Some(bond_to_opener), true)
     }
 
     /// Admin replaces the arbiter panel. `threshold` members must agree on the
@@ -2791,13 +2836,57 @@ impl Escrow {
         }
         if winning_votes >= panel.threshold {
             env.storage().persistent().remove(&key);
-            settle(&env, c, winning_bps, None)?;
+            settle(&env, c, winning_bps, None, true)?;
             for (voter, bps) in counted.iter() {
                 env.events()
                     .publish((symbol_short!("vote"), id), (voter, bps));
             }
         }
         Ok(())
+    }
+
+    /// Permissionless escape hatch for a `Disputed` escrow nobody resolves.
+    /// Once the ledger timestamp reaches `opened_at + DISPUTE_TIMEOUT_SECS`
+    /// (30 days from `open_dispute`), anyone may settle it: the held balance is
+    /// split 50/50 (5,000 bps to the freelancer, rounding remainder to the
+    /// client) through the shared `settle` helper and the dispute bond returns
+    /// to its opener. Before the deadline it fails with `NotExpired`; on an
+    /// escrow that is not `Disputed` it fails with `InvalidStatus`.
+    ///
+    /// Deliberately works while the escrow is frozen and while the contract is
+    /// paused, mirroring `resolve_dispute` (which ignores freezes): neither a
+    /// freeze nor a pause may keep funds stranded past the timeout. Escrows
+    /// above `PANEL_THRESHOLD_AMOUNT` are covered too when their panel never
+    /// reaches the threshold.
+    ///
+    /// No resolver adjudicated this split, so the `Outcomes` win/loss counters
+    /// are left untouched (only `disputes_opened` from `open_dispute` moves).
+    /// Emits the normal `("resolved", id)` event, so indexers need no new
+    /// handling.
+    pub fn resolve_expired_dispute(env: Env, id: u64) -> Result<(), EscrowError> {
+        bump_instance(&env);
+        let c = load(&env, id)?;
+        if c.status != ContractStatus::Disputed {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let opened_at: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DisputeOpenedAt(id))
+            .ok_or(EscrowError::InvalidStatus)?;
+        let deadline = opened_at
+            .checked_add(DISPUTE_TIMEOUT_SECS)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        if env.ledger().timestamp() < deadline {
+            return Err(EscrowError::NotExpired);
+        }
+        settle(
+            &env,
+            c,
+            DISPUTE_TIMEOUT_SPLIT_BPS,
+            Some(true),
+            false,
+        )
     }
 
     /// Client proposes extra milestones for an active (`Created` / `Funded`) or
@@ -3544,6 +3633,7 @@ impl Escrow {
             DataKey::MilestoneSpecs(id),
             DataKey::DisputeBond(id),
             DataKey::Settlement(id),
+            DataKey::DisputeOpenedAt(id),
             DataKey::ReviewWindow(id),
             DataKey::EscrowFee(id),
             DataKey::Bonus(id),
