@@ -1,216 +1,95 @@
-# Escrow Milestone Scheduling
+# Escrow Milestone Due Dates
 
-Milestone due dates, schedules, and deadline-driven timeout behavior are not
-implemented in `contracts/escrow/src/lib.rs`.
+Per-milestone due dates are agreed by the client before funding and let the
+client reclaim a milestone the freelancer never submitted. The implementation
+lives in `contracts/escrow/src/lib.rs`.
 
-The current milestone model is a vector of positive `i128` amounts plus
-per-milestone release flags. Release validates only milestone existence,
-duplicate-release state, available funded balance, and pause/emergency state.
+`Milestone { amount, released }` is a stored `contracttype`, so its layout is
+unchanged. Due dates and reclaim flags live in side entries, exactly like
+`DataKey::MilestoneSpecs` / `DataKey::Delivery`:
 
-## Overview
-
-The escrow contract now supports **optional per-milestone scheduling information**. When creating a contract (or later via `set_milestone_schedule`), the client may attach the following fields to any milestone:
-
-| Field | Type | Purpose |
+| Key | Value | Purpose |
 |---|---|---|
-| `due_date` | `Option<u64>` | Unix timestamp (seconds) by which the milestone should be complete |
-| `title` | `Option<String>` | Short human-readable label (≤ 128 bytes) |
-| `description` | `Option<String>` | Extended deliverable description (≤ 512 bytes) |
-| `updated_at` | `u64` | Ledger timestamp of the last write — **set by the contract, not the caller** |
+| `DataKey::MilestoneDue(id)` | `Vec<u64>` | Ledger timestamps, index-aligned with the escrow's milestones |
+| `DataKey::MilestoneReclaimed(id, index)` | `bool` | Set once the client reclaimed that milestone |
 
-Schedule metadata is **informational / off-chain signalling only**. The contract does not automatically cancel, refund, or release milestones when a deadline passes. Deadline enforcement is the responsibility of the calling application.
-
----
+The side entries are created lazily; an escrow without a `MilestoneDue` entry
+has no deadlines and can never have a milestone reclaimed.
 
 ## API
 
-### `create_contract` (updated signature)
+### `set_milestone_due(env, id, dates: Vec<u64>)`
 
-```rust
-pub fn create_contract(
-    env: Env,
-    client: Address,
-    freelancer: Address,
-    arbiter: Option<Address>,
-    milestone_amounts: Vec<i128>,
-    release_auth: ReleaseAuthorization,
-    schedules: Vec<Option<MilestoneSchedule>>,   // NEW
-) -> u32
+The client commits optional deadlines for the escrow's milestones.
+
+- Only while the escrow is `Created` with nothing deposited (same window as
+  `set_terms`); afterwards `InvalidStatus`.
+- `dates` is either empty (clears any deadlines) or exactly one entry per
+  milestone; any other length fails with `InvalidMetadata`.
+- Dates must be strictly increasing (`d[i + 1] > d[i]`), else `InvalidMetadata`.
+- Gated by the `PAUSE_CREATE` pause category and `require_not_frozen`.
+- Emits `("m_due", id) -> dates`.
+
+### `get_milestone_due(env, id, index) -> Option<u64>`
+
+The deadline agreed for a milestone, or `None` when the escrow has no schedule
+or the index is out of range.
+
+### `reclaim_overdue(env, id, index)`
+
+The client refunds a milestone whose deadline has passed without a submission.
+
+- Requires `now > due` (`NotExpired` when the deadline has not passed) and a
+  configured deadline (`InvalidMetadata` when the milestone has none).
+- Rejected while the milestone is submitted (`InvalidStatus`), already released
+  or already reclaimed (`MilestoneAlreadyReleased`), and once the escrow is no
+  longer `Created` / `Funded` (`InvalidStatus`).
+- The milestone's **unpaid** amount (`amount - partially paid`) is refunded
+  pro-rata to the escrow's funders (the client when there is no funder record),
+  capped at the funds actually held. Funder contributions are reduced with the
+  refund so later refunds stay proportional.
+- `total_amount` and `funded_amount` shrink by the reclaimed amount, liability
+  is reduced by the refund, and an optional outstanding settlement proposal is
+  cleared. A partially paid milestone keeps its earlier payment; it can no
+  longer be submitted, delivered or released.
+- When no milestone is left outstanding the remainder is closed as `Cancelled`
+  (any held funds are refunded first) and `ClosedAt` is recorded.
+- Gated by the `PAUSE_CANCEL` pause category and `require_not_frozen`; stream
+  escrows are rejected (`InvalidStatus`) because they settle only through
+  `withdraw_vested` / `stop_stream`.
+- Emits `("reclaim", id) -> (index, refund)`.
+- `extend_escrow_ttl` keeps both side entries alive.
+
+## Accounting
+
+The core invariants are unchanged:
+
+```text
+0 <= released_amount <= funded_amount <= total_amount
 ```
 
-`schedules` must be either:
-- **empty** (`Vec::new(&env)`) — no schedule metadata is stored, or
-- **the same length as `milestone_amounts`** — each entry is `Some(MilestoneSchedule)` or `None`.
+Reclaiming milestone `i` refunds `min(unpaid_i, funded_amount - released_amount)`
+and subtracts `unpaid_i` from `total_amount` and the refunded part from
+`funded_amount`, leaving the remainder-to-fund consistent. When every milestone
+is released or reclaimed, `funded_amount == released_amount` holds for the
+terminal `Cancelled` state.
 
-### `set_milestone_schedule`
+## Example
 
-Update schedule metadata for a single milestone after the contract is created. Only the **client** of the contract may call this.
+```text
+create_contract(client, freelancer, token, [100, 200])
+set_milestone_due(id, [t0 + 7d, t0 + 14d])   // before any deposit
 
-```rust
-pub fn set_milestone_schedule(
-    env: Env,
-    contract_id: u32,
-    milestone_idx: u32,
-    schedule: MilestoneSchedule,
-) -> bool
+deposit_funds(id, 300)
+// t0 + 7d + 1, milestone 0 still unsubmitted
+reclaim_overdue(id, 0)
+// -> 100 refunded to the funders
+// -> total_amount = 200, funded_amount = 200
 ```
 
-Once a milestone is **released**, its schedule entry is **immutable**.
+## Test coverage
 
-### `get_milestone_schedule`
-
-```rust
-pub fn get_milestone_schedule(
-    env: Env,
-    contract_id: u32,
-    milestone_idx: u32,
-) -> Option<MilestoneSchedule>
-```
-
-Returns `None` if no metadata has been stored for that milestone.
-
----
-
-## Validation Rules
-
-All validations run **before any storage write** to prevent partial state corruption.
-
-| Rule | Error | Details |
-|---|---|---|
-| `due_date` must be strictly in the future | `ScheduleDueDateInPast` | `due_date > env.ledger().timestamp()` |
-| `due_date` values must be strictly increasing | `ScheduleDatesNotMonotonic` | Milestone N+1's date > milestone N's date; undated milestones are skipped |
-| `title` ≤ 128 bytes | `ScheduleStringTooLong` | UTF-8 byte length |
-| `description` ≤ 512 bytes | `ScheduleStringTooLong` | UTF-8 byte length |
-| Schedule length must match milestone count | panic | Only when `schedules` is non-empty |
-| Schedule is immutable after milestone release | `ScheduleImmutableAfterRelease` | Applies to `set_milestone_schedule` only |
-| Milestone index must be in range | panic | `milestone_idx < milestones.len()` |
-
----
-
-## Storage Layout
-
-Schedule entries are stored in **persistent storage** under a dedicated key variant:
-
-```
-DataKey::MilestoneSchedule(contract_id: u32, milestone_idx: u32)
-```
-
-This keeps schedule data separate from the `EscrowContractData` record so that the core contract record stays compact even when schedules carry long strings.
-
----
-
-## Security Considerations
-
-1. **Storage exhaustion** — `title` and `description` are length-bounded at 128 and 512 bytes respectively. This bounds the on-chain storage cost per milestone to a known maximum.
-
-2. **Retroactive manipulation** — once a milestone is released its schedule entry is frozen. This prevents a client from altering the historical record of what was agreed for a completed milestone.
-
-3. **Authorization** — only the client of the contract may call `set_milestone_schedule`. The function calls `contract.client.require_auth()`.
-
-4. **Atomicity** — the contract validates *all* schedule metadata before writing any entry. A single invalid entry causes the entire transaction to fail with no partial writes.
-
-5. **Past due dates** — a `due_date` ≤ `env.ledger().timestamp()` is always rejected, preventing confusion between "already overdue" and "not yet due" states.
-
-6. **`updated_at` integrity** — the `updated_at` field is set from `env.ledger().timestamp()` by the contract, not from a caller-supplied value. Callers cannot back-date or future-date the timestamp.
-
----
-
-## Error Codes (new)
-
-| Variant | Discriminant | Condition |
-|---|---|---|
-| `ScheduleDueDateInPast` | 16 | `due_date ≤ now` |
-| `ScheduleDatesNotMonotonic` | 17 | Non-increasing due dates |
-| `ScheduleStringTooLong` | 18 | Title > 128 bytes or description > 512 bytes |
-| `ScheduleImmutableAfterRelease` | 19 | Write attempted on released milestone |
-| `ScheduleInvalidMilestoneIndex` | 20 | Index ≥ milestone count |
-
----
-
-## Test Coverage
-
-All new code lives in `contracts/escrow/src/test/milestone_schedule.rs`.
-
-| Category | Tests |
-|---|---|
-| Happy-path creation | `valid_create_without_schedules`, `valid_create_with_partial_schedules`, `valid_create_with_all_schedules_populated`, `valid_updated_at_is_stamped_by_contract`, `valid_get_schedule_returns_none_for_missing_index` |
-| Due-date validation | `error_due_date_at_present_is_rejected`, `error_due_date_in_past_is_rejected`, `valid_due_date_max_u64_is_accepted` |
-| Monotonicity | `error_monotonic_equal_dates_rejected`, `error_monotonic_decreasing_dates_rejected`, `valid_monotonic_skips_undated_milestones` |
-| String length | `valid_title_at_max_length_accepted`, `error_title_exceeds_max_length_rejected`, `error_description_exceeds_max_length_rejected` |
-| `set_milestone_schedule` mutations | `set_schedule_client_can_update_before_release`, `error_immutable_set_schedule_after_release_rejected`, `error_set_schedule_violates_monotonicity_with_next`, `error_set_schedule_out_of_range_index_rejected`, `error_schedules_length_mismatch_rejected` |
-| Integration | `integration_full_lifecycle_preserves_schedule_metadata`, `integration_schedule_isolation_across_contracts`, `integration_set_schedule_does_not_disturb_other_milestones` |
-
----
-
-## Migration Notes
-
-`create_contract` has a new final parameter `schedules: Vec<Option<MilestoneSchedule>>`. Existing callers must be updated to pass `Vec::new(&env)` to preserve the old behaviour (no schedule metadata).
-
----
-
-## Refund Functionality
-
-### `refund_unreleased_milestones`
-
-Refunds specific unreleased milestones back to the client. This allows partial refunds of the contract while preserving released milestones.
-
-```rust
-pub fn refund_unreleased_milestones(
-    env: Env,
-    contract_id: u32,
-    milestone_indices: Vec<u32>,
-) -> i128
-```
-
-**Returns:** The total amount refunded (sum of all refunded milestone amounts).
-
-**Authorization:** Requires client authentication (`client.require_auth()`).
-
-### Refund Validation Rules
-
-| Rule | Error | Details |
-|---|---|---|
-| Request must not be empty | `EmptyRefundRequest` | `milestone_indices` cannot be empty |
-| No duplicate indices | `DuplicateMilestoneInRefund` | Each milestone can only appear once in the request |
-| Milestone must exist | `InvalidMilestone` | Index must be < milestone count |
-| Milestone must not be released | `AlreadyReleased` | Cannot refund a milestone that was already released |
-| Milestone must not be refunded | `AlreadyRefunded` | Cannot refund the same milestone twice |
-| Sufficient balance required | `InsufficientFunds` | `funded_amount - released_amount - refunded_amount >= refund_total` |
-
-### Status Transitions
-
-- **Funded → Refunded**: When all unreleased milestones are refunded (no releases have occurred)
-- **Funded → Funded**: When some but not all unreleased milestones are refunded
-- **Funded → Completed**: When all milestones are either released or refunded (mixed state)
-
-### Accounting Invariant
-
-The contract maintains the following invariant at all times:
-
-```
-funded_amount = released_amount + refunded_amount + available_balance
-```
-
-Where `available_balance` represents funds that are neither released nor refunded.
-
-### Security Considerations for Refunds
-
-1. **Authorization** — Only the client can initiate refunds via `require_auth()`
-2. **Atomicity** — All validations occur before any state changes; a single invalid milestone causes the entire refund to fail
-3. **Idempotency** — Refunded milestones are marked with `refunded: true` flag, preventing double-refunds
-4. **Balance protection** — The contract verifies sufficient balance exists before processing refunds
-5. **State machine integrity** — Refunds respect the contract lifecycle and cannot be applied to released milestones
-
-### Test Coverage for Refunds
-
-All refund tests are in `contracts/escrow/src/refund.rs`.
-
-| Test | Purpose |
-|---|---|
-| `refunds_selected_unreleased_milestones_and_preserves_remaining_balance` | Verifies partial refunds work correctly |
-| `marks_contract_refunded_when_all_unreleased_milestones_are_refunded` | Tests full refund status transition |
-| `rejects_empty_refund_request` | Validates `EmptyRefundRequest` error |
-| `rejects_duplicate_milestones_in_single_refund` | Validates `DuplicateMilestoneInRefund` error |
-| `rejects_refunding_released_milestone` | Validates `AlreadyReleased` error |
-| `rejects_refunding_same_milestone_twice` | Validates `AlreadyRefunded` error |
-| `rejects_refund_when_balance_is_not_available` | Validates `InsufficientFunds` error |
+`contracts/escrow/src/test.rs` covers setup before/after deposit, length and
+monotonicity validation, client-only authorization, the not-yet-due and
+submitted rejections, partial payments, pro-rata sponsor refunds, pause /
+freeze / stream gating and TTL extension.

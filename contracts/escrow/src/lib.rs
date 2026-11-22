@@ -464,6 +464,11 @@ enum DataKey {
     MilestonePaid(u64, u32),
     Terms(u64),
     MilestoneSpecs(u64),
+    /// Optional per-milestone due dates (ledger timestamps), index-aligned with
+    /// `milestones`. Absent means no deadline was agreed for this escrow.
+    MilestoneDue(u64),
+    /// Set once the client reclaimed an overdue, unsubmitted milestone.
+    MilestoneReclaimed(u64, u32),
     Delivery(u64, u32),
     DisputeBond(u64),
     Version,
@@ -921,6 +926,30 @@ fn clear_submitted(env: &Env, id: u64, index: u32) {
     env.storage()
         .persistent()
         .remove(&DataKey::Submitted(id, index));
+}
+
+/// Optional due date (ledger timestamp) agreed for a milestone.
+fn milestone_due(env: &Env, id: u64, index: u32) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get::<_, Vec<u64>>(&DataKey::MilestoneDue(id))?
+        .get(index)
+}
+
+/// Whether the client already reclaimed this milestone after its due date.
+fn is_reclaimed(env: &Env, id: u64, index: u32) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::MilestoneReclaimed(id, index))
+        .unwrap_or(false)
+}
+
+fn mark_reclaimed(env: &Env, id: u64, index: u32) {
+    let key = DataKey::MilestoneReclaimed(id, index);
+    env.storage().persistent().set(&key, &true);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
 }
 
 /// Unpaid amount still backing submitted (not yet released) milestones. These
@@ -1449,6 +1478,69 @@ fn refund_funders(env: &Env, c: &EscrowContract, refund: i128) -> Result<(), Esc
     Ok(())
 }
 
+/// Refunds `refund` to the escrow's funders pro-rata and reduces their recorded
+/// contributions by the same amounts, so later partial refunds stay proportional
+/// to the remaining funded balance. Like `refund_funders`, the rounding
+/// remainder goes to the largest funder.
+fn refund_funders_shrink(
+    env: &Env,
+    c: &EscrowContract,
+    refund: i128,
+) -> Result<(), EscrowError> {
+    if refund <= 0 {
+        return Ok(());
+    }
+    let this = env.current_contract_address();
+    let key = DataKey::Funders(c.id);
+    let funders: Map<Address, i128> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Map::new(env));
+    let total_funded = c.funded_amount;
+    if funders.is_empty() || total_funded <= 0 {
+        transfer_checked(env, &c.token, &this, &c.client, refund)?;
+        return Ok(());
+    }
+    let mut remaining = refund;
+    let mut largest: Option<Address> = None;
+    let mut largest_amt: i128 = -1;
+    let mut left: Map<Address, i128> = Map::new(env);
+    for (funder, contribution) in funders.iter() {
+        let share = contribution
+            .checked_mul(refund)
+            .ok_or(EscrowError::ArithmeticOverflow)?
+            / total_funded;
+        if share > 0 {
+            transfer_checked(env, &c.token, &this, &funder, share)?;
+            remaining = remaining
+                .checked_sub(share)
+                .ok_or(EscrowError::ArithmeticOverflow)?;
+        }
+        let kept = contribution
+            .checked_sub(share)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        left.set(funder.clone(), kept);
+        if contribution > largest_amt {
+            largest_amt = contribution;
+            largest = Some(funder);
+        }
+    }
+    if remaining > 0 {
+        let to = largest.clone().unwrap_or_else(|| c.client.clone());
+        transfer_checked(env, &c.token, &this, &to, remaining)?;
+        if let Some(funder) = largest {
+            let kept = left.get(funder.clone()).unwrap_or(0);
+            left.set(funder, kept.saturating_sub(remaining).max(0));
+        }
+    }
+    env.storage().persistent().set(&key, &left);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+    Ok(())
+}
+
 pub fn transition(c: &mut EscrowContract, to: ContractStatus) -> Result<(), EscrowError> {
     use ContractStatus::*;
     let allowed = match (c.status, to) {
@@ -1772,7 +1864,59 @@ impl Escrow {
     /// Client releases a single milestone.
     pub fn try_release_milestone(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
         let mut c = load(&env, id)?;
-        release_milestone_inner(&env, &mut c, index)
+        require_not_frozen(&env, id)?;
+        apply_deposit(&env, &mut c, &funder, amount)
+    }
+
+    /// Returns the map of funder -> contribution for an escrow.
+    pub fn get_funders(env: Env, id: u64) -> Map<Address, i128> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Funders(id))
+            .unwrap_or_else(|| Map::new(&env))
+    }
+
+    /// Freelancer marks a milestone as delivered, starting the review clock.
+    /// The escrow must be `Funded`, the milestone `Pending`, and its unpaid
+    /// amount covered by `funded - released - (already submitted backing)`.
+    /// Emits `("submit", id) -> (index, submitted_at)`.
+    pub fn submit_milestone(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
+        require_not_paused(&env, PAUSE_RELEASE)?;
+        let c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
+        // Stream escrows pay out only through `withdraw_vested` / `stop_stream`.
+        if is_stream(&env, id) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        c.freelancer.require_auth();
+        if c.status != ContractStatus::Funded {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let m = c
+            .milestones
+            .get(index)
+            .ok_or(EscrowError::MilestoneNotFound)?;
+        if m.released || is_reclaimed(&env, id, index) || submitted_at(&env, id, index).is_some() {
+            return Err(EscrowError::MilestoneAlreadyReleased);
+        }
+        let remaining = m.amount - milestone_paid(&env, id, index);
+        let available = c
+            .funded_amount
+            .checked_sub(c.released_amount)
+            .and_then(|v| v.checked_sub(submitted_backing(&env, &c).ok()?))
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        if available < remaining {
+            return Err(EscrowError::InsufficientFunds);
+        }
+        let now = env.ledger().timestamp();
+        let key = DataKey::Submitted(id, index);
+        env.storage().persistent().set(&key, &now);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        env.events()
+            .publish((symbol_short!("submit"), id), (index, now));
+        Ok(())
     }
 
     fn release_milestone_inner(env: &Env, c: &mut EscrowContract, index: u32) -> Result<(), EscrowError> {
@@ -1786,8 +1930,11 @@ impl Escrow {
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
-        let mut m = c.milestones.get(index).ok_or(EscrowError::MilestoneNotFound)?;
-        if m.released {
+        let mut m = c
+            .milestones
+            .get(index)
+            .ok_or(EscrowError::MilestoneNotFound)?;
+        if m.released || is_reclaimed(&env, id, index) {
             return Err(EscrowError::MilestoneAlreadyReleased);
         }
         if is_sequential(&env, c.id) && first_unreleased(c) != Some(index) {
@@ -1849,8 +1996,11 @@ impl Escrow {
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
-        let mut m = c.milestones.get(index).ok_or(EscrowError::MilestoneNotFound)?;
-        if m.released {
+        let mut m = c
+            .milestones
+            .get(index)
+            .ok_or(EscrowError::MilestoneNotFound)?;
+        if m.released || is_reclaimed(&env, id, index) {
             return Err(EscrowError::MilestoneAlreadyReleased);
         }
         if is_sequential(&env, c.id) && first_unreleased(c) != Some(index) {
@@ -1864,8 +2014,63 @@ impl Escrow {
         if c.funded_amount - c.released_amount < amount {
             return Err(EscrowError::InsufficientFunds);
         }
-        pay_out(&env, c, amount)?;
-        c.released_amount = c.released_amount.checked_add(amount).ok_or(EscrowError::ArithmeticOverflow)?;
+        clear_submitted(&env, id, index);
+        let completed = c.milestones.iter().all(|x| x.released);
+        if completed {
+            transition(&mut c, ContractStatus::Completed)?;
+            record_closed_at(&env, id);
+        }
+        clear_settlement(&env, id);
+        sub_liability(&env, &c.token, remaining)?;
+        #[cfg(any(test, debug_assertions))]
+        assert_solvent(&env, &c.token);
+        save(&env, &c);
+        events::release(&env, &c, index, remaining, &payee(&env, &c), c.released_amount, fee);
+        if completed {
+            events::completed(&env, &c);
+        }
+        Ok(())
+    }
+
+    /// Client releases any portion of a milestone (e.g. 50% on draft, 50% on
+    /// final). The paid amount is tracked per milestone; once it reaches the
+    /// milestone amount the milestone is released and completion is checked.
+    /// Emits `("rel_part", id) -> (index, amount, remaining)`.
+    pub fn release_partial(env: Env, id: u64, index: u32, amount: i128) -> Result<(), EscrowError> {
+        require_not_paused(&env, PAUSE_RELEASE)?;
+        let mut c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
+        // Stream escrows pay out only through `withdraw_vested` / `stop_stream`.
+        if is_stream(&env, id) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        c.client.require_auth();
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let mut m = c
+            .milestones
+            .get(index)
+            .ok_or(EscrowError::MilestoneNotFound)?;
+        if m.released || is_reclaimed(&env, id, index) {
+            return Err(EscrowError::MilestoneAlreadyReleased);
+        }
+        if is_sequential(&env, id) && first_unreleased(&c) != Some(index) {
+            return Err(EscrowError::OutOfOrder);
+        }
+        let paid = milestone_paid(&env, id, index);
+        let remaining = m.amount - paid;
+        if amount <= 0 || amount > remaining {
+            return Err(EscrowError::InvalidAmount);
+        }
+        if c.funded_amount - c.released_amount < amount {
+            return Err(EscrowError::InsufficientFunds);
+        }
+        pay_out(&env, &c, amount)?;
+        c.released_amount = c
+            .released_amount
+            .checked_add(amount)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
         let new_paid = paid + amount;
         let remaining_after = m.amount - new_paid;
         let mut completed = false;
@@ -1927,8 +2132,11 @@ impl Escrow {
                     return Err(EscrowError::DuplicateIndex);
                 }
             }
-            let m = c.milestones.get(index).ok_or(EscrowError::MilestoneNotFound)?;
-            if m.released {
+            let m = c
+                .milestones
+                .get(index)
+                .ok_or(EscrowError::MilestoneNotFound)?;
+            if m.released || is_reclaimed(&env, id, index) {
                 return Err(EscrowError::MilestoneAlreadyReleased);
             }
             let remaining = m.amount - milestone_paid(&env, c.id, index);
@@ -2472,7 +2680,7 @@ impl Escrow {
             .milestones
             .get(index)
             .ok_or(EscrowError::MilestoneNotFound)?;
-        if m.released {
+        if m.released || is_reclaimed(&env, id, index) {
             return Err(EscrowError::MilestoneAlreadyReleased);
         }
         let key = DataKey::Delivery(id, index);
@@ -2499,6 +2707,143 @@ impl Escrow {
     /// Delivery hash recorded for a milestone, if any.
     pub fn get_delivery(env: Env, id: u64, index: u32) -> Option<BytesN<32>> {
         env.storage().persistent().get(&DataKey::Delivery(id, index))
+    }
+
+    /// Client commits optional per-milestone due dates (ledger timestamps).
+    /// `dates` is either empty (clears any deadlines) or exactly one strictly
+    /// increasing date per milestone, else `InvalidMetadata`. Only while
+    /// `Created` with nothing deposited; frozen afterwards (`InvalidStatus`).
+    /// Emits `("m_due", id) -> dates`.
+    pub fn set_milestone_due(env: Env, id: u64, dates: Vec<u64>) -> Result<(), EscrowError> {
+        require_not_paused(&env, PAUSE_CREATE)?;
+        let c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
+        c.client.require_auth();
+        if c.status != ContractStatus::Created || c.funded_amount != 0 {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let n = dates.len();
+        if n != 0 && n != c.milestones.len() {
+            return Err(EscrowError::InvalidMetadata);
+        }
+        let mut previous: Option<u64> = None;
+        for due in dates.iter() {
+            if let Some(prev) = previous {
+                if due <= prev {
+                    return Err(EscrowError::InvalidMetadata);
+                }
+            }
+            previous = Some(due);
+        }
+        let key = DataKey::MilestoneDue(id);
+        env.storage().persistent().set(&key, &dates);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        env.events().publish((symbol_short!("m_due"), id), dates);
+        Ok(())
+    }
+
+    /// Due date (ledger timestamp) agreed for a milestone, if any.
+    pub fn get_milestone_due(env: Env, id: u64, index: u32) -> Option<u64> {
+        milestone_due(&env, id, index)
+    }
+
+    /// Client reclaims a milestone whose agreed due date has passed and that
+    /// the freelancer never submitted. Its unpaid amount is refunded to the
+    /// funders and removed from the escrow's `total_amount`/`funded_amount`; a
+    /// partially paid milestone refunds only what is still unpaid. Once no
+    /// milestone is left outstanding the remainder is closed as `Cancelled`.
+    /// Submitted milestones can never be reclaimed (`InvalidStatus`).
+    /// Emits `("reclaim", id) -> (index, refund)`.
+    pub fn reclaim_overdue(env: Env, id: u64, index: u32) -> Result<(), EscrowError> {
+        require_not_paused(&env, PAUSE_CANCEL)?;
+        let mut c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
+        // Stream escrows pay out only through `withdraw_vested` / `stop_stream`.
+        if is_stream(&env, id) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        c.client.require_auth();
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let m = c
+            .milestones
+            .get(index)
+            .ok_or(EscrowError::MilestoneNotFound)?;
+        if m.released || is_reclaimed(&env, id, index) {
+            return Err(EscrowError::MilestoneAlreadyReleased);
+        }
+        // Submitted work is committed to the freelancer and cannot be clawed back.
+        if submitted_at(&env, id, index).is_some() {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let due = milestone_due(&env, id, index).ok_or(EscrowError::InvalidMetadata)?;
+        if env.ledger().timestamp() <= due {
+            return Err(EscrowError::NotExpired);
+        }
+
+        let unpaid = m
+            .amount
+            .checked_sub(milestone_paid(&env, id, index))
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        let held = c
+            .funded_amount
+            .checked_sub(c.released_amount)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        // Never refund more than the escrow actually holds (partial funding).
+        let refund = unpaid.min(held).max(0);
+
+        refund_funders_shrink(&env, &c, refund)?;
+        c.refunded_amount = c
+            .refunded_amount
+            .checked_add(refund)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        c.funded_amount = c
+            .funded_amount
+            .checked_sub(refund)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        c.total_amount = c
+            .total_amount
+            .checked_sub(unpaid)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        mark_reclaimed(&env, id, index);
+        sub_liability(&env, &c.token, refund)?;
+
+        // Nothing left outstanding: cancel the remainder (releasing any funds
+        // still held for milestones that no longer exist).
+        let outstanding = c
+            .milestones
+            .iter()
+            .enumerate()
+            .any(|(i, m)| !m.released && !is_reclaimed(&env, id, i as u32));
+        if !outstanding {
+            let leftover = c
+                .funded_amount
+                .checked_sub(c.released_amount)
+                .ok_or(EscrowError::ArithmeticOverflow)?;
+            if leftover > 0 {
+                refund_funders_shrink(&env, &c, leftover)?;
+                c.refunded_amount = c
+                    .refunded_amount
+                    .checked_add(leftover)
+                    .ok_or(EscrowError::ArithmeticOverflow)?;
+                c.funded_amount = c.released_amount;
+                sub_liability(&env, &c.token, leftover)?;
+            }
+            transition(&mut c, ContractStatus::Cancelled)?;
+            record_closed_at(&env, id);
+        }
+        clear_settlement(&env, id);
+        #[cfg(any(test, debug_assertions))]
+        assert_solvent(&env, &c.token);
+        #[cfg(any(test, debug_assertions))]
+        check_invariants(&c);
+        save(&env, &c);
+        env.events()
+            .publish((symbol_short!("reclaim"), id), (index, refund));
+        Ok(())
     }
 
     /// Anyone may expire an escrow that is still `Created` (not fully funded,
@@ -2838,6 +3183,7 @@ impl Escrow {
             DataKey::Sequential(id),
             DataKey::Terms(id),
             DataKey::MilestoneSpecs(id),
+            DataKey::MilestoneDue(id),
             DataKey::DisputeBond(id),
             DataKey::Settlement(id),
             DataKey::DisputeOpenedAt(id),
@@ -2862,6 +3208,7 @@ impl Escrow {
                 extend_if_present(&env, &DataKey::Submitted(id, i));
                 extend_if_present(&env, &DataKey::Delivery(id, i));
                 extend_if_present(&env, &DataKey::MilestonePaid(id, i));
+                extend_if_present(&env, &DataKey::MilestoneReclaimed(id, i));
             }
         }
         bump_instance(&env);

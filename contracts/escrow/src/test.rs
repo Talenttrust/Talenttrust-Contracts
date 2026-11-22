@@ -9127,3 +9127,290 @@ fn allowlist_non_admin_rejected_set_allowlist_enabled() {
     }]);
     escrow.set_allowlist_enabled(&true);
 }
+
+// ---------------------------------------------------------------------------
+// Per-milestone due dates and overdue reclaim
+// ---------------------------------------------------------------------------
+
+/// Two milestones (100U, 200U) with due dates 10_000 and 20_000.
+fn due_fixture(s: &Setup) -> u64 {
+    let id = two_milestone_escrow(s);
+    s.escrow
+        .set_milestone_due(&id, &vec![&s.env, 10_000u64, 20_000u64]);
+    id
+}
+
+#[test]
+fn milestone_due_dates_set_only_before_funding() {
+    let s = setup();
+    let id = due_fixture(&s);
+    assert_eq!(s.escrow.get_milestone_due(&id, &0), Some(10_000));
+    assert_eq!(s.escrow.get_milestone_due(&id, &1), Some(20_000));
+    assert_eq!(s.escrow.get_milestone_due(&id, &2), None);
+    // An escrow without deadlines reports none.
+    let undated = two_milestone_escrow(&s);
+    assert_eq!(s.escrow.get_milestone_due(&undated, &0), None);
+
+    // Empty dates clear the schedule and are accepted before funding.
+    s.escrow.set_milestone_due(&id, &Vec::new(&s.env));
+    assert_eq!(s.escrow.get_milestone_due(&id, &0), None);
+
+    // Any deposit (even partial) freezes the schedule.
+    s.escrow.deposit_funds(&id, &(10 * U));
+    assert_eq!(
+        s.escrow
+            .try_set_milestone_due(&id, &vec![&s.env, 10_000u64, 20_000u64]),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+}
+
+#[test]
+fn milestone_due_dates_require_increasing_and_matching_length() {
+    let s = setup();
+    let id = two_milestone_escrow(&s);
+    assert_eq!(
+        s.escrow.try_set_milestone_due(&id, &vec![&s.env, 10_000u64]),
+        Err(Ok(EscrowError::InvalidMetadata))
+    );
+    assert_eq!(
+        s.escrow
+            .try_set_milestone_due(&id, &vec![&s.env, 10_000u64, 10_000u64]),
+        Err(Ok(EscrowError::InvalidMetadata))
+    );
+    assert_eq!(
+        s.escrow
+            .try_set_milestone_due(&id, &vec![&s.env, 20_000u64, 10_000u64]),
+        Err(Ok(EscrowError::InvalidMetadata))
+    );
+    s.escrow
+        .set_milestone_due(&id, &vec![&s.env, 10_000u64, 10_001u64]);
+    assert_eq!(s.escrow.get_milestone_due(&id, &1), Some(10_001));
+}
+
+#[test]
+fn milestone_due_writes_are_client_only() {
+    let s = setup();
+    let id = two_milestone_escrow(&s);
+    let dates = vec![&s.env, 10_000u64, 20_000u64];
+    s.env.mock_auths(&[MockAuth {
+        address: &s.freelancer,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "set_milestone_due",
+            args: (id, dates.clone()).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_set_milestone_due(&id, &dates).is_err());
+
+    s.env.mock_all_auths();
+    s.escrow.set_milestone_due(&id, &dates);
+    s.escrow.deposit_funds(&id, &(300 * U));
+    at_time(&s.env, 10_001);
+    s.env.mock_auths(&[MockAuth {
+        address: &s.freelancer,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "reclaim_overdue",
+            args: (id, 0u32).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_reclaim_overdue(&id, &0).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.escrow.get_contract(&id).funded_amount, 300 * U);
+}
+
+#[test]
+fn milestone_due_reclaim_refunds_overdue_unsubmitted() {
+    let s = setup();
+    let id = due_fixture(&s);
+    s.escrow.deposit_funds(&id, &(300 * U));
+
+    // Strictly after the due date only.
+    at_time(&s.env, 10_000);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::NotExpired))
+    );
+    at_time(&s.env, 10_001);
+    s.escrow.reclaim_overdue(&id, &0);
+
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Funded);
+    assert_eq!(c.total_amount, 200 * U);
+    assert_eq!(c.funded_amount, 200 * U);
+    assert_eq!(c.refunded_amount, 100 * U);
+    assert_eq!(s.token.balance(&s.client), 800 * U);
+    assert_eq!(s.token.balance(&s.escrow.address), 200 * U);
+    assert_invariants(&s, &c);
+
+    // A reclaimed milestone can never be submitted, released or reclaimed again.
+    assert_eq!(
+        s.escrow.try_submit_milestone(&id, &0),
+        Err(Ok(EscrowError::MilestoneAlreadyReleased))
+    );
+    assert_eq!(
+        s.escrow.try_release_milestone(&id, &0),
+        Err(Ok(EscrowError::MilestoneAlreadyReleased))
+    );
+    assert_eq!(
+        s.escrow.try_release_partial(&id, &0, &U),
+        Err(Ok(EscrowError::MilestoneAlreadyReleased))
+    );
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::MilestoneAlreadyReleased))
+    );
+
+    // Reclaiming the last outstanding milestone cancels the remainder.
+    at_time(&s.env, 20_001);
+    s.escrow.reclaim_overdue(&id, &1);
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Cancelled);
+    assert_eq!(c.total_amount, 0);
+    assert_eq!(c.funded_amount, 0);
+    assert_eq!(c.released_amount, 0);
+    assert_eq!(s.token.balance(&s.client), 1_000 * U);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_invariants(&s, &c);
+}
+
+#[test]
+fn milestone_due_reclaim_rejects_submitted_milestones() {
+    let s = setup();
+    let id = due_fixture(&s);
+    s.escrow.deposit_funds(&id, &(300 * U));
+    s.escrow.submit_milestone(&id, &0);
+    at_time(&s.env, 10_001);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(s.escrow.get_contract(&id).funded_amount, 300 * U);
+
+    // A milestone without an agreed deadline cannot be reclaimed.
+    let undated = two_milestone_escrow(&s);
+    s.escrow.deposit_funds(&undated, &(300 * U));
+    at_time(&s.env, 1_000_000);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&undated, &1),
+        Err(Ok(EscrowError::InvalidMetadata))
+    );
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&undated, &9),
+        Err(Ok(EscrowError::MilestoneNotFound))
+    );
+}
+
+#[test]
+fn milestone_due_reclaim_keeps_partial_payments() {
+    let s = setup();
+    let id = due_fixture(&s);
+    s.escrow.deposit_funds(&id, &(300 * U));
+    s.escrow.release_partial(&id, &0, &(30 * U));
+    at_time(&s.env, 10_001);
+    s.escrow.reclaim_overdue(&id, &0);
+
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.total_amount, 230 * U);
+    assert_eq!(c.funded_amount, 230 * U);
+    assert_eq!(c.released_amount, 30 * U);
+    assert_eq!(s.escrow.get_milestone_paid(&id, &0), 30 * U);
+    assert_eq!(s.token.balance(&s.client), 770 * U);
+    assert_invariants(&s, &c);
+}
+
+#[test]
+fn milestone_due_reclaim_respects_pause_freeze_and_stream() {
+    let s = setup();
+    let id = due_fixture(&s);
+    s.escrow.deposit_funds(&id, &(300 * U));
+    at_time(&s.env, 10_001);
+
+    s.escrow.set_pause_flags(&s.admin, &PAUSE_CANCEL);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::Paused))
+    );
+    s.escrow.set_pause_flags(&s.admin, &0);
+
+    s.escrow.freeze_escrow(&id, &symbol_short!("check"));
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&id, &0),
+        Err(Ok(EscrowError::EscrowFrozen))
+    );
+    s.escrow.unfreeze_escrow(&id);
+
+    // Setting due dates is gated by the create pause category.
+    let id2 = two_milestone_escrow(&s);
+    s.escrow.set_pause_flags(&s.admin, &PAUSE_CREATE);
+    assert_eq!(
+        s.escrow
+            .try_set_milestone_due(&id2, &vec![&s.env, 10_000u64, 20_000u64]),
+        Err(Ok(EscrowError::Paused))
+    );
+    s.escrow.set_pause_flags(&s.admin, &0);
+
+    // Stream escrows settle only through withdraw/stop_stream.
+    at_time(&s.env, 10_000);
+    let stream = s.escrow.create_stream(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &(100 * U),
+        &10_000,
+        &13_600,
+    );
+    s.escrow
+        .set_milestone_due(&stream, &vec![&s.env, 11_000u64]);
+    s.escrow.deposit_funds(&stream, &(100 * U));
+    at_time(&s.env, 11_001);
+    assert_eq!(
+        s.escrow.try_reclaim_overdue(&stream, &0),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+}
+
+#[test]
+fn milestone_due_reclaim_refunds_sponsors_proportionally() {
+    let s = setup();
+    let id = two_milestone_escrow(&s);
+    s.escrow
+        .set_milestone_due(&id, &vec![&s.env, 10_000u64, 20_000u64]);
+    let sponsor = Address::generate(&s.env);
+    StellarAssetClient::new(&s.env, &s.token.address).mint(&sponsor, &(300 * U));
+    s.escrow.deposit_from(&id, &sponsor, &(300 * U));
+    at_time(&s.env, 10_001);
+
+    // The sponsor (not the client) funded the escrow, so it receives the refund.
+    s.escrow.reclaim_overdue(&id, &0);
+    assert_eq!(s.token.balance(&sponsor), 100 * U);
+    assert_eq!(s.token.balance(&s.client), 1_000 * U);
+    assert_invariants(&s, &s.escrow.get_contract(&id));
+
+    // Contributions shrink with the refund, so the second reclaim is exact.
+    at_time(&s.env, 20_001);
+    s.escrow.reclaim_overdue(&id, &1);
+    assert_eq!(s.token.balance(&sponsor), 300 * U);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_invariants(&s, &s.escrow.get_contract(&id));
+}
+
+#[test]
+fn milestone_due_side_keys_extend_ttl() {
+    let s = setup();
+    let id = due_fixture(&s);
+    s.escrow.deposit_funds(&id, &(300 * U));
+    at_time(&s.env, 10_001);
+    s.escrow.reclaim_overdue(&id, &0);
+    s.env.ledger().set_sequence_number(QUIET);
+    assert!(persistent_ttl(&s, &DataKey::MilestoneDue(id)) < PERSISTENT_TTL_THRESHOLD);
+    s.escrow.extend_escrow_ttl(&id);
+    assert!(
+        persistent_ttl(&s, &DataKey::MilestoneDue(id)) >= PERSISTENT_TTL_THRESHOLD
+    );
+    assert!(
+        persistent_ttl(&s, &DataKey::MilestoneReclaimed(id, 0)) >= PERSISTENT_TTL_THRESHOLD
+    );
+}
