@@ -1262,3 +1262,62 @@ fn extend_reputation_ttl_keeps_reputation_alive() {
             >= PERSISTENT_TTL_THRESHOLD
     );
 }
+
+// ---------------------------------------------------------------------------
+// Per-client open-escrow cap administration (#1785)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn open_escrow_cap_is_admin_only() {
+    let s = setup();
+    s.env.mock_auths(&[]);
+    assert!(s.escrow.try_set_max_open_escrows(&1).is_err());
+
+    // The failed attempt leaves the default (unlimited) in place.
+    s.env.mock_all_auths();
+    for _ in 0..3 {
+        s.escrow.create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 100 * U],
+        );
+    }
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 3);
+}
+
+#[test]
+fn admin_sets_open_escrow_cap_and_emits_event() {
+    let s = setup();
+    // Default is unlimited: no cap is stored and creation is unrestricted.
+    s.escrow.set_max_open_escrows(&0);
+    s.escrow.set_max_open_escrows(&2);
+
+    let (topics, data) = last_global_event(&s);
+    let topic: Symbol = topics.get(0).unwrap().try_into_val(&s.env).unwrap();
+    assert_eq!(topic, symbol_short!("max_open"));
+    let value: u32 = data.try_into_val(&s.env).unwrap();
+    assert_eq!(value, 2);
+
+    s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    assert!(s
+        .escrow
+        .try_create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 100 * U],
+        )
+        .is_err());
+}

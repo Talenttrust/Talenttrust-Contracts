@@ -506,3 +506,209 @@ fn amendment_stale_nonce_rejected() {
     );
     assert_amendment_invariants(&s, id);
 }
+
+// ---------------------------------------------------------------------------
+// Stream dispute accounting (#1791)
+// ---------------------------------------------------------------------------
+
+/// Creates a fully funded 100-unit stream vesting linearly over two hours.
+fn funded_stream(s: &Setup, amount: i128) -> u64 {
+    let id = s.escrow.create_stream(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &amount,
+        &0u64,
+        &7_200u64,
+    );
+    s.escrow.deposit_funds(&id, &amount);
+    id
+}
+
+/// Opens a dispute on a funded stream (withdrawing the half vested so far when
+/// `withdraw_first` is set) and resolves it at `bps`. The split must cover only
+/// the balance still held by the escrow: previously withdrawn pay is never paid
+/// twice, refunded again, or lost.
+fn assert_stream_dispute_accounting(withdraw_first: bool, bps: u32) {
+    let s = setup();
+    let amount = 100 * U;
+    let id = funded_stream(&s, amount);
+    at_time(&s.env, 3_600);
+
+    let mut withdrawn = 0;
+    if withdraw_first {
+        withdrawn = s.escrow.withdraw_vested(&id);
+        assert_eq!(withdrawn, 50 * U);
+    }
+    check_invariants(&s.escrow.get_contract(&id));
+    let client_before = s.token.balance(&s.client);
+    let freelancer_before = s.token.balance(&s.freelancer);
+
+    open_dispute_bonded(&s, &id, &s.client);
+    // Disputing freezes the still-held balance, not the withdrawn part.
+    let held = amount - withdrawn;
+    assert_eq!(
+        s.escrow.get_liability(&s.token.address),
+        held + dispute_bond(amount)
+    );
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+
+    s.escrow.resolve_dispute(&s.admin, &id, &bps, &true);
+
+    let to_freelancer = mul_bps(held, bps);
+    let to_client = held - to_freelancer;
+    assert_eq!(
+        s.token.balance(&s.freelancer),
+        freelancer_before + to_freelancer
+    );
+    // The opener's bond was minted for the dispute and returns to the opener,
+    // so the client ends with its share of the held balance plus that bond.
+    assert_eq!(
+        s.token.balance(&s.client),
+        client_before + to_client + dispute_bond(amount)
+    );
+
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Resolved);
+    assert_eq!(c.total_amount, amount);
+    assert_eq!(c.released_amount, withdrawn + to_freelancer);
+    assert_eq!(c.funded_amount, c.released_amount);
+    assert_eq!(c.refunded_amount, to_client);
+    check_invariants(&c);
+
+    // The stream schedule is untouched: withdrawn still records exactly what
+    // `withdraw_vested` paid before the dispute.
+    let stream = s.escrow.get_stream(&id);
+    assert_eq!(stream.withdrawn, withdrawn);
+    assert_eq!(stream.stopped_at, None);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_eq!(s.escrow.get_liability(&s.token.address), 0);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+}
+
+#[test]
+fn stream_dispute_before_withdrawal_at_0_bps() {
+    assert_stream_dispute_accounting(false, 0);
+}
+
+#[test]
+fn stream_dispute_before_withdrawal_at_50_bps() {
+    assert_stream_dispute_accounting(false, 5_000);
+}
+
+#[test]
+fn stream_dispute_before_withdrawal_at_100_bps() {
+    assert_stream_dispute_accounting(false, 10_000);
+}
+
+#[test]
+fn stream_dispute_after_partial_withdrawal_at_0_bps() {
+    assert_stream_dispute_accounting(true, 0);
+}
+
+#[test]
+fn stream_dispute_after_partial_withdrawal_at_50_bps() {
+    assert_stream_dispute_accounting(true, 5_000);
+}
+
+#[test]
+fn stream_dispute_after_partial_withdrawal_at_100_bps() {
+    assert_stream_dispute_accounting(true, 10_000);
+}
+
+#[test]
+fn stream_withdraw_and_stop_rejected_while_disputed() {
+    let s = setup();
+    let amount = 100 * U;
+    let id = funded_stream(&s, amount);
+    at_time(&s.env, 3_600);
+    open_dispute_bonded(&s, &id, &s.client);
+
+    let contract_before = s.escrow.get_contract(&id);
+    let stream_before = s.escrow.get_stream(&id);
+    assert_eq!(
+        s.escrow.try_withdraw_vested(&id),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(
+        s.escrow.try_stop_stream(&id),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(s.escrow.get_contract(&id), contract_before);
+    assert_eq!(s.escrow.get_stream(&id), stream_before);
+    assert_eq!(
+        s.escrow.get_liability(&s.token.address),
+        amount + dispute_bond(amount)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Change orders on stream escrows (#1786)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn change_order_rejected_on_stream_escrows() {
+    let s = setup();
+    let id = funded_stream(&s, 100 * U);
+    at_time(&s.env, 1_800);
+    let contract_before = s.escrow.get_contract(&id);
+    let stream_before = s.escrow.get_stream(&id);
+
+    assert_eq!(
+        s.escrow
+            .try_propose_change_order(&id, &vec![&s.env, 50 * U]),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(s.escrow.get_change_order(&id), None);
+    assert_eq!(s.escrow.get_contract(&id), contract_before);
+    assert_eq!(s.escrow.get_stream(&id), stream_before);
+
+    // Accepting is guarded before the proposal lookup, so a stream escrow always
+    // reports InvalidStatus (never ChangeOrderNotFound).
+    assert_eq!(
+        s.escrow.try_accept_change_order(&id),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    let after = s.escrow.get_contract(&id);
+    assert_eq!(after, contract_before);
+    assert_eq!(after.milestones.len(), 1);
+    assert_eq!(after.milestones.get(0).unwrap().amount, 100 * U);
+    assert_eq!(after.status, ContractStatus::Funded);
+    assert_eq!(after.funded_amount, 100 * U);
+    assert_eq!(after.released_amount, 0);
+    assert_eq!(s.escrow.get_stream(&id), stream_before);
+    assert_eq!(s.escrow.get_change_order(&id), None);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+}
+
+#[test]
+fn reject_change_order_respects_pause_and_freeze() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    s.escrow.propose_change_order(&id, &vec![&s.env, 50 * U]);
+
+    s.escrow.set_pause_flags(&s.admin, &PAUSE_CREATE);
+    assert_eq!(
+        s.escrow.try_reject_change_order(&id),
+        Err(Ok(EscrowError::Paused))
+    );
+    assert!(s.escrow.get_change_order(&id).is_some());
+
+    s.escrow.set_pause_flags(&s.admin, &0);
+    s.escrow.freeze_escrow(&id, &symbol_short!("dispute"));
+    assert_eq!(
+        s.escrow.try_reject_change_order(&id),
+        Err(Ok(EscrowError::EscrowFrozen))
+    );
+    assert!(s.escrow.get_change_order(&id).is_some());
+
+    s.escrow.unfreeze_escrow(&id);
+    s.escrow.reject_change_order(&id);
+    assert!(s.escrow.get_change_order(&id).is_none());
+}

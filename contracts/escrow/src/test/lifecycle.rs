@@ -2186,3 +2186,286 @@ fn resign_emits_event_and_is_not_a_client_cancellation() {
     s.escrow.set_paused(&s.admin, &true);
     assert_eq!(s.escrow.try_resign(&id2), Err(Ok(EscrowError::Paused)));
 }
+
+// ---------------------------------------------------------------------------
+// Per-client open-escrow cap (#1785)
+// ---------------------------------------------------------------------------
+
+/// Creates a minimal unfunded escrow for the setup client.
+fn create_open_escrow(s: &Setup) -> u64 {
+    s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    )
+}
+
+#[test]
+fn open_escrow_cap_defaults_to_unlimited() {
+    let s = setup();
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+    for expected in 1..=5u32 {
+        let id = create_open_escrow(&s);
+        assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Created);
+        assert_eq!(s.escrow.get_open_escrows(&s.client), expected);
+    }
+}
+
+#[test]
+fn open_escrow_cap_blocks_creation_at_limit_and_frees_on_completion() {
+    let s = setup();
+    s.escrow.set_max_open_escrows(&2);
+
+    let first = create_open_escrow(&s);
+    s.escrow.deposit_funds(&first, &(100 * U));
+    let second = create_open_escrow(&s);
+    s.escrow.deposit_funds(&second, &(100 * U));
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 2);
+
+    // Every creation entry point shares the same `build_escrow` guard.
+    assert_eq!(
+        s.escrow.try_create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 100 * U],
+        ),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(
+        s.escrow.try_create_and_fund(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 100 * U],
+        ),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(
+        s.escrow.try_create_stream(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &(100 * U),
+            &0u64,
+            &7_200u64,
+        ),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    // Rejected creations neither increment the counter nor move tokens.
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 2);
+    assert_eq!(s.token.balance(&s.client), 800 * U);
+
+    s.escrow.release_milestone(&first, &0);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+    let third = create_open_escrow(&s);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 2);
+    assert_eq!(
+        s.escrow.get_contract(&third).status,
+        ContractStatus::Created
+    );
+}
+
+#[test]
+fn open_escrow_slot_freed_on_cancellation_and_counter_never_underflows() {
+    let s = setup();
+    s.escrow.set_max_open_escrows(&1);
+
+    let first = create_open_escrow(&s);
+    s.escrow.deposit_funds(&first, &(100 * U));
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+    s.escrow.cancel_contract(&first);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+
+    // A repeated terminal call is rejected and cannot decrement again.
+    assert_eq!(
+        s.escrow.try_cancel_contract(&first),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+
+    let second = create_open_escrow(&s);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+    s.escrow.cancel_contract(&second);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+}
+
+#[test]
+fn open_escrow_slot_freed_on_expiry() {
+    let s = setup();
+    s.escrow.set_max_open_escrows(&1);
+    let id = create_open_escrow(&s);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+
+    set_now(&s.env, FUNDING_WINDOW_SECS + 1);
+    s.escrow.expire_unfunded(&id);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Cancelled);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+    create_open_escrow(&s);
+}
+
+#[test]
+fn open_escrow_slot_freed_on_resignation() {
+    let s = setup();
+    s.escrow.set_max_open_escrows(&1);
+    let id = create_open_escrow(&s);
+    s.escrow.deposit_funds(&id, &(100 * U));
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+
+    s.escrow.resign(&id);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Cancelled);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+    create_open_escrow(&s);
+}
+
+#[test]
+fn open_escrow_slot_freed_on_stream_termination() {
+    let s = setup();
+    s.escrow.set_max_open_escrows(&1);
+    let id = s.escrow.create_stream(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &(100 * U),
+        &0u64,
+        &7_200u64,
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    at_time(&s.env, 2_880);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+
+    s.escrow.stop_stream(&id);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Cancelled);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+}
+
+#[test]
+fn open_escrow_slot_freed_on_stream_completion() {
+    let s = setup();
+    s.escrow.set_max_open_escrows(&1);
+    let id = s.escrow.create_stream(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &(100 * U),
+        &0u64,
+        &7_200u64,
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    at_time(&s.env, 7_200);
+
+    s.escrow.withdraw_vested(&id);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+}
+
+#[test]
+fn open_escrow_slot_freed_on_emergency_withdrawal() {
+    let s = setup();
+    s.escrow.set_max_open_escrows(&1);
+    let id = create_open_escrow(&s);
+    s.escrow.deposit_funds(&id, &(100 * U));
+
+    s.escrow.set_paused(&s.admin, &true);
+    set_now(&s.env, EMERGENCY_EXIT_DELAY_SECS + 1);
+    s.escrow.emergency_withdraw(&id, &s.client);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Cancelled);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+}
+
+#[test]
+fn open_escrow_slot_freed_on_dispute_resolution() {
+    let s = setup();
+    s.escrow.set_max_open_escrows(&1);
+    let id = create_open_escrow(&s);
+    s.escrow.deposit_funds(&id, &(100 * U));
+
+    open_dispute_bonded(&s, &id, &s.client);
+    // A disputed escrow is still open and still occupies its slot.
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+    s.escrow.resolve_dispute(&s.admin, &id, &5_000, &true);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+}
+
+#[test]
+fn change_order_reopen_uses_and_respects_open_escrow_cap() {
+    let s = setup();
+    s.escrow.set_max_open_escrows(&1);
+    let id = create_open_escrow(&s);
+    s.escrow.deposit_funds(&id, &(100 * U));
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+
+    let blocker = create_open_escrow(&s);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+
+    s.escrow.propose_change_order(&id, &vec![&s.env, 50 * U]);
+    // Reopening would exceed the cap: rejected and the escrow stays completed.
+    assert_eq!(
+        s.escrow.try_accept_change_order(&id),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Completed);
+    assert_eq!(c.total_amount, 100 * U);
+    assert_eq!(c.milestones.len(), 1);
+    assert!(s.escrow.get_change_order(&id).is_some());
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+
+    s.escrow.cancel_contract(&blocker);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+
+    let (added, total) = s.escrow.accept_change_order(&id);
+    assert_eq!((added, total), (1, 50 * U));
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Created);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+}
+
+#[test]
+fn open_escrow_counts_are_per_client() {
+    let s = setup();
+    s.escrow.set_max_open_escrows(&1);
+    let other = Address::generate(&s.env);
+    StellarAssetClient::new(&s.env, &s.token.address).mint(&other, &(100 * U));
+
+    let first = create_open_escrow(&s);
+    let second = s.escrow.create_contract(
+        &other,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 1);
+    assert_eq!(s.escrow.get_open_escrows(&other), 1);
+
+    // Each client is independently at its own cap.
+    assert!(s
+        .escrow
+        .try_create_contract(
+            &s.client,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 100 * U],
+        )
+        .is_err());
+    assert!(s
+        .escrow
+        .try_create_contract(
+            &other,
+            &s.freelancer,
+            &s.token.address,
+            &vec![&s.env, 100 * U],
+        )
+        .is_err());
+
+    s.escrow.cancel_contract(&first);
+    assert_eq!(s.escrow.get_open_escrows(&s.client), 0);
+    assert_eq!(s.escrow.get_open_escrows(&other), 1);
+    assert_eq!(
+        s.escrow.get_contract(&second).client,
+        other,
+        "the other client's escrow is tracked independently"
+    );
+}

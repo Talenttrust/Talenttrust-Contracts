@@ -487,6 +487,10 @@ enum DataKey {
     Stream(u64),
     Amendment(u64),
     AmendNonce(u64),
+    /// Number of currently open (non-terminal) escrows created by this client.
+    OpenCount(Address),
+    /// Configured per-client open-escrow cap; `0` means unlimited.
+    MaxOpenEscrows,
 }
 
 #[contract]
@@ -780,15 +784,75 @@ fn payee(env: &Env, c: &EscrowContract) -> Address {
         .unwrap_or_else(|| c.freelancer.clone())
 }
 
-/// Records the ledger sequence at which an escrow entered a terminal status.
-fn record_closed_at(env: &Env, id: u64) {
-    let key = DataKey::ClosedAt(id);
+/// Records the ledger sequence at which an escrow entered a terminal status and
+/// releases the client's open-escrow slot. Every terminal transition calls this
+/// exactly once, so the per-client open counter can never double-decrement or
+/// underflow (the decrement is clamped at zero).
+fn record_closed_at(env: &Env, c: &EscrowContract) {
+    let key = DataKey::ClosedAt(c.id);
     env.storage()
         .persistent()
         .set(&key, &u64::from(env.ledger().sequence()));
     env.storage()
         .persistent()
         .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+    drop_open_escrows(env, &c.client);
+}
+
+/// Configured per-client concurrent open-escrow cap; `0` means unlimited (the
+/// default, so existing behaviour is unchanged until an admin sets a cap).
+fn max_open_escrows(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxOpenEscrows)
+        .unwrap_or(0)
+}
+
+/// Number of currently open (non-terminal) escrows created by `client`.
+fn open_escrows(env: &Env, client: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::OpenCount(client.clone()))
+        .unwrap_or(0)
+}
+
+fn write_open_escrows(env: &Env, client: &Address, count: u32) {
+    let key = DataKey::OpenCount(client.clone());
+    env.storage().persistent().set(&key, &count);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+}
+
+/// Increments the client's open-escrow counter after a successful creation (or
+/// a change-order reopen).
+fn bump_open_escrows(env: &Env, client: &Address) -> Result<(), EscrowError> {
+    let count = open_escrows(env, client)
+        .checked_add(1)
+        .ok_or(EscrowError::ArithmeticOverflow)?;
+    write_open_escrows(env, client, count);
+    Ok(())
+}
+
+/// Decrements the client's open-escrow counter on a terminal transition. Never
+/// underflows: at zero it leaves the counter untouched.
+fn drop_open_escrows(env: &Env, client: &Address) {
+    let count = open_escrows(env, client);
+    if count > 0 {
+        write_open_escrows(env, client, count - 1);
+    }
+}
+
+/// Fails with `InvalidStatus` when `client` already holds the configured maximum
+/// number of open escrows (`0` = unlimited). The error enum has reached its
+/// 50-case Soroban limit, so the cap reuses the closest existing code; this is
+/// documented in the README.
+fn require_open_escrow_slot(env: &Env, client: &Address) -> Result<(), EscrowError> {
+    let max = max_open_escrows(env);
+    if max != 0 && open_escrows(env, client) >= max {
+        return Err(EscrowError::InvalidStatus);
+    }
+    Ok(())
 }
 
 fn is_compacted(env: &Env, id: u64) -> bool {
@@ -941,6 +1005,8 @@ fn build_escrow(
             released: false,
         });
     }
+    // ---- Open-escrow cap (per client; checked before anything is written) ----
+    require_open_escrow_slot(&env, &client)?;
     let id: u64 = env.storage().instance().get(&DataKey::NextId).unwrap_or(1);
     let next = id.checked_add(1).ok_or(EscrowError::ArithmeticOverflow)?;
     env.storage().instance().set(&DataKey::NextId, &next);
@@ -1005,6 +1071,8 @@ fn build_escrow(
     save(&env, &c);
     append_party_index(&env, &c.client, id, true)?;
     append_party_index(&env, &c.freelancer, id, false)?;
+    // Creation succeeded: the client now owns exactly one more open escrow.
+    bump_open_escrows(&env, &c.client)?;
     events::created(&env, &c);
     if fund_now {
         events::deposit(&env, &c, &client, total);
@@ -1362,7 +1430,7 @@ fn settle(
     c.refunded_amount = to_client;
     c.funded_amount = c.released_amount;
     transition(&mut c, ContractStatus::Resolved)?;
-    record_closed_at(env, c.id);
+    record_closed_at(env, &c);
     sub_liability(env, &c.token, held)?;
     #[cfg(any(test, debug_assertions))]
     assert_solvent(env, &c.token);
@@ -1773,6 +1841,26 @@ impl Escrow {
         escrow_fee(&env, id)
     }
 
+    /// Admin-only: maximum number of concurrently open (non-terminal) escrows a
+    /// single client may hold. `0` (the default) keeps creation unlimited. A
+    /// client at the cap gets `InvalidStatus` from every creation entry point
+    /// and from a change order that would reopen a completed escrow. Emits
+    /// `("max_open",) -> max`.
+    pub fn set_max_open_escrows(env: Env, max: u32) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        env.storage().instance().set(&DataKey::MaxOpenEscrows, &max);
+        bump_instance(&env);
+        env.events().publish((symbol_short!("max_open"),), max);
+        Ok(())
+    }
+
+    /// Number of currently open (non-terminal) escrows created by `client`.
+    /// Counts `Created` and `Funded` (and `Disputed`) escrows; every terminal
+    /// transition (`Completed`, `Resolved`, `Cancelled`) decrements it.
+    pub fn get_open_escrows(env: Env, client: Address) -> u32 {
+        open_escrows(&env, &client)
+    }
+
     /// Current pause bitmask (`0` when nothing is paused).
     pub fn get_pause_flags(env: Env) -> u32 {
         pause_flags(&env)
@@ -1853,7 +1941,7 @@ impl Escrow {
         // Dedicated emergency edge (outside the normal lifecycle machine):
         // Created / Funded / Disputed -> Cancelled.
         c.status = ContractStatus::Cancelled;
-        record_closed_at(&env, id);
+        record_closed_at(&env, &c);
         sub_liability(&env, &c.token, held)?;
         // Return any dispute bond to whoever posted it.
         let bond_key = DataKey::DisputeBond(id);
@@ -2237,7 +2325,7 @@ impl Escrow {
             c.status == ContractStatus::Funded && c.milestones.iter().all(|x| x.released);
         if completed {
             transition(&mut c, ContractStatus::Completed)?;
-            record_closed_at(&env, id);
+            record_closed_at(&env, &c);
         }
         clear_settlement(&env, id);
         sub_liability(&env, &c.token, remaining)?;
@@ -2324,7 +2412,7 @@ impl Escrow {
         let completed = c.milestones.iter().all(|x| x.released);
         if completed {
             transition(&mut c, ContractStatus::Completed)?;
-            record_closed_at(&env, id);
+            record_closed_at(&env, &c);
         }
         clear_settlement(&env, id);
         sub_liability(&env, &c.token, remaining)?;
@@ -2387,7 +2475,7 @@ impl Escrow {
             clear_submitted(&env, id, index);
             if c.milestones.iter().all(|x| x.released) {
                 transition(&mut c, ContractStatus::Completed)?;
-                record_closed_at(&env, id);
+                record_closed_at(&env, &c);
                 completed = true;
             }
         } else {
@@ -2510,7 +2598,7 @@ impl Escrow {
         let completed = c.milestones.iter().all(|x| x.released);
         if completed {
             transition(&mut c, ContractStatus::Completed)?;
-            record_closed_at(&env, id);
+            record_closed_at(&env, &c);
         }
         clear_settlement(&env, id);
         sub_liability(&env, &c.token, total)?;
@@ -2808,6 +2896,10 @@ impl Escrow {
         let c = load(&env, id)?;
         require_not_frozen(&env, id)?;
         c.client.require_auth();
+        // Stream escrows vest linearly and never carry milestone change orders.
+        if is_stream(&env, id) {
+            return Err(EscrowError::InvalidStatus);
+        }
         if !matches!(
             c.status,
             ContractStatus::Created | ContractStatus::Funded | ContractStatus::Completed
@@ -2846,6 +2938,11 @@ impl Escrow {
         let mut c = load(&env, id)?;
         require_not_frozen(&env, id)?;
         c.freelancer.require_auth();
+        // Checked before the proposal lookup so a stream escrow always reports
+        // InvalidStatus rather than ChangeOrderNotFound.
+        if is_stream(&env, id) {
+            return Err(EscrowError::InvalidStatus);
+        }
         let key = DataKey::ChangeOrder(id);
         let amounts: Vec<i128> = env
             .storage()
@@ -2857,6 +2954,12 @@ impl Escrow {
             ContractStatus::Created | ContractStatus::Funded | ContractStatus::Completed
         ) {
             return Err(EscrowError::InvalidStatus);
+        }
+        // Reopening a terminal (`Completed`) escrow consumes a fresh open slot,
+        // subject to the same per-client cap as creation.
+        let was_terminal = c.status == ContractStatus::Completed;
+        if was_terminal {
+            require_open_escrow_slot(&env, &c.client)?;
         }
         let added = amounts.len();
         if c.milestones.len() + added > MAX_MILESTONES {
@@ -2893,6 +2996,9 @@ impl Escrow {
         env.storage()
             .persistent()
             .extend_ttl(&fund_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        if was_terminal {
+            bump_open_escrows(&env, &c.client)?;
+        }
         #[cfg(any(test, debug_assertions))]
         check_invariants(&c);
         save(&env, &c);
@@ -2901,9 +3007,12 @@ impl Escrow {
         Ok((added, added_total))
     }
 
-    /// Freelancer rejects (removes) the pending change order.
+    /// Freelancer rejects (removes) the pending change order. Rejection follows
+    /// the same `PAUSE_CREATE` and freeze gates as proposing and accepting one.
     pub fn reject_change_order(env: Env, id: u64) -> Result<(), EscrowError> {
+        require_not_paused(&env, PAUSE_CREATE)?;
         let c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
         c.freelancer.require_auth();
         bump_instance(&env);
         let key = DataKey::ChangeOrder(id);
@@ -3031,7 +3140,7 @@ impl Escrow {
         c.refunded_amount = refund;
         c.funded_amount = 0;
         transition(&mut c, ContractStatus::Cancelled)?;
-        record_closed_at(&env, id);
+        record_closed_at(&env, &c);
         sub_liability(&env, &c.token, refund)?;
         #[cfg(any(test, debug_assertions))]
         assert_solvent(&env, &c.token);
@@ -3151,7 +3260,7 @@ impl Escrow {
         // Dedicated mutual-settlement edge (outside the admin-driven lifecycle
         // machine): Created / Funded / Disputed -> Resolved, by both parties.
         c.status = ContractStatus::Resolved;
-        record_closed_at(&env, id);
+        record_closed_at(&env, &c);
         sub_liability(&env, &c.token, held)?;
         let bond_key = DataKey::DisputeBond(id);
         if let Some((opener, bond)) = env
@@ -3215,7 +3324,7 @@ impl Escrow {
         c.refunded_amount = refund;
         c.funded_amount = c.released_amount;
         transition(&mut c, ContractStatus::Cancelled)?;
-        record_closed_at(&env, id);
+        record_closed_at(&env, &c);
         sub_liability(&env, &c.token, refund)?;
         #[cfg(any(test, debug_assertions))]
         assert_solvent(&env, &c.token);
@@ -3264,7 +3373,7 @@ impl Escrow {
             .checked_sub(refund)
             .ok_or(EscrowError::ArithmeticOverflow)?;
         transition(&mut c, ContractStatus::Cancelled)?;
-        record_closed_at(&env, id);
+        record_closed_at(&env, &c);
         sub_liability(&env, &c.token, refund)?;
         #[cfg(any(test, debug_assertions))]
         assert_solvent(&env, &c.token);
@@ -3703,7 +3812,7 @@ impl Escrow {
             m.released = true;
             c.milestones.set(0, m);
             transition(&mut c, ContractStatus::Completed)?;
-            record_closed_at(&env, id);
+            record_closed_at(&env, &c);
         }
         clear_settlement(&env, id);
         sub_liability(&env, &c.token, amount)?;
@@ -3758,7 +3867,7 @@ impl Escrow {
         c.refunded_amount = to_client;
         c.funded_amount = c.released_amount;
         transition(&mut c, ContractStatus::Cancelled)?;
-        record_closed_at(&env, id);
+        record_closed_at(&env, &c);
         clear_settlement(&env, id);
         sub_liability(&env, &c.token, held)?;
         #[cfg(any(test, debug_assertions))]
@@ -3892,7 +4001,7 @@ impl Escrow {
         }
         if c.milestones.iter().all(|m| m.released) {
             transition(&mut c, ContractStatus::Completed)?;
-            record_closed_at(&env, id);
+            record_closed_at(&env, &c);
         }
         clear_settlement(&env, id);
         #[cfg(any(test, debug_assertions))]
