@@ -5,7 +5,12 @@ use soroban_sdk::Env;
 use soroban_sdk::symbol_short;
 
 use super::types::{CreatedEvent, DepositEvent, ReleaseEvent, DisputeEvent, ResolvedEvent, CancelEvent, ReputationEvent, CompletedEvent, EscrowContract, MilestoneDisputeEvent, MilestoneResolvedEvent, ClaimableEvent};
-
+SettlementProposedEvent, SettlementAcceptedEvent, SettlementWithdrawnEvent,
+AmendmentProposedEvent, AmendmentAcceptedEvent,
+ChangeOrderProposedEvent, ChangeOrderAcceptedEvent, ChangeOrderRejectedEvent,
+ResignEvent, ExpiredEvent, EmergencyWithdrawEvent,
+StreamWithdrawEvent, StreamStoppedEvent, CompactEvent
+    
 /// Schema version carried as the first topic of every structured event.
 pub const EVENT_SCHEMA_V: u32 = 1;
 
@@ -189,3 +194,130 @@ pub fn claimable(env: &Env, id: u64, token: &soroban_sdk::Address, address: &sor
         },
     );
 }
+
+// ========== NEW TYPED EVENT HELPERS (Issue #1789) ==========
+
+pub fn settlement_proposed(env: &Env, id: u64, proposer: &soroban_sdk::Address, freelancer_amount: i128) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("settle_p"), id),
+        SettlementProposedEvent {
+            proposer: proposer.clone(),
+            freelancer_amount,
+        },
+    );
+}
+
+pub fn settlement_accepted(env: &Env, id: u64, to_freelancer: i128, to_client: i128) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("settled"), id),
+        SettlementAcceptedEvent {
+            to_freelancer,
+            to_client,
+        },
+    );
+}
+
+pub fn settlement_withdrawn(env: &Env, id: u64, proposer: &soroban_sdk::Address) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("settle_w"), id),
+        SettlementWithdrawnEvent {
+            proposer: proposer.clone(),
+        },
+    );
+}
+
+pub fn amendment_proposed(env: &Env, id: u64, proposer: &soroban_sdk::Address, nonce: u32) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("amend_p"), id),
+        AmendmentProposedEvent {
+            proposer: proposer.clone(),
+            nonce,
+        },
+    );
+}
+
+pub fn amendment_accepted(env: &Env, id: u64, old_total: i128, new_total: i128, refunded: i128) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("amended"), id),
+        AmendmentAcceptedEvent {
+            old_total,
+            new_total,
+            refunded,
+        },
+    );
+}
+
+pub fn change_order_proposed(env: &Env, id: u64, added_count: u32, added_total: i128) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("chg_prop"), id),
+        ChangeOrderProposedEvent {
+            added_count,
+            added_total,
+        },
+    );
+}
+
+pub fn change_order_accepted(env: &Env, id: u64, added_count: u32, added_total: i128) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("chg_ord"), id),
+        ChangeOrderAcceptedEvent {
+            added_count,
+            added_total,
+        },
+    );
+}
+
+pub fn change_order_rejected(env: &Env, id: u64) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("chg_rej"), id),
+        ChangeOrderRejectedEvent {},
+    );
+}
+
+pub fn resign(env: &Env, id: u64, refund: i128) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("resign"), id),
+        ResignEvent { refund },
+    );
+}
+
+pub fn expired(env: &Env, id: u64, refund: i128) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("expired"), id),
+        ExpiredEvent { refund },
+    );
+}
+
+pub fn emergency_withdraw(env: &Env, id: u64, to_client: i128, to_freelancer: i128) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("emerg"), id),
+        EmergencyWithdrawEvent {
+            to_client,
+            to_freelancer,
+        },
+    );
+}
+
+pub fn stream_withdraw(env: &Env, id: u64, amount: i128) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("stream_wd"), id),
+        StreamWithdrawEvent { amount },
+    );
+}
+
+pub fn stream_stopped(env: &Env, id: u64, to_freelancer: i128, to_client: i128) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("stream_st"), id),
+        StreamStoppedEvent {
+            to_freelancer,
+            to_client,
+        },
+    );
+}
+
+pub fn compact(env: &Env, id: u64) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("compact"), id),
+        CompactEvent { id },
+    );
+         }
