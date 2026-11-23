@@ -6834,6 +6834,135 @@ fn resign_emits_event_and_is_not_a_client_cancellation() {
 }
 
 // ---------------------------------------------------------------------------
+// Freelancer resignation counter (#1795)
+// ---------------------------------------------------------------------------
+
+fn funded_escrow_for(s: &Setup, freelancer: &Address, deposit: i128) -> u64 {
+    let id = s.escrow.create_contract(
+        &s.client,
+        freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    if deposit > 0 {
+        s.escrow.deposit_funds(&id, &deposit);
+    }
+    id
+}
+
+#[test]
+fn resign_with_refund_increments_counter() {
+    let s = setup();
+    let id = funded_escrow_for(&s, &s.freelancer, 40 * U);
+    assert_eq!(s.escrow.get_resignations(&s.freelancer), 0);
+
+    s.escrow.resign(&id);
+
+    assert_eq!(s.escrow.get_resignations(&s.freelancer), 1);
+    assert!(s.escrow.was_resigned(&id));
+}
+
+#[test]
+fn resign_with_zero_refund_does_not_increment_counter() {
+    let s = setup();
+    // Unfunded escrow: the refund is zero, so nothing is counted.
+    let id = funded_escrow_for(&s, &s.freelancer, 0);
+
+    s.escrow.resign(&id);
+
+    assert!(s.escrow.was_resigned(&id));
+    assert_eq!(s.escrow.get_resignations(&s.freelancer), 0);
+}
+
+#[test]
+fn resign_counter_accumulates_across_multiple_escrows() {
+    let s = setup();
+    let first = funded_escrow_for(&s, &s.freelancer, 10 * U);
+    let second = funded_escrow_for(&s, &s.freelancer, 20 * U);
+
+    s.escrow.resign(&first);
+    assert_eq!(s.escrow.get_resignations(&s.freelancer), 1);
+
+    s.escrow.resign(&second);
+    assert_eq!(s.escrow.get_resignations(&s.freelancer), 2);
+}
+
+#[test]
+fn resign_counters_are_independent_per_freelancer() {
+    let s = setup();
+    let other = Address::generate(&s.env);
+
+    let a = funded_escrow_for(&s, &s.freelancer, 10 * U);
+    let b = funded_escrow_for(&s, &other, 10 * U);
+
+    s.escrow.resign(&a);
+    assert_eq!(s.escrow.get_resignations(&s.freelancer), 1);
+    assert_eq!(s.escrow.get_resignations(&other), 0);
+
+    s.escrow.resign(&b);
+    assert_eq!(s.escrow.get_resignations(&s.freelancer), 1);
+    assert_eq!(s.escrow.get_resignations(&other), 1);
+}
+
+#[test]
+fn get_resignations_defaults_to_zero_when_absent() {
+    let s = setup();
+    let stranger = Address::generate(&s.env);
+    assert_eq!(s.escrow.get_resignations(&stranger), 0);
+}
+
+#[test]
+fn resign_counter_overflow_is_rejected_atomically() {
+    let s = setup();
+    let id = funded_escrow_for(&s, &s.freelancer, 10 * U);
+    s.env.as_contract(&s.escrow.address, || {
+        s.env
+            .storage()
+            .persistent()
+            .set(&DataKey::Resignations(s.freelancer.clone()), &u32::MAX);
+    });
+
+    assert_eq!(
+        s.escrow.try_resign(&id),
+        Err(Ok(EscrowError::ArithmeticOverflow))
+    );
+
+    // The failed resignation did not close the escrow or move funds.
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Created);
+    assert!(!s.escrow.was_resigned(&id));
+    assert_eq!(s.token.balance(&s.escrow.address), 10 * U);
+    assert_eq!(s.escrow.get_resignations(&s.freelancer), u32::MAX);
+}
+
+#[test]
+fn extend_reputation_ttl_extends_resignation_counter() {
+    let s = setup();
+    let id = funded_escrow_for(&s, &s.freelancer, 10 * U);
+    s.escrow.resign(&id);
+
+    s.env.ledger().set_sequence_number(QUIET);
+    let key = DataKey::Resignations(s.freelancer.clone());
+    assert!(persistent_ttl(&s, &key) < PERSISTENT_TTL_THRESHOLD);
+
+    s.escrow.extend_reputation_ttl(&s.freelancer);
+
+    assert!(persistent_ttl(&s, &key) >= PERSISTENT_TTL_THRESHOLD);
+    assert_eq!(s.escrow.get_resignations(&s.freelancer), 1);
+}
+
+#[test]
+fn resignation_counter_does_not_touch_client_outcomes() {
+    let s = setup();
+    let id = funded_escrow_for(&s, &s.freelancer, 40 * U);
+    s.escrow.resign(&id);
+
+    // Resignation is freelancer-side history: the client's cancellation
+    // counter must stay untouched.
+    assert_eq!(s.escrow.get_outcomes(&s.client).cancellations, 0);
+    assert_eq!(s.escrow.get_resignations(&s.freelancer), 1);
+}
+
+// ---------------------------------------------------------------------------
 // Two-party mutual settlement
 // ---------------------------------------------------------------------------
 
@@ -8678,7 +8807,8 @@ fn assert_datakey_exhaustive(key: &DataKey) {
         | DataKey::AllowedToken(_)
         | DataKey::AllowlistEnabled
         | DataKey::MilestoneDue(_)
-        | DataKey::MilestoneReclaimed(_, _) => {}
+        | DataKey::MilestoneReclaimed(_, _)
+        | DataKey::Resignations(_) => {}
     }
 }
 
@@ -8741,10 +8871,11 @@ fn golden_datakey_xdr_vectors() {
         ("DataKey::ClientEscrows", DataKey::ClientEscrows(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAA1DbGllbnRFc2Nyb3dzAAAAAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
         ("DataKey::FreelancerEscrows", DataKey::FreelancerEscrows(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAABFGcmVlbGFuY2VyRXNjcm93cwAAAAAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
         ("DataKey::ClientPage", DataKey::ClientPage(acc.clone(), 0), "AAAAEAAAAAEAAAADAAAADwAAAApDbGllbnRQYWdlAAAAAAASAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAA"),
-        ("DataKey::FreelancerPage", DataKey::FreelancerPage(acc, 0), "AAAAEAAAAAEAAAADAAAADwAAAA5GcmVlbGFuY2VyUGFnZQAAAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAA=="),
+        ("DataKey::FreelancerPage", DataKey::FreelancerPage(acc.clone(), 0), "AAAAEAAAAAEAAAADAAAADwAAAA5GcmVlbGFuY2VyUGFnZQAAAAAAEgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAA=="),
         ("DataKey::Stream", DataKey::Stream(1), "AAAAEAAAAAEAAAACAAAADwAAAAZTdHJlYW0AAAAAAAUAAAAAAAAAAQ=="),
         ("DataKey::Amendment", DataKey::Amendment(1), "AAAAEAAAAAEAAAACAAAADwAAAAlBbWVuZG1lbnQAAAAAAAAFAAAAAAAAAAE="),
         ("DataKey::AmendNonce", DataKey::AmendNonce(1), "AAAAEAAAAAEAAAACAAAADwAAAApBbWVuZE5vbmNlAAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::Resignations", DataKey::Resignations(acc.clone()), "AAAAEAAAAAEAAAACAAAADwAAAAxSZXNpZ25hdGlvbnMAAAASAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="),
     ];
 
     for (name, key, expected) in vectors {
@@ -8819,6 +8950,21 @@ fn golden_storage_types_xdr_vectors() {
         "Panel",
         panel,
         "AAAAEQAAAAEAAAACAAAADwAAAAdtZW1iZXJzAAAAABAAAAABAAAAAgAAABIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8AAAAJdGhyZXNob2xkAAAAAAAAAwAAAAI=",
+    );
+
+    // `Outcomes` is a stored contracttype: its layout must stay byte-identical
+    // so existing entries keep decoding. Resignation tracking uses a separate
+    // `DataKey::Resignations(Address)` counter instead of a new field here.
+    assert_golden_xdr(
+        &env,
+        "Outcomes",
+        Outcomes {
+            disputes_opened: 1,
+            disputes_won: 2,
+            disputes_lost: 3,
+            cancellations: 4,
+        },
+        "AAAAEQAAAAEAAAAEAAAADwAAAA1jYW5jZWxsYXRpb25zAAAAAAAAAwAAAAQAAAAPAAAADWRpc3B1dGVzX2xvc3QAAAAAAAADAAAAAwAAAA8AAAAPZGlzcHV0ZXNfb3BlbmVkAAAAAAMAAAABAAAADwAAAAxkaXNwdXRlc193b24AAAADAAAAAg==",
     );
 
     let stream_active = Stream {

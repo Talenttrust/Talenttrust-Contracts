@@ -624,6 +624,11 @@ enum DataKey {
     /// Set once the client reclaims an overdue, unsubmitted milestone.
     MilestoneReclaimed(u64, u32),
     PendingFeeChange,
+    /// Number of escrows the freelancer resigned from with a non-zero refund.
+    ///
+    /// Tracked separately from `Outcomes` (whose stored layout must not
+    /// change) so resignation history is visible to reputation consumers.
+    Resignations(Address),
 }
 
 #[contract]
@@ -4039,6 +4044,22 @@ impl Escrow {
             .funded_amount
             .checked_sub(c.released_amount)
             .ok_or(EscrowError::ArithmeticOverflow)?;
+        // Resolve the counter update before any state mutation so an overflow
+        // cannot leave the escrow closed without a recorded resignation.
+        let next_resignations = if refund > 0 {
+            let current: u32 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Resignations(c.freelancer.clone()))
+                .unwrap_or(0);
+            Some(
+                current
+                    .checked_add(1)
+                    .ok_or(EscrowError::ArithmeticOverflow)?,
+            )
+        } else {
+            None
+        };
         refund_funders(&env, &c, refund)?;
         c.refunded_amount = refund;
         c.funded_amount = c.released_amount;
@@ -4055,6 +4076,15 @@ impl Escrow {
             PERSISTENT_TTL_THRESHOLD,
             PERSISTENT_TTL_EXTEND,
         );
+        if let Some(count) = next_resignations {
+            let key = DataKey::Resignations(c.freelancer.clone());
+            env.storage().persistent().set(&key, &count);
+            env.storage().persistent().extend_ttl(
+                &key,
+                PERSISTENT_TTL_THRESHOLD,
+                PERSISTENT_TTL_EXTEND,
+            );
+        }
         env.events().publish((symbol_short!("resign"), id), refund);
         Ok(())
     }
@@ -4405,6 +4435,7 @@ impl Escrow {
             DataKey::WeightedRep(freelancer.clone()),
             DataKey::ClientReputation(freelancer.clone()),
             DataKey::Outcomes(freelancer.clone()),
+            DataKey::Resignations(freelancer.clone()),
             DataKey::BonusTotal(freelancer),
         ];
         for key in keys.iter() {
@@ -5054,6 +5085,22 @@ impl Escrow {
             .persistent()
             .get(&DataKey::Outcomes(addr))
             .unwrap_or_default()
+    }
+
+    /// Returns how many escrows `freelancer` resigned from with a non-zero
+    /// refund, defaulting to zero when no counter is stored.
+    ///
+    /// A resignation that refunds nothing (for example an unfunded escrow) is
+    /// not counted. The counter is kept separately from [`Outcomes`] so the
+    /// stored `Outcomes` layout is untouched.
+    ///
+    /// - **Storage reads:** `DataKey::Resignations(freelancer)` (persistent storage).
+    /// - **Errors:** None.
+    pub fn get_resignations(env: Env, freelancer: Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Resignations(freelancer))
+            .unwrap_or(0)
     }
 }
 
