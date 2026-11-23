@@ -2257,6 +2257,9 @@ impl Escrow {
     /// Admin schedules a WASM upgrade.
     pub fn try_schedule_upgrade(env: Env, wasm_hash: BytesN<32>) -> Result<(), EscrowError> {
         require_admin(&env)?;
+        if wasm_hash == BytesN::from_array(&env, &[0u8; 32]) {
+            return Err(EscrowError::InvalidMetadata);
+        }
         let now = env.ledger().timestamp();
         let eta = now.checked_add(constants::UPGRADE_DELAY_SECS).ok_or(EscrowError::ArithmeticOverflow)?;
         let pending = PendingUpgrade {
