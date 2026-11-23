@@ -428,6 +428,189 @@ fn void_one_of_three_ratings_preserves_others() {
     assert!(!s.escrow.get_rating(&id3).unwrap().voided);
 }
 
+// ---------------------------------------------------------------------------
+// Admin voiding of client ratings (#1794)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rate_client_records_client_rating() {
+    let s = setup();
+    let id = completed_escrow(&s, MIN_REPUTATION_VALUE);
+
+    s.escrow.rate_client(&id, &4);
+
+    let record = s.escrow.get_client_rating(&id).expect("record must exist");
+    assert_eq!(record.client, s.client);
+    assert_eq!(record.freelancer, s.freelancer);
+    assert_eq!(record.rating, 4);
+    assert!(!record.voided);
+}
+
+#[test]
+fn admin_voids_client_rating_and_reverses_reputation() {
+    let s = setup();
+    let id = completed_escrow(&s, MIN_REPUTATION_VALUE);
+    s.escrow.rate_client(&id, &5);
+    assert_eq!(
+        s.escrow.get_client_reputation(&s.client),
+        Reputation {
+            completed_contracts: 1,
+            total_rating: 5,
+        }
+    );
+
+    s.escrow.void_client_rating(&id, &symbol_short!("abuse"));
+
+    assert_eq!(
+        s.escrow.get_client_reputation(&s.client),
+        Reputation::default()
+    );
+    assert!(s.escrow.get_client_rating(&id).unwrap().voided);
+
+    // A client rating can only be voided once.
+    assert_eq!(
+        s.escrow
+            .try_void_client_rating(&id, &symbol_short!("abuse")),
+        Err(Ok(EscrowError::RatingAlreadyVoided))
+    );
+}
+
+#[test]
+fn void_client_rating_emits_audit_event() {
+    let s = setup();
+    let id = completed_escrow(&s, MIN_REPUTATION_VALUE);
+    s.escrow.rate_client(&id, &3);
+    let reason = symbol_short!("fraud");
+
+    s.escrow.void_client_rating(&id, &reason);
+
+    let ev = s
+        .env
+        .events()
+        .all()
+        .iter()
+        .filter(|e| e.0 == s.escrow.address)
+        .last()
+        .unwrap();
+    assert_eq!(
+        Symbol::try_from_val(&s.env, &ev.1.get(0).unwrap()).unwrap(),
+        symbol_short!("rep_cvoid")
+    );
+    assert_eq!(
+        u64::try_from_val(&s.env, &ev.1.get(1).unwrap()).unwrap(),
+        id
+    );
+    let payload: (Address, u32, Symbol) = TryFromVal::try_from_val(&s.env, &ev.2).unwrap();
+    assert_eq!(payload.0, s.client);
+    assert_eq!(payload.1, 3);
+    assert_eq!(payload.2, reason);
+}
+
+#[test]
+fn non_admin_cannot_void_client_rating() {
+    let s = setup();
+    let id = completed_escrow(&s, MIN_REPUTATION_VALUE);
+    s.escrow.rate_client(&id, &5);
+
+    let non_admin = Address::generate(&s.env);
+    s.env.mock_auths(&[MockAuth {
+        address: &non_admin,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "void_client_rating",
+            args: (&id, symbol_short!("fraud")).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    assert!(s
+        .escrow
+        .try_void_client_rating(&id, &symbol_short!("fraud"))
+        .is_err());
+
+    s.env.mock_all_auths();
+    assert!(!s.escrow.get_client_rating(&id).unwrap().voided);
+    assert_eq!(s.escrow.get_client_reputation(&s.client).total_rating, 5);
+}
+
+#[test]
+fn void_client_rating_respects_reputation_pause() {
+    let s = setup();
+    let id = completed_escrow(&s, MIN_REPUTATION_VALUE);
+    s.escrow.rate_client(&id, &5);
+
+    s.escrow.set_pause_flags(&s.admin, &PAUSE_REPUTATION);
+
+    assert_eq!(
+        s.escrow
+            .try_void_client_rating(&id, &symbol_short!("fraud")),
+        Err(Ok(EscrowError::Paused))
+    );
+}
+
+#[test]
+fn client_rating_issued_before_upgrade_returns_rating_not_found() {
+    let s = setup();
+    let id = completed_escrow(&s, MIN_REPUTATION_VALUE);
+    // Pre-upgrade ratings only flipped `ClientRated` and bumped the client
+    // reputation; they have no `ClientRating(id)` record to reverse.
+    s.env.as_contract(&s.escrow.address, || {
+        s.env
+            .storage()
+            .persistent()
+            .set(&DataKey::ClientRated(id), &true);
+        s.env.storage().persistent().set(
+            &DataKey::ClientReputation(s.client.clone()),
+            &Reputation {
+                completed_contracts: 1,
+                total_rating: 5,
+            },
+        );
+    });
+
+    assert_eq!(s.escrow.get_client_rating(&id), None);
+    assert_eq!(
+        s.escrow
+            .try_void_client_rating(&id, &symbol_short!("legacy")),
+        Err(Ok(EscrowError::RatingNotFound))
+    );
+}
+
+#[test]
+fn extend_escrow_ttl_extends_client_rating_record() {
+    let s = setup();
+    let id = completed_escrow(&s, MIN_REPUTATION_VALUE);
+    s.escrow.rate_client(&id, &3);
+
+    s.env.ledger().set_sequence_number(QUIET);
+    let key = DataKey::ClientRating(id);
+    assert!(persistent_ttl(&s, &key) < PERSISTENT_TTL_THRESHOLD);
+
+    s.escrow.extend_escrow_ttl(&id);
+
+    assert!(persistent_ttl(&s, &key) >= PERSISTENT_TTL_THRESHOLD);
+}
+
+#[test]
+fn voiding_client_rating_leaves_freelancer_rating_untouched() {
+    let s = setup();
+    let id = completed_escrow(&s, MIN_REPUTATION_VALUE);
+    s.escrow.issue_reputation(&id, &5);
+    s.escrow.rate_client(&id, &2);
+
+    s.escrow.void_client_rating(&id, &symbol_short!("fraud"));
+
+    // Freelancer-side reputation and its rating record are unaffected.
+    assert_eq!(
+        s.escrow.get_reputation(&s.freelancer),
+        Reputation {
+            completed_contracts: 1,
+            total_rating: 5,
+        }
+    );
+    assert!(!s.escrow.get_rating(&id).unwrap().voided);
+}
+
 #[test]
 fn ratings_issued_before_upgrade_return_rating_not_found() {
     let s = setup();
@@ -8678,7 +8861,8 @@ fn assert_datakey_exhaustive(key: &DataKey) {
         | DataKey::AllowedToken(_)
         | DataKey::AllowlistEnabled
         | DataKey::MilestoneDue(_)
-        | DataKey::MilestoneReclaimed(_, _) => {}
+        | DataKey::MilestoneReclaimed(_, _)
+        | DataKey::ClientRating(_) => {}
     }
 }
 
@@ -8745,6 +8929,7 @@ fn golden_datakey_xdr_vectors() {
         ("DataKey::Stream", DataKey::Stream(1), "AAAAEAAAAAEAAAACAAAADwAAAAZTdHJlYW0AAAAAAAUAAAAAAAAAAQ=="),
         ("DataKey::Amendment", DataKey::Amendment(1), "AAAAEAAAAAEAAAACAAAADwAAAAlBbWVuZG1lbnQAAAAAAAAFAAAAAAAAAAE="),
         ("DataKey::AmendNonce", DataKey::AmendNonce(1), "AAAAEAAAAAEAAAACAAAADwAAAApBbWVuZE5vbmNlAAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::ClientRating", DataKey::ClientRating(1), "AAAAEAAAAAEAAAACAAAADwAAAAxDbGllbnRSYXRpbmcAAAAFAAAAAAAAAAE="),
     ];
 
     for (name, key, expected) in vectors {

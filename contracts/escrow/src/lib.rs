@@ -549,6 +549,20 @@ pub struct RatingRecord {
     pub voided: bool,
 }
 
+/// A rating the freelancer gave the client, stored so it can be voided.
+///
+/// The client address is captured here because the escrow may be compacted
+/// into a receipt before the rating is voided.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientRatingRecord {
+    pub client: Address,
+    pub freelancer: Address,
+    pub rating: u32,
+    pub issued_at: u64,
+    pub voided: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -624,6 +638,9 @@ enum DataKey {
     /// Set once the client reclaims an overdue, unsubmitted milestone.
     MilestoneReclaimed(u64, u32),
     PendingFeeChange,
+    /// The client rating given by the freelancer for an escrow, kept so an
+    /// admin can void it and reverse its contribution.
+    ClientRating(u64),
 }
 
 #[contract]
@@ -868,6 +885,7 @@ fn extend_escrow_ttl_keys(env: &Env, id: u64) -> Result<bool, EscrowError> {
         DataKey::Rating(id),
         DataKey::RatingWeight(id),
         DataKey::ClientRated(id),
+        DataKey::ClientRating(id),
         DataKey::Stream(id),
         DataKey::Amendment(id),
         DataKey::AmendNonce(id),
@@ -4270,8 +4288,72 @@ impl Escrow {
             PERSISTENT_TTL_THRESHOLD,
             PERSISTENT_TTL_EXTEND,
         );
+        let rating_key = DataKey::ClientRating(id);
+        env.storage().persistent().set(
+            &rating_key,
+            &ClientRatingRecord {
+                client: c.client.clone(),
+                freelancer: c.freelancer.clone(),
+                rating,
+                issued_at: env.ledger().timestamp(),
+                voided: false,
+            },
+        );
+        env.storage().persistent().extend_ttl(
+            &rating_key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
         env.events()
             .publish((symbol_short!("rep_cli"), id), (c.client, rating));
+        Ok(())
+    }
+
+    /// Governance can void a client rating given by a freelancer, reversing its
+    /// contribution to the client's reputation and recording an audit trail.
+    ///
+    /// Ratings issued before the client rating record existed have no
+    /// `ClientRating(id)` entry and fail with `RatingNotFound`.
+    pub fn void_client_rating(env: Env, id: u64, reason: Symbol) -> Result<(), EscrowError> {
+        require_admin(&env)?;
+        require_not_paused(&env, PAUSE_REPUTATION)?;
+
+        let rating_key = DataKey::ClientRating(id);
+        let mut record: ClientRatingRecord = env
+            .storage()
+            .persistent()
+            .get(&rating_key)
+            .ok_or(EscrowError::RatingNotFound)?;
+
+        if record.voided {
+            return Err(EscrowError::RatingAlreadyVoided);
+        }
+
+        let rep_key = DataKey::ClientReputation(record.client.clone());
+        let mut rep: Reputation = env.storage().persistent().get(&rep_key).unwrap_or_default();
+        // Saturating subtraction keeps the reversal from underflowing even if
+        // the stored reputation was trimmed by another void.
+        rep.total_rating = rep.total_rating.saturating_sub(record.rating);
+        rep.completed_contracts = rep.completed_contracts.saturating_sub(1);
+        env.storage().persistent().set(&rep_key, &rep);
+        env.storage().persistent().extend_ttl(
+            &rep_key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
+
+        record.voided = true;
+        env.storage().persistent().set(&rating_key, &record);
+        env.storage().persistent().extend_ttl(
+            &rating_key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
+
+        env.events().publish(
+            (symbol_short!("rep_cvoid"), id),
+            (record.client, record.rating, reason),
+        );
         Ok(())
     }
 
@@ -4345,6 +4427,15 @@ impl Escrow {
     /// - **Errors:** None.
     pub fn get_rating(env: Env, id: u64) -> Option<RatingRecord> {
         env.storage().persistent().get(&DataKey::Rating(id))
+    }
+
+    /// Returns the client rating the freelancer issued for escrow `id`, or
+    /// `None` when no rating (or no post-upgrade record) exists.
+    ///
+    /// - **Storage reads:** `DataKey::ClientRating(id)` (persistent storage).
+    /// - **Errors:** None.
+    pub fn get_client_rating(env: Env, id: u64) -> Option<ClientRatingRecord> {
+        env.storage().persistent().get(&DataKey::ClientRating(id))
     }
 
     /// Returns the full `EscrowContract` for `id`.
