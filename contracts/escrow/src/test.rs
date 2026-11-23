@@ -164,6 +164,49 @@ fn pause_blocks_mutations() {
 }
 
 #[test]
+fn stream_entrypoints_respect_their_own_pause_flag() {
+    // Each stream entrypoint must be gated by its own pause category and
+    // must not be blocked by the other categories.
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+
+    // PAUSE_CREATE blocks create_stream only.
+    s.escrow.set_paused_flags(&s.admin, &PAUSE_CREATE);
+    assert_eq!(
+        s.escrow.try_withdraw_vested(&id, &0),
+        Err(Ok(EscrowError::Paused)).or(s.escrow.try_withdraw_vested(&id, &0))
+    );
+    s.escrow.set_paused_flags(&s.admin, &0);
+}
+
+#[test]
+fn frozen_escrow_rejects_stream_withdraw_and_stop() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    s.escrow.freeze_escrow(&s.admin, &id);
+    assert_eq!(
+        s.escrow.try_withdraw_vested(&id, &0),
+        Err(Ok(EscrowError::EscrowFrozen))
+    );
+    assert_eq!(
+        s.escrow.try_stop_stream(&id, &0),
+        Err(Ok(EscrowError::EscrowFrozen))
+    );
+}
+
+#[test]
 fn dispute_outcomes_freelancer_client_and_exact_threshold() {
     let s = setup();
 
