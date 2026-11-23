@@ -696,3 +696,96 @@ pub enum DataKey {
     // New: claimable payout fallback
     Claimable(Address, Address),
 }
+
+// ========== NEW TYPED EVENTS (Issue #1789) ==========
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementProposedEvent {
+    pub proposer: Address,
+    pub freelancer_amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementAcceptedEvent {
+    pub to_freelancer: i128,
+    pub to_client: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementWithdrawnEvent {
+    pub proposer: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AmendmentProposedEvent {
+    pub proposer: Address,
+    pub nonce: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AmendmentAcceptedEvent {
+    pub old_total: i128,
+    pub new_total: i128,
+    pub refunded: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChangeOrderProposedEvent {
+    pub added_count: u32,
+    pub added_total: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChangeOrderAcceptedEvent {
+    pub added_count: u32,
+    pub added_total: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChangeOrderRejectedEvent {}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResignEvent {
+    pub refund: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpiredEvent {
+    pub refund: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmergencyWithdrawEvent {
+    pub to_client: i128,
+    pub to_freelancer: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StreamWithdrawEvent {
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StreamStoppedEvent {
+    pub to_freelancer: i128,
+    pub to_client: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompactEvent {
+    pub id: u64,
+    }
