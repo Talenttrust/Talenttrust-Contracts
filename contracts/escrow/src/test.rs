@@ -8678,7 +8678,8 @@ fn assert_datakey_exhaustive(key: &DataKey) {
         | DataKey::AllowedToken(_)
         | DataKey::AllowlistEnabled
         | DataKey::MilestoneDue(_)
-        | DataKey::MilestoneReclaimed(_, _) => {}
+        | DataKey::MilestoneReclaimed(_, _)
+        | DataKey::PartyMigration(_) => {}
     }
 }
 
@@ -8745,6 +8746,7 @@ fn golden_datakey_xdr_vectors() {
         ("DataKey::Stream", DataKey::Stream(1), "AAAAEAAAAAEAAAACAAAADwAAAAZTdHJlYW0AAAAAAAUAAAAAAAAAAQ=="),
         ("DataKey::Amendment", DataKey::Amendment(1), "AAAAEAAAAAEAAAACAAAADwAAAAlBbWVuZG1lbnQAAAAAAAAFAAAAAAAAAAE="),
         ("DataKey::AmendNonce", DataKey::AmendNonce(1), "AAAAEAAAAAEAAAACAAAADwAAAApBbWVuZE5vbmNlAAAAAAAFAAAAAAAAAAE="),
+        ("DataKey::PartyMigration", DataKey::PartyMigration(1), "AAAAEAAAAAEAAAACAAAADwAAAA5QYXJ0eU1pZ3JhdGlvbgAAAAAABQAAAAAAAAAB"),
     ];
 
     for (name, key, expected) in vectors {
@@ -9488,4 +9490,523 @@ fn milestone_due_side_keys_extend_ttl() {
     s.escrow.extend_escrow_ttl(&id);
     assert!(persistent_ttl(&s, &DataKey::MilestoneDue(id)) >= PERSISTENT_TTL_THRESHOLD);
     assert!(persistent_ttl(&s, &DataKey::MilestoneReclaimed(id, 0)) >= PERSISTENT_TTL_THRESHOLD);
+}
+
+// ---------------------------------------------------------------------------
+// Two-step party address migration (#1774)
+// ---------------------------------------------------------------------------
+
+fn open_escrow(s: &Setup) -> u64 {
+    s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    )
+}
+
+#[test]
+fn client_migration_hands_escrow_to_nominee() {
+    let s = setup();
+    let id = open_escrow(&s);
+    s.escrow.deposit_funds(&id, &(40 * U));
+    let nominee = Address::generate(&s.env);
+
+    s.escrow.propose_party_migration(&id, &s.client, &nominee);
+    let pending = s.escrow.get_party_migration(&id).unwrap();
+    assert_eq!(pending.role, PartyRole::Client);
+    assert_eq!(pending.current, s.client);
+    assert_eq!(pending.nominee, nominee);
+
+    s.escrow.accept_party_migration(&id);
+
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.client, nominee);
+    assert_eq!(c.freelancer, s.freelancer);
+    assert_eq!(s.escrow.get_party_migration(&id), None);
+
+    // The nominee funds the rest of the escrow.
+    StellarAssetClient::new(&s.env, &s.token.address).mint(&nominee, &(60 * U));
+    s.escrow.deposit_funds(&id, &(60 * U));
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+}
+
+#[test]
+fn freelancer_migration_hands_escrow_to_nominee() {
+    let s = setup();
+    let id = open_escrow(&s);
+    s.escrow.deposit_funds(&id, &(100 * U));
+    let nominee = Address::generate(&s.env);
+
+    s.escrow
+        .propose_party_migration(&id, &s.freelancer, &nominee);
+    assert_eq!(
+        s.escrow.get_party_migration(&id).unwrap().role,
+        PartyRole::Freelancer
+    );
+    s.escrow.accept_party_migration(&id);
+
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.freelancer, nominee);
+    assert_eq!(c.client, s.client);
+
+    // Payouts follow the migrated freelancer.
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(s.token.balance(&nominee), 100 * U);
+    assert_eq!(s.token.balance(&s.freelancer), 0);
+}
+
+#[test]
+fn only_current_party_can_propose_migration() {
+    let s = setup();
+    let id = open_escrow(&s);
+    let stranger = Address::generate(&s.env);
+    let nominee = Address::generate(&s.env);
+
+    s.env.mock_auths(&[MockAuth {
+        address: &stranger,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "propose_party_migration",
+            args: (&id, &stranger, &nominee).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert_eq!(
+        s.escrow
+            .try_propose_party_migration(&id, &stranger, &nominee),
+        Err(Ok(EscrowError::Unauthorized))
+    );
+    s.env.mock_all_auths();
+    assert_eq!(s.escrow.get_party_migration(&id), None);
+}
+
+#[test]
+fn only_nominee_can_accept_migration() {
+    let s = setup();
+    let id = open_escrow(&s);
+    let nominee = Address::generate(&s.env);
+    let impostor = Address::generate(&s.env);
+    s.escrow.propose_party_migration(&id, &s.client, &nominee);
+
+    s.env.mock_auths(&[MockAuth {
+        address: &impostor,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "accept_party_migration",
+            args: (&id,).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_accept_party_migration(&id).is_err());
+
+    s.env.mock_all_auths();
+    // Nothing changed: the nominee still has to accept.
+    assert_eq!(s.escrow.get_contract(&id).client, s.client);
+    assert!(s.escrow.get_party_migration(&id).is_some());
+}
+
+#[test]
+fn unauthorized_caller_cannot_cancel_migration() {
+    let s = setup();
+    let id = open_escrow(&s);
+    let nominee = Address::generate(&s.env);
+    s.escrow.propose_party_migration(&id, &s.client, &nominee);
+
+    // The counterparty cannot cancel the client's nomination...
+    s.env.mock_auths(&[MockAuth {
+        address: &s.freelancer,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "cancel_party_migration",
+            args: (&id,).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_cancel_party_migration(&id).is_err());
+
+    // ...nor can the nominee.
+    s.env.mock_auths(&[MockAuth {
+        address: &nominee,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "cancel_party_migration",
+            args: (&id,).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_cancel_party_migration(&id).is_err());
+
+    s.env.mock_all_auths();
+    assert!(s.escrow.get_party_migration(&id).is_some());
+}
+
+#[test]
+fn cancelling_migration_clears_pending_proposal() {
+    let s = setup();
+    let id = open_escrow(&s);
+    let nominee = Address::generate(&s.env);
+    s.escrow.propose_party_migration(&id, &s.client, &nominee);
+
+    s.escrow.cancel_party_migration(&id);
+    assert_eq!(s.escrow.get_party_migration(&id), None);
+    assert_eq!(
+        s.escrow.try_accept_party_migration(&id),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(s.escrow.get_contract(&id).client, s.client);
+}
+
+#[test]
+fn migration_rejects_contract_address() {
+    let s = setup();
+    let id = open_escrow(&s);
+    assert_eq!(
+        s.escrow
+            .try_propose_party_migration(&id, &s.client, &s.escrow.address),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+    assert_eq!(s.escrow.get_party_migration(&id), None);
+}
+
+#[test]
+fn migration_rejects_admin_address() {
+    let s = setup();
+    let id = open_escrow(&s);
+    assert_eq!(
+        s.escrow
+            .try_propose_party_migration(&id, &s.client, &s.admin),
+        Err(Ok(EscrowError::AdminCannotBeParty))
+    );
+}
+
+#[test]
+fn migration_rejects_counterparty_address() {
+    let s = setup();
+    let id = open_escrow(&s);
+    assert_eq!(
+        s.escrow
+            .try_propose_party_migration(&id, &s.client, &s.freelancer),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+    assert_eq!(
+        s.escrow
+            .try_propose_party_migration(&id, &s.freelancer, &s.client),
+        Err(Ok(EscrowError::InvalidParties))
+    );
+}
+
+#[test]
+fn migrated_client_acts_and_old_client_is_rejected() {
+    let s = setup();
+    let id = open_escrow(&s);
+    s.escrow.deposit_funds(&id, &(40 * U));
+    let nominee = Address::generate(&s.env);
+    s.escrow.propose_party_migration(&id, &s.client, &nominee);
+    s.escrow.accept_party_migration(&id);
+    StellarAssetClient::new(&s.env, &s.token.address).mint(&nominee, &(60 * U));
+
+    // The old client can no longer authorize deposits.
+    s.env.mock_auths(&[MockAuth {
+        address: &s.client,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "deposit_funds",
+            args: (&id, 60 * U).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_deposit_funds(&id, &(60 * U)).is_err());
+
+    s.env.mock_all_auths();
+    s.escrow.deposit_funds(&id, &(60 * U));
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Funded);
+}
+
+#[test]
+fn old_freelancer_cannot_act_after_migration() {
+    let s = setup();
+    let id = open_escrow(&s);
+    s.escrow.deposit_funds(&id, &(100 * U));
+    let nominee = Address::generate(&s.env);
+    s.escrow
+        .propose_party_migration(&id, &s.freelancer, &nominee);
+    s.escrow.accept_party_migration(&id);
+
+    s.env.mock_auths(&[MockAuth {
+        address: &s.freelancer,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "release_milestone",
+            args: (&id, 0u32).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_release_milestone(&id, &0).is_err());
+
+    s.env.mock_all_auths();
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(s.token.balance(&nominee), 100 * U);
+}
+
+#[test]
+fn migration_appends_new_party_index_and_filters_old_party() {
+    let s = setup();
+    let first = open_escrow(&s);
+    let second = open_escrow(&s);
+    let nominee = Address::generate(&s.env);
+
+    assert_eq!(
+        s.escrow.get_client_escrows(&s.client, &0, &10),
+        vec![&s.env, first, second]
+    );
+
+    s.escrow
+        .propose_party_migration(&first, &s.client, &nominee);
+    s.escrow.accept_party_migration(&first);
+
+    // The nominee is indexed, the old address' stale entry is filtered out.
+    assert_eq!(
+        s.escrow.get_client_escrows(&nominee, &0, &10),
+        vec![&s.env, first]
+    );
+    assert_eq!(
+        s.escrow.get_client_escrows(&s.client, &0, &10),
+        vec![&s.env, second]
+    );
+    // Pagination is over the raw index, so the stale entry is only filtered
+    // out of the page it falls on, never replaced by a later id.
+    assert_eq!(
+        s.escrow.get_client_escrows(&s.client, &1, &10),
+        vec![&s.env, second]
+    );
+    assert_eq!(
+        s.escrow.get_client_escrows(&s.client, &2, &10),
+        Vec::<u64>::new(&s.env)
+    );
+}
+
+#[test]
+fn migration_keeps_funder_payout_and_team_consistent() {
+    let s = setup();
+    let id = open_escrow(&s);
+    let partner = Address::generate(&s.env);
+
+    // Team split pays the freelancer 60% and a partner 40%.
+    s.escrow.set_team_split(
+        &id,
+        &vec![
+            &s.env,
+            (s.freelancer.clone(), 6_000u32),
+            (partner.clone(), 4_000u32),
+        ],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+
+    let nominee = Address::generate(&s.env);
+    s.escrow
+        .propose_party_migration(&id, &s.freelancer, &nominee);
+    s.escrow.accept_party_migration(&id);
+
+    // The old freelancer's team share moved to the nominee.
+    let team = s.escrow.get_team_split(&id);
+    assert_eq!(team.len(), 2);
+    assert_eq!(team.get(0).unwrap(), (partner.clone(), 4_000u32));
+    assert_eq!(team.get(1).unwrap(), (nominee.clone(), 6_000u32));
+
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(s.token.balance(&nominee), 60 * U);
+    assert_eq!(s.token.balance(&partner), 40 * U);
+    assert_eq!(s.token.balance(&s.freelancer), 0);
+}
+
+#[test]
+fn migrated_client_receives_cancellation_refund() {
+    let s = setup();
+    let id = open_escrow(&s);
+    s.escrow.deposit_funds(&id, &(100 * U));
+    let nominee = Address::generate(&s.env);
+
+    s.escrow.propose_party_migration(&id, &s.client, &nominee);
+    s.escrow.accept_party_migration(&id);
+    s.escrow.cancel_contract(&id);
+
+    // The funder record followed the client, so the refund reaches the nominee.
+    assert_eq!(s.token.balance(&nominee), 100 * U);
+    assert_eq!(s.token.balance(&s.client), 900 * U);
+}
+
+#[test]
+fn migration_keeps_freelancer_payout_address_consistent() {
+    let s = setup();
+    let id = open_escrow(&s);
+    s.escrow.deposit_funds(&id, &(100 * U));
+    // The freelancer routes payouts to itself explicitly.
+    s.escrow.set_payout_address(&id, &s.freelancer);
+    let nominee = Address::generate(&s.env);
+
+    s.escrow
+        .propose_party_migration(&id, &s.freelancer, &nominee);
+    s.escrow.accept_party_migration(&id);
+
+    assert_eq!(s.escrow.get_payout_address(&id), nominee);
+    s.escrow.release_milestone(&id, &0);
+    assert_eq!(s.token.balance(&nominee), 100 * U);
+}
+
+#[test]
+fn migration_blocked_while_disputed() {
+    let s = setup();
+    let id = open_escrow(&s);
+    s.escrow.deposit_funds(&id, &(100 * U));
+    let nominee = Address::generate(&s.env);
+    s.escrow.propose_party_migration(&id, &s.client, &nominee);
+
+    open_dispute_bonded(&s, &id, &s.freelancer);
+    assert_eq!(
+        s.escrow
+            .try_propose_party_migration(&id, &s.freelancer, &Address::generate(&s.env)),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(
+        s.escrow.try_accept_party_migration(&id),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    assert_eq!(s.escrow.get_contract(&id).client, s.client);
+}
+
+#[test]
+fn migration_blocked_while_frozen() {
+    let s = setup();
+    let id = open_escrow(&s);
+    let nominee = Address::generate(&s.env);
+    s.escrow.propose_party_migration(&id, &s.client, &nominee);
+    s.escrow.freeze_escrow(&id, &symbol_short!("fraud"));
+
+    assert_eq!(
+        s.escrow
+            .try_propose_party_migration(&id, &s.freelancer, &Address::generate(&s.env)),
+        Err(Ok(EscrowError::EscrowFrozen))
+    );
+    assert_eq!(
+        s.escrow.try_accept_party_migration(&id),
+        Err(Ok(EscrowError::EscrowFrozen))
+    );
+    assert_eq!(
+        s.escrow.try_cancel_party_migration(&id),
+        Err(Ok(EscrowError::EscrowFrozen))
+    );
+}
+
+#[test]
+fn migration_respects_pause_flags() {
+    let s = setup();
+    let id = open_escrow(&s);
+    let nominee = Address::generate(&s.env);
+    s.escrow.propose_party_migration(&id, &s.client, &nominee);
+    s.escrow.set_pause_flags(&s.admin, &PAUSE_CREATE);
+
+    assert_eq!(
+        s.escrow
+            .try_propose_party_migration(&id, &s.freelancer, &Address::generate(&s.env)),
+        Err(Ok(EscrowError::Paused))
+    );
+    assert_eq!(
+        s.escrow.try_accept_party_migration(&id),
+        Err(Ok(EscrowError::Paused))
+    );
+    assert_eq!(
+        s.escrow.try_cancel_party_migration(&id),
+        Err(Ok(EscrowError::Paused))
+    );
+}
+
+#[test]
+fn migration_event_carries_role_and_addresses() {
+    let s = setup();
+    let id = open_escrow(&s);
+    let nominee = Address::generate(&s.env);
+    s.escrow.propose_party_migration(&id, &s.client, &nominee);
+    s.escrow.accept_party_migration(&id);
+
+    let ev = s
+        .env
+        .events()
+        .all()
+        .iter()
+        .filter(|e| e.0 == s.escrow.address)
+        .last()
+        .unwrap();
+    assert_eq!(
+        Symbol::try_from_val(&s.env, &ev.1.get(0).unwrap()).unwrap(),
+        symbol_short!("pmigrate")
+    );
+    assert_eq!(
+        u64::try_from_val(&s.env, &ev.1.get(1).unwrap()).unwrap(),
+        id
+    );
+    let payload: (PartyRole, Address, Address) = TryFromVal::try_from_val(&s.env, &ev.2).unwrap();
+    assert_eq!(payload.0, PartyRole::Client);
+    assert_eq!(payload.1, s.client);
+    assert_eq!(payload.2, nominee);
+}
+
+#[test]
+fn conflicting_and_repeated_migration_proposals_are_safe() {
+    let s = setup();
+    let id = open_escrow(&s);
+    let first_nominee = Address::generate(&s.env);
+    let second_nominee = Address::generate(&s.env);
+
+    s.escrow
+        .propose_party_migration(&id, &s.client, &first_nominee);
+    // The other party cannot take over the pending nomination.
+    assert_eq!(
+        s.escrow
+            .try_propose_party_migration(&id, &s.freelancer, &second_nominee),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+
+    // Re-proposing from the same party replaces its own nomination.
+    s.escrow
+        .propose_party_migration(&id, &s.client, &second_nominee);
+    let pending = s.escrow.get_party_migration(&id).unwrap();
+    assert_eq!(pending.nominee, second_nominee);
+
+    // The replaced nominee can no longer accept.
+    s.env.mock_auths(&[MockAuth {
+        address: &first_nominee,
+        invoke: &MockAuthInvoke {
+            contract: &s.escrow.address,
+            fn_name: "accept_party_migration",
+            args: (&id,).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.escrow.try_accept_party_migration(&id).is_err());
+
+    s.env.mock_all_auths();
+    s.escrow.accept_party_migration(&id);
+    assert_eq!(s.escrow.get_contract(&id).client, second_nominee);
+    // A second accept has nothing left to accept.
+    assert_eq!(
+        s.escrow.try_accept_party_migration(&id),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+}
+
+#[test]
+fn migration_extends_ttl_of_pending_proposal() {
+    let s = setup();
+    let id = open_escrow(&s);
+    let nominee = Address::generate(&s.env);
+    s.escrow.propose_party_migration(&id, &s.client, &nominee);
+
+    s.env.ledger().set_sequence_number(QUIET);
+    let key = DataKey::PartyMigration(id);
+    assert!(persistent_ttl(&s, &key) < PERSISTENT_TTL_THRESHOLD);
+
+    s.escrow.extend_escrow_ttl(&id);
+
+    assert!(persistent_ttl(&s, &key) >= PERSISTENT_TTL_THRESHOLD);
 }

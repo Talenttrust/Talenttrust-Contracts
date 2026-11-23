@@ -540,6 +540,27 @@ pub struct Outcomes {
     pub cancellations: u32,
 }
 
+/// Which side of an escrow a party address migration applies to.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PartyRole {
+    Client,
+    Freelancer,
+}
+
+/// Pending two-step party address migration (`propose_party_migration`).
+///
+/// `current` is the address being replaced and must still be the escrow's
+/// party when the nomination is accepted; `nominee` is the only address
+/// allowed to accept.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PartyMigration {
+    pub role: PartyRole,
+    pub current: Address,
+    pub nominee: Address,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RatingRecord {
@@ -624,6 +645,8 @@ enum DataKey {
     /// Set once the client reclaims an overdue, unsubmitted milestone.
     MilestoneReclaimed(u64, u32),
     PendingFeeChange,
+    /// Pending two-step party address migration for an escrow.
+    PartyMigration(u64),
 }
 
 #[contract]
@@ -871,6 +894,7 @@ fn extend_escrow_ttl_keys(env: &Env, id: u64) -> Result<bool, EscrowError> {
         DataKey::Stream(id),
         DataKey::Amendment(id),
         DataKey::AmendNonce(id),
+        DataKey::PartyMigration(id),
     ];
     for key in keys.iter() {
         extend_if_present(env, key);
@@ -1437,13 +1461,118 @@ fn read_party_index(
         let mut i = first;
         while i < last {
             if let Some(id) = page.get(i) {
-                ids.push_back(id);
+                if party_index_entry_is_active(env, id, party, is_client) {
+                    ids.push_back(id);
+                }
             }
             i += 1;
         }
         cursor = page_start + last;
     }
     ids
+}
+
+/// `true` when `party` is still the escrow's client/freelancer.
+///
+/// A party address migration leaves the old address' index entry in place (the
+/// append-only index is not rewritten), so index queries drop entries whose
+/// escrow now names a different address. Escrows that can no longer be loaded
+/// (compacted into a receipt) keep their entry: the receipt still records the
+/// parties, so the entry cannot be shown to be stale.
+fn party_index_entry_is_active(env: &Env, id: u64, party: &Address, is_client: bool) -> bool {
+    match load(env, id) {
+        Ok(c) => {
+            if is_client {
+                c.client == *party
+            } else {
+                c.freelancer == *party
+            }
+        }
+        Err(_) => true,
+    }
+}
+
+/// Moves any funder contribution recorded for `old` onto `new`, merging it with
+/// an existing contribution, so pro-rata refunds still reach the party after a
+/// migration.
+fn migrate_funder_record(
+    env: &Env,
+    id: u64,
+    old: &Address,
+    new: &Address,
+) -> Result<(), EscrowError> {
+    let key = DataKey::Funders(id);
+    let Some(mut funders) = env
+        .storage()
+        .persistent()
+        .get::<_, Map<Address, i128>>(&key)
+    else {
+        return Ok(());
+    };
+    let Some(amount) = funders.get(old.clone()) else {
+        return Ok(());
+    };
+    let _ = funders.remove(old.clone());
+    let merged = funders
+        .get(new.clone())
+        .unwrap_or(0)
+        .checked_add(amount)
+        .ok_or(EscrowError::ArithmeticOverflow)?;
+    funders.set(new.clone(), merged);
+    env.storage().persistent().set(&key, &funders);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+    Ok(())
+}
+
+/// Re-points a team split payee from `old` to `new`, merging shares when the
+/// nominee is already a payee so the split still sums to `BPS_DENOMINATOR`.
+fn migrate_team_payee(env: &Env, id: u64, old: &Address, new: &Address) -> Result<(), EscrowError> {
+    let key = DataKey::Team(id);
+    let Some(team) = env
+        .storage()
+        .persistent()
+        .get::<_, Vec<(Address, u32)>>(&key)
+    else {
+        return Ok(());
+    };
+    if !team.iter().any(|(addr, _)| addr == *old) {
+        return Ok(());
+    }
+    let mut rebuilt: Vec<(Address, u32)> = Vec::new(env);
+    let mut moved: u32 = 0;
+    for (addr, bps) in team.iter() {
+        if addr == *old {
+            moved = moved
+                .checked_add(bps)
+                .ok_or(EscrowError::ArithmeticOverflow)?;
+        } else {
+            rebuilt.push_back((addr, bps));
+        }
+    }
+    let mut merged = false;
+    let mut updated: Vec<(Address, u32)> = Vec::new(env);
+    for (addr, bps) in rebuilt.iter() {
+        if addr == *new {
+            updated.push_back((
+                addr,
+                bps.checked_add(moved)
+                    .ok_or(EscrowError::ArithmeticOverflow)?,
+            ));
+            merged = true;
+        } else {
+            updated.push_back((addr, bps));
+        }
+    }
+    if !merged {
+        updated.push_back((new.clone(), moved));
+    }
+    env.storage().persistent().set(&key, &updated);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+    Ok(())
 }
 
 fn load_stream(env: &Env, id: u64) -> Option<Stream> {
@@ -2381,6 +2510,194 @@ impl Escrow {
         env.events()
             .publish((symbol_short!("payout"), id), (old, payout));
         Ok(())
+    }
+
+    /// Step 1 of a two-step party address migration: the current party
+    /// nominates the address that should replace it.
+    ///
+    /// `party` is the address being replaced and must authorize the call; it
+    /// must still be the escrow's client or freelancer. Soroban exposes no
+    /// invoker, so the party is passed explicitly (as with `open_dispute`).
+    ///
+    /// Rejected with `InvalidParties`: the contract's own address and any
+    /// address already party to the escrow (including the counterparty); with
+    /// `AdminCannotBeParty`: the admin; with `InvalidStatus`: a disputed or
+    /// terminal escrow, or a nomination already pending for the other party;
+    /// with `EscrowFrozen`/`Paused` while frozen or paused for creation.
+    /// Re-proposing from the same party replaces its previous nomination.
+    /// Emits `("pmig_prop", id) -> (role, current, nominee)`.
+    pub fn propose_party_migration(
+        env: Env,
+        id: u64,
+        party: Address,
+        new_address: Address,
+    ) -> Result<(), EscrowError> {
+        require_not_paused(&env, PAUSE_CREATE)?;
+        let c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        party.require_auth();
+        let role = if party == c.client {
+            PartyRole::Client
+        } else if party == c.freelancer {
+            PartyRole::Freelancer
+        } else {
+            return Err(EscrowError::Unauthorized);
+        };
+        if new_address == env.current_contract_address()
+            || new_address == c.client
+            || new_address == c.freelancer
+        {
+            return Err(EscrowError::InvalidParties);
+        }
+        if new_address == admin(&env)? {
+            return Err(EscrowError::AdminCannotBeParty);
+        }
+        // `set_payout_address` guarantees the payout address is never the
+        // client; keep that invariant if the client migrates onto it.
+        if role == PartyRole::Client {
+            let payout: Option<Address> = env.storage().persistent().get(&DataKey::Payout(id));
+            if payout == Some(new_address.clone()) {
+                return Err(EscrowError::InvalidParties);
+            }
+        }
+        let key = DataKey::PartyMigration(id);
+        if let Some(pending) = env.storage().persistent().get::<_, PartyMigration>(&key) {
+            if pending.current != party {
+                return Err(EscrowError::InvalidStatus);
+            }
+        }
+        let proposal = PartyMigration {
+            role: role.clone(),
+            current: party.clone(),
+            nominee: new_address.clone(),
+        };
+        env.storage().persistent().set(&key, &proposal);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND,
+        );
+        env.events()
+            .publish((symbol_short!("pmig_prop"), id), (role, party, new_address));
+        Ok(())
+    }
+
+    /// Step 2 of a party address migration: the nominee accepts and becomes the
+    /// escrow's client or freelancer.
+    ///
+    /// Only the nominated address may accept. The old address loses access
+    /// immediately (every party check reads the escrow's current address) and
+    /// the nominee is appended to its party index. Funder contributions,
+    /// the freelancer payout address and team payees that referenced the old
+    /// address are re-pointed, and any pending settlement proposed by the old
+    /// address is dropped. Emits `("pmigrate", id) -> (role, old, new)`.
+    pub fn accept_party_migration(env: Env, id: u64) -> Result<(), EscrowError> {
+        require_not_paused(&env, PAUSE_CREATE)?;
+        let mut c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
+        if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let key = DataKey::PartyMigration(id);
+        let proposal: PartyMigration = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(EscrowError::InvalidStatus)?;
+        proposal.nominee.require_auth();
+
+        // The proposing address must still hold the role it nominated from.
+        let still_current = match proposal.role.clone() {
+            PartyRole::Client => c.client == proposal.current,
+            PartyRole::Freelancer => c.freelancer == proposal.current,
+        };
+        if !still_current {
+            env.storage().persistent().remove(&key);
+            return Err(EscrowError::Unauthorized);
+        }
+        if proposal.nominee == env.current_contract_address() {
+            return Err(EscrowError::InvalidParties);
+        }
+        if proposal.nominee == admin(&env)? {
+            return Err(EscrowError::AdminCannotBeParty);
+        }
+        match proposal.role.clone() {
+            PartyRole::Client => {
+                if c.freelancer == proposal.nominee {
+                    return Err(EscrowError::InvalidParties);
+                }
+                migrate_funder_record(&env, id, &proposal.current, &proposal.nominee)?;
+                c.client = proposal.nominee.clone();
+            }
+            PartyRole::Freelancer => {
+                if c.client == proposal.nominee {
+                    return Err(EscrowError::InvalidParties);
+                }
+                migrate_funder_record(&env, id, &proposal.current, &proposal.nominee)?;
+                let payout_key = DataKey::Payout(id);
+                if let Some(payout) = env.storage().persistent().get::<_, Address>(&payout_key) {
+                    if payout == proposal.current {
+                        env.storage()
+                            .persistent()
+                            .set(&payout_key, &proposal.nominee);
+                        env.storage().persistent().extend_ttl(
+                            &payout_key,
+                            PERSISTENT_TTL_THRESHOLD,
+                            PERSISTENT_TTL_EXTEND,
+                        );
+                    }
+                }
+                c.freelancer = proposal.nominee.clone();
+            }
+        }
+        migrate_team_payee(&env, id, &proposal.current, &proposal.nominee)?;
+        clear_settlement(&env, id);
+        append_party_index(
+            &env,
+            &proposal.nominee,
+            id,
+            proposal.role == PartyRole::Client,
+        )?;
+        save(&env, &c);
+        env.storage().persistent().remove(&key);
+        env.events().publish(
+            (symbol_short!("pmigrate"), id),
+            (proposal.role, proposal.current, proposal.nominee),
+        );
+        Ok(())
+    }
+
+    /// Cancels a pending party migration. Only the address that proposed it
+    /// (the current party being replaced) may cancel, so nobody can clear
+    /// another party's nomination. Emits `("pmig_cncl", id) -> (role, current)`.
+    pub fn cancel_party_migration(env: Env, id: u64) -> Result<(), EscrowError> {
+        require_not_paused(&env, PAUSE_CREATE)?;
+        load(&env, id)?;
+        require_not_frozen(&env, id)?;
+        let key = DataKey::PartyMigration(id);
+        let proposal: PartyMigration = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(EscrowError::InvalidStatus)?;
+        proposal.current.require_auth();
+        env.storage().persistent().remove(&key);
+        env.events().publish(
+            (symbol_short!("pmig_cncl"), id),
+            (proposal.role, proposal.current),
+        );
+        Ok(())
+    }
+
+    /// Returns the pending party migration for `id`, if any.
+    ///
+    /// - **Storage reads:** `DataKey::PartyMigration(id)` (persistent storage).
+    /// - **Errors:** None.
+    pub fn get_party_migration(env: Env, id: u64) -> Option<PartyMigration> {
+        env.storage().persistent().get(&DataKey::PartyMigration(id))
     }
 
     /// Returns the payout address for `id`, falling back to the freelancer

@@ -105,6 +105,9 @@ Every mutating public entrypoint in `contracts/escrow/src/lib.rs` appears below.
 | `accept_amendment(id, acceptor, nonce)` | `acceptor` argument | Party | `PAUSE_CREATE` | Blocked | Acceptor is a party and not the proposer; nonce matches pending amendment; status allows amendment; revalidated against current state |
 | `resign(id)` | Stored freelancer | Party (freelancer) | `PAUSE_CANCEL` | Blocked | Status `Created` or `Funded`; unreleased funds refunded to funders |
 | `cancel_contract(id)` | Stored client | Party (client) | `PAUSE_CANCEL` | Blocked | Non-stream escrow, status `Created` or `Funded`; submitted milestone backing stays claimable |
+| `propose_party_migration(id, party, new_address)` | `party` argument | Party (the address being replaced) | `PAUSE_CREATE` | Blocked | `party` is the stored client or freelancer; status `Created` or `Funded`; nominee is not the contract, the admin (`AdminCannotBeParty`), a current party or the client's payout address (`InvalidParties`); no nomination pending for the other party |
+| `accept_party_migration(id)` | Pending nominee from storage | Nominee | `PAUSE_CREATE` | Blocked | A nomination exists; status `Created` or `Funded`; the proposing address still holds its role |
+| `cancel_party_migration(id)` | Pending proposer from storage | Party (proposer) | `PAUSE_CREATE` | Blocked | A nomination exists |
 | `issue_reputation(id, rating)` | Stored client | Party (client) | `PAUSE_REPUTATION` | Blocked | Status `Completed` or `Resolved`; not compacted; not already issued; rating 1..=5; released value at least `MIN_REPUTATION_VALUE` |
 | `rate_client(id, rating)` | Stored freelancer | Party (freelancer) | `PAUSE_REPUTATION` | Blocked | Status `Completed` or `Resolved`; not already rated; rating 1..=5 |
 | `void_rating(id, reason)` | Stored admin | Admin | `PAUSE_REPUTATION` | Allowed while frozen | Rating record exists and is not already voided; authentication precedes the pause check |
@@ -117,6 +120,29 @@ Every mutating public entrypoint in `contracts/escrow/src/lib.rs` appears below.
 | `schedule_upgrade(hash)` | Stored admin | Admin | None | N/A | Admin initialized; stores hash with a 48-hour eta and restarts the delay on resubmission |
 | `cancel_upgrade()` | Stored admin | Admin | None | N/A | A pending upgrade must exist |
 | `execute_upgrade()` | Stored admin | Admin | None; allowed while paused | N/A | Pending upgrade exists and eta has elapsed; clears the pending record before installing WASM |
+
+---
+
+### 3.1 Two-step party address migration
+
+`propose_party_migration(id, party, new_address)`, `accept_party_migration(id)` and `cancel_party_migration(id)` let a client or freelancer move an escrow to a new address without the counterparty re-creating it.
+
+**Flow.**
+
+1. The current party calls `propose_party_migration` with its own address as `party` and the replacement as `new_address`. `party.require_auth()` is the only signature needed. Soroban does not expose the invoker, so the party is passed explicitly and validated against `EscrowContract.client` / `EscrowContract.freelancer`, the same pattern as `open_dispute(id, caller)`.
+2. The nomination is stored under `DataKey::PartyMigration(id)` as `PartyMigration { role, current, nominee }` and is readable with `get_party_migration(id)`.
+3. The nominee calls `accept_party_migration(id)` and authorizes with `nominee.require_auth()`. Only that address can complete the migration.
+4. Either step can be cancelled by the proposing party with `cancel_party_migration(id)`, which authorizes `PartyMigration.current`. The counterparty and the nominee cannot cancel someone else's nomination, and the admin has no override.
+
+**Invalid targets.** `new_address` may not be the contract itself, either current party (so the counterparty's address is rejected), or the escrow's payout address when the client is migrating (`InvalidParties`), and may not be the admin (`AdminCannotBeParty`).
+
+**Gates.** All three entrypoints check `PAUSE_CREATE` and `require_not_frozen(id)`, and only run while the escrow is `Created` or `Funded`. A disputed escrow, or one that is already completed, resolved or cancelled, returns `InvalidStatus`; a frozen escrow returns `EscrowFrozen`. A nomination that is pending for the other party returns `InvalidStatus`; re-proposing from the same party replaces its own nomination.
+
+**On acceptance** the stored party address is replaced, the escrow id is appended to the nominee's party index (`ClientEscrows` / `FreelancerEscrows` and its paged entries), funder contributions recorded for the old address are merged onto the new one, a payout address that pointed at the old freelancer follows the nominee, team split payees are re-pointed (merging shares if the nominee was already a payee), and any pending settlement proposed by the old address is dropped. The nominee can then act with the full authority of the role and the old address fails every party check with `Unauthorized`.
+
+**Index behaviour.** The party index is append-only, so the old address' entry is left in place: it keeps counting toward that address' page count, but `get_client_escrows` / `get_freelancer_escrows` verify that the queried address is still the escrow's current client or freelancer and skip entries that are no longer active. Pagination therefore stays over the raw index — a stale entry is filtered out of the page it falls on rather than being replaced by a later id. Escrows that have been compacted into a receipt cannot be loaded, so their index entries are kept: the receipt still records the parties and the entry cannot be shown to be stale.
+
+**Events.** `("pmig_prop", id) -> (role, current, nominee)` on proposal, `("pmigrate", id) -> (role, old, new)` on acceptance, and `("pmig_cncl", id) -> (role, current)` on cancellation.
 
 ---
 
@@ -158,6 +184,11 @@ The MockAuth tests in `contracts/escrow/src/test.rs` verify the signer column ra
 | `each_pause_flag_gates_exactly_its_entry_points` | Each pause bit gates only its own category. |
 | `inflow_pause_still_lets_clients_cancel_and_refund` | Create and deposit can be paused while cancellation remains available. |
 | `vote_change_replaces_vote_and_requires_membership` | Non-members and parties cannot vote; only current panel votes count. |
+| `only_current_party_can_propose_migration` and `only_nominee_can_accept_migration` | `propose_party_migration` rejects a non-party signer with `Unauthorized`; `accept_party_migration` rejects every address except the stored nominee. |
+| `unauthorized_caller_cannot_cancel_migration` | The counterparty and the nominee cannot cancel a pending nomination. |
+| `migration_blocked_while_disputed`, `migration_blocked_while_frozen` and `migration_respects_pause_flags` | `InvalidStatus` while disputed, `EscrowFrozen` while frozen, `Paused` under `PAUSE_CREATE`. |
+| `old_freelancer_cannot_act_after_migration` and `migrated_client_acts_and_old_client_is_rejected` | After acceptance the old address can no longer authorize party actions. |
+| `migration_appends_new_party_index_and_filters_old_party` | The nominee is indexed and the old address' stale entry is filtered out of index queries. |
 | `test_partial_deposit_refund_third_party` | `expire_unfunded` is permissionless and refunds funders rather than the caller. |
 
 ---
