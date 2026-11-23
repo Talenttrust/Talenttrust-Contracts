@@ -1,460 +1,81 @@
 # Escrow Error Catalog (Ordered)
 
 **Contract**: `contracts/escrow` (Soroban)  
-**Enum source of truth**: `contracts/escrow/src/types.rs` → `pub enum Error`  
-**Acceptance (this repo snapshot)**: Catalog matches numbering **1..=23** exactly.
+**Enum source of truth**: `contracts/escrow/src/errors.rs` → `pub enum EscrowError`  
+**Acceptance (this repo snapshot)**: Catalog matches numbering **1..=50** exactly.
 
-This document is a single reference mapping each error **code** to:
-- The **variant name**
-- The **entrypoint(s)** that raise it (implemented and/or intended)
-- The **precise trigger condition**
-- Whether it is **live** or **reserved / not currently reachable**
-
-> Notes
-> - “Live” means the error is raised by the currently implemented public entrypoints in `contracts/escrow/src/lib.rs` (based on code inspection).
-> - “Reserved” means it exists in the enum but is not provably reachable from current public entrypoints (or is part of planned work).
+> **Spec cap**: the Soroban contract spec caps an error enum at 50 cases. Numbering is append-only; new failure modes reuse the closest existing code rather than adding a 51st variant.
 
 ---
 
 ## Legend
 
-- **Status**:
-  - ✅ **Live**: reachable from current contract code paths
-  - 🟡 **Partially live / ambiguous**: referenced in code comments/docs or by helper modules, but not clearly enforced in all paths
-  - 🔴 **Reserved / unused**: not currently reachable (planned)
-
-- **Entrypoints** refer to public `#[contractimpl]` fns in `contracts/escrow/src/lib.rs`, such as:
-  - `create_contract`
-  - `deposit_funds`
-  - `approve_milestone_release`
-  - `release_milestone`
-  - `refund_unreleased_milestones`
-  - `get_contract`
-  - `get_milestones`
-  - `get_refundable_balance`
-  - `get_milestone_approvals`
-  - Plus admin/pause/emergency entrypoints **if present** in your `lib.rs` (your SECURITY.md already references them)
+- **Reused**: the variant is raised for more than one distinct failure mode; each trigger is listed.
+- **Entrypoints** refer to public `#[contractimpl]` functions in `contracts/escrow/src/lib.rs`.
 
 ---
 
-## Code 1: `AlreadyInitialized` ✅ Live
+## Error table
 
-**Entrypoint(s)**:
-- `initialize` (admin setup)
-
-**Trigger condition**:
-- Initialization was already performed and a second initialization attempt is made.
-
-**Precise condition (conceptual)**:
-- Stored initialization flag indicates the contract is already initialized.
-
-**Why it exists**:
-- Enforces single-use initialization / prevents admin reset.
-
----
-
-## Code 2: `NotInitialized` ✅ Live
-
-**Entrypoint(s)**:
-- Most public entrypoints that require initialization (create/deposit/release/refund/etc.)
-
-**Trigger condition**:
-- Any operation requiring initialization is invoked before `initialize`.
-
-**Precise condition (conceptual)**:
-- Initialization flag not set.
-
-**Security impact**:
-- Ensures admin/pause/emergency gates exist before lifecycle operations.
-
----
-
-## Code 3: `IndexOutOfBounds` ✅ Live
-
-**Entrypoint(s)**:
-- `release_milestone`
-- `refund_unreleased_milestones`
-
-**Trigger condition**:
-- A milestone index is >= `milestones.len()`.
-
-**Precise condition (as implemented)**:
-- In `release_milestone`:
-  - `if milestone_index >= milestones.len() { panic_with_error(IndexOutOfBounds) }`
-- In `refund_unreleased_milestones`:
-  - For any refund index `idx`:
-    - `if idx >= milestones.len() { panic_with_error(IndexOutOfBounds) }`
-
----
-
-## Code 4: `AlreadyReleased` ✅ Live
-
-**Entrypoint(s)**:
-- `release_milestone`
-- `refund_unreleased_milestones`
-
-**Trigger condition**:
-- Attempt to release a milestone that has already been released, or refund a released milestone.
-
-**Precise condition (as implemented)**:
-- `if milestone.released { panic_with_error(AlreadyReleased) }`
+| Code | Variant | Reused | Entrypoints that return it | Trigger |
+|------|---------|--------|----------------------------|---------|
+| 1 | `AlreadyInitialized` | No | `initialize` | Contract already initialized. |
+| 2 | `NotInitialized` | No | Most lifecycle entrypoints | Operation invoked before `initialize`. |
+| 3 | `Unauthorized` | No | Role-gated entrypoints | Caller is not authorized for the operation. |
+| 4 | `Paused` | No | Mutating entrypoints | Contract is paused. |
+| 5 | `ContractNotFound` | No | Any entrypoint loading a contract by id | No contract stored at the given id. |
+| 6 | `InvalidParties` | No | `create_contract` | Client and freelancer are identical or otherwise invalid. |
+| 7 | `InvalidMilestones` | No | `create_contract` | Milestone list is empty or malformed. |
+| 8 | `InvalidAmount` | Yes | `deposit_funds`, `create_contract`, `release_milestone`, `refund_unreleased_milestones` | (a) Amount is `<= 0` on deposit; (b) milestone amount is `<= 0` on creation; (c) refund request total is invalid. |
+| 9 | `OverFunded` | No | `deposit_funds` | Deposit would exceed the contract total. |
+| 10 | `InvalidStatus` | Yes | Lifecycle entrypoints gated by status | (a) Deposit outside `Created`; (b) release outside `Funded`; (c) any other status-gated operation in the wrong status. |
+| 11 | `MilestoneNotFound` | No | `release_milestone`, `refund_unreleased_milestones` | Milestone index `>= milestones.len()`. |
+| 12 | `MilestoneAlreadyReleased` | Yes | `release_milestone`, `refund_unreleased_milestones` | (a) Release of an already released milestone; (b) refund of an already released milestone. |
+| 13 | `InsufficientFunds` | No | `release_milestone`, `refund_unreleased_milestones` | Available balance (`funded - released - refunded`) is less than the amount required. |
+| 14 | `InvalidSplit` | No | `create_contract` / split configuration | Split percentages do not sum correctly. |
+| 15 | `InvalidRating` | No | Reputation entrypoints | Rating outside the allowed range. |
+| 16 | `ReputationAlreadyIssued` | No | Reputation entrypoints | Reputation already issued for this contract. |
+| 17 | `ArithmeticOverflow` | No | Accounting entrypoints | Checked arithmetic overflowed. |
+| 18 | `RatingNotFound` | No | Reputation entrypoints | No rating exists for the given key. |
+| 19 | `RatingAlreadyVoided` | No | Reputation entrypoints | Rating was already voided. |
+| 20 | `InvalidTransition` | Yes | Lifecycle entrypoints | (a) Disallowed state transition; (b) disallowed role or config change. |
+| 21 | `NoSurplus` | No | Surplus withdrawal | No surplus balance to withdraw. |
+| 22 | `EscrowFrozen` | No | Mutating entrypoints | Escrow is frozen. |
+| 23 | `AdminCannotBeParty` | No | `create_contract` | Admin address used as a client, freelancer or arbiter. |
+| 24 | `MilestoneTooSmall` | No | `create_contract` | Milestone amount below the minimum. |
+| 25 | `NotCompactable` | No | Compaction entrypoints | Escrow state does not allow compaction. |
+| 26 | `EscrowCompacted` | No | Mutating entrypoints | Escrow has been compacted; operation no longer allowed. |
+| 27 | `InvalidSplitConfig` | No | Split configuration | Split configuration is invalid. |
+| 28 | `OutOfOrder` | No | Milestone entrypoints | Milestone operated on out of sequence. |
+| 29 | `DuplicateIndex` | Yes | `refund_unreleased_milestones` and index lists | (a) Duplicate milestone index in a refund request; (b) duplicate index in another index list. |
+| 30 | `BelowReputationThreshold` | No | Gated entrypoints | Caller reputation below threshold. |
+| 31 | `InvalidPanel` | No | Arbitration entrypoints | Arbiter panel is invalid. |
+| 32 | `PanelRequired` | No | Arbitration entrypoints | Arbiter panel required but absent. |
+| 33 | `RoleUnchanged` | No | `propose_client_migration` | Proposed role equals the current role. |
+| 34 | `TooManyFunders` | No | `deposit_funds` | Funder limit reached. |
+| 35 | `FundingExpired` | No | `deposit_funds` | Funding window has expired. |
+| 36 | `NotExpired` | No | Expiry-gated entrypoints | Expiry condition not yet met. |
+| 37 | `ChangeOrderNotFound` | No | Change-order entrypoints | No such change order. |
+| 38 | `InvalidMetadata` | No | `create_contract` / metadata setters | Metadata is invalid. |
+| 39 | `NoPendingUpgrade` | No | Upgrade entrypoints | No pending upgrade to act on. |
+| 40 | `UpgradeNotReady` | No | Upgrade entrypoints | Upgrade timelock has not elapsed. |
+| 41 | `InvalidReviewWindow` | No | Review entrypoints | Review window configuration is invalid. |
+| 42 | `MilestoneNotSubmitted` | No | Review entrypoints | Milestone has not been submitted for review. |
+| 43 | `ReviewWindowActive` | No | Release/refund entrypoints | Review window still active. |
+| 44 | `TransferAmountMismatch` | No | Transfer entrypoints | Transferred amount does not match expected amount. |
+| 45 | `InvalidAdmin` | No | Admin entrypoints | Admin address is invalid. |
+| 46 | `NoPendingAdmin` | No | `accept_admin` and related | No pending admin transfer. |
+| 47 | `EmergencyExitNotAvailable` | No | Emergency entrypoints | Emergency exit conditions not met. |
+| 48 | `SettlementMismatch` | No | Settlement entrypoints | Settlement totals do not reconcile. |
+| 49 | `FeeTooHigh` | No | Fee configuration | Fee exceeds the maximum. |
+| 50 | `InvalidSchedule` | No | Schedule configuration | Schedule is invalid. |
 
 ---
 
-## Code 5: `InvalidStatusTransition` 🟡 Partially live / ambiguous
-
-**Entrypoint(s)**:
-- Lifecycle entrypoints that gate by status (exact set depends on your `lib.rs`)
-
-**Trigger condition**:
-- The operation is incompatible with current `ContractStatus`.
-
-**Precise condition (conceptual)**:
-- Example: trying to deposit after Funded/Completed, release before Funded, etc.
-
-**Note**:
-- In the `lib.rs` snapshot fetched earlier, some paths use `InvalidState` for status gating; this code still exists for more specific transition errors or older paths. Keep mapped in integrators even if not currently thrown.
-
----
-
-## Code 6: `EmptyRefundRequest` ✅ Live
-
-**Entrypoint(s)**:
-- `refund_unreleased_milestones`
-
-**Trigger condition**:
-- Refund called with an empty list of milestone indices.
-
-**Precise condition (as implemented)**:
-- `if milestone_indices.is_empty() { panic_with_error(EmptyRefundRequest) }`
-
----
-
-## Code 7: `DuplicateMilestoneInRefund` ✅ Live
-
-**Entrypoint(s)**:
-- `refund_unreleased_milestones`
-
-**Trigger condition**:
-- Refund request includes the same milestone index more than once.
-
-**Precise condition (as implemented)**:
-- Nested loop checks duplicates; on match:
-  - `panic_with_error(DuplicateMilestoneInRefund)`
-
----
-
-## Code 8: `AlreadyRefunded` ✅ Live
-
-**Entrypoint(s)**:
-- `release_milestone`
-- `refund_unreleased_milestones`
-
-**Trigger condition**:
-- Attempt to refund a milestone that is already refunded, or release a refunded milestone.
-
-**Precise condition (as implemented)**:
-- `if milestone.refunded { panic_with_error(AlreadyRefunded) }`
-
----
-
-## Code 9: `InsufficientFunds` ✅ Live
-
-**Entrypoint(s)**:
-- `release_milestone`
-- `refund_unreleased_milestones`
-
-**Trigger condition**:
-- The available balance is less than the amount required for the operation.
-
-**Precise condition (as implemented)**:
-- Compute:
-  - `available_balance = contract.funded_amount - contract.released_amount - contract.refunded_amount`
-- Release:
-  - `if available_balance < milestone.amount { panic_with_error(InsufficientFunds) }`
-- Refund:
-  - `if available_balance < total_refund_amount { panic_with_error(InsufficientFunds) }`
-
-**Security note**:
-- This is the core accounting invariant gate that prevents over-allocation.
-
----
-
-## Code 10: `ContractNotFound` ✅ Live
-
-**Entrypoint(s)**:
-- Any entrypoint that loads `DataKey::Contract(contract_id)`:
-  - `deposit_funds`
-  - `release_milestone`
-  - `refund_unreleased_milestones`
-  - `get_contract`
-  - `get_milestones`
-  - `get_refundable_balance`
-  - (and others, if present)
-
-**Trigger condition**:
-- No contract exists at that ID in storage.
-
-**Precise condition (as implemented)**:
-- `get(...).unwrap_or_else(|| panic_with_error(ContractNotFound))`
-
----
-
-## Code 11: `UnauthorizedRole` ✅ Live
-
-**Entrypoint(s)**:
-- `deposit_funds`
-- `release_milestone` (role gating depends on `ReleaseAuthorization`)
-- `approve_milestone_release` (via approvals module)
-- Any other role-gated lifecycle/admin functions (pause/emergency, etc.)
-
-**Trigger condition**:
-- Caller is not authorized for the operation (not client/freelancer/arbiter/admin as required).
-
-**Precise condition (examples)**:
-- Deposit:
-  - `if caller != contract.client { panic_with_error(UnauthorizedRole) }`
-- Release:
-  - Based on `release_authorization`, require client and/or arbiter membership.
-
----
-
-## Code 12: `MissingArbiter` ✅ Live
-
-**Entrypoint(s)**:
-- `create_contract`
-
-**Trigger condition**:
-- `ReleaseAuthorization` requires an arbiter but no arbiter address provided.
-
-**Precise condition (as implemented)**:
-- If `release_authorization` is `ArbiterOnly` or `ClientAndArbiter`:
-  - `if arbiter.is_none() { panic_with_error(MissingArbiter) }`
-
----
-
-## Code 13: `InvalidArbiter` ✅ Live
-
-**Entrypoint(s)**:
-- `create_contract`
-
-**Trigger condition**:
-- Arbiter equals the client or freelancer address.
-
-**Precise condition (as implemented)**:
-- If `arbiter == client || arbiter == freelancer`:
-  - `panic_with_error(InvalidArbiter)`
-
----
-
-## Code 14: `InvalidParticipants` ✅ Live
-
-**Entrypoint(s)**:
-- `create_contract`
-
-**Trigger condition**:
-- Client and freelancer addresses are identical.
-
-**Precise condition (as implemented)**:
-- `if client == freelancer { panic_with_error(InvalidParticipants) }`
-
----
-
-## Code 15: `AmountMustBePositive` ✅ Live
-
-**Entrypoint(s)**:
-- `deposit_funds`
-- (Often also used by `create_contract` / milestone validation in many designs; depends on your current `lib.rs`)
-
-**Trigger condition**:
-- Any amount is `<= 0`.
-
-**Precise condition (as implemented, deposit)**:
-- `if amount <= 0 { panic_with_error(AmountMustBePositive) }`
-
----
-
-## Code 16: `InvalidState` ✅ Live
-
-**Entrypoint(s)**:
-- `deposit_funds`
-- `release_milestone`
-- Other lifecycle functions that enforce paused/emergency/status gating
-
-**Trigger condition**:
-- Contract is in a state that forbids the operation (including pause/emergency controls).
-
-**Precise condition (examples)**:
-- Deposit only allowed from `ContractStatus::Created`
-- Release only allowed from `ContractStatus::Funded`
-- Mutations forbidden when paused or emergency controls active
-
----
-
-## Code 17: `MilestoneAlreadyReleased` ✅ Live (semantic alias of Code 4)
-
-**Entrypoint(s)**:
-- `release_milestone` (and/or approval flows)
-
-**Trigger condition**:
-- Milestone already released.
-
-**Precise condition**:
-- Equivalent to Code 4, but used for more specific messaging.
-
-**Note**:
-- Integrators should treat Code 4 and Code 17 as the same user-level error.
-
----
-
-## Code 18: `AlreadyApproved` 🟡 Partially live / depends on approvals module
-
-**Entrypoint(s)**:
-- `approve_milestone_release` (through `approvals::approve_milestone`)
-
-**Trigger condition**:
-- The same role (client/freelancer/arbiter) attempts to approve the same milestone twice.
-
-**Precise condition (intended)**:
-- If caller role flag is already `true` in `MilestoneApprovals`, reject.
-
-**Status note**:
-- This is expected to be live if `approvals.rs` persists approvals and checks duplicates.
-
----
-
-## Code 19: `ApprovalExpired` 🟡 Partially live / depends on TTL behavior
-
-**Entrypoint(s)**:
-- `release_milestone` (via `approvals::check_approvals`)
-- Possibly `approve_milestone_release` (if it reads existing approvals)
-
-**Trigger condition**:
-- Approval record missing due to TTL expiration / eviction.
-
-**Precise condition (intended)**:
-- `env.storage().temporary().get(...)` returns `None` when approval is required.
-
-**Security note**:
-- This enforces time-bounded approvals (fail-closed if approvals are stale).
-
----
-
-## Code 20: `InsufficientApprovals` 🟡 Partially live / depends on approvals logic
-
-**Entrypoint(s)**:
-- `release_milestone` (via `approvals::check_approvals`)
-
-**Trigger condition**:
-- Not enough required approvals have been recorded for the configured `ReleaseAuthorization`.
-
-**Precise condition (intended)**:
-- For `ClientAndArbiter`: require both client and arbiter approval flags
-- For `MultiSig`: require both client and freelancer approval flags
-- For `ClientOnly`/`ArbiterOnly`: approvals may be skipped (depending on design)
-
----
-
-## Code 21: `FreelancerMismatch` 🔴 Reserved / unused in current `lib.rs` snapshot
-
-**Entrypoint(s)**:
-- Intended: `issue_reputation` (or any reputation-related entrypoint)
-
-**Trigger condition**:
-- A provided freelancer address does not match the stored contract freelancer.
-
-**Precise condition (intended)**:
-- `if provided_freelancer != contract.freelancer { panic_with_error(FreelancerMismatch) }`
-
----
-
-## Code 22: `InvalidRating` 🔴 Reserved / unused in current `lib.rs` snapshot
-
-**Entrypoint(s)**:
-- Intended: `issue_reputation`
-
-**Trigger condition**:
-- Rating outside allowed range (usually `1..=5`).
-
-**Precise condition (intended)**:
-- `if rating < 1 || rating > 5 { panic_with_error(InvalidRating) }`
-
----
-
-## Code 23: `ReputationAlreadyIssued` 🔴 Reserved / unused in current `lib.rs` snapshot
-
-**Entrypoint(s)**:
-- Intended: `issue_reputation`
-
-**Trigger condition**:
-- Reputation already issued for this contract.
-
-**Precise condition (intended)**:
-- `if contract.reputation_issued { panic_with_error(ReputationAlreadyIssued) }`
-
----
-
-## Code 46: `RoleOverlap` ✅ Live
-
-**Entrypoint(s)**:
-- `propose_client_migration`
-- `accept_client_migration`
-
-**Trigger condition**:
-- The proposed client address overlaps with the current client, the freelancer, the arbiter (if configured), or the escrow contract's own address.
-
-**Precise condition**:
-- `if candidate == contract.client || candidate == contract.freelancer || contract.arbiter.as_ref() == Some(candidate) || candidate == env.current_contract_address() { panic_with_error(RoleOverlap) }`
-
----
-
-## Code 44: `AccountingInvariantViolated` ✅ Live
-
-**Entrypoint(s)**:
-- `release_milestone`, `release_milestones_batch`, `resolve_dispute`, dispute payout helpers
-- `finalize_contract` (added by #1434)
-
-**Trigger condition**:
-- At a money-movement path: `released_amount + refunded_amount + accumulated_protocol_fees > funded_amount`.
-- At `finalize_contract`: the persisted accounting and the milestone vector cannot
-  be reconciled, so sealing an immutable close record is refused. Covers negative
-  ledger totals, payments exceeding funding, funding above the milestone total, a
-  milestone flagged as both released and refunded, and a summary that does not
-  match the contract it was derived from.
-
-**Precise condition**:
-- `if contract.funded_amount < 0 || contract.released_amount < 0 || contract.refunded_amount < 0 || released_amount + refunded_amount > funded_amount || funded_amount > summary.total_amount || summary.total_amount < 0 || summary.status != contract.status || summary.funded_amount != contract.funded_amount || summary.released_amount != contract.released_amount || summary.refundable_balance != contract.funded_amount - paid { panic_with_error(AccountingInvariantViolated) }`
-
-**Recovery**: the close record is immutable, so a contract that fails these checks is
-left unfinalized and fully mutable. Nothing is written, and the same check runs on
-every retry, so the outcome is deterministic.
-
----
-
-## Code 84: `FinalizationStateIncomplete` ✅ Live
-
-**Entrypoint(s)**:
-- `finalize_contract`
-
-**Trigger condition**:
-- The contract record exists and its status is `Completed` or `Disputed`, but the
-  milestone vector under `(Contract(id), "milestones")` is absent, so a complete
-  and accurate close summary cannot be built.
-
-**Precise condition**:
-- `match env.storage().persistent().get(&milestone_key) { Some(m) => m, None => panic_with_error(FinalizationStateIncomplete) }`
-
-**Why a dedicated code**: `ContractNotFound` would be misleading here - the contract
-record is present, only the summary inputs are missing. Silently sealing an empty
-milestone list would freeze a `total_amount` of `0` and a release count of `0` into
-a permanent record that contradicts the contract it describes.
-
-**Recovery**: nothing is written and the contract stays mutable. Once the milestone
-entry is restored (e.g. from a state archive), the identical call succeeds.
-
----
-
-## Cross-links
-
-- Public entrypoint security notes and assumptions: [`SECURITY.md`](./SECURITY.md)
-- Enum definitions: `contracts/escrow/src/lib.rs` (`EscrowError` is `#[repr(u32)]`)
+## Reused variants
+
+- **`InvalidAmount` (8)**: (a) non-positive deposit; (b) non-positive milestone amount at creation; (c) invalid refund total.
+- **`InvalidStatus` (10)**: (a) deposit outside `Created`; (b) release outside `Funded`; (c) other status-gated operations.
+- **`MilestoneAlreadyReleased` (12)**: (a) release of a released milestone; (b) refund of a released milestone.
+- **`InvalidTransition` (20)**: (a) disallowed state transition; (b) disallowed role or config change.
+- **`DuplicateIndex` (29)**: (a) duplicate milestone index in a refund request; (b) duplicate index in another index list.
