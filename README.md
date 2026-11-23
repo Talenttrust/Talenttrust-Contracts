@@ -67,6 +67,7 @@ Machine-readable details are in [deployments/testnet.json](deployments/testnet.j
 | `get_settlement(id)` | - | Pending `SettlementProposal { proposer, freelancer_amount, created_at }` (still returns expired records; check `now <= created_at + SETTLEMENT_VALID_SECS`) |
 | `resign(id)` | freelancer | Resign from a `Created`/`Funded` escrow: unreleased funds return to the client (released milestones stay paid), escrow `Cancelled`; emits `("resign", id) -> refunded` |
 | `was_resigned(id)` | - | Whether the escrow ended by freelancer resignation (vs client cancellation) |
+| `get_resignations(freelancer)` | - | Number of escrows the freelancer resigned from with a non-zero refund (`0` when none). Counted only when the resignation actually refunds held funds, mirroring how `cancellations` counts only funded client cancellations. Stored under `DataKey::Resignations(Address)`, so the persisted `Outcomes` layout is unchanged |
 | `issue_reputation(id, rating)` | client | Rate a completed or resolved job (1-5), once |
 | `rate_client(id, rating)` | freelancer | Rate the client of a completed or resolved job (1-5), once, when `released_amount >= MIN_REPUTATION_VALUE` (`BelowReputationThreshold` (`30`) otherwise); emits `("rep_cli", id) -> (client, rating)` |
 | `void_rating(id, reason)` | admin | Void a fraudulent rating, reverse reputation and emit audit trail |
@@ -125,7 +126,7 @@ Status transitions are centrally validated by a guarded state machine:
 
 Any other status transition returns `EscrowError::InvalidTransition` (`20`). Attempting to `deposit_funds` on an already `Funded` contract returns `EscrowError::InvalidStatus` (`1`) up front.
 
-Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`.
+Resolved jobs allow reputation rating; dispute outcomes and cancellation metrics are tracked in persistent `Outcomes`, while freelancer resignation counts live in the separate `Resignations(Address)` counter so the stored `Outcomes` layout stays compatible.
 
 Bonuses are allowed while an escrow is `Funded` or `Completed`; they do not change the escrow status or accounting.
 
@@ -136,7 +137,7 @@ Persistent entries are extended to `PERSISTENT_TTL_EXTEND` (~30 days of ledgers)
 | Function | Auth | Description |
 | --- | --- | --- |
 | `extend_escrow_ttl(id)` | anyone | Extend an escrow entry (or its receipt) and all of its existing side entries; `ContractNotFound` if missing |
-| `extend_reputation_ttl(addr)` | anyone | Extend an address's reputation, weighted reputation, client reputation, outcomes and bonus totals |
+| `extend_reputation_ttl(addr)` | anyone | Extend an address's reputation, weighted reputation, client reputation, outcomes, resignation counter and bonus totals |
 
 ### Arithmetic
 

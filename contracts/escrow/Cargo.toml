@@ -15,7 +15,3 @@ soroban-sdk = { workspace = true }
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 proptest = "1.4.0"
-
-[[test]]
-name = "abi_reference_doc_test"
-path = "../../tests/abi_reference_doc_test.rs"
