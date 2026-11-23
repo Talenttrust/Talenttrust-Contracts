@@ -4312,6 +4312,64 @@ fn freelancer_can_reject_change_order() {
 }
 
 #[test]
+fn change_order_getter_lifecycle_and_not_found_paths() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+
+    // 1. Getter returns None before proposal
+    assert_eq!(s.escrow.get_change_order(&id), None);
+
+    // 2. reject_change_order and accept_change_order return ChangeOrderNotFound with no proposal
+    assert_eq!(
+        s.escrow.try_reject_change_order(&id),
+        Err(Ok(EscrowError::ChangeOrderNotFound))
+    );
+    assert_eq!(
+        s.escrow.try_accept_change_order(&id),
+        Err(Ok(EscrowError::ChangeOrderNotFound))
+    );
+
+    // 3. Propose change order: getter returns Some with the amounts
+    let proposal1 = vec![&s.env, 50 * U];
+    s.escrow.propose_change_order(&id, &proposal1);
+    assert_eq!(s.escrow.get_change_order(&id), Some(proposal1));
+
+    // 4. A second proposal overwrites the first
+    let proposal2 = vec![&s.env, 60 * U, 40 * U];
+    s.escrow.propose_change_order(&id, &proposal2);
+    assert_eq!(s.escrow.get_change_order(&id), Some(proposal2));
+
+    // 5. Getter returns None after reject
+    s.escrow.reject_change_order(&id);
+    assert_eq!(s.escrow.get_change_order(&id), None);
+
+    // 6. Calling reject again returns ChangeOrderNotFound
+    assert_eq!(
+        s.escrow.try_reject_change_order(&id),
+        Err(Ok(EscrowError::ChangeOrderNotFound))
+    );
+
+    // 7. Propose again and accept: getter returns None after accept
+    let proposal3 = vec![&s.env, 25 * U];
+    s.escrow.propose_change_order(&id, &proposal3);
+    assert_eq!(s.escrow.get_change_order(&id), Some(proposal3));
+    s.escrow.accept_change_order(&id);
+    assert_eq!(s.escrow.get_change_order(&id), None);
+
+    // 8. Calling accept again returns ChangeOrderNotFound
+    assert_eq!(
+        s.escrow.try_accept_change_order(&id),
+        Err(Ok(EscrowError::ChangeOrderNotFound))
+    );
+}
+
+#[test]
 fn client_cannot_accept_own_change_order() {
     let s = setup();
     let id = s.escrow.create_contract(
