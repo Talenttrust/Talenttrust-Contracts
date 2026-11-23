@@ -1225,6 +1225,12 @@ impl Escrow {
         if !matches!(c.status, ContractStatus::Created | ContractStatus::Funded) {
             return Err(EscrowError::InvalidStatus);
         }
+        // Reject disputes on escrows that have no held funds — there is nothing
+        // to resolve and a dispute would block expire_unfunded / cancel_contract.
+        let held = c.funded_amount.saturating_sub(c.released_amount);
+        if held <= 0 {
+            return Err(EscrowError::InsufficientFunds);
+        }
         // The opener posts a refundable bond before the status changes.
         let bond = dispute_bond(c.total_amount);
         // Record when the dispute clock started, so `resolve_expired_dispute`

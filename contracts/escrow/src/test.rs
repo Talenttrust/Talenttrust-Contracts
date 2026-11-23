@@ -9414,3 +9414,42 @@ fn milestone_due_side_keys_extend_ttl() {
         persistent_ttl(&s, &DataKey::MilestoneReclaimed(id, 0)) >= PERSISTENT_TTL_THRESHOLD
     );
 }
+
+#[test]
+fn dispute_on_unfunded_created_escrow_rejected() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client, &s.freelancer, &s.token.address,
+        &vec![&s.env, 1_000_000_000i128],
+    );
+    let result = s.escrow.try_open_dispute(&id, &s.client);
+    assert_eq!(result, Err(Ok(EscrowError::InsufficientFunds)));
+}
+
+#[test]
+fn dispute_on_funded_escrow_with_held_funds_succeeds() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client, &s.freelancer, &s.token.address,
+        &vec![&s.env, 1_000_000_000i128],
+    );
+    s.token.mint(&s.client, &1_000_000_000i128);
+    s.escrow.deposit_funds(&id, &s.client, &1_000_000_000i128);
+    open_dispute_bonded(&s, &id, &s.freelancer);
+    let c = s.escrow.get_contract(&id);
+    assert!(matches!(c.status, ContractStatus::Disputed));
+}
+
+#[test]
+fn expire_unfunded_still_works_after_dispute_guard() {
+    use soroban_sdk::testutils::Ledger as _;
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client, &s.freelancer, &s.token.address,
+        &vec![&s.env, 1_000_000_000i128],
+    );
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += crate::FUNDING_WINDOW_SECS + 1;
+    });
+    s.escrow.expire_unfunded(&id);
+}
