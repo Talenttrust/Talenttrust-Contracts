@@ -689,7 +689,7 @@ impl Escrow {
 
     /// Can only be called once after deployment.
     pub fn try_initialize(env: Env, admin: Address) -> Result<(), EscrowError> {
-        require_not_paused(&env, PAUSE_CREATE)?;
+        require_not_paused(&env, PAUSE_RELEASE)?;
         admin.require_auth();
         let key = types::DataKey::Admin;
         env.storage().instance().set(&key, &admin);
