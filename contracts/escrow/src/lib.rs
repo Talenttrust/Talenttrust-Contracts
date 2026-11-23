@@ -689,7 +689,7 @@ impl Escrow {
 
     /// Can only be called once after deployment.
     pub fn try_initialize(env: Env, admin: Address) -> Result<(), EscrowError> {
-        require_not_paused(&env, PAUSE_CREATE)?;
+        require_not_paused(&env, PAUSE_RELEASE)?;
         admin.require_auth();
         let key = types::DataKey::Admin;
         env.storage().instance().set(&key, &admin);
@@ -2263,6 +2263,9 @@ impl Escrow {
     /// Admin schedules a WASM upgrade.
     pub fn try_schedule_upgrade(env: Env, wasm_hash: BytesN<32>) -> Result<(), EscrowError> {
         require_admin(&env)?;
+        if wasm_hash == BytesN::from_array(&env, &[0u8; 32]) {
+            return Err(EscrowError::InvalidMetadata);
+        }
         let now = env.ledger().timestamp();
         let eta = now.checked_add(constants::UPGRADE_DELAY_SECS).ok_or(EscrowError::ArithmeticOverflow)?;
         let pending = PendingUpgrade {
