@@ -9489,3 +9489,387 @@ fn milestone_due_side_keys_extend_ttl() {
     assert!(persistent_ttl(&s, &DataKey::MilestoneDue(id)) >= PERSISTENT_TTL_THRESHOLD);
     assert!(persistent_ttl(&s, &DataKey::MilestoneReclaimed(id, 0)) >= PERSISTENT_TTL_THRESHOLD);
 }
+
+// ---------------------------------------------------------------------------
+// Per-token liability isolation across two assets (#1792)
+//
+// One escrow contract instance settles two different assets. Every scenario
+// asserts that the aggregate liability counter is kept per token and that each
+// token's liability is backed by the balance the contract actually holds for
+// that token.
+// ---------------------------------------------------------------------------
+
+struct TwoTokens<'a> {
+    escrow: EscrowClient<'a>,
+    token_a: TokenClient<'a>,
+    token_b: TokenClient<'a>,
+    admin: Address,
+    client: Address,
+    freelancer: Address,
+    treasury: Address,
+}
+
+/// Registers one escrow contract instance plus two distinct Stellar assets.
+fn two_token_setup<'a>(env: &'a Env) -> TwoTokens<'a> {
+    env.mock_all_auths();
+    let issuer = Address::generate(env);
+    let sac_a = env.register_stellar_asset_contract_v2(issuer.clone());
+    let sac_b = env.register_stellar_asset_contract_v2(issuer);
+    let (escrow, client, freelancer) = escrow_with_token(env, &sac_a.address());
+    StellarAssetClient::new(env, &sac_a.address()).mint(&client, &(1_000 * U));
+    StellarAssetClient::new(env, &sac_b.address()).mint(&client, &(1_000 * U));
+    let admin = escrow.get_admin();
+    TwoTokens {
+        escrow,
+        token_a: TokenClient::new(env, &sac_a.address()),
+        token_b: TokenClient::new(env, &sac_b.address()),
+        admin,
+        client,
+        freelancer,
+        treasury: Address::generate(env),
+    }
+}
+
+/// Asserts both per-token liability counters and that the contract is solvent
+/// for each token.
+fn assert_token_liabilities(t: &TwoTokens, expected_a: i128, expected_b: i128) {
+    assert_eq!(
+        t.escrow.get_liability(&t.token_a.address),
+        expected_a,
+        "token A liability"
+    );
+    assert_eq!(
+        t.escrow.get_liability(&t.token_b.address),
+        expected_b,
+        "token B liability"
+    );
+    assert!(
+        t.token_a.balance(&t.escrow.address) >= expected_a,
+        "token A solvency: held {} < liability {}",
+        t.token_a.balance(&t.escrow.address),
+        expected_a
+    );
+    assert!(
+        t.token_b.balance(&t.escrow.address) >= expected_b,
+        "token B solvency: held {} < liability {}",
+        t.token_b.balance(&t.escrow.address),
+        expected_b
+    );
+}
+
+/// Asserts the exact held balance per token (no surplus expected).
+fn assert_token_balances(t: &TwoTokens, expected_a: i128, expected_b: i128) {
+    assert_eq!(
+        t.token_a.balance(&t.escrow.address),
+        expected_a,
+        "token A held"
+    );
+    assert_eq!(
+        t.token_b.balance(&t.escrow.address),
+        expected_b,
+        "token B held"
+    );
+}
+
+fn set_fee_timelocked_on(t: &TwoTokens, env: &Env, fee_bps: u32, treasury: &Address) {
+    t.escrow.schedule_fee_change(&fee_bps, treasury);
+    let now = env.ledger().timestamp();
+    env.ledger().set_timestamp(now + PARAM_DELAY_SECS);
+    t.escrow.execute_fee_change();
+}
+
+#[test]
+fn two_tokens_fund_and_track_liability_independently() {
+    let env = Env::default();
+    let t = two_token_setup(&env);
+
+    let a = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_a.address,
+        &vec![&env, 100 * U],
+    );
+    let b = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_b.address,
+        &vec![&env, 200 * U],
+    );
+
+    t.escrow.deposit_funds(&a, &(100 * U));
+    assert_token_liabilities(&t, 100 * U, 0);
+    assert_token_balances(&t, 100 * U, 0);
+
+    t.escrow.deposit_funds(&b, &(50 * U));
+    assert_token_liabilities(&t, 100 * U, 50 * U);
+    assert_token_balances(&t, 100 * U, 50 * U);
+
+    // Topping up B leaves A's liability untouched.
+    t.escrow.deposit_funds(&b, &(150 * U));
+    assert_token_liabilities(&t, 100 * U, 200 * U);
+    assert_token_balances(&t, 100 * U, 200 * U);
+}
+
+#[test]
+fn interleaved_releases_keep_per_token_liability_separate() {
+    let env = Env::default();
+    let t = two_token_setup(&env);
+
+    let a = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_a.address,
+        &vec![&env, 60 * U, 40 * U],
+    );
+    let b = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_b.address,
+        &vec![&env, 120 * U, 80 * U],
+    );
+    t.escrow.deposit_funds(&a, &(100 * U));
+    t.escrow.deposit_funds(&b, &(200 * U));
+    assert_token_liabilities(&t, 100 * U, 200 * U);
+
+    // Release A's first milestone: only A's liability drops.
+    t.escrow.release_milestone(&a, &0);
+    assert_token_liabilities(&t, 40 * U, 200 * U);
+    assert_token_balances(&t, 40 * U, 200 * U);
+    assert_eq!(t.token_a.balance(&t.freelancer), 60 * U);
+    assert_eq!(t.token_b.balance(&t.freelancer), 0);
+
+    // Release B's first milestone: only B's liability drops.
+    t.escrow.release_milestone(&b, &0);
+    assert_token_liabilities(&t, 40 * U, 80 * U);
+    assert_token_balances(&t, 40 * U, 80 * U);
+    assert_eq!(t.token_a.balance(&t.freelancer), 60 * U);
+    assert_eq!(t.token_b.balance(&t.freelancer), 120 * U);
+
+    // Finish both escrows.
+    t.escrow.release_milestone(&a, &1);
+    t.escrow.release_milestone(&b, &1);
+    assert_token_liabilities(&t, 0, 0);
+    assert_token_balances(&t, 0, 0);
+    assert_eq!(t.token_a.balance(&t.freelancer), 100 * U);
+    assert_eq!(t.token_b.balance(&t.freelancer), 200 * U);
+}
+
+#[test]
+fn interleaved_cancellations_keep_per_token_liability_separate() {
+    let env = Env::default();
+    let t = two_token_setup(&env);
+
+    let a = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_a.address,
+        &vec![&env, 100 * U],
+    );
+    let b = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_b.address,
+        &vec![&env, 200 * U],
+    );
+    t.escrow.deposit_funds(&a, &(100 * U));
+    t.escrow.deposit_funds(&b, &(200 * U));
+    assert_token_liabilities(&t, 100 * U, 200 * U);
+
+    // Cancelling A refunds A only.
+    t.escrow.cancel_contract(&a);
+    assert_token_liabilities(&t, 0, 200 * U);
+    assert_token_balances(&t, 0, 200 * U);
+    assert_eq!(t.token_a.balance(&t.client), 1_000 * U);
+    assert_eq!(t.token_b.balance(&t.client), 800 * U);
+
+    // Cancelling B leaves A at zero.
+    t.escrow.cancel_contract(&b);
+    assert_token_liabilities(&t, 0, 0);
+    assert_token_balances(&t, 0, 0);
+    assert_eq!(t.token_b.balance(&t.client), 1_000 * U);
+}
+
+#[test]
+fn interleaved_disputes_track_per_token_liability_and_bonds() {
+    let env = Env::default();
+    let t = two_token_setup(&env);
+
+    let a = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_a.address,
+        &vec![&env, 100 * U],
+    );
+    let b = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_b.address,
+        &vec![&env, 200 * U],
+    );
+    t.escrow.deposit_funds(&a, &(100 * U));
+    t.escrow.deposit_funds(&b, &(200 * U));
+
+    // Client disputes A: the bond joins A's liability only.
+    let bond_a = dispute_bond(100 * U);
+    StellarAssetClient::new(&env, &t.token_a.address).mint(&t.client, &bond_a);
+    t.escrow.open_dispute(&a, &t.client);
+    assert_token_liabilities(&t, 100 * U + bond_a, 200 * U);
+
+    // Freelancer disputes B: the bond joins B's liability only.
+    let bond_b = dispute_bond(200 * U);
+    StellarAssetClient::new(&env, &t.token_b.address).mint(&t.freelancer, &bond_b);
+    t.escrow.open_dispute(&b, &t.freelancer);
+    assert_token_liabilities(&t, 100 * U + bond_a, 200 * U + bond_b);
+
+    // Resolving A clears A's held funds and bond, B is untouched.
+    t.escrow.resolve_dispute(&t.admin, &a, &5_000, &true);
+    assert_token_liabilities(&t, 0, 200 * U + bond_b);
+    assert_token_balances(&t, 0, 200 * U + bond_b);
+    assert_eq!(
+        t.token_a.balance(&t.client),
+        1_000 * U - 100 * U + 50 * U + bond_a
+    );
+
+    // Resolving B clears B.
+    t.escrow.resolve_dispute(&t.admin, &b, &5_000, &true);
+    assert_token_liabilities(&t, 0, 0);
+    assert_token_balances(&t, 0, 0);
+    assert_eq!(
+        t.token_b.balance(&t.freelancer),
+        100 * U + bond_b,
+        "freelancer keeps the 50% share plus the returned bond"
+    );
+}
+
+#[test]
+fn direct_transfer_to_token_b_is_liability_neutral_surplus_for_b() {
+    let env = Env::default();
+    let t = two_token_setup(&env);
+
+    let a = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_a.address,
+        &vec![&env, 100 * U],
+    );
+    let b = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_b.address,
+        &vec![&env, 200 * U],
+    );
+    t.escrow.deposit_funds(&a, &(100 * U));
+    t.escrow.deposit_funds(&b, &(200 * U));
+
+    // Extra funds sent straight to the contract are untracked surplus for B.
+    StellarAssetClient::new(&env, &t.token_b.address).mint(&t.escrow.address, &(50 * U));
+    assert_token_liabilities(&t, 100 * U, 200 * U);
+    assert_token_balances(&t, 100 * U, 250 * U);
+
+    // A has no surplus at all, so sweeping it fails and changes nothing.
+    assert_eq!(
+        t.escrow.try_sweep_surplus(&t.token_a.address, &t.admin),
+        Err(Ok(EscrowError::NoSurplus))
+    );
+    assert_token_liabilities(&t, 100 * U, 200 * U);
+    assert_token_balances(&t, 100 * U, 250 * U);
+
+    // Sweeping B takes only B's surplus.
+    assert_eq!(t.escrow.sweep_surplus(&t.token_b.address, &t.admin), 50 * U);
+    assert_token_liabilities(&t, 100 * U, 200 * U);
+    assert_token_balances(&t, 100 * U, 200 * U);
+    assert_eq!(t.token_a.balance(&t.admin), 0);
+    assert_eq!(t.token_b.balance(&t.admin), 50 * U);
+
+    // Both escrows still settle in full after the sweep.
+    t.escrow.release_milestone(&a, &0);
+    t.escrow.release_milestone(&b, &0);
+    assert_token_liabilities(&t, 0, 0);
+    assert_token_balances(&t, 0, 0);
+}
+
+#[test]
+fn fees_paid_to_treasury_are_not_counted_as_liability() {
+    let env = Env::default();
+    let t = two_token_setup(&env);
+    let treasury = t.treasury.clone();
+    set_fee_timelocked_on(&t, &env, 100, &treasury);
+
+    let a = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_a.address,
+        &vec![&env, 100 * U],
+    );
+    let b = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_b.address,
+        &vec![&env, 200 * U],
+    );
+    assert_eq!(t.escrow.get_escrow_fee(&a), 100);
+    assert_eq!(t.escrow.get_escrow_fee(&b), 100);
+    t.escrow.deposit_funds(&a, &(100 * U));
+    t.escrow.deposit_funds(&b, &(200 * U));
+
+    // A 1% fee on A's release leaves for the treasury: A's liability drops by
+    // the whole milestone, and the fee is not left behind as liability.
+    t.escrow.release_milestone(&a, &0);
+    assert_token_liabilities(&t, 0, 200 * U);
+    assert_token_balances(&t, 0, 200 * U);
+    assert_eq!(t.token_a.balance(&t.freelancer), 99 * U);
+    assert_eq!(t.token_a.balance(&treasury), 1 * U);
+    assert_eq!(t.token_b.balance(&treasury), 0);
+    assert_eq!(
+        t.escrow.try_sweep_surplus(&t.token_a.address, &t.admin),
+        Err(Ok(EscrowError::NoSurplus)),
+        "the fee must not look like surplus"
+    );
+
+    // B's release pays B's fee to the same treasury, per token.
+    t.escrow.release_milestone(&b, &0);
+    assert_token_liabilities(&t, 0, 0);
+    assert_token_balances(&t, 0, 0);
+    assert_eq!(t.token_b.balance(&t.freelancer), 198 * U);
+    assert_eq!(t.token_b.balance(&treasury), 2 * U);
+    assert_eq!(t.token_a.balance(&treasury), 1 * U);
+}
+
+#[test]
+fn mixed_flows_keep_liability_solvent_for_both_tokens() {
+    let env = Env::default();
+    let t = two_token_setup(&env);
+
+    let a = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_a.address,
+        &vec![&env, 50 * U, 50 * U],
+    );
+    let b = t.escrow.create_contract(
+        &t.client,
+        &t.freelancer,
+        &t.token_b.address,
+        &vec![&env, 100 * U],
+    );
+    t.escrow.deposit_funds(&a, &(100 * U));
+    t.escrow.deposit_funds(&b, &(100 * U));
+
+    // A: release then dispute the remainder.
+    t.escrow.release_milestone(&a, &0);
+    assert_token_liabilities(&t, 50 * U, 100 * U);
+    let bond_a = dispute_bond(100 * U);
+    StellarAssetClient::new(&env, &t.token_a.address).mint(&t.client, &bond_a);
+    t.escrow.open_dispute(&a, &t.client);
+    assert_token_liabilities(&t, 50 * U + bond_a, 100 * U);
+
+    // B: cancel while A is still disputed.
+    t.escrow.cancel_contract(&b);
+    assert_token_liabilities(&t, 50 * U + bond_a, 0);
+    assert_token_balances(&t, 50 * U + bond_a, 0);
+
+    // Resolve A with a partial split; B stays at zero.
+    t.escrow.resolve_dispute(&t.admin, &a, &2_500, &true);
+    assert_token_liabilities(&t, 0, 0);
+    assert_token_balances(&t, 0, 0);
+}
