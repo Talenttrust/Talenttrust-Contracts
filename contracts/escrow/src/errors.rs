@@ -59,4 +59,6 @@ pub enum EscrowError {
     InvalidSchedule = 50,
     // NOTE: the Soroban contract spec caps an error enum at 50 cases, so new
     // failure modes reuse the closest existing code (append-only numbering).
+    // Variants reused for several failure modes (e.g. InvalidAmount,
+    // InvalidStatus) are documented in docs/escrow/ERROR_CATALOG.md.
 }
