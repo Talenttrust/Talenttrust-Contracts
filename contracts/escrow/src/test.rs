@@ -6152,6 +6152,25 @@ fn upgrade_schedule_boundary_and_execute() {
 }
 
 #[test]
+fn schedule_upgrade_rejects_zero_wasm_hash() {
+    let s = setup();
+    let zero_hash = BytesN::from_array(&s.env, &[0u8; 32]);
+
+    assert_eq!(
+        s.escrow.try_schedule_upgrade(&zero_hash),
+        Err(Ok(EscrowError::InvalidMetadata))
+    );
+    assert_eq!(s.escrow.get_pending_upgrade(), None);
+
+    let valid_hash = BytesN::from_array(&s.env, &[1u8; 32]);
+    assert!(s.escrow.try_schedule_upgrade(&valid_hash).is_ok());
+    assert_eq!(
+        s.escrow.get_pending_upgrade().map(|p| p.wasm_hash),
+        Some(valid_hash)
+    );
+}
+
+#[test]
 fn cancel_upgrade_then_execute_fails() {
     let s = setup();
     assert_eq!(
