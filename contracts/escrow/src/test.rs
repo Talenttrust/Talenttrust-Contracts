@@ -2573,6 +2573,54 @@ fn get_escrow_summaries_skips_compacted_ids() {
     assert_eq!(summaries.get(0).unwrap().id, live);
 }
 
+/// A legacy record whose amounts cannot be subtracted without overflowing:
+/// `funded_amount - released_amount` overflows for `i128::MIN - 1`.
+fn overflowing_summary_escrow(s: &Setup, id: u64) -> EscrowContract {
+    let mut c = legacy_escrow(s, id, &[100 * U]);
+    c.funded_amount = i128::MIN;
+    c.released_amount = 1;
+    c
+}
+
+#[test]
+fn get_escrow_summary_returns_arithmetic_overflow_for_an_inconsistent_record() {
+    let s = setup();
+    write_legacy(&s, &overflowing_summary_escrow(&s, 7));
+    assert_eq!(
+        s.escrow.try_get_escrow_summary(&7),
+        Err(Ok(EscrowError::ArithmeticOverflow))
+    );
+}
+
+#[test]
+fn get_escrow_summary_returns_arithmetic_overflow_when_remaining_to_fund_overflows() {
+    let s = setup();
+    let mut c = legacy_escrow(&s, 8, &[100 * U]);
+    c.total_amount = i128::MAX;
+    c.funded_amount = -1;
+    c.released_amount = 0;
+    write_legacy(&s, &c);
+    assert_eq!(
+        s.escrow.try_get_escrow_summary(&8),
+        Err(Ok(EscrowError::ArithmeticOverflow))
+    );
+}
+
+#[test]
+fn get_escrow_summaries_skips_an_inconsistent_record_and_keeps_the_rest() {
+    let s = setup();
+    write_legacy(&s, &overflowing_summary_escrow(&s, 7));
+    let live = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    let summaries = s.escrow.get_escrow_summaries(&vec![&s.env, 7, live]);
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries.get(0).unwrap().id, live);
+}
+
 #[test]
 fn extend_escrow_ttl_still_works_on_compacted_escrow() {
     let s = setup();
