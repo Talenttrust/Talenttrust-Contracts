@@ -379,8 +379,12 @@ pub fn escrow_exists(env: &soroban_sdk::Env, id: u64) -> bool {
         || env.storage().persistent().has(&DataKey::Contract(id))
 }
 
-/// Summarizes an escrow contract into a read-only summary.
-pub fn summarize(c: &EscrowContract) -> EscrowSummary {
+/// Summarizes an escrow contract into a read-only summary. Uses checked
+/// subtraction so a corrupt legacy record (amounts that cannot be subtracted
+/// without overflow) yields `EscrowError::ArithmeticOverflow` instead of
+/// trapping the call. Batch callers should skip such a record; single-id
+/// callers should propagate the error.
+pub fn summarize(c: &EscrowContract) -> Result<EscrowSummary, super::errors::EscrowError> {
     let mut milestones_released = 0u32;
     let mut next_unreleased: Option<u32> = None;
     for (i, m) in c.milestones.iter().enumerate() {
@@ -390,24 +394,31 @@ pub fn summarize(c: &EscrowContract) -> EscrowSummary {
             next_unreleased = Some(i as u32);
         }
     }
-    let held = c.funded_amount - c.released_amount;
+    let held = c
+        .funded_amount
+        .checked_sub(c.released_amount)
+        .ok_or(super::errors::EscrowError::ArithmeticOverflow)?;
+    let remaining_to_fund = c
+        .total_amount
+        .checked_sub(c.funded_amount)
+        .ok_or(super::errors::EscrowError::ArithmeticOverflow)?;
     let next_release_affordable = match next_unreleased {
         Some(index) => c.milestones.get(index).map(|m| held >= m.amount).unwrap_or(false),
         None => false,
     };
-    EscrowSummary {
+    Ok(EscrowSummary {
         id: c.id,
         status: c.status,
         total_amount: c.total_amount,
         funded_amount: c.funded_amount,
         released_amount: c.released_amount,
         held,
-        remaining_to_fund: c.total_amount - c.funded_amount,
+        remaining_to_fund,
         milestones_total: c.milestones.len(),
         milestones_released,
         next_unreleased,
         next_release_affordable,
-    }
+    })
 }
 
 /// Writes the newest envelope variant under `ContractV` (TTL bumped on the new
