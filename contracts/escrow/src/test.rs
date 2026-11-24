@@ -10329,3 +10329,263 @@ fn expire_unfunded_still_works_after_dispute_guard() {
     });
     s.escrow.expire_unfunded(&id);
 }
+
+// ---------------------------------------------------------------------------
+// Combined sequential / partial / submit-claim / batch / cancel flows (#1796)
+// ---------------------------------------------------------------------------
+
+/// Creates and funds an escrow for the combined-flow scenarios.
+fn flow_escrow(s: &Setup, sequential: bool, amounts: &[i128], deposit: i128) -> u64 {
+    let mut v = Vec::new(&s.env);
+    for a in amounts {
+        v.push_back(*a);
+    }
+    let id = if sequential {
+        s.escrow
+            .create_contract_sequential(&s.client, &s.freelancer, &s.token.address, &v)
+    } else {
+        s.escrow
+            .create_contract(&s.client, &s.freelancer, &s.token.address, &v)
+    };
+    s.escrow.deposit_funds(&id, &deposit);
+    id
+}
+
+fn pass_review_window(s: &Setup) {
+    s.env
+        .ledger()
+        .with_mut(|li| li.timestamp += DEFAULT_REVIEW_WINDOW_SECS);
+}
+
+/// Asserts the core invariants plus that every token is accounted for:
+/// the escrow holds exactly `funded - released` of what is still in escrow, and
+/// freelancer + client + escrow balances add up to the client's original mint.
+fn assert_flow_conserved(s: &Setup, id: u64) {
+    let c = s.escrow.get_contract(&id);
+    // `check_invariants` expects a cancelled escrow to hold nothing, which is
+    // not true while submitted work is still waiting to be claimed.
+    if !(c.status == ContractStatus::Cancelled && c.funded_amount != c.released_amount) {
+        check_invariants(&c);
+    }
+    assert_invariants(s, &c);
+    let escrow_bal = s.token.balance(&s.escrow.address);
+    assert_eq!(escrow_bal, c.funded_amount - c.released_amount);
+    assert_eq!(
+        s.token.balance(&s.freelancer) + s.token.balance(&s.client) + escrow_bal,
+        1_000 * U
+    );
+}
+
+#[test]
+fn sequential_claim_out_of_order_is_rejected() {
+    let s = setup();
+    let id = flow_escrow(&s, true, &[100 * U, 200 * U, 300 * U], 600 * U);
+
+    // Milestone 1 is delivered while milestone 0 is still unpaid.
+    s.escrow.submit_milestone(&id, &1);
+    pass_review_window(&s);
+    assert_eq!(
+        s.escrow.try_claim_milestone(&id, &1),
+        Err(Ok(EscrowError::OutOfOrder))
+    );
+    assert_eq!(s.token.balance(&s.freelancer), 0);
+    assert_eq!(s.escrow.get_milestone_status(&id, &1), MilestoneStatus::Submitted);
+    assert_flow_conserved(&s, id);
+
+    // Once milestone 0 is paid, the earlier submission can be claimed.
+    s.escrow.release_milestone(&id, &0);
+    s.escrow.claim_milestone(&id, &1);
+    assert_eq!(s.token.balance(&s.freelancer), 300 * U);
+    assert_flow_conserved(&s, id);
+}
+
+#[test]
+fn sequential_claims_in_order_complete_the_escrow() {
+    let s = setup();
+    let id = flow_escrow(&s, true, &[100 * U, 200 * U], 300 * U);
+    s.escrow.submit_milestone(&id, &0);
+    s.escrow.submit_milestone(&id, &1);
+    pass_review_window(&s);
+
+    s.escrow.claim_milestone(&id, &0);
+    assert_flow_conserved(&s, id);
+    s.escrow.claim_milestone(&id, &1);
+
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+    assert_eq!(s.token.balance(&s.freelancer), 300 * U);
+    assert_flow_conserved(&s, id);
+}
+
+#[test]
+fn sequential_partial_then_submit_and_claim_pays_only_the_remainder() {
+    let s = setup();
+    let id = flow_escrow(&s, true, &[100 * U, 200 * U], 300 * U);
+
+    s.escrow.release_partial(&id, &0, &(40 * U));
+    assert_eq!(s.escrow.get_milestone_paid(&id, &0), 40 * U);
+    assert_flow_conserved(&s, id);
+
+    // The remaining 60 of milestone 0 is submitted and claimed; later
+    // milestone 1 is blocked until milestone 0 is fully paid.
+    s.escrow.submit_milestone(&id, &0);
+    s.escrow.submit_milestone(&id, &1);
+    pass_review_window(&s);
+    assert_eq!(
+        s.escrow.try_claim_milestone(&id, &1),
+        Err(Ok(EscrowError::OutOfOrder))
+    );
+    s.escrow.claim_milestone(&id, &0);
+    assert_eq!(s.token.balance(&s.freelancer), 100 * U);
+    assert_eq!(s.escrow.get_milestone_status(&id, &0), MilestoneStatus::Released);
+    assert_flow_conserved(&s, id);
+
+    s.escrow.claim_milestone(&id, &1);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+    assert_eq!(s.token.balance(&s.freelancer), 300 * U);
+    assert_flow_conserved(&s, id);
+}
+
+#[test]
+fn sequential_partial_payment_blocks_later_milestones_until_it_completes() {
+    let s = setup();
+    let id = flow_escrow(&s, true, &[100 * U, 200 * U], 300 * U);
+
+    s.escrow.release_partial(&id, &0, &(40 * U));
+    assert_eq!(
+        s.escrow.try_release_partial(&id, &1, &(10 * U)),
+        Err(Ok(EscrowError::OutOfOrder))
+    );
+    assert_eq!(
+        s.escrow.try_release_milestone(&id, &1),
+        Err(Ok(EscrowError::OutOfOrder))
+    );
+    assert_eq!(s.escrow.get_milestone_paid(&id, &1), 0);
+    assert_flow_conserved(&s, id);
+
+    s.escrow.release_partial(&id, &0, &(60 * U));
+    assert_eq!(s.escrow.get_milestone_status(&id, &0), MilestoneStatus::Released);
+    s.escrow.release_partial(&id, &1, &(10 * U));
+    assert_eq!(s.escrow.get_milestone_paid(&id, &1), 10 * U);
+    assert_flow_conserved(&s, id);
+}
+
+#[test]
+fn sequential_batch_release_with_a_submitted_later_milestone_needs_the_earlier_ones() {
+    let s = setup();
+    let id = flow_escrow(&s, true, &[100 * U, 200 * U, 300 * U], 600 * U);
+    s.escrow.release_partial(&id, &0, &(40 * U));
+    s.escrow.submit_milestone(&id, &1);
+
+    // Milestone 1 alone skips the partially paid milestone 0.
+    assert_eq!(
+        s.escrow.try_release_milestones(&id, &vec![&s.env, 1u32]),
+        Err(Ok(EscrowError::OutOfOrder))
+    );
+    assert_flow_conserved(&s, id);
+
+    // Together they are fine: 60 remaining on milestone 0 plus 200.
+    let paid = s.escrow.release_milestones(&id, &vec![&s.env, 0u32, 1u32]);
+    assert_eq!(paid, 260 * U);
+    assert_eq!(s.token.balance(&s.freelancer), 300 * U);
+    assert_eq!(s.escrow.get_milestone_status(&id, &1), MilestoneStatus::Released);
+    assert_eq!(s.escrow.get_submitted_at(&id, &1), None);
+    assert_flow_conserved(&s, id);
+}
+
+#[test]
+fn release_flow_batch_with_a_partial_milestone_leaves_another_submitted_backed() {
+    let s = setup();
+    let id = flow_escrow(&s, false, &[100 * U, 200 * U, 300 * U], 600 * U);
+    s.escrow.release_partial(&id, &0, &(40 * U));
+    s.escrow.submit_milestone(&id, &2);
+
+    // Batch pays the remainder of the partial milestone 0 plus milestone 1.
+    let paid = s.escrow.release_milestones(&id, &vec![&s.env, 0u32, 1u32]);
+    assert_eq!(paid, 260 * U);
+    assert_eq!(s.token.balance(&s.freelancer), 300 * U);
+    assert_eq!(s.escrow.get_milestone_paid(&id, &0), 100 * U);
+    assert_eq!(s.escrow.get_milestone_status(&id, &2), MilestoneStatus::Submitted);
+    assert_flow_conserved(&s, id);
+
+    // What is left in escrow exactly backs the submitted milestone.
+    assert_eq!(s.token.balance(&s.escrow.address), 300 * U);
+    pass_review_window(&s);
+    s.escrow.claim_milestone(&id, &2);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+    assert_eq!(s.token.balance(&s.freelancer), 600 * U);
+    assert_flow_conserved(&s, id);
+}
+
+#[test]
+fn release_flow_batch_release_of_other_milestones_keeps_submitted_ones_backed() {
+    // Submitting needs a fully funded escrow, so the funds left after the
+    // client releases every other milestone exactly back the submitted ones.
+    let s = setup();
+    let id = flow_escrow(&s, false, &[100 * U, 200 * U, 300 * U], 600 * U);
+    s.escrow.submit_milestone(&id, &0);
+    s.escrow.submit_milestone(&id, &1);
+
+    s.escrow.release_milestones(&id, &vec![&s.env, 2u32]);
+    assert_eq!(s.token.balance(&s.freelancer), 300 * U);
+    assert_eq!(s.token.balance(&s.escrow.address), 300 * U);
+    assert_eq!(s.escrow.get_milestone_status(&id, &0), MilestoneStatus::Submitted);
+    assert_eq!(s.escrow.get_milestone_status(&id, &1), MilestoneStatus::Submitted);
+    assert_flow_conserved(&s, id);
+
+    pass_review_window(&s);
+    s.escrow.claim_milestone(&id, &0);
+    s.escrow.claim_milestone(&id, &1);
+    assert_eq!(s.escrow.get_contract(&id).status, ContractStatus::Completed);
+    assert_eq!(s.token.balance(&s.freelancer), 600 * U);
+    assert_flow_conserved(&s, id);
+}
+
+#[test]
+fn release_flow_cancel_with_paid_partial_and_submitted_milestones() {
+    let s = setup();
+    let id = flow_escrow(&s, false, &[100 * U, 200 * U, 300 * U, 400 * U], 1_000 * U);
+    s.escrow.release_milestone(&id, &0); // fully paid: 100
+    s.escrow.release_partial(&id, &1, &(80 * U)); // partially paid: 80 of 200
+    s.escrow.submit_milestone(&id, &2); // submitted: 300 backing
+    assert_flow_conserved(&s, id);
+
+    // held = 1000 - 180 = 820, of which 300 backs the submitted milestone.
+    s.escrow.cancel_contract(&id);
+    let c = s.escrow.get_contract(&id);
+    assert_eq!(c.status, ContractStatus::Cancelled);
+    assert_eq!(c.refunded_amount, 520 * U);
+    assert_eq!(c.released_amount, 180 * U);
+    assert_eq!(c.funded_amount, 480 * U);
+    assert_eq!(s.token.balance(&s.client), 1_000 * U - 480 * U);
+    assert_eq!(s.token.balance(&s.escrow.address), 300 * U);
+    assert_eq!(s.escrow.get_milestone_paid(&id, &1), 80 * U);
+    assert_flow_conserved(&s, id);
+
+    // The submitted milestone is still claimable after the cancel.
+    pass_review_window(&s);
+    s.escrow.claim_milestone(&id, &2);
+    assert_eq!(s.token.balance(&s.freelancer), 480 * U);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_eq!(s.escrow.get_liability(&s.token.address), 0);
+    assert_flow_conserved(&s, id);
+}
+
+#[test]
+fn sequential_cancel_does_not_strand_a_submitted_later_milestone() {
+    let s = setup();
+    let id = flow_escrow(&s, true, &[100 * U, 200 * U], 300 * U);
+    s.escrow.submit_milestone(&id, &1);
+
+    // Milestone 0 is never delivered; cancelling refunds it but keeps the
+    // backing of the submitted milestone 1.
+    s.escrow.cancel_contract(&id);
+    assert_eq!(s.escrow.get_contract(&id).refunded_amount, 100 * U);
+    assert_flow_conserved(&s, id);
+
+    // Order no longer applies after a cancel, so the freelancer can still claim.
+    pass_review_window(&s);
+    s.escrow.claim_milestone(&id, &1);
+    assert_eq!(s.token.balance(&s.freelancer), 200 * U);
+    assert_eq!(s.token.balance(&s.escrow.address), 0);
+    assert_flow_conserved(&s, id);
+}
