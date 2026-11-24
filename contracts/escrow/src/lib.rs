@@ -217,7 +217,8 @@ pub use storage::{extend_if_present, bump_instance, load, escrow_exists, save, d
 
 pub mod events;
 pub use events::{init, paused, created, deposit, release, completed, dispute, resolved, cancel,
-    reputation, milestone_dispute, milestone_resolved, claimable};
+    reputation, milestone_dispute, milestone_resolved, claimable,
+    fee_sched, fee_cncl, paused as pause_event, role_set, panel, upgrade_sched, upgrade_cncl, upgraded, sweep, admin_prop, admin_acc, admin_cncl};
 ",
 /// Centralised emission of the versioned, structured events.
 mod events as internal_events {
@@ -355,8 +356,7 @@ fn record_dispute_outcomes(
             .instance()
             .set(&DataKey::PendingFeeChange, &pending);
         bump_instance(&env);
-        env.events()
-            .publish((symbol_short!("fee_sched"),), (fee_bps, treasury, eta));
+        events::fee_sched(&env, fee_bps, &treasury, eta);
         Ok(())
     }
 

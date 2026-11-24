@@ -2,7 +2,7 @@
 //! Public re-exported from the parent `lib.rs` module.
 
 use soroban_sdk::{
-    contracttype, Address, Map, Symbol, Vec,
+    contracttype, Address, Map, Symbol, Vec, BytesN,
 };
 
 #[contracttype]
@@ -789,3 +789,101 @@ pub struct StreamStoppedEvent {
 pub struct CompactEvent {
     pub id: u64,
     }
+
+// ---------- Typed admin/governance events ----------
+
+/// `(1, "fee_sched", id)` – admin schedules a protocol fee change.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeSchedEvent {
+    pub fee_bps: u32,
+    pub treasury: Address,
+    pub eta: u64,
+}
+
+/// `(1, "fee_cncl", id)` – admin cancels a scheduled fee change.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeCnclEvent {
+    pub fee_bps: u32,
+    pub treasury: Address,
+}
+
+/// `(1, "paused", id)` – pause state change.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PauseEvent {
+    pub paused: bool,
+}
+
+/// `(1, "role_set", id)` – admin changes a role.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RoleSetEvent {
+    pub role: u32,
+    pub address: Address,
+}
+
+/// `(1, "panel", id)` – panel configuration event.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PanelEvent {
+    pub threshold: i128,
+    pub members: Vec<Address>,
+}
+
+/// `(1, "upg_sched", id)` – admin schedules a wasm upgrade.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeSchedEvent {
+    pub wasm_hash: BytesN<32>,
+    pub eta: u64,
+}
+
+/// `(1, "upg_cncl", id)` – admin cancels a scheduled upgrade.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeCnclEvent {
+    pub wasm_hash: BytesN<32>,
+}
+
+/// `(1, "upgraded", id)` – upgrade executed.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradedEvent {
+    pub wasm_hash: BytesN<32>,
+}
+
+/// `(1, "sweep", id)` – admin sweeps contract balance.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SweepEvent {
+    pub to: Address,
+    pub amount: i128,
+}
+
+/// Generic admin property change.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminPropEvent {
+    pub admin: Address,
+    pub prop: u32,
+}
+
+/// Admin access change.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminAccEvent {
+    pub admin: Address,
+    pub access: bool,
+}
+
+/// Admin cancel event (legacy).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminCnclEvent {
+    pub admin: Address,
+    pub reason: Symbol,
+}
+
+// ------------------------------------------------------
