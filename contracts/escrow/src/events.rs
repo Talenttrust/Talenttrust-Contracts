@@ -96,6 +96,23 @@ pub fn dispute(env: &Env, c: &EscrowContract, by: &soroban_sdk::Address, bond: i
     );
 }
 
+pub fn evidence(
+    env: &Env,
+    id: u64,
+    submitter: &soroban_sdk::Address,
+    evidence_hash: &soroban_sdk::BytesN<32>,
+    submitted_at: u64,
+) {
+    env.events().publish(
+        (EVENT_SCHEMA_V, symbol_short!("evidence"), id),
+        super::types::EvidenceEvent {
+            submitter: submitter.clone(),
+            evidence_hash: evidence_hash.clone(),
+            submitted_at,
+        },
+    );
+}
+
 /// `(1, "milestone_dispute", id, index)` — a dispute was opened for a specific milestone.
 pub fn milestone_dispute(env: &Env, id: u64, index: u32, caller: &soroban_sdk::Address, remaining: i128, bond: i128) {
     env.events().publish(

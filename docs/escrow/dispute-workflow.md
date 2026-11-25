@@ -19,6 +19,21 @@ balance has already been released to the freelancer.
 
 The opener also posts a refundable bond proportional to `total_amount`.
 
+## Submitting evidence
+
+While an escrow is `Disputed`, either party may submit a `BytesN<32>` evidence
+hash with `submit_evidence(id, caller, evidence_hash)`. The caller must
+authorize the call and be the escrow's client or freelancer. Each party may
+submit up to `MAX_EVIDENCE_PER_PARTY` hashes (currently five); submissions are
+returned in order by `get_evidence(id)` with the submitter and ledger timestamp.
+The contract emits a versioned `evidence` event for each accepted hash.
+
+Evidence submission observes the `PAUSE_DISPUTE` pause and is blocked while
+the escrow is frozen. Evidence storage receives the normal persistent TTL
+extension when submitted and when `extend_escrow_ttl` is called. Evidence is
+deleted when the dispute is settled, including timeout, resolver, panel, and
+mutual-settlement paths.
+
 ## Resolving a dispute
 
 The admin (or a panel holder above `PANEL_THRESHOLD`) calls

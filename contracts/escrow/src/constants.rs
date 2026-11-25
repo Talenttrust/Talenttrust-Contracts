@@ -53,6 +53,8 @@ pub const PANEL_THRESHOLD_AMOUNT: i128 = 1_000_000_000_000;
 pub const PANEL_MAX_MEMBERS: u32 = 7;
 // Maximum number of distinct funders per escrow (`deposit_from` / `deposit_funds`).
 pub const MAX_FUNDERS: u32 = 10;
+/// Maximum dispute evidence hashes each party may submit for one escrow.
+pub const MAX_EVIDENCE_PER_PARTY: u32 = 5;
 // Threshold for dispute outcome accounting (5,000 basis points, or 50%).
 /// In dispute resolution, if freelancer_bps >= DISPUTE_WIN_THRESHOLD_BPS,
 // the outcome is counted as a win for the freelancer and a loss for the client; otherwise, the reverse.
