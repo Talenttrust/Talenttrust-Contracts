@@ -168,6 +168,14 @@ pub struct DisputeEvent {
     pub bond: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceEvent {
+    pub submitter: Address,
+    pub evidence_hash: BytesN<32>,
+    pub submitted_at: u64,
+}
+
 /// `(1, "resolved", id)` — a dispute was settled.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -588,6 +596,7 @@ pub enum DataKey {
     Receipt(u64),
     Resigned(u64),
     Submitted(u64, u32),
+    Evidence(u64),
 }
 
 /// Extends a persistent entry's TTL if it exists, and bumps the instance.
@@ -619,6 +628,7 @@ pub fn extend_escrow_ttl(env: &soroban_sdk::Env, id: u64) -> Result<(), super::e
         DataKey::EscrowFee(id),
         DataKey::Bonus(id),
         DataKey::Votes(id),
+        DataKey::Evidence(id),
         DataKey::ChangeOrder(id),
         DataKey::Resigned(id),
         DataKey::Rating(id),

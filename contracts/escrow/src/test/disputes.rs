@@ -33,6 +33,102 @@ fn dispute_split_and_cancel() {
 }
 
 #[test]
+fn dispute_evidence_is_party_only_and_emits_event() {
+    let s = setup();
+    let id = funded_escrow(&s);
+    let hash = BytesN::from_array(&s.env, &[7; 32]);
+    let outsider = Address::generate(&s.env);
+
+    assert_eq!(
+        s.escrow.try_submit_evidence(&id, &s.client, &hash),
+        Err(Ok(EscrowError::InvalidStatus))
+    );
+    open_dispute_bonded(&s, &id, &s.client);
+    assert_eq!(
+        s.escrow.try_submit_evidence(&id, &outsider, &hash),
+        Err(Ok(EscrowError::Unauthorized))
+    );
+
+    set_ts(&s.env, 1_234);
+    s.escrow.submit_evidence(&id, &s.client, &hash);
+    let freelancer_hash = BytesN::from_array(&s.env, &[9; 32]);
+    s.escrow
+        .submit_evidence(&id, &s.freelancer, &freelancer_hash);
+    assert_eq!(
+        s.escrow.get_evidence(&id),
+        vec![
+            &s.env,
+            (s.client.clone(), hash.clone(), 1_234),
+            (s.freelancer.clone(), freelancer_hash, 1_234),
+        ]
+    );
+    assert_eq!(
+        last_escrow_event::<EvidenceEvent>(&s, "evidence", id),
+        Some(EvidenceEvent {
+            submitter: s.freelancer.clone(),
+            evidence_hash: BytesN::from_array(&s.env, &[9; 32]),
+            submitted_at: 1_234,
+        })
+    );
+}
+
+#[test]
+fn dispute_evidence_enforces_party_cap_pause_and_freeze() {
+    let s = setup();
+    let id = funded_escrow(&s);
+    open_dispute_bonded(&s, &id, &s.freelancer);
+    let hash = BytesN::from_array(&s.env, &[1; 32]);
+
+    s.escrow.set_pause_flags(&s.admin, &PAUSE_DISPUTE);
+    assert_eq!(
+        s.escrow.try_submit_evidence(&id, &s.client, &hash),
+        Err(Ok(EscrowError::Paused))
+    );
+    s.escrow.set_pause_flags(&s.admin, &0);
+
+    s.escrow.freeze_escrow(&id, &symbol_short!("hold"));
+    assert_eq!(
+        s.escrow.try_submit_evidence(&id, &s.client, &hash),
+        Err(Ok(EscrowError::EscrowFrozen))
+    );
+    s.escrow.unfreeze_escrow(&id);
+
+    for index in 0..MAX_EVIDENCE_PER_PARTY {
+        let hash = BytesN::from_array(&s.env, &[index as u8; 32]);
+        s.escrow.submit_evidence(&id, &s.client, &hash);
+    }
+    assert_eq!(
+        s.escrow.try_submit_evidence(&id, &s.client, &hash),
+        Err(Ok(EscrowError::InvalidAmount))
+    );
+    s.escrow.submit_evidence(&id, &s.freelancer, &hash);
+    assert_eq!(
+        s.escrow.get_evidence(&id).len(),
+        MAX_EVIDENCE_PER_PARTY + 1
+    );
+}
+
+#[test]
+fn dispute_evidence_ttl_extends_and_settlement_clears_it() {
+    let s = setup();
+    let id = funded_escrow(&s);
+    open_dispute_bonded(&s, &id, &s.client);
+    let hash = BytesN::from_array(&s.env, &[3; 32]);
+    s.escrow.submit_evidence(&id, &s.client, &hash);
+
+    s.env.ledger().set_sequence_number(QUIET);
+    assert!(persistent_ttl(&s, &DataKey::Evidence(id)) < PERSISTENT_TTL_THRESHOLD);
+    s.escrow.extend_escrow_ttl(&id);
+    assert!(persistent_ttl(&s, &DataKey::Evidence(id)) >= PERSISTENT_TTL_THRESHOLD);
+
+    resolve_refunding_bond(&s, &id, &5_000);
+    assert!(s.escrow.get_evidence(&id).is_empty());
+    s.env.as_contract(&s.escrow.address, || {
+        assert!(!s.env.storage().persistent().has(&DataKey::Evidence(id)));
+    });
+}
+
+#[test]
 fn dispute_outcomes_freelancer_client_and_exact_threshold() {
     let s = setup();
 

@@ -49,6 +49,7 @@ pub use constants::{
     MAX_REVIEW_WINDOW_SECS, DEFAULT_REVIEW_WINDOW_SECS, FUNDING_WINDOW_SECS, MIN_MILESTONE_AMOUNT,
     MAX_ESCROW_TOTAL, MIN_REPUTATION_VALUE, PANEL_THRESHOLD_AMOUNT, PANEL_MAX_MEMBERS, MAX_FUNDERS,
     DISPUTE_WIN_THRESHOLD_BPS, DISPUTE_BOND_BPS, DISPUTE_BOND_MIN, THIRTY_DAYS_IN_LEDGERS,
+    MAX_EVIDENCE_PER_PARTY,
 };
     /// Contract has already been initialized.
     /// Contract has not been initialized yet.
@@ -200,7 +201,7 @@ pub use types::{
     EVENT_SCHEMA_V, CreatedEvent, DepositEvent, ReleaseEvent, DisputeEvent, ResolvedEvent,
     CancelEvent, ReputationEvent, CompletedEvent, SettlementProposal, Stream, Role, Panel,
     AmendNonce, DataKey,
-    MilestoneDisputeEvent, ClaimableEvent,
+    MilestoneDisputeEvent, ClaimableEvent, EvidenceEvent,
 };
 
     /// Number of currently open (non-terminal) escrows created by this client.
@@ -1263,6 +1264,54 @@ impl Escrow {
         Ok(())
     }
 
+    /// Submit an evidence hash for a disputed escrow. Frozen escrows reject
+    /// submissions, and each party may submit at most `MAX_EVIDENCE_PER_PARTY`.
+    pub fn try_submit_evidence(
+        env: Env,
+        id: u64,
+        caller: Address,
+        evidence_hash: BytesN<32>,
+    ) -> Result<(), EscrowError> {
+        require_not_paused(&env, PAUSE_DISPUTE)?;
+        let c = load(&env, id)?;
+        require_not_frozen(&env, id)?;
+        caller.require_auth();
+        if caller != c.client && caller != c.freelancer {
+            return Err(EscrowError::Unauthorized);
+        }
+        if c.status != ContractStatus::Disputed {
+            return Err(EscrowError::InvalidStatus);
+        }
+
+        let key = types::DataKey::Evidence(id);
+        let mut evidence: Vec<(Address, BytesN<32>, u64)> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut party_count = 0;
+        for (submitter, _, _) in evidence.iter() {
+            if submitter == caller {
+                party_count += 1;
+            }
+        }
+        if party_count >= MAX_EVIDENCE_PER_PARTY {
+            return Err(EscrowError::InvalidAmount);
+        }
+
+        let submitted_at = env.ledger().timestamp();
+        evidence.push_back((caller.clone(), evidence_hash.clone(), submitted_at));
+        env.storage().persistent().set(&key, &evidence);
+        env.storage().persistent().extend_ttl(
+            &key,
+            constants::PERSISTENT_TTL_THRESHOLD,
+            constants::PERSISTENT_TTL_EXTEND,
+        );
+        bump_instance(&env);
+        events::evidence(&env, id, &caller, &evidence_hash, submitted_at);
+        Ok(())
+    }
+
     /// Resolves a dispute (caller must be the admin or hold the `Resolver` role and
     /// must not be a party to the escrow), paying `freelancer_bps` (0..=10000) of the escrowed
     /// balance to the freelancer and refunding the rest to the client. The
@@ -1300,7 +1349,11 @@ impl Escrow {
         if freelancer_bps as i128 > BPS_DENOMINATOR {
             return Err(EscrowError::InvalidSplit);
         }
-        settle(&env, c, freelancer_bps, Some(bond_to_opener), true)
+        settle(&env, c, freelancer_bps, Some(bond_to_opener), true)?;
+        env.storage()
+            .persistent()
+            .remove(&types::DataKey::Evidence(id));
+        Ok(())
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1361,7 +1414,11 @@ impl Escrow {
             DISPUTE_TIMEOUT_SPLIT_BPS,
             Some(true),
             false,
-        )
+        )?;
+        env.storage()
+            .persistent()
+            .remove(&types::DataKey::Evidence(id));
+        Ok(())
     }
 
         }
@@ -1584,6 +1641,9 @@ impl Escrow {
         if winning_votes >= panel.threshold {
             env.storage().persistent().remove(&key);
             settle(&env, c, winning_bps, None)?;
+            env.storage()
+                .persistent()
+                .remove(&types::DataKey::Evidence(id));
             for (voter, bps) in counted.iter() {
                 env.events().publish((symbol_short!("vote"), id), (voter, bps));
             }
@@ -1673,6 +1733,7 @@ impl Escrow {
         }
         let to_freelancer = freelancer_amount;
         let to_client = held - to_freelancer;
+        let was_disputed = c.status == ContractStatus::Disputed;
         env.storage().persistent().remove(&key);
         pay_out(&env, &c, to_freelancer)?;
         refund_funders(&env, &c, to_client)?;
@@ -1685,6 +1746,11 @@ impl Escrow {
         #[cfg(any(test, debug_assertions))]
         assert_solvent(&env, &c.token);
         save(&env, c);
+        if was_disputed {
+            env.storage()
+                .persistent()
+                .remove(&types::DataKey::Evidence(id));
+        }
         env.events().publish((symbol_short!("settled"), id), (to_freelancer, to_client));
         Ok(())
     }
@@ -2179,6 +2245,14 @@ impl Escrow {
         env.storage().persistent().get(&types::DataKey::Votes(id)).unwrap_or_else(|| Map::new(&env))
     }
 
+    /// Returns submitted dispute evidence in submission order.
+    pub fn try_get_evidence(env: Env, id: u64) -> Vec<(Address, BytesN<32>, u64)> {
+        env.storage()
+            .persistent()
+            .get(&types::DataKey::Evidence(id))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
     /// Returns the `(opener, amount)` bond held for a disputed escrow, if any.
     pub fn try_get_dispute_bond(env: Env, id: u64) -> Option<(Address, i128)> {
         env.storage().persistent().get(&types::DataKey::DisputeBond(id))
@@ -2336,6 +2410,7 @@ impl Escrow {
             types::DataKey::Rating(id),
             types::DataKey::RatingWeight(id),
             types::DataKey::ClientRated(id),
+            types::DataKey::Evidence(id),
             types::DataKey::Stream(id),
             types::DataKey::Amendment(id),
             types::DataKey::AmendNonce(id),
