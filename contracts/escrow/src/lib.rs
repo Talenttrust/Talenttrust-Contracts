@@ -1941,6 +1941,112 @@ impl Escrow {
         load(&env, id)
     }
 
+    /// Compact a closed escrow into its receipt and reclaim escrow-scoped storage.
+    ///
+    /// Rating data, resignation state, client-rating state, and the receipt are
+    /// retained because their read paths remain available after compaction.
+    pub fn try_compact_escrow(env: Env, id: u64) -> Result<(), EscrowError> {
+        if is_compacted(&env, id) {
+            return Err(EscrowError::NotCompactable);
+        }
+        let c = load(&env, id)?;
+        if c.milestones.len() > MAX_MILESTONES {
+            return Err(EscrowError::InvalidMilestones);
+        }
+        if !matches!(
+            c.status,
+            ContractStatus::Completed | ContractStatus::Resolved | ContractStatus::Cancelled
+        ) {
+            return Err(EscrowError::NotCompactable);
+        }
+
+        let held = c
+            .funded_amount
+            .checked_sub(c.released_amount)
+            .and_then(|amount| amount.checked_sub(c.refunded_amount))
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        if held != 0 {
+            return Err(EscrowError::NotCompactable);
+        }
+
+        let closed_at: u64 = env
+            .storage()
+            .persistent()
+            .get(&types::DataKey::ClosedAt(id))
+            .unwrap_or(0);
+        let grace_elapsed = env
+            .ledger()
+            .sequence_number()
+            .saturating_sub(closed_at as u32)
+            >= THIRTY_DAYS_IN_LEDGERS;
+        if c.status != ContractStatus::Cancelled && !c.reputation_issued && !grace_elapsed {
+            return Err(EscrowError::NotCompactable);
+        }
+
+        let receipt = EscrowReceipt {
+            id: c.id,
+            client: c.client,
+            freelancer: c.freelancer,
+            token: c.token,
+            total_amount: c.total_amount,
+            released_amount: c.released_amount,
+            refunded_amount: c.refunded_amount,
+            status: c.status,
+            milestone_count: c.milestones.len(),
+            closed_at,
+            reputation_issued: c.reputation_issued,
+        };
+        env.storage()
+            .persistent()
+            .set(&types::DataKey::Receipt(id), &receipt);
+
+        for key in [
+            types::DataKey::ContractV(id),
+            types::DataKey::Contract(id),
+            types::DataKey::FundBy(id),
+            types::DataKey::Funders(id),
+            types::DataKey::Frozen(id),
+            types::DataKey::Payout(id),
+            types::DataKey::Team(id),
+            types::DataKey::ClosedAt(id),
+            types::DataKey::Sequential(id),
+            types::DataKey::Terms(id),
+            types::DataKey::MilestoneSpecs(id),
+            types::DataKey::DisputeBond(id),
+            types::DataKey::Settlement(id),
+            types::DataKey::ReviewWindow(id),
+            types::DataKey::EscrowFee(id),
+            types::DataKey::Bonus(id),
+            types::DataKey::Votes(id),
+            types::DataKey::ChangeOrder(id),
+            types::DataKey::Stream(id),
+            types::DataKey::Amendment(id),
+            types::DataKey::AmendNonce(id),
+            types::DataKey::MilestoneDue(id),
+            types::DataKey::DisputeOpenedAt(id),
+        ]
+        .iter()
+        {
+            env.storage().persistent().remove(key);
+        }
+        for index in 0..c.milestones.len() {
+            for key in [
+                types::DataKey::Submitted(id, index),
+                types::DataKey::Delivery(id, index),
+                types::DataKey::MilestonePaid(id, index),
+                types::DataKey::MilestoneReclaimed(id, index),
+                types::DataKey::MilestoneDispute(id, index),
+            ]
+            .iter()
+            {
+                env.storage().persistent().remove(key);
+            }
+        }
+
+        bump_instance(&env);
+        Ok(())
+    }
+
     /// Returns the compact receipt for an escrow if it has been compacted.
     pub fn try_get_receipt(env: Env, id: u64) -> Option<EscrowReceipt> {
         env.storage().persistent().get(&types::DataKey::Receipt(id))
@@ -2165,6 +2271,14 @@ impl Escrow {
     /// Returns the rating record for an escrow, if any.
     pub fn try_get_rating(env: Env, id: u64) -> Option<RatingRecord> {
         env.storage().persistent().get(&types::DataKey::Rating(id))
+    }
+
+    /// Whether this escrow was closed by a freelancer resignation.
+    pub fn was_resigned(env: Env, id: u64) -> bool {
+        env.storage()
+            .persistent()
+            .get(&types::DataKey::Resigned(id))
+            .unwrap_or(false)
     }
 
     /// Returns the reputation score for a freelancer.

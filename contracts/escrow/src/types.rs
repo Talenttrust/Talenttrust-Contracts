@@ -587,6 +587,15 @@ pub enum DataKey {
     MilestoneDispute(u64, u32),
     // New: claimable payout fallback
     Claimable(Address, Address),
+    ChangeOrder(u64),
+    DisputeOpenedAt(u64),
+    Delivery(u64, u32),
+    MilestoneDue(u64),
+    MilestonePaid(u64, u32),
+    MilestoneReclaimed(u64, u32),
+    Receipt(u64),
+    Resigned(u64),
+    Submitted(u64, u32),
     Evidence(u64),
 }
 

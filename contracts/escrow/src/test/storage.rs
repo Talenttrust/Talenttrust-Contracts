@@ -35,6 +35,111 @@ fn compact_cancelled_escrow() {
 }
 
 #[test]
+fn compact_reclaims_side_entries_and_keeps_read_paths() {
+    let s = setup();
+    let id = s.escrow.create_contract(
+        &s.client,
+        &s.freelancer,
+        &s.token.address,
+        &vec![&s.env, 100 * U],
+    );
+    s.escrow.deposit_funds(&id, &(100 * U));
+    s.escrow.cancel_contract(&id);
+
+    let rating = RatingRecord {
+        freelancer: s.freelancer.clone(),
+        rating: 5,
+        issued_at: 0,
+        voided: false,
+    };
+    let removable = [
+        DataKey::FundBy(id),
+        DataKey::Funders(id),
+        DataKey::Frozen(id),
+        DataKey::Payout(id),
+        DataKey::Team(id),
+        DataKey::ClosedAt(id),
+        DataKey::Sequential(id),
+        DataKey::Terms(id),
+        DataKey::MilestoneSpecs(id),
+        DataKey::DisputeBond(id),
+        DataKey::Settlement(id),
+        DataKey::ReviewWindow(id),
+        DataKey::EscrowFee(id),
+        DataKey::Bonus(id),
+        DataKey::Votes(id),
+        DataKey::ChangeOrder(id),
+        DataKey::Stream(id),
+        DataKey::Amendment(id),
+        DataKey::AmendNonce(id),
+        DataKey::MilestoneDue(id),
+        DataKey::DisputeOpenedAt(id),
+        DataKey::Submitted(id, 0),
+        DataKey::Delivery(id, 0),
+        DataKey::MilestonePaid(id, 0),
+        DataKey::MilestoneReclaimed(id, 0),
+        DataKey::MilestoneDispute(id, 0),
+    ];
+    let retained = [
+        DataKey::Rating(id),
+        DataKey::RatingWeight(id),
+        DataKey::Resigned(id),
+        DataKey::ClientRated(id),
+    ];
+
+    s.env.as_contract(&s.escrow.address, || {
+        for key in removable.iter() {
+            s.env.storage().persistent().set(key, &true);
+            assert!(s.env.storage().persistent().has(key));
+        }
+        s.env
+            .storage()
+            .persistent()
+            .set(&DataKey::ClosedAt(id), &0u64);
+        s.env.storage().persistent().set(&DataKey::Rating(id), &rating);
+        s.env
+            .storage()
+            .persistent()
+            .set(&DataKey::RatingWeight(id), &(100 * U));
+        s.env
+            .storage()
+            .persistent()
+            .set(&DataKey::Resigned(id), &true);
+        s.env
+            .storage()
+            .persistent()
+            .set(&DataKey::ClientRated(id), &true);
+        for key in retained.iter() {
+            assert!(s.env.storage().persistent().has(key));
+        }
+    });
+
+    let escrow_balance_before = s.token.balance(&s.escrow.address);
+    let liability_before = s.escrow.get_liability(&s.token.address);
+    s.escrow.compact_escrow(&id);
+
+    s.env.as_contract(&s.escrow.address, || {
+        for key in removable.iter() {
+            assert!(!s.env.storage().persistent().has(key));
+        }
+        for key in retained.iter() {
+            assert!(s.env.storage().persistent().has(key));
+        }
+        assert!(!s.env.storage().persistent().has(&DataKey::ContractV(id)));
+        assert!(!s.env.storage().persistent().has(&DataKey::Contract(id)));
+        assert!(s.env.storage().persistent().has(&DataKey::Receipt(id)));
+    });
+
+    assert_eq!(s.escrow.get_rating(&id), Some(rating));
+    assert!(s.escrow.was_resigned(&id));
+    assert!(s.escrow.get_receipt(&id).is_some());
+    s.escrow.extend_escrow_ttl(&id);
+    s.escrow.void_rating(&id, &symbol_short!("fraud"));
+    assert_eq!(s.token.balance(&s.escrow.address), escrow_balance_before);
+    assert_eq!(s.escrow.get_liability(&s.token.address), liability_before);
+}
+
+#[test]
 fn compact_resolved_escrow() {
     let s = setup();
     let id = s.escrow.create_contract(

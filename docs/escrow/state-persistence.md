@@ -57,6 +57,29 @@ summaries.
 Read and write path are now identical: the milestone vector is the sole
 authority for released state.
 
+## Compacted Escrow Storage
+
+`compact_escrow` replaces the versioned or legacy contract entry with
+`Receipt(id)` and removes escrow-scoped data that is no longer needed. This
+includes funding, payout, terms, stream, dispute, settlement, and configuration
+entries, as well as `Submitted`, `Delivery`, `MilestonePaid`,
+`MilestoneReclaimed`, and `MilestoneDispute` entries for each milestone. The
+milestone cleanup loop is bounded by `MAX_MILESTONES`.
+
+The following per-escrow keys survive compaction because their read paths
+remain useful after the full contract is removed:
+
+| Key | Read path |
+| --- | --- |
+| `Rating(id)` | `get_rating` and governance `void_rating` |
+| `RatingWeight(id)` | `void_rating`, to reverse weighted reputation |
+| `Resigned(id)` | `was_resigned` |
+| `ClientRated(id)` | Retained client-rating state |
+| `Receipt(id)` | `get_receipt` and compacted-escrow detection |
+
+Compaction only changes storage. It does not transfer tokens or change
+liabilities.
+
 ### 3. Reputation Auditing States
 * **`PendingReputation(Address)` / `ReputationIssued(u32)`**
     * **Description:** Bookkeeping indices capturing un-issued tokens and completion certificates for network participants.
